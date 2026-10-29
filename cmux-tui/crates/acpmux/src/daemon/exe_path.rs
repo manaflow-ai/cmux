@@ -225,6 +225,64 @@ pub fn refused_line(ready: &str) -> Option<String> {
     line.get("refused").and_then(serde_json::Value::as_str).map(str::to_owned)
 }
 
+/// Test runners: `swift test` runs Swift Testing in `swiftpm-testing-helper`, XCTest in `xctest`.
+const TEST_RUNNERS: &[&str] = &["swiftpm-testing-helper", "xctest"];
+
+/// Why a client run from `peer_exe` may not stop the daemon of `home` (`_acpmux/shutdown`), or
+/// None. Only the person's own home is guarded, as in [`verdict`]: a test runner never stops it,
+/// and a client from a runner `_work` or a temporary folder does not unless `allow`
+/// ([`ALLOW_ENV`] in the daemon's own environment; a client cannot grant it) or it is an app's
+/// bundled binary. On 2026-10-26 a `cmux-next swift test` job on a CI mini
+/// (`swiftpm-testing-helper`, no `ACPMUX_HOME`) handed the mini's own `~/.acpmux` daemon off and
+/// cycled daemons there until the run ended.
+pub fn shutdown_refusal(
+    peer_exe: &Path,
+    home: &Path,
+    default_home: &Path,
+    temp_dir: &Path,
+    allow: bool,
+) -> Option<String> {
+    if home != default_home || classify(home, temp_dir).is_some() {
+        return None;
+    }
+    let name = peer_exe.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let refused = if TEST_RUNNERS.contains(&name.as_str()) {
+        Some("a test runner")
+    } else {
+        match classify(peer_exe, temp_dir) {
+            Some(why @ (Unstable::RunnerWork | Unstable::Temp)) if !allow && !bundled(peer_exe) => {
+                Some(why.phrase())
+            }
+            _ => None,
+        }
+    }?;
+    Some(format!(
+        "acpmux: refused to stop the daemon of {}: the request came from {} ({}). A test or CI \
+         job gives its client its own ACPMUX_HOME; a daemon started with {ALLOW_ENV}=1 allows a \
+         client from an unstable path",
+        home.display(),
+        peer_exe.display(),
+        refused
+    ))
+}
+
+/// [`shutdown_refusal`] for this daemon's home and a Unix socket peer, whose executable its audit
+/// token names (macOS; elsewhere, and for a peer that exec'd since it connected, nothing is
+/// known and nothing is refused).
+pub fn peer_shutdown_refusal(
+    peer: Option<&cmux_link::app_caller::PeerToken>,
+    allow: bool,
+) -> Option<String> {
+    let exe = cmux_link::app_caller::executable_path(peer?)?;
+    shutdown_refusal(
+        &resolved(&exe),
+        &resolved(&crate::config::home()),
+        &resolved(&crate::config::default_home()),
+        &resolved(&std::env::temp_dir()),
+        allow,
+    )
+}
+
 #[cfg(test)]
 #[path = "exe_path_tests.rs"]
 mod tests;

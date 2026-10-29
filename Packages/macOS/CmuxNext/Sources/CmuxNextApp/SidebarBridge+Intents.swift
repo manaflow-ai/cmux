@@ -57,6 +57,10 @@ extension SidebarBridge {
             services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
         case let .selectTab(_, tab):
             _ = services.revealTab(tab.rawValue)
+        case let .closeTab(_, tab):
+            // A middle-click on a listed tab: Close Tab on that tab alone (an explicit target is never widened to the
+            // strip's selection), the tab strip's middle-click path, so Reopen Closed (Cmd-Shift-T) brings it back.
+            _ = services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.rawValue), origin: .user))
         case .moveTab:
             // Tab drags are committed by TabDragSession. Keep this intent
             // conservative until a sidebar-only tab move has a daemon
@@ -105,6 +109,9 @@ extension SidebarBridge {
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:
             services.registry.perform("space.new", invocation: ActionInvocation())
+        case .openProfileInNewWindow(let profile):
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .profile, id: profile.rawValue), origin: .user)
+            services.registry.perform("space.openInNewWindow", invocation: invocation)
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)
@@ -114,7 +121,7 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
+        case .installUpdate, .downloadUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
              .hideNowPlayingCard, .addItems:
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
@@ -126,7 +133,8 @@ extension SidebarBridge {
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):
-            PinCommands(context: AppActionContext(services: services)).userDrop(ids.map(\.rawValue), on: section, at: index)
+            let storedIndex = services.sidebarLayout.document.storedInsertionIndex(index, in: section, from: model.layout)
+            PinCommands(context: AppActionContext(services: services)).userDrop(ids.map(\.rawValue), on: section, at: storedIndex)
         case .toggleLayoutSection:
             model.apply(intent)
         case .setIcon, .setGroupPinned, .setGroupIcon, .openGroup, .groupEditorEnded:

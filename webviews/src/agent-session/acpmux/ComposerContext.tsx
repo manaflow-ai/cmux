@@ -14,6 +14,14 @@ import {
 } from "./EnvironmentPicker";
 import { machineColor } from "./machineColor";
 import {
+  isCloudMachineRow,
+  refreshCloudMachines,
+  runCloudMachine,
+  useCloudMachines,
+  withCloudMachines,
+  type CloudMachine,
+} from "./cloudMachines";
+import {
   environmentReady,
   environmentSections,
   knownMachines,
@@ -32,6 +40,7 @@ import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusAfterEscape } from "../../ui/escapeFocus";
+import type { RunModeRows } from "./sandboxRun";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -60,7 +69,7 @@ type Location = {
   section?: string;
   disabled?: boolean;
 };
-type Computer = Location & { kind: EnvironmentKind; connected?: boolean; state?: string };
+type Computer = Location & { kind: EnvironmentKind; connected?: boolean; state?: string; cloudMachine?: CloudMachine };
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_PEER_STATES: Record<string, string> = {};
@@ -93,9 +102,12 @@ export function ComposerContext({
   onOffload,
   offloads = NO_OFFLOADS,
   saved,
-  onRefreshMachines,
+  onRefreshMachines: onRefreshPeers,
   folderNote,
   onComputer,
+  cloudMachines,
+  onCloudMachine = (machine) => void runCloudMachine(machine),
+  runMode,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -148,14 +160,37 @@ export function ComposerContext({
   /// A new chat's machine was picked (`local` for this Mac) where no folder of it is known; with a
   /// known folder the pick is `onProject(folder, peer)`.
   onComputer?(computer: string): void;
+  /// The account's Cloud machines (cloudMachines.ts); by default the app's list, read again as the
+  /// machine list opens. Only a new chat lists them.
+  cloudMachines?: readonly CloudMachine[];
+  /// A pick of one acpmux does not list: it resumes (paused) or opens; by default through the app.
+  onCloudMachine?(machine: CloudMachine): void;
+  /// A new chat's Run as in the environment picker (Persistent or Sandboxed, hq#3367).
+  runMode?: RunModeRows;
 }) {
-  const pickerEnabled = environments || started;
+  const newChat = !started && onProject !== undefined;
+  const accountMachines = useCloudMachines();
+  const shownMachines = cloudMachines ?? accountMachines;
   // Every machine acpmux lists (`_acpmux/status` peers) and every host its chats ran on, with each
-  // one's transport and state, in both the environment picker and the plain Computer menu.
-  const computers = useMemo(
-    () => availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates),
-    [summary, sessions, peers, peerKinds, peerConnected, peerStates, localName],
-  );
+  // one's transport and state, in both the environment picker and the plain Computer menu; for a
+  // new chat, then the account's Cloud machines acpmux does not list (a paused one, say).
+  const computers = useMemo(() => {
+    const listed = availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates);
+    if (!newChat) return listed;
+    const detail = t(CONTEXT_LABELS.cloud);
+    return withCloudMachines(listed, shownMachines, peers, computerId(summary)).map((row) =>
+      isCloudMachineRow(row) ? { ...row, detail } : row,
+    );
+  }, [summary, sessions, peers, peerKinds, peerConnected, peerStates, localName, newChat, shownMachines]);
+  // The list opened, and every few seconds while it is open: acpmux's peers and, for a new chat,
+  // the app's Cloud machines are read again.
+  const onRefreshMachines =
+    onRefreshPeers || (newChat && !cloudMachines)
+      ? () => {
+          onRefreshPeers?.();
+          if (newChat && !cloudMachines) void refreshCloudMachines();
+        }
+      : undefined;
   // The plain Computer menu lists them in the picker's sections and order (environments.ts), one
   // line each; a machine a chat cannot start on yet says its state on a second line.
   const menuComputers = useMemo(() => {
@@ -165,7 +200,10 @@ export function ComposerContext({
       return {
         ...computer,
         section: t(SECTION_LABELS[sections.get(computer.id) ?? "fleet"]),
-        ...(ready ? {} : { disabled: true, detail: environmentStateLabel(computer) }),
+        // An account Cloud machine acpmux does not list says what a pick does, and is a pick.
+        ...(ready
+          ? {}
+          : { ...(isCloudMachineRow(computer) ? {} : { disabled: true }), detail: environmentStateLabel(computer) }),
       };
     });
   }, [computers]);
@@ -203,6 +241,7 @@ export function ComposerContext({
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return <div className="acpmux-composer-strip" />;
   const readOnly = started || onProject === undefined;
+  const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
   // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
@@ -230,16 +269,21 @@ export function ComposerContext({
       : projectLabel(currentLocation.id)
     : undefined;
   // A started chat's Choose folder…: the host's folder panel, then a new chat there.
-  // Only with somewhere to start the chat: a folder panel with no new chat would drop its pick.
-  const browseNewChat =
-    onBrowseFolder && onNewChat
-      ? () => {
-          void onBrowseFolder().then((cwd) => {
-            if (cwd) onNewChat(cwd);
-          });
-        }
-      : undefined;
+  const browseNewChat = onBrowseFolder
+    ? () => {
+        void onBrowseFolder().then((cwd) => {
+          if (cwd) onNewChat?.(cwd);
+        });
+      }
+    : undefined;
+  // An account Cloud machine acpmux does not list runs its machine action: no chat starts on it here.
+  const pickCloudMachine = (id: string) => {
+    const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
+    if (machine && !readOnly) onCloudMachine(machine);
+    return machine !== undefined;
+  };
   const pickComputer = (id: string) => {
+    if (pickCloudMachine(id)) return;
     if (!readOnly && id !== selectedComputer) {
       setSelectedComputer(id);
       const folder = availableFolders(summary, sessions, id)[0]?.id;
@@ -248,13 +292,14 @@ export function ComposerContext({
     }
   };
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
-  const offload: OffloadKind | undefined = started && onOffload ? offloads[0] : undefined;
-  const computerDisabled = readOnly && !offload && !browseNewChat;
-  // New Tab and started chats use the same environment picker; preview controls it for fresh chats.
-  const environmentsShown = pickerEnabled && !computerDisabled;
+  const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
+  const computerDisabled = readOnly && !offload && (started || !onConnect);
+  // Preview (`labs.previewFeatures`): the computer control is the environment picker.
+  const environmentsShown = environments && !computerDisabled;
   const savedRows = environmentsShown && !readOnly ? saved : undefined;
   const savedPick = savedRows?.environments.find((environment) => environment.id === savedRows.current);
   const pickEnvironment = (id: string) => {
+    if (pickCloudMachine(id)) return;
     if (savedRows?.current !== undefined) savedRows.onClear();
     pickComputer(id);
   };
@@ -348,27 +393,36 @@ export function ComposerContext({
             <EnvironmentPicker
               label={t(CONTEXT_LABELS.environment)}
               menu="Computer"
-              value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
-              face={
-                <LocationFace
-                  icon={
-                    <EnvironmentIcon
-                      kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
-                      name={savedPick ? undefined : currentComputer?.label}
-                    />
-                  }
-                  value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
-                  chevron
-                />
+              value={
+                sandboxPicked
+                  ? t("composer.sandboxed")
+                  : (savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer))
               }
-              environments={started && currentComputer ? [currentComputer] : computers}
+              face={
+                // Sandboxed picked (hq#3367): the control names it where the machine was.
+                sandboxPicked ? (
+                  <LocationFace icon={<EnvironmentIcon kind="cloud" />} value={t("composer.sandboxed")} chevron />
+                ) : (
+                  <LocationFace
+                    icon={
+                      <EnvironmentIcon
+                        kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
+                        name={savedPick ? undefined : currentComputer?.label}
+                      />
+                    }
+                    value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+                    chevron
+                  />
+                )
+              }
+              environments={offload && currentComputer ? [currentComputer] : computers}
               current={selectedComputer}
               onPick={pickEnvironment}
               {...(offload && onOffload ? { offload, onOffload } : {})}
               {...(!started && onConnect ? { onConnect } : {})}
-              {...(started && browseNewChat ? { onBrowseFolder: browseNewChat } : {})}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
+              {...(runMode && !started && !readOnly ? { runMode } : {})}
             />
           ) : (
             <LocationPicker

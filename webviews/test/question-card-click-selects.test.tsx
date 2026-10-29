@@ -21,7 +21,7 @@ const GLOBALS = [
   "navigator",
   "Node",
   "HTMLElement",
-  "HTMLInputElement",
+  "HTMLTextAreaElement",
   "Element",
   "IS_REACT_ACT_ENVIRONMENT",
 ];
@@ -109,7 +109,7 @@ async function renderCard(question: AgentQuestion) {
     navigator: dom.window.navigator,
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
-    HTMLInputElement: dom.window.HTMLInputElement,
+    HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
     Element: dom.window.Element,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
@@ -207,20 +207,20 @@ test("arrowing onto Other leaves no option chosen, so ⌘↩ opens the field ins
   expect(submit(container).disabled).toBe(true);
   await press(container.querySelector(".acpmux-question-other-choice")!, "Enter", { metaKey: true });
   expect(replies).toEqual([]);
-  expect(container.querySelector(".acpmux-question-other input")).not.toBeNull();
+  expect(container.querySelector(".acpmux-question-other textarea")).not.toBeNull();
 });
 
 test("an option clicked while the Other field is open closes the field and takes the keyboard", async () => {
   const { container, replies } = await renderCard(askSingle);
   await click(container.querySelector<HTMLElement>(".acpmux-question-other-choice")!);
-  const field = container.querySelector<HTMLInputElement>(".acpmux-question-other input")!;
+  const field = container.querySelector<HTMLTextAreaElement>(".acpmux-question-other textarea")!;
   await act(async () => {
-    const setValue = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    const setValue = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;
     setValue.call(field, "custom");
     field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
   });
   await click(row(container, "Passkeys"));
-  expect(container.querySelector(".acpmux-question-other input")).toBeNull();
+  expect(container.querySelector(".acpmux-question-other textarea")).toBeNull();
   expect(dom!.window.document.activeElement).toBe(row(container, "Passkeys"));
   expect(checked(container)).toEqual(["Passkeys"]);
   await press(row(container, "Passkeys"), "Enter", { metaKey: true });

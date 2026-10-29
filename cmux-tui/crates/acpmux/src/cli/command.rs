@@ -21,6 +21,15 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Own one dedicated Codex sign-in over private stdin/stdout pipes.
+    #[cfg(unix)]
+    #[command(hide = true)]
+    CodexAuthBroker {
+        #[arg(long)]
+        home: PathBuf,
+        #[arg(long)]
+        codex: PathBuf,
+    },
     /// Send a local brief to another harness on a peer (or the least-loaded
     /// allowed host with `--host auto`) and record its identity.
     Dispatch(DispatchArgs),

@@ -227,12 +227,17 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     for (let frame = 0; frame < 2; frame++) await page.evaluate(() => window.cmuxPaintFrame());
     return (await page.locator(CHIP).first().textContent()) ?? null;
   }
-  /// A pick in the full picker, which Cmd-Ctrl-M opens over the model button (its click opens the
-  /// compact menu, whose More models leads to the full picker: Leo 2026-10-20).
+  /// Cmd-Ctrl-M and the model button open the same compact picker. Search there for the model,
+  /// then choose its row; this covers both New Tab and a started chat.
   async function pickModel(page: Page, id: string) {
-    await page.locator('[data-menu="Model"]').first().waitFor();
+    await page.locator(".acpmux-model .acpmux-picker-button").first().waitFor();
     await page.keyboard.press("Meta+Control+m");
-    await page.locator(`.acpmux-mp-models [role="option"][data-key="model:${id}"]`).click();
+    const menu = page.locator(".acpmux-quick-menu").first();
+    await menu.waitFor();
+    const name = claudeModels.find((model) => model.id === id)?.shortName;
+    if (!name) throw new Error(`unknown test model ${id}`);
+    await menu.getByRole("searchbox").fill(name);
+    await menu.getByRole("menuitemradio", { name, exact: false }).first().click();
   }
   /// Checks run once the daemon has taken each message.
   const checks = new Set<() => void>();

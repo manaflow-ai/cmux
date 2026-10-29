@@ -456,9 +456,8 @@ pub enum HarnessKind {
     Acp,
     /// Claude Code's own `-p --input-format stream-json` protocol.
     ClaudeStdio,
-    /// A CLI or TUI without ACP (`protocol = "terminal"` in a profile file):
-    /// listed, but run in a terminal tab (`cmux harness run`), never as an
-    /// acpmux session.
+    /// A CLI or TUI without ACP (`protocol = "terminal"` in a profile file): listed, but run in a
+    /// terminal tab (`cmux harness run`), never as an acpmux session.
     Terminal,
 }
 
@@ -901,8 +900,9 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled_turn_end_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
-    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
-    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
+    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt, so its
+    /// length is how many attempts run, a chain of daemon restarts included. Default
+    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 12
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
         default,
@@ -920,22 +920,20 @@ pub struct Config {
     /// `webRoots`: folders a Web connection may use (`server/remote_guard.rs`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web_roots: Vec<String>,
-    /// `vmHost`: this machine is a dedicated agent VM (a Chief's cloud
-    /// subagent host, a VM cmux created), so the VM boundary is the sandbox:
-    /// a remote chain's Claude Code runs there without Seatbelt
-    /// (`hub/remote_sandbox.rs`). Honored off macOS only. Absent: on exactly
-    /// when cmux created this VM (`hub/vm_host.rs`); `_acpmux/vm_host` sets it.
+    /// `vmHost`: `false` refuses a caller's VM boundary here, so every remote
+    /// chain's Claude Code runs in the sandbox (`hub/vm_host.rs`,
+    /// `hub/vm_boundary.rs`). It never turns the boundary on: the agent can
+    /// write this file, so `true` means the same as absent.
+    /// `_acpmux/vm_host {on: false}` writes `false`, `{on: true}` removes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vm_host: Option<bool>,
-    /// `pool`: hidden pre-created sessions that make a harness switch
-    /// instant (`hub/pool/`).
+    /// `pool`: hidden pre-created sessions that make a harness switch instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
     /// `btw`: side sessions (`hub/btw.rs`): the model they start on, per harness.
     #[serde(default, skip_serializing_if = "BtwConfig::is_default")]
     pub btw: BtwConfig,
-    /// `titles`: short titles for chats their harness never titles
-    /// (`hub/titles.rs`).
+    /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
@@ -946,13 +944,17 @@ pub struct Config {
     /// user's own login. The binary names no route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coderouter_claude_route: Option<String>,
+    /// `sendRelay`: `{"argv": [...]}`, the command `acpmux send` hands a message to when its
+    /// target names no session here and no peer lists it (`cli/send_relay.rs`). Unset (the
+    /// default): such a send is refused as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_relay: Option<crate::cli::send_relay::SendRelay>,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
     pub path: Option<PathBuf>,
-    /// Profiles that came from PATH discovery, not the file. `save` leaves
-    /// them out so the file keeps only what the user wrote and discovery
-    /// stays live.
+    /// Profiles that came from PATH discovery, not the file. `save` leaves them out so the file
+    /// keeps only what the user wrote and discovery stays live.
     #[serde(skip)]
     pub discovered: std::collections::BTreeSet<String>,
     /// `(profile, fallback)` set by discovery, stripped on save.
@@ -961,6 +963,9 @@ pub struct Config {
     /// `defaultHarness` was filled in at load, not written by the user.
     #[serde(skip)]
     pub auto_default: bool,
+    /// No config.json was there at load (`hub/policy_source.rs`: absence proves nothing).
+    #[serde(skip)]
+    pub file_missing: bool,
     /// The `defaults.claude.prefer` list discovery filled in, not the user.
     /// `save` drops it only while it is still unchanged.
     #[serde(skip)]
@@ -969,8 +974,7 @@ pub struct Config {
     /// not being served. Kept apart so a save does not drop the address.
     #[serde(skip)]
     pub web_unbound: bool,
-    /// Loopback page dev server origins from `--allow-dev-origin` (this run
-    /// only, never saved).
+    /// Loopback page dev server origins from `--allow-dev-origin` (this run only, never saved).
     #[serde(skip)]
     pub dev_origins: Vec<String>,
     /// The listener's token for this run when `--token` gave one: the
@@ -1153,26 +1157,27 @@ impl Config {
                 serde_json::from_str::<Config>(&text)
                     .with_context(|| format!("parse {}", path.display()))?
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Config::default(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Config { file_missing: true, ..Config::default() }
+            }
             Err(error) => return Err(error.into()),
         };
         cfg.join_profiles(profiles::load(sources));
-        let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());
-        cfg.join_discovered(discover_harnesses(route.as_deref()));
-        if cfg.default_harness.is_none() {
-            cfg.auto_default = true;
-            // A terminal harness (an installed `muse`, say) runs no ACP
-            // session, so it never becomes the default.
-            cfg.default_harness = cfg
-                .harnesses
-                .iter()
-                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
-                .map(|(name, _)| name.clone());
+        // A capture fixture (`harness_fixture.rs`) stands in for PATH,
+        // `~/.acpx` and the ACP Registry: nothing of this host's joins.
+        if let Some(fixture) = crate::harness_fixture::active() {
+            cfg.join_fixture(fixture);
+        } else {
+            let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());
+            cfg.join_discovered(discover_harnesses(route.as_deref()));
+            cfg.pick_auto_default();
         }
         // Installed ACP Registry agents (the cached copy; no network, nothing
         // started), after the default so a registry agent never becomes it
         // while a built-in harness exists.
-        if let Some(registry) = crate::registry::load_cached(&home()) {
+        if crate::harness_fixture::active().is_none()
+            && let Some(registry) = crate::registry::load_cached(&home())
+        {
             let found = crate::registry::discovered(
                 &registry,
                 crate::registry::platform(),
@@ -1186,6 +1191,26 @@ impl Config {
         cfg.profile_sources = sources.clone();
         cfg.path = Some(path);
         Ok(cfg)
+    }
+
+    /// Without a configured default, the first harness that runs an ACP
+    /// session (a terminal harness, an installed `muse` say, never does).
+    fn pick_auto_default(&mut self) {
+        if self.default_harness.is_none() {
+            self.auto_default = true;
+            self.default_harness = self
+                .harnesses
+                .iter()
+                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
+                .map(|(name, _)| name.clone());
+        }
+    }
+
+    /// A capture fixture's harnesses join as discovered ones would
+    /// (`harness_fixture.rs`); configured entries still win.
+    pub fn join_fixture(&mut self, fixture: &crate::harness_fixture::Fixture) {
+        self.join_discovered(fixture.harnesses.clone());
+        self.pick_auto_default();
     }
 
     /// Adds the profiles from profile files and cmux.json. They win over
@@ -1246,6 +1271,20 @@ impl Config {
                     .collect();
                 cfg.auto_prefer = Some(entry.prefer.clone());
             }
+        }
+        // Without a CodeRouter route, Claude falls back to the cmux router on DeepSeek V4 Flash
+        // (its profile default). The free tier serves it to a signed-out attested Mac, and a
+        // signed-in account pays under its plan (paid-plan.md §2). Only when no route took the slot.
+        let claude_has_no_fallback = cfg
+            .harnesses
+            .get("claude")
+            .is_some_and(|c| c.kind == HarnessKind::ClaudeStdio && c.fallback.is_none());
+        if cfg.discovered.contains(discover::CMUX_ROUTER_PROFILE)
+            && claude_has_no_fallback
+            && let Some(c) = cfg.harnesses.get_mut("claude")
+        {
+            c.fallback = Some(discover::CMUX_ROUTER_PROFILE.into());
+            cfg.auto_fallback = Some(("claude".into(), discover::CMUX_ROUTER_PROFILE.into()));
         }
     }
 

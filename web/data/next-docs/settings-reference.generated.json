@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 510,
+  "count": 517,
   "sections": [
     {
       "id": "general",
@@ -296,6 +296,14 @@
             "end-keep-layout",
             "end-everything"
           ]
+        },
+        {
+          "key": "app.showMenuBarIcon",
+          "title": "Show Menu Bar Icon",
+          "help": "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Window"
         },
         {
           "key": "app.startAgentGlobalHotKey",
@@ -1241,8 +1249,8 @@
         },
         {
           "key": "updates.downloadAutomatically",
-          "title": "Download and Install Updates Automatically",
-          "help": "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds.",
+          "title": "Download Updates Automatically",
+          "help": "Off: cmux checks for updates and asks before it downloads one. On: updates download by themselves. Either way, cmux asks before it restarts into an update.",
           "kind": "toggle",
           "default": false,
           "group": "Updates"
@@ -1278,7 +1286,7 @@
           "title": "Install Updates When Quitting",
           "help": "A downloaded update installs as cmux quits. Terminals keep running.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {
@@ -1399,6 +1407,27 @@
           "kind": "toggle",
           "default": true,
           "group": "Sidebar"
+        },
+        {
+          "key": "workspaces.hibernation.enabled",
+          "title": "Hibernate Idle Workspaces",
+          "help": "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Hibernation"
+        },
+        {
+          "key": "workspaces.hibernation.idleMinutes",
+          "title": "Hibernate After",
+          "help": "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+          "kind": "number",
+          "default": 60,
+          "group": "Hibernation",
+          "range": {
+            "min": 5,
+            "max": 10080,
+            "unit": "minutes"
+          }
         },
         {
           "key": "workspaces.newPlacement",
@@ -2990,6 +3019,14 @@
           ]
         },
         {
+          "key": "sidebar.controlsOnHover",
+          "title": "Show Sidebar Controls Only on Hover",
+          "help": "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.density",
           "title": "Sidebar Density",
           "help": "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
@@ -3426,7 +3463,7 @@
         {
           "key": "sidebar.spacesVisibility",
           "title": "Show Spaces",
-          "help": "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.",
+          "help": "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then.",
           "kind": "choice",
           "default": "hover",
           "group": "Sidebar",
@@ -4428,7 +4465,7 @@
           "title": "Hibernate Hidden Tabs",
           "help": "Frees memory; history and position are kept.",
           "kind": "choice_or_number",
-          "default": "moderate",
+          "default": null,
           "group": "Memory"
         },
         {
@@ -4698,6 +4735,14 @@
           "key": "browser.openLinksInCmuxBrowser",
           "title": "Open Links in cmux Browser",
           "help": "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Opening Links"
+        },
+        {
+          "key": "browser.openSignInPagesInCmux",
+          "title": "Open Sign-In Pages in cmux Browser",
+          "help": "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win.",
           "kind": "toggle",
           "default": true,
           "group": "Opening Links"
@@ -5260,7 +5305,7 @@
           "title": "Clear Notification When",
           "help": "",
           "kind": "choice",
-          "default": "click",
+          "default": "focus",
           "group": "Dismissal",
           "values": [
             "keystroke",
@@ -5602,6 +5647,22 @@
           "help": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
           "kind": "toggle",
           "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.voiceRoom",
+          "title": "Voice Room",
+          "help": "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.voiceRoomURL",
+          "title": "Voice Room Address",
+          "help": "The room's web address. Empty uses the room server on this Mac.",
+          "kind": "text",
+          "default": "",
           "group": "Labs"
         }
       ]

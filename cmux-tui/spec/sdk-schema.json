@@ -2003,6 +2003,17 @@
       "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal. Only with identify {revisions: true}."
      ]
     },
+    "build_time": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "Unix seconds of the source commit this daemon was built from; null when unknown. A client that updates the machine compares it with its own to never move the machine back to an older build. Only with identify {revisions: true}."
+     ]
+    },
     "capabilities": {
      "type": {
       "kind": "array",

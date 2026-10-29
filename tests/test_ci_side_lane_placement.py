@@ -293,7 +293,7 @@ class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
     idle, busy or the only one online (test_ci_next_macos_cascade's guard on release-compile's runs-on)."""
 
     ROUTES = ("runner", "gui_runner", "session_runner", "free_gui_runner", "free_session_runner", "fast_runner",
-              "gateway_runner", "retry_runner", "free_retry_runner", "hosted_runner")
+              "gateway_runner", "retry_runner", "free_retry_runner")
 
     def place_step(self) -> tuple[dict, dict]:
         workflow = yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text())
@@ -711,7 +711,9 @@ class CmuxNextWiring(unittest.TestCase):
         # path_route (#17164) gates every Mac job; these cases are native changes.
         context["needs"] = {"path_route": {"outputs": {"native": "true", "macos": "true", "scheme": "true",
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
-                                                            "tree_state": "ready"}},
+                                                            "tree_state": "ready",
+                                                            # The generated-files job runs here, for its own label.
+                                                            "generated_host": "generated-files"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
                             "release-compile-fast": {"result": "skipped", "outputs": {"verdict": ""}},
                             # The GUI jobs wait for the shared web bundles (#21189).

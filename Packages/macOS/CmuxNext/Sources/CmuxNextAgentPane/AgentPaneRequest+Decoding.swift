@@ -267,6 +267,17 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "project.browse": self = .browseProject
+        case "sandbox.state": self = .sandboxState(wait: params?["wait"] as? Bool == true)
+        case "sandbox.run":
+            // The task is the person's prompt (never logged); the server checks the agent by name.
+            let agent = params?["agent"] as? String
+            if let task = params?["task"] as? String, !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               task.count <= Self.maximumSandboxTask, agent.map({ !$0.isEmpty && $0.count <= 32 }) ?? true,
+               let key = params?["key"] as? String, UUID(uuidString: key) != nil {
+                self = .sandboxRun(task: task, agent: agent, key: key)
+            } else {
+                self = .unsupported(method)
+            }
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
         case "chat.attach.choose": self = .chooseAttachments
@@ -454,6 +465,8 @@ extension AgentPaneRequest {
             self = AgentPaneEnvironmentRequest(method: method, params: params).map(AgentPaneRequest.environment) ?? .unsupported(method)
         case _ where AgentPaneCloudMachineRequest.methods.contains(method):
             self = AgentPaneCloudMachineRequest(method: method, params: params).map(AgentPaneRequest.cloudMachine) ?? .unsupported(method)
+        case AgentPaneCloudCredentialTransferRequest.method:
+            self = AgentPaneCloudCredentialTransferRequest(params: params).map(AgentPaneRequest.cloudCredentialTransfer) ?? .unsupported(method)
         case _ where AgentPaneReplyRequest.methods.contains(method):
             self = AgentPaneReplyRequest(method: method, params: params).map(AgentPaneRequest.reply) ?? .unsupported(method)
         default:

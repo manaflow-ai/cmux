@@ -104,4 +104,13 @@ enum NewWorkspacePlacements {
     static func home(_ machines: MachineRegistry) -> String? {
         machines.local.store.workspaces.first { $0.kind == SidebarMapping.homeKind }?.id
     }
+
+    /// The index a group formed for a new workspace takes (`createGroup`'s `index`, New Workspace in
+    /// New Group): first under `workspaces.newPlacement` `top` (the default), else last (`Int.max`).
+    /// The same rule as the Chief's subagent groups (`new_group_index` in optchat-chief workspaces.rs).
+    static func newGroupIndex(_ services: AppServices) -> Int {
+        newGroupIndex(for: services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback)
+    }
+
+    static func newGroupIndex(for placement: NewWorkspacePlacement) -> Int { placement == .top ? 0 : .max }
 }

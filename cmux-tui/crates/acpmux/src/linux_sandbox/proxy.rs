@@ -1,5 +1,5 @@
 //! Port-enforcing transport for namespace listeners passed over SCM_RIGHTS.
-//! Deliberately unwired until G2; remote sandbox refusal stays unchanged.
+//! The keeper owns these services until the sandboxed command exits.
 //! Stricter than Seatbelt: reject unspecified (including IPv4 0/8), link-local,
 //! multicast and limited broadcast destinations; only the fixed forwarder can
 //! reach loopback. No filesystem access, request logging or redirect handling.

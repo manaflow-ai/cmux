@@ -5,7 +5,8 @@ import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Switch } from "../../pages/settings/editors/ToggleEditor";
 import { setComposerSettings, setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
-import "../../pages/settings/styles.css";
+// The settings page's sheets in their cascade order (page.css), never one alone.
+import "../../pages/settings/page.css";
 
 type Props = { placement: "settings" | "composer" | "both"; initial: boolean };
 
@@ -68,7 +69,7 @@ function ComposerHint({ checked }: { checked: boolean }) {
       <div style={{ flex: 1 }}>
         <ContextMenu items={menu} className="acpmux-composer-box">
           <span style={{ display: "block" }}>
-            <span id="send-scroll-composer-label" style={{ display: "block", fontSize: 13 }}>
+            <span id="send-scroll-composer-label" style={{ display: "block", fontSize: "var(--text-control)" }}>
               Composer send behavior
             </span>
             <small style={{ color: "var(--agent-muted)" }}>

@@ -147,9 +147,9 @@ impl Hub {
     /// `_acpmux/subsession/answer`: `caller` answers the pending question
     /// `permission_id` of `target`, a descendant on the write path (module docs).
     pub async fn subsession_answer(
-        &self,
+        self: &Arc<Self>,
         caller: &Session,
-        target: &Session,
+        target: &Arc<Session>,
         permission_id: &str,
         answers: Value,
     ) -> Result<Value, RpcError> {
@@ -164,6 +164,19 @@ impl Hub {
                 data(),
             ));
         }
+        self.ancestor_answer(caller, target, permission_id, answers).await
+    }
+
+    /// `subsession_answer`, the setting letting ancestors answer.
+    pub(super) async fn ancestor_answer(
+        self: &Arc<Self>,
+        caller: &Session,
+        target: &Arc<Session>,
+        permission_id: &str,
+        answers: Value,
+    ) -> Result<Value, RpcError> {
+        let child = target.meta().name.clone();
+        let data = || json!({"sessionId": target.id, "permissionId": permission_id});
         let (option, answers) = {
             let state =
                 target.permissions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -184,16 +197,28 @@ impl Hub {
             };
             (option, harness_answers(question, answers))
         };
-        // Held until the answer is delivered: an MDM off push waits for it (`family_gate`).
-        let family_gate = self.family_gate.read().await;
-        self.receiver_check(caller, target).await?;
+        // Held until the answer is written to the agent: an MDM off push waits for it, or cuts it
+        // (`hold_until_written`).
+        let hold = self.family_hold().await;
+        self.receiver_check_under(caller, target, hold.bound).await?;
+        let fence = self.hold_until_written(target, hold);
+        // Cut unless it wins, when the asking task has it: a losing, refused or dropped answer
+        // settles its fence, so no push waits on it (review 84 of #23322).
+        let mut unsent = crate::agent::CutOnDrop(Some(&fence));
         let control = if Self::web_turn(caller) || Self::web_turn(target) {
             Control::Web
         } else {
             Control::Local
         };
         let answered_by = json!({"session": caller.id, "name": caller.meta().name});
-        let answerer = super::person::Answerer { ancestor: Some(&caller.id), ..Default::default() };
+        let answerer = super::person::Answerer {
+            ancestor: Some(&caller.id),
+            fence: Some(&fence),
+            ..Default::default()
+        };
+        // Tests only: a pause right before the answer is given (`full_access_bound::WriteSeam`).
+        #[cfg(test)]
+        self.pause_at_family_write().await;
         self.respond_permission(
             target,
             permission_id,
@@ -204,7 +229,7 @@ impl Hub {
             control,
         )
         .await?;
-        drop(family_gate);
+        unsent.0 = None;
         Ok(json!({"answered": true, "sessionId": target.id, "permissionId": permission_id}))
     }
 }
@@ -270,9 +295,145 @@ mod tests {
             decision_nonce: super::super::person::new_nonce(),
             ancestor_may_answer: may,
             prev_status: SessionStatus::Waiting,
+            agent_request: None,
+            agent_host_incarnation: None,
         };
         session.permissions.lock().unwrap().pending.insert(id.clone(), entry);
         (id, rx)
+    }
+
+    /// A Claude withdrawal removes only the card raised by that agent request.
+    #[tokio::test]
+    async fn an_agent_cancel_request_withdraws_its_pending_card() {
+        let (hub, session, _conn) = hub_with_session().await;
+        let (mine, rx) = pending(&session, false);
+        let (other, _other_rx) = pending(&session, false);
+        {
+            let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(entry) = state.pending.get_mut(&mine) {
+                entry.agent_request = Some(json!(1007));
+            }
+            if let Some(entry) = state.pending.get_mut(&other) {
+                entry.agent_request = Some(json!(1008));
+            }
+        }
+        hub.withdraw_permission(&session, None, &json!(1007));
+        let outcome = rx.await.unwrap_or(Value::Null);
+        assert_eq!(outcome, json!({"outcome": "cancelled"}));
+        {
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            assert!(!state.pending.contains_key(&mine));
+            assert!(state.pending.contains_key(&other));
+        }
+        let error = hub
+            .respond_permission(
+                &session,
+                &mine,
+                Some("go".into()),
+                None,
+                None,
+                Answerer::default(),
+                Control::Local,
+            )
+            .await
+            .expect_err("the withdrawal won before this answer");
+        assert_eq!(
+            error.data,
+            Some(json!({"answeredBy": null, "outcome": {"outcome": "cancelled"}}))
+        );
+    }
+
+    /// A cancellation can be read before the spawned permission handler gets
+    /// to its lock; the tombstone cancels the eventual card immediately.
+    #[tokio::test]
+    async fn an_agent_cancel_request_before_registration_is_consumed() {
+        let (hub, session, _conn) = hub_with_session().await;
+        hub.register_agent_request(&session, &json!(1009), None);
+        hub.withdraw_permission(&session, None, &json!(1009));
+        let request = json!({
+            "toolCall": {"toolCallId": "e1", "kind": "other", "status": "pending"},
+            "options": [{"optionId": "allow_once", "name": "Allow", "kind": "allow_once"}],
+        });
+        let epoch = session.permission_epoch.load(Ordering::SeqCst);
+        let outcome = hub
+            .handle_permission_for(
+                &session,
+                request,
+                epoch,
+                session.turn().map(|t| t.turn_id),
+                Some(&json!(1009)),
+                None,
+                None,
+            )
+            .await;
+        assert_eq!(outcome, json!({"outcome": {"outcome": "cancelled"}}));
+        hub.finish_agent_request(&session, &json!(1009), None);
+        assert!(session.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty());
+    }
+
+    /// Both a registered card and a withdrawal before registration survive recovery.
+    #[tokio::test]
+    async fn an_agent_withdrawal_survives_host_recovery() {
+        for registered in [false, true] {
+            let (hub, session, _conn) = hub_with_session().await;
+            saved_request(&hub, &session, "inc", 1009);
+            if registered {
+                hub.append(
+                    &session,
+                    "mux",
+                    "permission_request",
+                    json!({"permissionId": "p-1", "agentRequestId": 1009, "request": {}}),
+                );
+            }
+            hub.append(
+                &session,
+                "mux",
+                "permission_withdrawn",
+                json!({"agentRequestId": 1009, "incarnation": "inc"}),
+            );
+            let work = hub.open_work(&session, "inc");
+            if registered {
+                let decision = work.permissions.get("1009").and_then(|entry| entry.2.clone());
+                assert_eq!(decision, Some(json!({"outcome": "cancelled"})));
+                assert!(work.cancelled_permissions.contains("1009"));
+            } else {
+                assert!(work.withdrawn.contains("1009"));
+            }
+        }
+    }
+
+    fn saved_request(hub: &Hub, session: &Session, incarnation: &str, id: i64) {
+        hub.append(session, "mux", "host_started", json!({"incarnation": incarnation}));
+        hub.append(
+            session,
+            "in",
+            method::SESSION_REQUEST_PERMISSION,
+            json!({"id": id, "method": method::SESSION_REQUEST_PERMISSION, "params": {}}),
+        );
+    }
+
+    /// A deferred cancel from an older host must not cancel a reused request id
+    /// after a replacement host has started.
+    #[tokio::test]
+    async fn a_withdrawal_from_an_older_host_does_not_cross_incarnations() {
+        let (hub, session, _conn) = hub_with_session().await;
+        saved_request(&hub, &session, "new-host", 1011);
+        hub.append(
+            &session,
+            "mux",
+            "permission_withdrawn",
+            json!({"agentRequestId": 1011, "incarnation": "old-host"}),
+        );
+        hub.append(
+            &session,
+            "mux",
+            "permission_request",
+            json!({"permissionId": "p-1011", "agentRequestId": 1011, "request": {}}),
+        );
+        let work = hub.open_work(&session, "new-host");
+        let decision = work.permissions.get("1011").and_then(|entry| entry.2.clone());
+        assert_eq!(decision, None);
+        assert!(work.withdrawn.is_empty());
     }
 
     /// The rule under the prompt's lock, without the request check before it:
@@ -333,6 +494,8 @@ mod tests {
             decision_nonce: super::super::person::new_nonce(),
             ancestor_may_answer: true,
             prev_status: SessionStatus::Waiting,
+            agent_request: None,
+            agent_host_incarnation: None,
         };
         session.permissions.lock().unwrap().pending.insert(id.clone(), entry);
         let prompt = "child wants to work in /tmp/untrusted. Do you trust this folder?";
