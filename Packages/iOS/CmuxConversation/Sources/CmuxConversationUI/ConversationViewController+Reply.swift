@@ -205,11 +205,9 @@ extension ConversationViewController {
         replyTarget = replyTo ?? root
         let overlay = ReplyThreadOverlay(frame: view.bounds)
         overlay.onClose = { [weak self] in self?.exitReplyMode() }
-        // Reply copies live outside collectionView and therefore bypass its
-        // header mask. Their viewport already starts below the full header;
-        // keep the host's opt-in copies inside it, including while animating.
-        overlay.content.clipsToBounds = usesHostHeaderMask
-        view.insertSubview(overlay, belowSubview: composerContainer)
+        // The host material also blurs reply copies as they scroll under the
+        // floating header; do not clip the thread at the name capsule.
+        view.insertSubview(overlay, belowSubview: headerMaterial.superview == nil ? composerContainer : headerMaterial)
         // The thread's own interactive dismissal moves the composer too.
         keyboardDock.trackInteractiveDismissal(of: overlay.content)
         populate(overlay, rootID: rootID)

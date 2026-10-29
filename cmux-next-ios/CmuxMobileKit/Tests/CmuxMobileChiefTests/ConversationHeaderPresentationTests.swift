@@ -42,31 +42,42 @@ struct ConversationHeaderPresentationTests {
         #expect(activations == 2)
     }
 
-    @Test func systemHeaderHidesTranscriptUnderNameAtEveryScrollOffset() {
-        let controller = makeController(header: .init(scrollEdge: .system, transcriptTopSpacing: 24))
-        defer { controller.store.stop() }
-        controller.additionalSafeAreaInsets.top = 62
-        controller.view.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
-        controller.view.layoutIfNeeded()
+    @Test func systemHeaderBlursIntactContentThroughNameAndFadesBelowIt() {
+        let controller = makeController(header: .init(scrollEdge: .system))
+        let messages = makeController()
+        defer { controller.store.stop(); messages.store.stop() }
+        for host in [controller, messages] {
+            host.additionalSafeAreaInsets.top = 62
+            host.view.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+            host.view.layoutIfNeeded()
+        }
+        // Opting in changes only the material, never the resting transcript layout.
+        #expect(controller.collectionView.contentInset == messages.collectionView.contentInset)
+        #expect(controller.header.frame == messages.header.frame)
+        #expect(messages.headerMaterial.superview == nil)
+        guard #available(iOS 26.0, *) else { return }
         let collection = controller.collectionView
+        let material = controller.headerMaterial
         let name = controller.header.nameButton.convert(controller.header.nameButton.bounds, to: controller.view)
         for offset in [-collection.contentInset.top, 100, 400] {
             collection.contentOffset.y = offset
-            collection.setNeedsLayout()
-            collection.layoutIfNeeded()
-            #expect(collection.layer.mask === collection.topFadeMask)
-            #expect(collection.topFadeMask.frame == collection.bounds)
-            let colors = collection.topFadeMask.colors as? [CGColor] ?? []
-            let stops = collection.topFadeMask.locations ?? []
-            #expect(colors.count == 4)
-            #expect(stops.count == 4)
-            guard colors.count == 4, stops.count == 4 else { continue }
-            // No bubble/text pixels survive anywhere behind the name or avatar.
-            #expect(colors[0].alpha == 0 && colors[1].alpha == 0)
-            #expect(CGFloat(stops[1].doubleValue) * collection.bounds.height >= name.maxY)
-            // The first row at its resting content inset is fully visible.
-            #expect(colors[2].alpha == 1 && colors[3].alpha == 1)
-            #expect(abs(CGFloat(stops[2].doubleValue) * collection.bounds.height - collection.contentInset.top) < 0.01)
+            controller.view.setNeedsLayout()
+            controller.view.layoutIfNeeded()
+            material.layoutIfNeeded()
+            #expect(collection.layer.mask == nil)
+            #expect(!collection.topEdgeEffect.isHidden)
+            #expect(material.effect is UIBlurEffect)
+            #expect(material.superview === controller.view)
+            #expect(!material.isUserInteractionEnabled)
+            #expect(material.frame.maxY > name.maxY)
+            let colors = material.fade.colors as? [CGColor] ?? []
+            let stops = material.fade.locations ?? []
+            #expect(colors.count == 3 && stops.count == 3)
+            guard colors.count == 3, stops.count == 3 else { continue }
+            #expect(colors[0].alpha == 1 && colors[1].alpha == 1 && colors[2].alpha == 0)
+            let fadeStart = material.frame.minY + CGFloat(stops[1].doubleValue) * material.bounds.height
+            #expect(fadeStart >= name.maxY)
+            #expect(material.frame.maxY - fadeStart > name.height)
         }
     }
 
@@ -96,7 +107,7 @@ struct ConversationHeaderPresentationTests {
         #expect(controller.detailsController == nil)
     }
 
-    @Test func hostReplyViewportStartsBelowHeaderWhenComposerRises() {
+    @Test func hostMaterialCoversReplyCopiesWithoutClippingOrBlurringComposer() {
         for edge in [ConversationHeaderPresentation.ScrollEdge.messages, .system] {
             let controller = makeController(header: .init(scrollEdge: edge))
             defer { controller.store.stop() }
@@ -113,7 +124,17 @@ struct ConversationHeaderPresentationTests {
             overlay.contentHeight = 2_000
             controller.composerContainer.frame.origin.y = 450
             controller.layoutReplyOverlay()
-            #expect(overlay.content.clipsToBounds == (edge == .system))
+            #expect(!overlay.content.clipsToBounds)
+            if #available(iOS 26.0, *), edge == .system {
+                let siblings = controller.view.subviews
+                let materialIndex = siblings.firstIndex(of: controller.headerMaterial) ?? -1
+                let replyIndex = siblings.firstIndex(of: overlay) ?? -1
+                let composerIndex = siblings.firstIndex(of: controller.composerContainer) ?? -1
+                let headerIndex = siblings.firstIndex(of: controller.header) ?? -1
+                #expect(replyIndex >= 0 && replyIndex < materialIndex)
+                #expect(materialIndex < composerIndex && composerIndex < headerIndex)
+                #expect(controller.headerMaterial.frame.maxY > controller.header.frame.maxY)
+            }
             #expect(overlay.content.frame.minY == controller.header.frame.maxY)
             #expect(overlay.content.contentOffset.y > 0)
             overlay.removeFromSuperview()

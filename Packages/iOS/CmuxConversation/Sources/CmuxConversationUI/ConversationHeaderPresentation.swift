@@ -7,8 +7,8 @@ public struct ConversationHeaderPresentation {
     public enum ScrollEdge: Sendable {
         /// Preserve the package's platform-specific Messages wash/blur.
         case messages
-        /// Use UIKit's soft scroll edge on iOS 26+, masking transcript content
-        /// through the complete header when the native pocket falls short.
+        /// Use UIKit's soft scroll edge on iOS 26+, with fading blur material
+        /// through the complete floating header when the native pocket falls short.
         case system
     }
 
