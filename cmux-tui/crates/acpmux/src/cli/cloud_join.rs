@@ -155,7 +155,7 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
 }
 
 pub fn grant_consent(surface: &str) -> Result<()> {
-    confirm_local_person(surface)?;
+    confirm_local_person("Grant", surface)?;
     let mut consent = load_consent();
     let now = format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs());
     match surface { "screen" => consent.screen = ConsentState::Granted, "control" => consent.control = ConsentState::Granted, _ => return Err(anyhow!("use --screen or --control")) }
@@ -165,18 +165,18 @@ pub fn grant_consent(surface: &str) -> Result<()> {
 }
 
 pub fn revoke_consent(surface: &str) -> Result<()> {
-    confirm_local_person(surface)?;
+    confirm_local_person("Revoke", surface)?;
     let mut consent = load_consent();
     match surface { "screen" => consent.screen = ConsentState::None, "control" => consent.control = ConsentState::None, _ => return Err(anyhow!("use --screen or --control")) }
     crate::config::private_state_dir(&state_dir())?;
     crate::config::write_atomic(&consent_path(), &serde_json::to_vec_pretty(&consent)?)
 }
 
-fn confirm_local_person(surface: &str) -> Result<()> {
+fn confirm_local_person(action: &str, surface: &str) -> Result<()> {
     if !std::io::stdin().is_terminal() || std::env::var_os("ACPMUX_SESSION_ID").is_some() {
         return Err(anyhow!("consent requires the local person's terminal"));
     }
-    eprint!("Grant {surface} consent on this machine? Type 'yes' to continue: ");
+    eprint!("{action} {surface} consent on this machine? Type 'yes' to continue: ");
     use std::io::Write;
     std::io::stderr().flush()?;
     let mut answer = String::new();
