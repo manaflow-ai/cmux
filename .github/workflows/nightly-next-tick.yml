@@ -155,8 +155,10 @@ jobs:
       - name: Cancel a nightly-next run stuck without a runner
         if: inputs.sha == ''
         continue-on-error: true
+        timeout-minutes: 5
         env:
           GH_TOKEN: ${{ github.token }}
+          NIGHTLY_NEXT_TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN }}
         run: python3 .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its

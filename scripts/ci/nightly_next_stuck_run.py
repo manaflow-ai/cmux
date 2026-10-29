@@ -21,7 +21,8 @@ fail. A run is stuck here only when all of these hold, read twice (the second re
 cancel, so a runner taking the job or a gate appearing in between keeps the run):
   - the run is `queued` or `in_progress` and has no pending deployment (a run waiting on an
     environment or a concurrency group is gated, not stuck);
-  - a job has waited STUCK_MINUTES (20) `queued` with no runner, on labels none of which is owned
+  - a job has waited STUCK_MINUTES (20) `queued` with no runner, counted no earlier than the
+    latest executed job's completion (job records can predate their dependencies), on labels none of which is owned
     (glaeda-* jobs belong to the owned-pool rescue, owned_pool_rescue.py);
   - every other job is `completed` or also `queued` with no runner.
 A newer tip is never a reason to cancel.
@@ -105,7 +106,10 @@ def timestamp(obj: Any, key: str) -> dt.datetime:
     value = field(obj, key, (str,))
     if not TIMESTAMP.fullmatch(value):
         raise Unreadable(f"{key!r} {value!r}")
-    return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    try:
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise Unreadable(f"{key!r} {value!r}") from error
 
 
 @dataclasses.dataclass(frozen=True)
@@ -117,6 +121,7 @@ class Run:
     attempt: int
     head_sha: str
     title: str
+    branch: str
 
     @classmethod
     def parse(cls, obj: Any) -> "Run":
@@ -127,7 +132,7 @@ class Run:
             raise Unreadable(f"run {run_id!r}: id, attempt or head_sha out of range")
         status, conclusion = status_pair(obj, RUN_STATUSES)
         return cls(run_id, field(obj, "event", (str,)), status, conclusion, attempt, head_sha,
-                   field(obj, "display_title", (str,)))
+                   field(obj, "display_title", (str,)), field(obj, "head_branch", (str,)))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -139,6 +144,7 @@ class Job:
     runner: str | None
     labels: tuple[str, ...]
     created: dt.datetime
+    completed: dt.datetime | None
 
     @classmethod
     def parse(cls, obj: Any) -> "Job":
@@ -150,7 +156,8 @@ class Job:
             raise Unreadable("a queued job with no label")  # a queued job is judged by its label
         return cls(field(obj, "id", (int,)), field(obj, "name", (str,)), status, conclusion,
                    field(obj, "runner_name", (str,), nullable=True) or None, tuple(labels),
-                   timestamp(obj, "created_at"))
+                   timestamp(obj, "created_at"),
+                   timestamp(obj, "completed_at") if status == "completed" and conclusion != "skipped" else None)
 
 
 # ---- GitHub, through gh
@@ -240,8 +247,13 @@ def stuck_job(run: Run, jobs: list[Job], now: dt.datetime) -> Job | None:
     def unserved(job: Job) -> bool:
         return job.status == "queued" and job.runner is None
 
+    # GitHub can create downstream job records before their dependencies complete. Using
+    # their creation alone would count build time as queue time and cancel a signer just
+    # as it becomes runnable. Waiting from the latest executed completion is conservative
+    # even when that job is not this one's dependency; no workflow graph read is needed.
+    completed = max((job.completed for job in jobs if job.completed is not None), default=None)
     stuck = [job for job in jobs if unserved(job) and not any(label.startswith("glaeda-") for label in job.labels)
-             and (now - job.created).total_seconds() / 60 >= STUCK_MINUTES]
+             and (now - max(job.created, completed or job.created)).total_seconds() / 60 >= STUCK_MINUTES]
     if stuck and all(job.status == "completed" or unserved(job) for job in jobs):
         return stuck[0]
     return None
@@ -259,7 +271,11 @@ def read_stuck(api: Api, run_id: int, now: Callable[[], dt.datetime]) -> tuple[R
 def rebuilt_by(run: Run, tip: str) -> str | None:
     """Which existing path builds the run's commit again once it is cancelled, or None."""
     if run.event == "workflow_dispatch" and run.title.startswith(PROMOTION_TITLE):
-        return "the tick's promotion request asks again"
+        if run.branch == "main" and os.environ.get("NIGHTLY_NEXT_TRAIN") != "on":
+            return "the tick's promotion request asks again"
+        return None
+    if run.branch != "nightly-next":
+        return None
     if run.head_sha != tip:
         return "an older commit's run; the tip builds"
     if run.event == "push" and run.attempt < MAX_ATTEMPTS:
@@ -324,7 +340,8 @@ def tick(api: Api, log: Callable[[str], None] = print, sleep: Callable[[float], 
         if job is None:
             log(f"nightly-next run {run.id} ({run.event}, {run.head_sha[:12]}): running or waiting, no job stuck without a runner")
             continue
-        why = f"{job.name} has waited {int((now() - job.created).total_seconds() // 60)} min with no runner on {','.join(job.labels)}"
+        why = (f"{job.name} was created {int((now() - job.created).total_seconds() // 60)} min ago "
+               f"and is queued with no runner on {','.join(job.labels)}")
         path = rebuilt_by(run, tip)
         if path is None:
             warn(f"run {run.id} is stuck ({why}), but it is the tip's {run.event} run on attempt {run.attempt}, "
@@ -339,6 +356,12 @@ def tick(api: Api, log: Callable[[str], None] = print, sleep: Callable[[float], 
             log(f"nightly-next run {run.id}: changed since it was read (a runner, a gate or a new attempt); left alone")
             continue
         try:
+            # Discovery and earlier runs' settle waits can span a promotion. Re-evaluate
+            # against the branch's current tip before every write, including force-cancel.
+            path = rebuilt_by(again, api.tip())
+            if path is None:
+                log(f"nightly-next run {run.id}: no current rebuild path; left alone")
+                continue
             api.cancel(run.id)
         except Unreadable as error:
             warn(f"run {run.id} is stuck ({why}), but the cancel was refused ({error}); the next tick reads it again")
@@ -351,6 +374,9 @@ def tick(api: Api, log: Callable[[str], None] = print, sleep: Callable[[float], 
                 still = None
             if still is not None and again.attempt == run.attempt:
                 try:
+                    if rebuilt_by(again, api.tip()) is None:
+                        log(f"nightly-next run {run.id}: no current rebuild path; not force-cancelled")
+                        continue
                     api.cancel(run.id, force=True)
                 except Unreadable as error:
                     warn(f"run {run.id} did not finish after its cancel and the force-cancel was refused ({error})")

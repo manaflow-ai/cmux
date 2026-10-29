@@ -7,6 +7,7 @@ import importlib.util
 import json
 import sys
 import unittest
+import zlib
 from pathlib import Path
 from unittest import mock
 
@@ -31,7 +32,7 @@ def ago(minutes: float) -> str:
 
 def job(name: str, minutes: float = 34, label: str = "blacksmith-4vcpu-ubuntu-2404", status: str = "queued",
         runner: str | None = None, conclusion: str | None = None, job_id: int = 0) -> dict:
-    return {"id": job_id or abs(hash(name)) % 10**9 + 1, "name": name, "status": status, "conclusion": conclusion,
+    return {"id": job_id or zlib.crc32(name.encode()) + 1, "name": name, "status": status, "conclusion": conclusion,
             "runner_name": runner, "labels": [label], "created_at": ago(minutes),
             "completed_at": ago(minutes) if status == "completed" else None}
 
@@ -138,7 +139,7 @@ class StuckRun(unittest.TestCase):
         gh = FakeGh(runs=[run(40771197361)], jobs={40771197361: STUCK})
         out = "\n".join(tick(gh))
         self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/40771197361/cancel"])
-        self.assertIn("decide has waited 34 min with no runner on blacksmith-4vcpu-ubuntu-2404", out)
+        self.assertIn("decide was created 34 min ago and is queued with no runner on blacksmith-4vcpu-ubuntu-2404", out)
         self.assertIn("(nightly_next_cancelled_tip.sh) re-runs the tip", out)
 
     def test_a_run_that_is_running_waiting_or_briefly_queued_is_never_cancelled(self):
@@ -240,7 +241,7 @@ class StuckRun(unittest.TestCase):
         good_run, good_job = run(7), job("decide")
         bad_runs = {"id": [None, "7", True, 0], "event": [None, 3], "status": [None, "stuck", 3],
                     "conclusion": [3, {}, "weird"], "run_attempt": [None, "1", True, 0],
-                    "head_sha": [None, "abc", TIP.upper()], "display_title": [None, 3]}
+                    "head_sha": [None, "abc", TIP.upper()], "head_branch": [None, 3], "display_title": [None, 3]}
         bad_jobs = {"id": [None, "7", True], "name": [None, 3], "status": [None, "stuck"],
                     "conclusion": [3, {}, "weird"], "runner_name": [{}, [], 3],
                     "labels": [None, {}, [3], "x"], "created_at": [None, "yesterday", 3, "2026-02-30T00:00:00Z"]}
