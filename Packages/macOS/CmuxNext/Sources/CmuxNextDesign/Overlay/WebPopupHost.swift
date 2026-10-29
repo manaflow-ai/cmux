@@ -206,7 +206,7 @@ public final class WebPopupHost {
         if params["schemaVersion"] != nil {
             guard let id = params["id"] as? String, let revision = params["revision"] as? Int else { return }
             declarationHost?.hide(id: id, revision: revision)
-        } else if declarationHost?.activeID == nil {
+        } else if declarationShowDepth == 0, declarationHost?.activeID == nil {
             hide()
         }
     }
