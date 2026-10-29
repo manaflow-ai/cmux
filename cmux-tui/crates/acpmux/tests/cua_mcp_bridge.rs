@@ -191,7 +191,6 @@ fn an_open_bridge_rechecks_independent_screen_consent_on_every_call() {
     assert_ne!(call("click")["result"]["isError"], true);
     machine_state(&dir.0, "none", "granted");
     assert_eq!(call("click")["result"]["isError"], true);
-    drop(call);
     drop(input);
     assert!(child.wait().unwrap().success());
 }
