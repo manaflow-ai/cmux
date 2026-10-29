@@ -107,8 +107,8 @@ const selectionRows = [
 
 // Message-surface review fixture: the same prompt, background work, assistant answer and a long
 // received peer message are captured over busy wallpaper and a plain dark surface. The `bordered`
-// arm preserves today's look; `soft` keeps a quiet fill only for long cut content; the selected
-// default is borderless.
+// arm preserves the earlier look; `soft` keeps a quiet fill only behind an agent-message card; the
+// selected default is borderless.
 const messageSurfaceChat = chat([
   user("Review the release notes and tell the lane what changed", 7, { id: "message-surface-user" }),
   activity(
@@ -764,10 +764,10 @@ const liveLineClear = async (ctx: PlayContext) => {
 /// The selected borderless message arm is a real rendered contract: the prompt keeps liquid glass
 /// without an edge, received/agent bodies have no box shadow, and the assistant prose stays plain.
 const messageSurfaceComputedStyle = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="message-surface-peer"] .cv-received__body'));
+  await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="message-surface-peer"] .cv-received'));
   const view = ctx.document.defaultView!;
   const prompt = ctx.document.querySelector<HTMLElement>('[data-row-id="message-surface-user"] .cv-user__bubble');
-  const peer = ctx.document.querySelector<HTMLElement>('[data-row-id="message-surface-peer"] .cv-received__body');
+  const peer = ctx.document.querySelector<HTMLElement>('[data-row-id="message-surface-peer"] .cv-received');
   const assistant = ctx.document.querySelector<HTMLElement>('[data-row-id="message-surface-answer"] .cv-md');
   if (!prompt || !peer || !assistant) throw new Error("message surface fixture did not render");
   const promptStyle = view.getComputedStyle(prompt);
@@ -791,8 +791,8 @@ const messageSurfaceComputedStyle = async (ctx: PlayContext) => {
     if (savedGlass === null) root.removeAttribute("data-glass");
     else root.setAttribute("data-glass", savedGlass);
   }
-  if (peerStyle.boxShadow !== "none" || peerStyle.borderRadius !== "0px")
-    throw new Error(`the selected peer body is still boxed: ${peerStyle.boxShadow} / ${peerStyle.borderRadius}`);
+  if (peerStyle.boxShadow !== "none" || peerStyle.backgroundColor !== "rgba(0, 0, 0, 0)")
+    throw new Error(`the peer message is boxed: ${peerStyle.boxShadow} / ${peerStyle.backgroundColor}`);
   const assistantStyle = view.getComputedStyle(assistant);
   if (assistantStyle.backgroundColor !== "rgba(0, 0, 0, 0)" || assistantStyle.boxShadow !== "none")
     throw new Error("assistant prose picked up a message container surface");
@@ -1233,17 +1233,17 @@ export default agentPaneEntry({
   ],
   variants: {
     "message-surfaces-bordered": {
-      note: "Before arm: current bordered user and received message containers, captured on busy wallpaper and plain dark surfaces in light and dark themes.",
+      note: "Before arm: the bordered user bubble and agent-message cards, captured on busy wallpaper and plain dark surfaces in light and dark themes.",
       documentAttributes: { "message-surfaces": "bordered" },
       snapshot: messageSurfaceChat,
     },
     "message-surfaces-soft": {
-      note: "Gallery arm: borderless containers with a soft fill only behind long cut peer content, preserving Show more without a rim.",
+      note: "Gallery arm: borderless, with a soft fill only behind an opened agent-message card, and no rim.",
       documentAttributes: { "message-surfaces": "soft" },
       snapshot: messageSurfaceChat,
     },
     "message-surfaces-borderless": {
-      note: "Selected arm: stronger glass fill for the user's prompt, peer sender chip plus dimmed text, and borderless peer content with no layout changes.",
+      note: "Selected arm: stronger glass fill and no rim (Plain, Lens or Spectrum) for the user's prompt, borderless agent-message cards, no layout changes.",
       snapshot: messageSurfaceChat,
       play: messageSurfaceComputedStyle,
     },
