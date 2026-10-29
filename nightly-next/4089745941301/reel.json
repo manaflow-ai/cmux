@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4089745941301",
+  "notes": "notes/4089745941301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27429,
+      "title": "ci(nightly-next): one launch smoke per build, placed like cmux-next's Mac jobs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27336,
+      "title": "acpmux: hand over direct daemon starts safely",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25642,
+      "title": "composer: reveal queued status on interaction",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27442,
+      "title": "cmux-tui: machine-join.sh resumes an incomplete join and re-enrolls a revoked one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27368,
+      "title": "cmux NEXT: a launch that lost the lock race never hands the winner off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27438,
+      "title": "acpmux: regenerate the protocol IR for the machine consent methods (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27441,
+      "title": "acpmux: lib tests write the scripts they run from a child process (ETXTBSY flakes)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27409,
+      "title": "test(chat): repair selection and queued-footer base regressions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27435,
+      "title": "acpmux: machine join and consent locks unlock on drop (flock flakes)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
