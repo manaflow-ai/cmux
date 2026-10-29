@@ -282,6 +282,29 @@ print("after rewrite", dns.rcode(r.resolve(q("api.openai.com"))))
 `)).toEqual(["same write 0", "a day later 2", "after rewrite 2"]);
   });
 
+  test("a resolver rewrite during an exchange discards old platform, cache and DoH results", async () => {
+    expect(await python(String.raw`
+for phase in ("cache", "platform", "doh"):
+    stamp = [1]
+    changing = [False]
+    steering = [False]
+    def exchange(server, query, timeout, tcp):
+        if changing[0] and phase != "doh":
+            stamp[0] = 2
+            steering[0] = True
+        return None if phase == "doh" or (phase == "cache" and changing[0]) else reply(query, 0, 1)
+    def doh(host, path, query, timeout):
+        stamp[0] = 2
+        steering[0] = True
+        return reply(query, 0, 1)
+    r = dns.Resolver(source=lambda: (stamp[0], ["8.8.8.8"]), exchange=exchange, doh_exchange=doh, steering=lambda: steering[0])
+    if phase == "cache":
+        r.resolve(q("api.anthropic.com"))
+    changing[0] = True
+    print(phase, dns.rcode(r.resolve(q("api.anthropic.com"))))
+`)).toEqual(["cache 2", "platform 2", "doh 2"]);
+  });
+
   test("queued exchanges are cancelled when their caller times out", async () => {
     expect(await python(String.raw`
 import concurrent.futures, threading
