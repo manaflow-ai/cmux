@@ -252,6 +252,9 @@ pub enum Command {
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
     Ls {
+        /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
+        #[arg(long)]
+        with_tools: bool,
         /// Only sessions in this state: running, ready, idle, closed, waiting.
         #[arg(long)]
         status: Option<String>,

@@ -473,6 +473,21 @@ impl Hub {
         summary
     }
 
+    /// Census notices intentionally omit tools. Keep an already captured inventory in the
+    /// remote cache so `_acpmux/wait` and other per-session reads do not lose it on a change.
+    fn retain_summary_tools(mut summary: Value, previous: Option<&Value>) -> Value {
+        if summary.get("tools").is_none()
+            && let Some(previous) = previous
+        {
+            for key in ["tools", "toolsMutable"] {
+                if let Some(value) = previous.get(key) {
+                    summary[key] = value.clone();
+                }
+            }
+        }
+        summary
+    }
+
     /// Tell watching clients that a peer session appeared, changed or left.
     fn announce_remote(&self, peer: &str, summary: Value, kind: &str) {
         let Some(id) = summary.get("sessionId").and_then(Value::as_str).map(str::to_owned) else {
@@ -577,6 +592,8 @@ impl Hub {
                                 continue;
                             }
                             let id = receipt.qualified_id();
+                            let previous = old.get(&id);
+                            let summary = Self::retain_summary_tools(summary, previous);
                             if old.remove(&id).as_ref() != Some(&summary) {
                                 changed.push(summary.clone());
                             }
@@ -643,7 +660,7 @@ impl Hub {
                         });
                         return;
                     }
-                    let summary = Self::remote_summary(&peer, session);
+                    let mut summary = Self::remote_summary(&peer, session);
                     let Some(receipt) = session_receipt(&summary) else { return };
                     let id = receipt.qualified_id();
                     {
@@ -656,6 +673,9 @@ impl Hub {
                             .iter()
                             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
                             .map(|(key, _)| key.clone());
+                        let previous =
+                            old_id.as_ref().and_then(|key| map.get(key).map(|r| r.summary.clone()));
+                        summary = Self::retain_summary_tools(summary, previous.as_ref());
                         if let Some(old_id) = old_id {
                             map.take(&old_id);
                         }
@@ -677,7 +697,7 @@ impl Hub {
                             msg: Value::Null,
                             host_seq: None,
                         }),
-                        remote: Some(RemoteRef { peer: peer.clone(), summary }),
+                        remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
                     });
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
@@ -986,11 +1006,20 @@ impl Hub {
     }
 
     /// Each summary once, local before remote, without retaining the JSON trees.
-    pub(super) fn visit_session_summaries(&self, mut visit: impl FnMut(Value)) {
+    pub(super) fn visit_session_summaries(&self, with_tools: bool, mut visit: impl FnMut(Value)) {
         for session in self.sessions() {
-            visit(self.session_summary(&session));
+            visit(if with_tools {
+                self.session_summary(&session)
+            } else {
+                self.session_list_summary(&session)
+            });
         }
-        self.visit_remote_rows(|_| true, visit);
+        self.visit_remote_rows(
+            |_| true,
+            |row| {
+                visit(if with_tools { row } else { super::views::without_summary_tools(row) });
+            },
+        );
     }
 
     /// Every session, local and remote, newest first.
@@ -1174,6 +1203,19 @@ mod tests {
         assert_eq!(summary["sessionReceipt"]["generation"], 23);
     }
 
+    #[test]
+    fn compact_remote_change_keeps_the_cached_tool_inventory() {
+        let previous = json!({
+            "sessionId": "mux-1",
+            "tools": [{"id": "mcp:github"}],
+            "toolsMutable": true,
+        });
+        let compact = json!({"sessionId": "mux-1", "status": "running"});
+        let retained = Hub::retain_summary_tools(compact, Some(&previous));
+        assert_eq!(retained["tools"], previous["tools"]);
+        assert_eq!(retained["toolsMutable"], true);
+    }
+
     /// hq#2509: a peer from before the lane's step and title sends a lane without them;
     /// this daemon decides the lane again so the peer's lanes show a masked step.
     #[test]
@@ -1208,7 +1250,7 @@ mod tests {
         hub.apply_peer_notice("builder", peer.generation, crate::peer::PeerNotice::Sessions(rows));
         let expected = hub.all_session_summaries();
         let mut actual = Vec::new();
-        hub.visit_session_summaries(|row| {
+        hub.visit_session_summaries(true, |row| {
             // A writer can remove rows during serialization without changing this snapshot.
             let mut rows = hub.remote_sessions.try_lock().expect("visitor must not hold row lock");
             let captured: Vec<_> = rows.iter().map(|(id, row)| (id.clone(), row.clone())).collect();
@@ -1253,7 +1295,7 @@ mod tests {
         let ids: Vec<String> = ["x", "y", "solo", "none", "x"].map(str::to_owned).to_vec();
         let all = hub.all_session_summaries();
         let mut streamed = Vec::new();
-        hub.visit_session_summaries(|row| streamed.push(row));
+        hub.visit_session_summaries(true, |row| streamed.push(row));
         super::super::session_pages::sort_session_summaries(&mut streamed);
         assert_eq!(streamed, all, "local and normalized remote summaries agree");
         let some = hub.session_summaries_of(&ids);

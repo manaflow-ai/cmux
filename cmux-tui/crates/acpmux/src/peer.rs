@@ -1045,7 +1045,12 @@ impl Peer {
             let auth = lists(crate::hub::session_auth::FEATURE);
             me.session_auth.store(auth, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
-            me.link_request_on(method::MUX_WATCH, json!({"enabled": true}), Some(link)).await?;
+            me.link_request_on(
+                method::MUX_WATCH,
+                json!({"enabled": true, "withTools": true}),
+                Some(link),
+            )
+            .await?;
             // Connected only now, and ready with it, so its state note follows `connected`.
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
             // a link that dropped meanwhile is seen here: it is not made ready again, and never
