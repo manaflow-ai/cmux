@@ -27,6 +27,10 @@ done
 # One digest over the series, in order: the build-source cache key changes when
 # any patch is added, removed, reordered or edited.
 CMUX_CUA_PATCH_DIGEST="$(cat "${CMUX_CUA_PATCH_FILES[@]}" | shasum -a 256 | awk '{print $1}')"
+# The build that ships inside cmux.app takes machine consent only from the
+# verified cmux host, never from files a caller could redirect
+# (cmux-cua-machine-consent.patch). Released cmux-cua builds leave it off.
+CMUX_CUA_CARGO_FEATURES="cmux-host-consent"
 CMUX_CUA_BUILD_SOURCE_OWNER_FILE=".cmux-cua-managed-build-source"
 CMUX_CUA_BUILD_SOURCE_OWNER_VALUE="cmux-cua-build-source-v1 $CMUX_CUA_PINNED_SHA $CMUX_CUA_PATCH_DIGEST"
 
@@ -500,7 +504,8 @@ for arch in "${ARCHS[@]}"; do
     if CARGO_TARGET_DIR="$target_dir" \
       CARGO_NET_RETRY="${CARGO_NET_RETRY:-5}" \
       CARGO_HTTP_MULTIPLEXING="${CARGO_HTTP_MULTIPLEXING:-false}" \
-      cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cmux-cua --release --target "$target"; then
+      cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cmux-cua --release --target "$target" \
+        --features "$CMUX_CUA_CARGO_FEATURES"; then
       cargo_status=0
       break
     else

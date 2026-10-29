@@ -11,10 +11,19 @@ index bdfbb028..cf2b78ab 100644
   "serde_json",
   "sha2",
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/Cargo.toml b/libs/cmux-cua/rust/crates/cmux-cua-core/Cargo.toml
-index dea1fb8a..b00405a9 100644
+index dea1fb8a..f7e42668 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua-core/Cargo.toml
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/Cargo.toml
-@@ -22,8 +22,21 @@ image = { workspace = true }
+@@ -19,11 +19,30 @@ async-trait = "0.1"
+ # all three platforms call the same code path.
+ image = { workspace = true }
+ 
++[features]
++# The build that ships inside cmux.app: machine consent comes only from the
++# verified cmux host, never from files a caller could redirect. cmux's
++# build-cmux-cua.sh turns it on; released and standalone builds leave it off.
++cmux-host-consent = []
++
  [dev-dependencies]
  tempfile = "3"
  
@@ -71,10 +80,10 @@ index 8409fa7e..084d96a2 100644
  pub mod protocol;
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/machine_consent.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/machine_consent.rs
 new file mode 100644
-index 00000000..02fff801
+index 00000000..5a66cbfb
 --- /dev/null
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/machine_consent.rs
-@@ -0,0 +1,1215 @@
+@@ -0,0 +1,1275 @@
 +//! Machine-join consent at the cmux-cua execution boundary.
 +//!
 +//! A machine joined to a cmux team (acpmux `host join`) gives the team no
@@ -144,8 +153,11 @@ index 00000000..02fff801
 +pub enum Requirement {
 +    /// Reads no screen content and changes nothing the person sees.
 +    Nothing,
++    /// Observation only.
 +    Screen,
-+    Control,
++    /// Acts on the machine: needs `screen` and `control`, the rule acpmux's
++    /// Computer Use bridge enforces, since acting means seeing what is acted on.
++    Act,
 +    /// Both surfaces: tools that read and act (`page`), and any tool this
 +    /// table does not know, so a new tool is gated until it is classified.
 +    Both,
@@ -156,7 +168,7 @@ index 00000000..02fff801
 +        match self {
 +            Requirement::Nothing => &[],
 +            Requirement::Screen => &[Surface::Screen],
-+            Requirement::Control => &[Surface::Control],
++            Requirement::Act => &[Surface::Screen, Surface::Control],
 +            Requirement::Both => &[Surface::Screen, Surface::Control],
 +        }
 +    }
@@ -221,7 +233,7 @@ index 00000000..02fff801
 +        | "set_agent_cursor_style"
 +        | "set_config"
 +        | "install_ffmpeg"
-+        | "replay_trajectory" => Requirement::Control,
++        | "replay_trajectory" => Requirement::Act,
 +
 +        // `page` both reads page content and acts on it.
 +        "page" => Requirement::Both,
@@ -272,10 +284,36 @@ index 00000000..02fff801
 +    fn record_refusal(&self, surface: Surface);
 +}
 +
-+/// The consent source this process uses. The one place to change when the
-+/// answer moves from acpmux's state files to the acpmux daemon.
++/// The consent source this process uses: the one place to change when the
++/// answer moves to the cmux app's authenticated connection.
++///
++/// The build that ships inside cmux.app (feature `cmux-host-consent`) holds
++/// the person's macOS grants, so it trusts no file a caller could redirect:
++/// until the verified-host source exists, it answers [`Unavailable`].
++/// Standalone and released builds keep acpmux's state files, which are
++/// advisory: `$ACPMUX_HOME` is chosen by whoever starts the process.
 +pub fn default_source() -> Arc<dyn ConsentSource> {
-+    Arc::new(StateFiles::FromEnv)
++    #[cfg(feature = "cmux-host-consent")]
++    {
++        Arc::new(Unavailable)
++    }
++    #[cfg(not(feature = "cmux-host-consent"))]
++    {
++        Arc::new(StateFiles::FromEnv)
++    }
++}
++
++/// No trusted answer: joined, nothing granted, so everything that needs
++/// consent refuses.
++#[derive(Debug, Clone, Copy)]
++pub struct Unavailable;
++
++impl ConsentSource for Unavailable {
++    fn status(&self) -> ConsentStatus {
++        ConsentStatus::UNKNOWN
++    }
++
++    fn record_refusal(&self, _surface: Surface) {}
 +}
 +
 +/// Consent read from acpmux's state files.
@@ -895,7 +933,7 @@ index 00000000..02fff801
 +        assert_eq!(read_status(None), ConsentStatus::UNKNOWN);
 +        assert_eq!(
 +            refused_surface(check(&NO_HOME, "click")).as_deref(),
-+            Some("control")
++            Some("screen")
 +        );
 +        assert_eq!(
 +            refused_surface(check(&NO_HOME, "zoom")).as_deref(),
@@ -954,7 +992,7 @@ index 00000000..02fff801
 +        );
 +        assert_eq!(
 +            refused_surface(check_in(home.path(), "click")).as_deref(),
-+            Some("control")
++            Some("screen")
 +        );
 +        assert_eq!(
 +            refused_surface(check_in(home.path(), "page")).as_deref(),
@@ -1017,15 +1055,46 @@ index 00000000..02fff801
 +
 +    #[cfg(any(unix, windows))]
 +    #[test]
-+    fn a_capturing_call_also_needs_screen() {
++    fn control_alone_allows_no_action() {
++        // Acting needs screen and control, as acpmux's bridge enforces.
 +        let home = joined_home();
 +        grant(home.path(), "none", "granted");
-+        let status = read_status(Some(home.path()));
-+        assert_eq!(missing_surface(&status, "click", false), None);
++        for tool in ["click", "type_text", "launch_app", "page", "get_window_state"] {
++            assert_eq!(
++                refused_surface(check_in(home.path(), tool)).as_deref(),
++                Some("screen"),
++                "{tool}"
++            );
++        }
++        assert!(check_in(home.path(), "get_config").is_ok());
++    }
++
++    #[test]
++    fn the_unavailable_source_refuses_everything_that_needs_consent() {
++        assert_eq!(Unavailable.status(), ConsentStatus::UNKNOWN);
 +        assert_eq!(
-+            missing_surface(&status, "click", true),
-+            Some(Surface::Screen)
++            refused_surface(check(&Unavailable, "get_window_state")).as_deref(),
++            Some("screen")
 +        );
++        assert_eq!(
++            refused_surface(check(&Unavailable, "click")).as_deref(),
++            Some("screen")
++        );
++        assert!(check(&Unavailable, "get_config").is_ok());
++    }
++
++    /// The build inside cmux.app never falls back to a file a caller could
++    /// redirect; other builds keep the advisory file reader.
++    #[test]
++    fn the_default_source_follows_the_build() {
++        let home = tempfile::tempdir().unwrap();
++        // An "unjoined" state directory the caller chose.
++        let unjoined = StateFiles::At(Some(home.path().to_owned()));
++        assert!(!unjoined.status().consent_required);
++        let default = default_source().status();
++        if cfg!(feature = "cmux-host-consent") {
++            assert_eq!(default, ConsentStatus::UNKNOWN);
++        }
 +    }
 +
 +    #[test]
@@ -1307,7 +1376,7 @@ index 459a6dbc..d3a4f2b6 100644
      pub fn current_state(&self) -> RecordingState {
          let inner = self.inner.lock().unwrap();
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
-index 013fc39f..ce92b993 100644
+index 013fc39f..057357b1 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
 +++ b/libs/cmux-cua/rust/crates/cmux-cua-core/src/tool.rs
 @@ -481,6 +481,28 @@ pub struct ToolRegistry {
@@ -1721,7 +1790,7 @@ index 013fc39f..ce92b993 100644
 +        join(home.path());
 +        let (registry, screen, control) = counting_registry(home.path());
 +        assert!(refused(&registry.invoke("get_window_state", json!({})).await, "screen"));
-+        assert!(refused(&registry.invoke("click", json!({})).await, "control"));
++        assert!(refused(&registry.invoke("click", json!({})).await, "screen"));
 +        assert_eq!((screen.load(Ordering::SeqCst), control.load(Ordering::SeqCst)), (0, 0));
 +    }
 +
@@ -1789,8 +1858,8 @@ index 013fc39f..ce92b993 100644
 +        });
 +        registry.set_consent_source(source.clone());
 +        assert!(refused(&registry.invoke("get_window_state", json!({})).await, "screen"));
-+        assert!(refused(&registry.invoke("click", json!({})).await, "control"));
-+        assert_eq!(*source.refusals.lock().unwrap(), ["screen", "control"]);
++        assert!(refused(&registry.invoke("click", json!({})).await, "screen"));
++        assert_eq!(*source.refusals.lock().unwrap(), ["screen", "screen"]);
 +        assert!(std::fs::read_dir(home.path()).unwrap().next().is_none());
 +
 +        *source.status.lock().unwrap() = ConsentStatus {
@@ -1970,7 +2039,7 @@ index 013fc39f..ce92b993 100644
 +
 +    #[cfg(any(unix, windows))]
 +    #[tokio::test]
-+    async fn revoking_screen_during_a_recording_stops_capture_but_control_still_acts() {
++    async fn revoking_screen_during_a_recording_refuses_the_action_and_ends_the_recording() {
 +        let home = tempfile::tempdir().unwrap();
 +        let out = tempfile::tempdir().unwrap();
 +        join(home.path());
@@ -1985,8 +2054,8 @@ index 013fc39f..ce92b993 100644
 +        assert_eq!(turn_dirs(out.path()), 1, "a granted action is recorded");
 +
 +        consent(home.path(), "none", "granted");
-+        assert_eq!(registry.invoke("click", json!({})).await.is_error, None);
-+        assert_eq!(control.load(Ordering::SeqCst), 2, "control alone still acts");
++        assert!(refused(&registry.invoke("click", json!({})).await, "screen"));
++        assert_eq!(control.load(Ordering::SeqCst), 1, "acting needs screen too");
 +        assert_eq!(turn_dirs(out.path()), 1, "no turn is captured after the revoke");
 +        assert!(!registry.recording.is_enabled(), "the revoke ended the recording");
 +
@@ -2050,6 +2119,20 @@ index 013fc39f..ce92b993 100644
 +        assert!(!registry.recording.is_enabled());
 +    }
 +}
+diff --git a/libs/cmux-cua/rust/crates/cmux-cua/Cargo.toml b/libs/cmux-cua/rust/crates/cmux-cua/Cargo.toml
+index c73d49f8..616014ab 100644
+--- a/libs/cmux-cua/rust/crates/cmux-cua/Cargo.toml
++++ b/libs/cmux-cua/rust/crates/cmux-cua/Cargo.toml
+@@ -70,6 +70,9 @@ default = []
+ portal-input = ["platform-linux/portal-input"]
+ portal-capture = ["platform-linux/portal-capture"]
+ portal-libei = ["platform-linux/portal-libei"]
++# The build inside cmux.app: machine consent only from the verified cmux
++# host (see cmux-cua-core's feature of the same name).
++cmux-host-consent = ["cmux-cua-core/cmux-host-consent"]
+ 
+ [target.'cfg(target_os = "windows")'.build-dependencies]
+ # Embed the Windows manifest for DPI awareness (fixes coordinate mismatches
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua/src/activity_daemon.rs b/libs/cmux-cua/rust/crates/cmux-cua/src/activity_daemon.rs
 index 83bf9f41..99ef6ba2 100644
 --- a/libs/cmux-cua/rust/crates/cmux-cua/src/activity_daemon.rs
@@ -2071,10 +2154,10 @@ index 83bf9f41..99ef6ba2 100644
              let window_id = args.get("window_id").and_then(Value::as_u64);
 diff --git a/libs/cmux-cua/rust/crates/cmux-cua/tests/machine_consent_test.rs b/libs/cmux-cua/rust/crates/cmux-cua/tests/machine_consent_test.rs
 new file mode 100644
-index 00000000..988d58e5
+index 00000000..f55685d4
 --- /dev/null
 +++ b/libs/cmux-cua/rust/crates/cmux-cua/tests/machine_consent_test.rs
-@@ -0,0 +1,206 @@
+@@ -0,0 +1,211 @@
 +//! Machine-join consent through the real `cmux-cua mcp` stdio server.
 +//!
 +//! One server process stays up across the whole test, the way an MCP server
@@ -2230,13 +2313,18 @@ index 00000000..988d58e5
 +        &acpmux_home.join("machine-credential.json"),
 +        cmux_cua_core::machine_consent::TEST_CREDENTIAL_RECORD,
 +    );
++    // Acting needs screen and control, so an action is refused for screen.
 +    assert_eq!(server.screen().as_deref(), Some("screen"));
-+    assert_eq!(server.control().as_deref(), Some("control"));
++    assert_eq!(server.control().as_deref(), Some("screen"));
 +    let refusal: Value =
 +        serde_json::from_slice(&std::fs::read(acpmux_home.join("consent-refusal.json")).unwrap())
 +            .unwrap();
 +    assert_eq!(refusal["code"], "consent_required");
-+    assert_eq!(refusal["surface"], "control");
++    assert_eq!(refusal["surface"], "screen");
++
++    // Control alone allows no action.
++    consent(&acpmux_home, "none", "granted");
++    assert_eq!(server.control().as_deref(), Some("screen"));
 +
 +    // Screen only: reads run, actions are refused.
 +    consent(&acpmux_home, "granted", "none");
