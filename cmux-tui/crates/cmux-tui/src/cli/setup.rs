@@ -394,8 +394,79 @@ fn status(global: &GlobalArgs) -> Result<Outcome, Refusal> {
         notifications::status(global),
         browser_import::status(global),
         tailnet::status(),
-    ];
+    ]
+    .into_iter()
+    .map(enrich_status)
+    .collect::<Vec<_>>();
     Ok(Outcome { report: json!({"schema_version": 1, "checks": checks}), failed: false })
+}
+
+/// Give every setup check the same agent-facing status and recovery shape while
+/// retaining each task's existing fields. Nested peer/client fixes are folded
+/// into `recovery`, so a failing matrix cell always has an exact command.
+fn enrich_status(mut check: Value) -> Value {
+    let values = recoveries(&check);
+    let status = if has_failure(&check) {
+        "failed"
+    } else {
+        match check["state"].as_str() {
+            Some("ok" | "not_applicable") => "ok",
+            Some("needs_user" | "needs_setup") => "needs_action",
+            _ if !values.is_empty() => "needs_action",
+            _ => "ok",
+        }
+    };
+    let recovery = match values.as_slice() {
+        [] => Value::Null,
+        [one] => one.clone(),
+        many => Value::Array(many.to_vec()),
+    };
+    check["check_status"] = json!(status);
+    check["recovery"] = recovery;
+    check
+}
+
+fn has_failure(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => {
+            map.get("state").and_then(Value::as_str) == Some("failed")
+                || map.get("error").is_some_and(|error| {
+                    !error.is_null() && error.as_str().is_some_and(|text| !text.is_empty())
+                })
+                || map.values().any(has_failure)
+        }
+        Value::Array(values) => values.iter().any(has_failure),
+        _ => false,
+    }
+}
+
+fn recoveries(value: &Value) -> Vec<Value> {
+    fn visit(value: &Value, found: &mut Vec<Value>) {
+        match value {
+            Value::Object(map) => {
+                if let Some(action) = map.get("user_action").filter(|value| !value.is_null()) {
+                    push_unique(found, action.clone());
+                } else if let Some(fix) = map.get("fix").and_then(Value::as_str) {
+                    push_unique(found, json!({"command": fix}));
+                }
+                for (key, child) in map {
+                    if key != "user_action" && key != "fix" {
+                        visit(child, found);
+                    }
+                }
+            }
+            Value::Array(values) => values.iter().for_each(|value| visit(value, found)),
+            _ => {}
+        }
+    }
+    fn push_unique(found: &mut Vec<Value>, value: Value) {
+        if !found.iter().any(|existing| existing == &value) {
+            found.push(value);
+        }
+    }
+    let mut found = Vec::new();
+    visit(value, &mut found);
+    found
 }
 
 #[cfg(test)]
@@ -416,6 +487,67 @@ mod tests {
     /// Every task has a Chief prompt, and the prompt names, in backticks,
     /// the command that does the task: its `cmux setup` command when setup
     /// runs it, else one of its check or apply commands.
+    #[test]
+    fn status_checks_have_typed_recovery_without_losing_task_fields() {
+        let matrix = [
+            ("trust", "needs_setup", "needs_action"),
+            ("machine", "needs_user", "needs_action"),
+            ("harness", "needs_user", "needs_action"),
+            ("mcp", "failed", "failed"),
+            ("computer_use", "not_applicable", "ok"),
+            ("cloud_machine", "ok", "ok"),
+            ("notifications", "needs_user", "needs_action"),
+            ("browser_import", "ok", "ok"),
+            ("tailnet", "unknown", "needs_action"),
+        ];
+        for (task, state, expected) in matrix {
+            let mut check = json!({"task": task, "state": state});
+            if task == "tailnet" {
+                check["fix"] = json!("cmux setup tailnet");
+            }
+            let check = enrich_status(check);
+            assert_eq!(check["check_status"], expected, "{task}: {check}");
+            assert!(check["task"].is_string(), "{task}: task identity was lost");
+        }
+
+        let check = enrich_status(json!({
+            "task": "machine",
+            "state": "needs_setup",
+            "peers": [{"name": "build", "fix": "cmux setup machine build --name build"}],
+        }));
+        assert_eq!(check["recovery"]["command"], "cmux setup machine build --name build");
+        assert_eq!(check["peers"][0]["name"], "build");
+
+        let failed =
+            enrich_status(json!({"task": "harness", "state": "failed", "error": "timeout"}));
+        assert_eq!(failed["check_status"], "failed");
+        assert_eq!(failed["recovery"], Value::Null);
+
+        let multiple = enrich_status(json!({
+            "task": "mcp",
+            "state": "needs_setup",
+            "clients": [{"fix": "cmux setup mcp claude"}, {"fix": "cmux setup mcp codex"}],
+        }));
+        assert_eq!(multiple["check_status"], "needs_action");
+        assert_eq!(multiple["recovery"].as_array().unwrap().len(), 2);
+
+        let nested_failure = enrich_status(json!({
+            "task": "mcp",
+            "state": "needs_setup",
+            "clients": [{"state": "failed", "error": "client timed out"}],
+        }));
+        assert_eq!(nested_failure["check_status"], "failed");
+        assert_eq!(nested_failure["status"], Value::Null);
+
+        let existing = enrich_status(json!({
+            "task": "computer_use",
+            "state": "needs_user",
+            "status": {"phase": "off", "accessibility": false},
+        }));
+        assert_eq!(existing["check_status"], "needs_action");
+        assert_eq!(existing["status"]["phase"], "off");
+    }
+
     #[test]
     fn chief_prompt_on_every_task_names_its_command() {
         assert!(STATUS_PROMPT.contains("`cmux setup status`"), "{STATUS_PROMPT:?}");

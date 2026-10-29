@@ -85,7 +85,7 @@ export const awaitSandboxReady = async (sandbox: CloudSandbox, id: string, o: { 
 export const buildEnvironmentSnapshot = async (sandbox: CloudSandbox, spec: EnvironmentSpec, o: EnvironmentBuildOptions): Promise<EnvironmentBuildResult> => {
   const now = o.now ?? (() => performance.now())
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
-  const digest = await environmentBuildDigest(spec, o.baseImage)
+  const digest = environmentBuildDigest(spec, o.baseImage)
   const started = now()
   let builder: { id: string }
   try {
