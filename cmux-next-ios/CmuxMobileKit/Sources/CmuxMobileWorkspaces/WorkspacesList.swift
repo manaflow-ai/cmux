@@ -38,7 +38,8 @@ public struct WorkspacesList: View {
     /// Opens Settings → Account (the empty state, when no Mac uses this account).
     var openAccount: (() -> Void)?
     @State private var filter: MacFilter
-    @State private var isRetrying = false
+    /// Reloads the failed team/Mac discovery, not just already-connected workspaces.
+    var retryLoad: (() async -> Void)?
     @State private var query = ""
     /// Offline Macs whose rows are unfolded (this session).
     @State private var unfolded: Set<String> = []
@@ -77,7 +78,7 @@ public struct WorkspacesList: View {
 
     public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
                 reconnect: ((String) -> Void)? = nil, linking: MacLinking? = nil,
-                refresh: (() async -> Void)? = nil,
+                refresh: (() async -> Void)? = nil, retryLoad: (() async -> Void)? = nil,
                 switchTeam: ((String) -> Void)? = nil, openAccount: (() -> Void)? = nil,
                 filter: MacFilter = MacFilter(),
                 open: @escaping (Workspace) -> Void) {
@@ -87,6 +88,7 @@ public struct WorkspacesList: View {
         self.reconnect = reconnect
         self.linking = linking
         self.refresh = refresh
+        self.retryLoad = retryLoad
         self.switchTeam = switchTeam
         self.openAccount = openAccount
         _filter = State(initialValue: filter)
@@ -303,14 +305,9 @@ public struct WorkspacesList: View {
         case .loading where store.activeWorkspaces.isEmpty || macs.isEmpty:
             skeleton
         case .failed:
-            EmptyState(
-                symbol: "cloud",
-                title: "Couldn't load workspaces",
-                message: "Check your connection and try again.",
-                primaryTitle: "Retry",
-                isPrimaryLoading: isRetrying,
-                primary: retry
-            )
+            EmptyState(symbol: "cloud", title: "Couldn't load workspaces",
+                       retry: retryLoad == nil ? nil : retry)
+                .accessibilityIdentifier("workspaces.retry")
         case .loading, .loaded:
             if macs.isEmpty {
                 ConnectMacEmptyState(
@@ -1041,13 +1038,8 @@ public struct WorkspacesList: View {
         Binding(get: { scope == value }, set: { if $0 { select(value) } })
     }
 
-    private func retry() {
-        isRetrying = true
-        Task {
-            await Task.yield()
-            store.teamDataState = .loaded
-            isRetrying = false
-        }
+    func retry() async {
+        await retryLoad?()
     }
 }
 

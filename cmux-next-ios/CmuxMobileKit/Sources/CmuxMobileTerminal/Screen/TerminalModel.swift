@@ -11,6 +11,8 @@ import UIKit
 @MainActor
 @Observable
 public final class TerminalModel {
+    /// Recovery supplied by the shell: retries the owning Mac and its attach.
+    public var reconnect: (@MainActor () async -> Void)?
     public let session: any TerminalSession
     public let artifactSource: any ArtifactSource
 

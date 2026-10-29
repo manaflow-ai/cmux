@@ -129,6 +129,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private var feeds: [String: Task<Void, Never>] = [:]
     /// Live mode: a session on the Mac for a terminal tab (a daemon surface),
     /// or nil while there is none yet (the tab then shows "Connecting…").
+    var reconnect: (@MainActor (String) -> Void)?
     var sessionProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (any TerminalSession)?)?
     /// Live mode: the Mac's screen as text for a tab's grid card (D5).
     var screenTextProvider: (@MainActor (WorkspaceTab, _ macID: String?) async -> String?)?
@@ -181,6 +182,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             artifactSource: artifacts ?? TerminalSessionChoice.fallbackArtifactSource(mockDataEnabled: mock),
             title: tab.title
         )
+        model.reconnect = { [weak self, weak session] in
+            self?.reconnect?(workspace.macID)
+            (session as? DaemonTerminalSession)?.reconnect()
+            self?.liveDataChanged()
+        }
         model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
         var frame = lastFrames.removeValue(forKey: tab.id) ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
         if frame == nil, let data = frameStore?.load(tab.id) { frame = UIImage(data: data) }

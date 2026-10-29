@@ -77,12 +77,12 @@ public struct TerminalTabPage: View {
                     // Reattaching: a warm surface keeps its last frame live
                     // under no overlay; a cold tab shows its frame dimmed. The
                     // title pill says "Reattaching…" after 400 ms (SPEC P5).
-                    if let frame = model.coldFrame {
-                        TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: frame, showsLabel: false)
-                            .ignoresSafeArea()
-                            .padding(.bottom, insets.bottom)
-                            .transition(.opacity)
-                    }
+                    TerminalConnectingView(state: model.connectionState, topInset: insets.top,
+                                           lastFrame: model.coldFrame,
+                                           showsLabel: !model.connectionState.showsProgress,
+                                           showsPlaceholder: false, retry: model.reconnect)
+                        .ignoresSafeArea()
+                        .padding(.bottom, insets.bottom)
                 } else if !model.connectionState.isAttached || model.coldFrame != nil {
                     // One view from "Connecting…" to live (R2-5): a tab back
                     // from the warm set or a cold restore shows its last frame
@@ -91,7 +91,7 @@ public struct TerminalTabPage: View {
                     // never a fade over live rows at other positions (R3-4).
                     // (Two views crossfading here flashed the title pill grey.)
                     TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.coldFrame,
-                                           showsLabel: !model.connectionState.isAttached)
+                                           showsLabel: !model.connectionState.isAttached, retry: model.reconnect)
                         .ignoresSafeArea()
                         .padding(.bottom, insets.bottom)
                         .transition(.identity)

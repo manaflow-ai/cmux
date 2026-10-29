@@ -60,6 +60,22 @@ final class WatchReply: @unchecked Sendable {
         #expect(store.items.count == 2)
     }
 
+    @Test func retryAfterFailureCallsTheFeedLoader() async throws {
+        let store = FeedStore(items: [])
+        await store.refresh()
+        #expect(store.refreshError != nil)
+        let watch = WatchReply(Self.waiting)
+        let hub = AcpmuxHub()
+        await hub.bind(try await Self.mac(watch).openChannel(service: "acpmux", args: [:]))
+        let feed = LiveFeed(store: store, hub: hub, place: { _ in nil })
+        store.actions = feed
+        var reconnects = 0
+        await store.retry { reconnects += 1 }
+        #expect(reconnects == 1)
+        #expect(store.refreshError == nil)
+        #expect(Set(store.items.map(\.id)) == ["ask-perm", "turn-s1-t9"])
+    }
+
     @Test func refreshWithNoMacFailsVisibly() async {
         let store = FeedStore(items: [])
         await store.refresh()

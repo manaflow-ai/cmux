@@ -263,6 +263,18 @@ public final class FeedStore {
         }
     }
 
+    /// Explicit recovery also nudges the Macs before reading their feeds again.
+    public func retry(reconnect: @MainActor () -> Void = {}) async {
+        reconnect()
+        await refresh()
+    }
+
+    #if DEBUG
+    public func setRefreshErrorForDemo() {
+        refreshError = Self.notConnectedMessage
+    }
+    #endif
+
     public func clearRefreshError() { refreshError = nil }
 
     /// No Mac to send to: the item keeps its question and says why.

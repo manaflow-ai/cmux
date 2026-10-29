@@ -9,6 +9,7 @@ import SwiftUI
 /// workspace and tab, newest at the top. Selecting a cell opens that tab's chat.
 public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     let sidebarItem: SidebarItem
+    let reconnect: @MainActor () -> Void
     @State private var store = FeedStore.shared
     @Binding private var path: [AgentChatDestination]
     /// The list's scroll commands, whether it shows its top, and the events that arrived above the reader.
@@ -24,8 +25,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     /// `path`: the Feed's navigation stack, owned by the shell so the team
     /// drawer pan stays off while a chat is pushed (the back swipe wins).
-    public init(path: Binding<[AgentChatDestination]>, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
+    public init(path: Binding<[AgentChatDestination]>, reconnect: @escaping @MainActor () -> Void = {}, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
         _path = path
+        self.reconnect = reconnect
         self.sidebarItem = sidebarItem()
         WebMarkdownRenderer.shared.prewarm(count: 2)
     }
@@ -173,6 +175,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary)
             Text(message).font(.footnote).foregroundStyle(.secondary)
             Spacer(minLength: 8)
+            RetryButton { await store.retry(reconnect: reconnect) }
+                .accessibilityIdentifier("feed.retry")
             Button {
                 store.clearRefreshError()
             } label: {

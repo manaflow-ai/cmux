@@ -29,6 +29,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     let macFilter: MacFilter
     /// Live: choosing a Mac links it and moves the Mac Chief and Home to it.
     let selectMac: ((String) -> Void)?
+    let reconnect: ((String) -> Void)?
     @State private var macText = MacFilterMemo()
     @State private var query = ""
     @State private var unreadOnly = false
@@ -38,6 +39,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// `open` pushes a conversation New Message opened onto Home's stack.
     public init(store: AppStore, sources: ChiefSources = .shared, feed: MacHomeFeed = .shared, macFilter: MacFilter = MacFilter(),
+                reconnect: ((String) -> Void)? = nil,
                 selectMac: ((String) -> Void)? = nil,
                 open: @escaping (HomeConversationRoute) -> Void,
                 @ToolbarContentBuilder leading: () -> Leading) {
@@ -46,6 +48,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         self.feed = feed
         self.macFilter = macFilter
         self.selectMac = selectMac
+        self.reconnect = reconnect
         self.open = open
         self.leading = leading()
     }
@@ -63,6 +66,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// The Mac whose Home shows: the one its rows came from, else the Mac Chief's.
     private var homeMacID: String? { feed.macID ?? sources.mac.macID }
+
+    private var homeIsOffline: Bool {
+        guard store.tracksMacData, let homeMacID else { return false }
+        return store.macConnection[homeMacID] != .connected && store.macConnection[homeMacID] != .connecting
+    }
 
     /// Under a Chief's name: where it runs ("Cloud", or the Mac's name), as the Mac's list tags each Chief.
     private var macTag: String? {
@@ -217,8 +225,22 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                stamp: stamp, identifier: "home.chief.mac", place: .mac) { callChiefItem }
                 }
             }
-            if let problem = feed.problem, !searching {
-                note(String(localized: "Couldn't read this Mac's Home: \(problem)"), identifier: "home.note.problem")
+            if !searching, feed.problem != nil || homeIsOffline {
+                VStack(spacing: 6) {
+                    Text(RecoveryMessage.home.text)
+                        .font(.footnote)
+                        .foregroundStyle(theme.colors.label2.color)
+                    RetryButton {
+                        HomeRetryAction(feed: feed, reconnect: reconnect).retry(macID: homeMacID, reconnectNeeded: homeIsOffline)
+                    }
+                    .accessibilityIdentifier("home.retry")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(theme.colors.bg.color)
+                .accessibilityIdentifier("home.note.problem")
             } else if feed.rows == nil, homeMacID != nil, !searching {
                 note(String(localized: "Connecting to \(macTag ?? String(localized: "your Mac"))…"), identifier: "home.note.connecting")
             }
@@ -272,7 +294,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                     focusesComposer: route.focusesComposer)
         }
         .navigationDestination(for: MacConversationRoute.self) { route in
-            MacConversationScreen(route: route, feed: feed)
+            MacConversationScreen(route: route, feed: feed, macID: homeMacID, reconnect: reconnect)
         }
         // Back on Home: read the Cloud Chiefs again (one may be archived or deleted elsewhere), and the Mac's list.
         .task {
@@ -563,27 +585,42 @@ struct MacConversationScreen: View {
     struct SessionKey: Hashable {
         let route: MacConversationRoute
         let epoch: Int
+        let retry: Int
+        // First-open failures have no cached session, so reconnect need not bump the epoch.
+        let hasRows: Bool
+        let homeProblem: String?
     }
 
     let route: MacConversationRoute
     let feed: MacHomeFeed
-    @State private var session: ChiefSession?
-    @State private var failure: String?
+    let macID: String?
+    let reconnect: ((String) -> Void)?
+    @State private var loader = MacConversationLoader()
 
     var body: some View {
         Group {
-            if let session {
+            if let session = loader.session {
                 ChiefConversationScreen(session: session)
-            } else if let failure {
-                ContentUnavailableView(route.title, systemImage: "bubble.left.and.exclamationmark.bubble.right", description: Text(failure))
+            } else if loader.failed {
+                ContentUnavailableView {
+                    Label(route.title, systemImage: "bubble.left.and.exclamationmark.bubble.right")
+                } description: {
+                    Text(RecoveryMessage.conversation.text)
+                } actions: {
+                    RetryButton {
+                        loader.retry(macID: macID, reconnect: reconnect)
+                        feed.refresh()
+                    }
+                    .accessibilityIdentifier("home.conversation.retry")
+                }
             } else {
                 ProgressView().accessibilityIdentifier("home.conversation.loading")
             }
         }
-        // A new link closes the conversation's channel: the screen takes a new session on it.
-        .task(id: SessionKey(route: route, epoch: feed.sessionEpoch)) {
-            failure = nil
-            do { session = try await feed.session(for: route) } catch { failure = MacHomeFeed.reason(error) }
+        // Owned by the screen: a retry button disappearing cannot cancel the load it requested.
+        .task(id: SessionKey(route: route, epoch: feed.sessionEpoch, retry: loader.retryID,
+                             hasRows: feed.rows != nil, homeProblem: feed.problem)) {
+            await loader.load { try await feed.session(for: route) }
         }
     }
 }
