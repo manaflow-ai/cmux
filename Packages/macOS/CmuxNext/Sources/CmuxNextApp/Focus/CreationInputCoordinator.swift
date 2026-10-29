@@ -24,7 +24,9 @@ import CmuxNextTerminal
 /// queued for a renderer to that renderer); they drop only when its owned operation ends without success.
 ///
 /// Invariant (HK1, checked after every change in DEBUG and by the input invariant monitor): captured == delivered +
-/// dropped + waiting, each target's keys in typed order, never delivered to another target.
+/// dropped + waiting, each target's keys in typed order, never delivered to another target. Its routing rule, checked
+/// at each capture and delivery (``heldKeyProblems()``): keys already held go to their stamped target; keys typed after
+/// the creation landed go where the focus is.
 ///
 /// The person's new workspace with a terminal (`newTab` shown in this window, `beginWorkspace`) also claims the window's
 /// keyboard (`KeyboardClaim`) until the person's next intent there: a click, Escape, a focus move of theirs (mouse,
@@ -55,6 +57,12 @@ final class CreationInputCoordinator {
     /// Held keys sent straight to their target's view while the focus was elsewhere, since launch (`debug.focus`: a
     /// journey proves this path ran).
     private(set) var directReplayedCount = 0
+    /// Breaks of HK1's routing rule seen at a capture or a delivery (the input invariant monitor reads them).
+    private var routingProblems: [String] = []
+
+    private func noteRoutingProblem(_ problem: String) {
+        routingProblems = Array((routingProblems + [problem]).suffix(8))
+    }
 
     init(router: KeyRouter) { self.router = router }
 
@@ -268,7 +276,7 @@ final class CreationInputCoordinator {
     }
 
     /// The broken parts of every window's held-key invariant (HK1), empty when it holds (the input invariant monitor).
-    func heldKeyProblems() -> [String] { router?.inputQueues.problems ?? [] }
+    func heldKeyProblems() -> [String] { (router?.inputQueues.problems ?? []) + routingProblems }
 
     /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys typed for it drop, the
     /// rest go on.
@@ -500,6 +508,13 @@ final class CreationInputCoordinator {
         }
         // A chord passes a cold tab's wait that holds nothing (held Ctrl-Tab makes no surface for a tab it passed).
         if !hold.holdsKeys, hold.creations.isEmpty, hold.shown == target, KeyRouter.isChord(event.modifierFlags) { return false }
+        // HK1's rule, second half: a key typed after the creation landed goes where the focus is, never to a landed
+        // creation whose focus went elsewhere.
+        if let controller, let creation = hold.creations.all.first(where: { $0.creation.target == target })?.creation,
+           creation.landed, !creation.newWorkspace, case let state = controller.focus.currentState(),
+           state.expectation?.generation != creation.generation, state.resolved.tab != target.id {
+            noteRoutingProblem("a key typed after \(target) landed was held for it, though the focus names \(state.resolved)")
+        }
         hold.typedAt[target] = max(hold.typedAt[target] ?? 0, current.acts)
         hold.queue.capture(event, for: target)
         syncMode()
@@ -562,6 +577,14 @@ final class CreationInputCoordinator {
         replayedCount += 1
         lastReplays = Array((lastReplays + [(target.id, event.keyCode)]).suffix(16))
         defer { replaying = false }
+        // HK1's rule, first half: a held key goes to its stamped target: that terminal's own view, or the model's target
+        // when that is the stamped one.
+        let stampedView = router.services?.cache.existingTerminal(target.id)?.session.surfaceView
+        if let view, view !== stampedView {
+            noteRoutingProblem("a key held for \(target) went to another view")
+        } else if view == nil, router.focus(for: window).0?.focus.currentState().resolved.tab != target.id {
+            noteRoutingProblem("a key held for \(target) ran while the focus names another target")
+        }
         if let view {
             directReplayedCount += 1
             return router.heldKeys.replay(event, heldBy: .creation, keyWindow: window) { send in send.view(view, event) }
