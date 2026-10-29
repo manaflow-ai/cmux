@@ -4,7 +4,8 @@
 //! by hand over the socket.
 //!
 //! - `list` reads the session summary's `queue` (`_acpmux/info`): one row per prompt, its id,
-//!   sender, age and first line.
+//!   sender, age and first line; `--json` adds each prompt's whole `text` (`_acpmux/queue_text`,
+//!   one request per prompt, since the summary carries a 200-character preview).
 //! - `remove` and `clear` take prompts out one by one through `_acpmux/queue_remove`, the request
 //!   the app's queue rows use: the session log records each `queue_removed`, and the daemon's own
 //!   checks (`author.rs`, a chat being moved, Full access by a machine) hold as they do there.
@@ -25,7 +26,7 @@ use serde_json::{Value, json};
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
 pub enum QueueCmd {
     /// One row per queued prompt: its id, who sent it, how long it has waited and its first
-    /// line, in the order they run.
+    /// line, in the order they run. With --json, each prompt's whole text.
     #[command(alias = "ls")]
     List { session: String },
     /// Take these queued prompts out; each is reported removed or not found.
@@ -52,8 +53,11 @@ pub async fn run(client: &Client, cmd: QueueCmd, json_out: bool) -> Result<()> {
     match cmd {
         QueueCmd::List { session } => {
             let id = crate::cli::resolve::control_id(client, &session).await?;
-            let queue = queue(client, &id).await?;
+            let mut queue = queue(client, &id).await?;
             if json_out {
+                for item in &mut queue {
+                    with_full_text(client, &id, item).await;
+                }
                 print_json(&json!({"sessionId": id, "queue": queue}));
             } else {
                 for line in list_lines(&queue) {
@@ -109,6 +113,22 @@ async fn queue(client: &Client, id: &str) -> Result<Vec<Value>> {
     Ok(info["queue"].as_array().cloned().unwrap_or_default())
 }
 
+/// `item` with its whole text (`text`, from `_acpmux/queue_text`) beside the summary's
+/// 200-character `prompt` preview. One that left the queue meanwhile, or a daemon too old to
+/// answer, leaves `text` null and says why in `textError`.
+async fn with_full_text(client: &Client, id: &str, item: &mut Value) {
+    let prompt_id = item["promptId"].as_str().unwrap_or_default().to_owned();
+    let params = json!({"sessionId": id, "promptId": prompt_id});
+    let (text, error) = match client.request(method::MUX_QUEUE_TEXT, params).await {
+        Ok(v) => (v["text"].clone(), Value::Null),
+        Err(e) => (Value::Null, json!(e.to_string())),
+    };
+    item["text"] = text;
+    if !error.is_null() {
+        item["textError"] = error;
+    }
+}
+
 /// Another agent's message: `fromAgent` names its sender. The person's own prompt, and a
 /// teammate's in a shared chat (`author`), have none.
 fn is_from_agent(item: &Value) -> bool {
@@ -118,7 +138,11 @@ fn is_from_agent(item: &Value) -> bool {
 /// Who sent a queued prompt, as a row shows it.
 fn sender(item: &Value) -> String {
     if let Some(agent) = item["fromAgent"].as_str().filter(|s| !s.is_empty()) {
-        return agent.to_owned();
+        // The sending session, when the daemon bound it (`fromSessionId`).
+        return match item["fromSessionId"].as_str().filter(|s| !s.is_empty()) {
+            Some(from) => format!("{agent} ({})", from.get(..8).unwrap_or(from)),
+            None => agent.to_owned(),
+        };
     }
     match item["author"]["name"].as_str() {
         Some(name) => format!("person:{name}"),
@@ -213,6 +237,8 @@ mod tests {
             json!({"promptId": "t", "fromAgent": null, "author": {"id": "u", "name": "Ana"}});
         assert!(!is_from_agent(&teammate));
         assert_eq!(sender(&teammate), "person:Ana");
+        let bound = json!({"fromAgent": "lane-a", "fromSessionId": "0193f1a2-b3c4-7d5e"});
+        assert_eq!(sender(&bound), "lane-a (0193f1a2)");
     }
 
     #[test]
