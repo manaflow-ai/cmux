@@ -631,11 +631,19 @@
     t.pendingUserChunk = false;
     const push = (x) => t.items.push(x);
     switch (kind) {
-      case 'queued': { const local = t.items.findIndex((x) => x.type === 'user' && x.local && x.text === (msg.text || '')); if (local >= 0) { t.items[local].queued = true; touch(t, local); } else push({ type: 'user', text: msg.text || '', steer: false, queued: true }); break; }
+      case 'queued': {
+        // The prompt id ties this row to the sender's optimistic row, whichever arrives first.
+        const byId = msg.promptId ? t.items.findIndex((x) => x.type === 'user' && x.promptId === msg.promptId) : -1;
+        const local = byId >= 0 ? byId : t.items.findIndex((x) => x.type === 'user' && x.local && x.text === (msg.text || ''));
+        if (local >= 0) { t.items[local].queued = true; if (msg.promptId) t.items[local].promptId = msg.promptId; touch(t, local); }
+        else push({ type: 'user', text: msg.text || '', promptId: msg.promptId, steer: false, queued: true });
+        break;
+      }
       case 'user_message': {
         const incomingText = msg.text || '';
-        const local = t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && (x.text === incomingText || (!incomingText && x.images && x.images.length)));
-        if (local >= 0 && t.items[local].queued) { t.items.splice(local, 1); push({ type: 'user', text: msg.text || '', steer: !!msg.steer, at: ev.at }); t.reorder = true; }
+        const byId = msg.promptId ? t.items.findIndex((x) => x.type === 'user' && x.promptId === msg.promptId && (x.local || x.queued)) : -1;
+        const local = byId >= 0 ? byId : t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && (x.text === incomingText || (!incomingText && x.images && x.images.length)));
+        if (local >= 0 && t.items[local].queued) { const [was] = t.items.splice(local, 1); push({ type: 'user', text: msg.text || '', promptId: msg.promptId || was.promptId, images: was.images, steer: !!msg.steer, at: ev.at }); t.reorder = true; }
         else if (local >= 0) { t.items[local].local = false; t.items[local].at = ev.at || t.items[local].at; touch(t, local); }
         else push({ type: 'user', text: msg.text || '', promptId: msg.promptId, steer: !!msg.steer, at: ev.at });
         break;
@@ -693,10 +701,12 @@
       openDirectory(text === 'cd' ? '' : text.slice(2).trim()); return;
     }
     if (!selected && !draft) return;
+    // Made before the composer locks, so a failure here never leaves it locked.
+    const promptId = newPromptId();
     sendingPrompt = true;
     const fromDraft = draft;
     let sessionId = selected, accepted = false;
-    const uploads = [], promptId = crypto.randomUUID();
+    const uploads = [];
     const accept = () => {
       if (accepted) return;
       accepted = true; sendingPrompt = false; promptAccepts.delete(promptId);
@@ -708,8 +718,12 @@
       }
       const t = state.transcripts.get(sessionId) || newTranscript(); state.transcripts.set(sessionId, t);
       const busy = t.status === 'running' || t.status === 'waiting';
-      // user_message may already have arrived; avoid a second optimistic row then.
-      if (!t.items.some(item => item.promptId === promptId)) {
+      // user_message or queued may already have arrived: give that row the previews instead of adding a second.
+      const known = t.items.findIndex(item => item.type === 'user' && item.promptId === promptId);
+      if (known >= 0) {
+        if (images.length && !(t.items[known].images && t.items[known].images.length)) t.items[known].images = images;
+        touch(t, known);
+      } else {
         t.items.push({ type: 'user', text, images, promptId, steer, local: true, queued: busy && !steer, at: Date.now() });
         touch(t, t.items.length - 1);
       }
@@ -743,6 +757,15 @@
       promptAccepts.delete(promptId);
       if (!accepted) sendingPrompt = false;
     }
+  }
+  // crypto.randomUUID exists only in secure contexts; a dashboard opened over plain HTTP from
+  // another machine still has getRandomValues, so build the same v4 shape from it.
+  function newPromptId() {
+    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    const b = crypto.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+    const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+    return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
   }
   let toastEl = null;
   const toast = (msg) => { if (!toastEl) { toastEl = document.createElement('div'); toastEl.className = 'toast'; document.body.appendChild(toastEl); } toastEl.textContent = msg; toastEl.hidden = false; clearTimeout(toastEl._t); toastEl._t = setTimeout(() => { toastEl.hidden = true; }, 4000); };
