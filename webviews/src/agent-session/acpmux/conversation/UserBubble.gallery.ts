@@ -228,6 +228,30 @@ export default agentPaneEntry({
         ]),
       ),
     },
+    "markdown-parity": {
+      note: "Sent prompts render quotes, lists, inline code, fenced code and links with the transcript renderer. The second prompt has no quote marker.",
+      snapshot: claude(
+        chat([
+          user(
+            "> The uploader retries forever.\n> It should stop after three attempts.\n\nKeep that limit visible.",
+            9,
+            {
+              id: "markdown-quote",
+              seq: 1,
+            },
+          ),
+          assistant("The quote remains distinct from your reply.", 8.5),
+          summary(8.5, { seq: 3, status: "completed" }),
+          user(
+            "1. Keep `retry_count` bounded.\n2. Report **exhausted** attempts.\n\n```text\nretry_count = 3\n```\n\n[Read the retry guide](https://example.com/retry)",
+            6,
+            { id: "markdown-list", seq: 4 },
+          ),
+          assistant("The list, code and link remain formatted after sending.", 5),
+          summary(5, { seq: 6, status: "completed" }),
+        ]),
+      ),
+    },
     "pasted-chip": {
       note: "A pasted 2,300-line stack trace is a chip under the typed question: its first words and line count.",
       snapshot: pastedPrompt(),
