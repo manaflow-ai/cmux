@@ -34,15 +34,20 @@ async fn reply(channel: &mut Channel, buffered: &mut Vec<u8>) -> Value {
 
 #[tokio::test]
 async fn new_tab_uses_the_selection_acknowledged_before_it() {
-    exercise_selection_then_creation(true).await;
+    exercise_selection_then_creation(true, false).await;
 }
 
 #[tokio::test]
 async fn new_tab_on_another_channel_sees_the_acknowledged_selection() {
-    exercise_selection_then_creation(false).await;
+    exercise_selection_then_creation(false, false).await;
 }
 
-async fn exercise_selection_then_creation(same_channel: bool) {
+#[tokio::test]
+async fn a_pending_terminal_wait_does_not_block_mutations_or_input() {
+    exercise_selection_then_creation(true, true).await;
+}
+
+async fn exercise_selection_then_creation(same_channel: bool, terminal_wait: bool) {
     let sockets = tempfile::tempdir().unwrap();
     let folder_a = tempfile::tempdir().unwrap();
     let folder_b = tempfile::tempdir().unwrap();
@@ -77,6 +82,7 @@ async fn exercise_selection_then_creation(same_channel: bool) {
                         let write = Arc::new(Mutex::new(write));
                         let mut lines = BufReader::new(read).lines();
                         let mut delayed = tokio::task::JoinSet::new();
+                        let mut waiting_answer = None;
                         loop {
                             tokio::select! {
                                 line = lines.next_line() => {
@@ -84,6 +90,14 @@ async fn exercise_selection_then_creation(same_channel: bool) {
                                     let request: Value = serde_json::from_str(&line).unwrap();
                                     let mut answer = json!({"id":request["id"],"ok":true,"data":request});
                                     match request["cmd"].as_str() {
+                                        Some("wait-for") => {
+                                            assert_eq!(request["timeout_ms"], 60_000);
+                                            // No reply until a later mutation reaches us. If
+                                            // the host adds this read to its acknowledgement
+                                            // barrier, that mutation can never arrive.
+                                            waiting_answer = Some(answer);
+                                            continue;
+                                        }
                                         Some("select-tab") => {
                                             assert_eq!(request["surface"], 5);
                                             let selected = Arc::clone(&selected);
@@ -100,6 +114,9 @@ async fn exercise_selection_then_creation(same_channel: bool) {
                                         }
                                         Some("new-tab") => {
                                             created_tx.send((request["cwd"].clone(), selected.load(Ordering::SeqCst))).unwrap();
+                                            if let Some(waiting) = waiting_answer.take() {
+                                                write.lock().await.write_all(format!("{waiting}\n").as_bytes()).await.unwrap();
+                                            }
                                         }
                                         Some("send") => {
                                             key_tx.send(Instant::now()).unwrap();
@@ -196,6 +213,11 @@ async fn exercise_selection_then_creation(same_channel: bool) {
     assert_eq!(warm["data"]["cwd"], cwd_a);
     assert_eq!(created_rx.recv().await.unwrap(), (json!(cwd_a), 0));
 
+    if terminal_wait {
+        channel.send(Bytes::from_static(
+            b"{\"id\":\"waiting\",\"cmd\":\"wait-for\",\"surface\":4,\"pattern\":\"ready\",\"timeout_ms\":60000}\n",
+        )).await.unwrap();
+    }
     let began = Instant::now();
     if let Some(mutator) = &mutation_channel {
         mutator.send(Bytes::from_static(
@@ -223,11 +245,15 @@ async fn exercise_selection_then_creation(same_channel: bool) {
             .await
             .unwrap();
     }
-    while answers.len() < 3 {
+    while answers.len() < if terminal_wait { 4 } else { 3 } {
         let answer = reply(&mut channel, &mut buffered).await;
         answers.insert(answer["id"].as_str().unwrap().to_owned(), answer);
     }
     // The host's internal ordered-command IDs never reach the phone.
+    if terminal_wait {
+        assert_eq!(answers["waiting"]["ok"], true);
+        assert_eq!(answers["waiting"]["data"]["timeout_ms"], 60_000);
+    }
     assert_eq!(answers["select"]["ok"], true);
     assert_eq!(answers["create"]["data"]["cwd"], cwd_b);
     assert_eq!(answers["input"]["data"]["text"], "x");

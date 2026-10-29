@@ -387,6 +387,16 @@ fn apply_delta(tree: &mut Value, event: &Value) -> Result<(), ()> {
         _ => return Err(()),
     };
     let position = entities.iter().position(|entity| entity.get(key).and_then(Value::as_u64) == Some(id));
+    if level == "tab"
+        && (matches!(operation, "added" | "closed")
+            || event.get("index").is_some_and(|index| index.as_u64() != position.map(|index| index as u64)))
+    {
+        // Tab deltas carry the tab, but not the pane's active_tab index. An
+        // insertion, removal or reorder can change both that index and which
+        // tab is selected. Refetch the authoritative pane before choosing a
+        // new terminal's cwd; preserving the old index or surface would guess.
+        return Err(());
+    }
     if operation == "closed" {
         if let Some(position) = position {
             entities.remove(position);
@@ -532,8 +542,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(tree["data"]["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["cwd"], "/new");
-        apply_delta(&mut tree, &json!({"event":"tab-closed", "workspace":1,"screen":2,"pane":3,"surface":5}))
-            .unwrap();
         apply_delta(
             &mut tree,
             &json!({"event":"pane-added", "workspace":1,"screen":2,"pane":6,
@@ -556,6 +564,48 @@ mod tests {
         assert_eq!(tree["data"]["workspaces"][0]["key"], "two");
         apply_delta(&mut tree, &json!({"event":"workspace-closed", "workspace":1})).unwrap();
         assert_eq!(tree["data"]["workspaces"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn structural_tab_deltas_wait_for_authoritative_active_selection() {
+        let cases = [
+            // Closing a preceding tab shifts the active index from one to zero.
+            (json!({"event":"tab-closed","surface":4}), json!([{"surface":5,"cwd":"/other"}]), 0),
+            // A new tab may become selected; preserving the old surface is also
+            // unsafe, even if its index could be adjusted mechanically.
+            (
+                json!({"event":"tab-added","surface":6,"index":0,"entity":{"surface":6,"cwd":"/new"}}),
+                json!([{"surface":6,"cwd":"/new"},{"surface":4,"cwd":"/old"},{"surface":5,"cwd":"/other"}]),
+                0,
+            ),
+            (
+                json!({"event":"tab-changed","surface":5,"index":0,"entity":{"surface":5,"cwd":"/other"}}),
+                json!([{"surface":5,"cwd":"/other"},{"surface":4,"cwd":"/old"}]),
+                0,
+            ),
+        ];
+        for (mut event, tabs, active) in cases {
+            let mut before = tree();
+            before["data"]["workspaces"][0]["screens"][0]["panes"][0]["active_tab"] = json!(1);
+            let mut state =
+                Snapshots { views: [Some(Arc::new(before.clone())), None, None], ..Default::default() };
+            event["workspace"] = json!(1);
+            event["screen"] = json!(2);
+            event["pane"] = json!(3);
+            state.event(&event).unwrap();
+            assert!(state.views[TREE].is_none(), "selection must be unavailable after {event}");
+            assert!(state.dirty[TREE]);
+            let pane = &mut before["data"]["workspaces"][0]["screens"][0]["panes"][0];
+            pane["tabs"] = tabs.clone();
+            pane["active_tab"] = json!(active);
+            // The worker clears dirty when it starts the requested snapshot.
+            state.dirty[TREE] = false;
+            state.answer(TREE, before).unwrap();
+            let pane =
+                &state.views[TREE].as_ref().unwrap()["data"]["workspaces"][0]["screens"][0]["panes"][0];
+            let selected = pane["active_tab"].as_u64().unwrap() as usize;
+            assert_eq!(pane["tabs"][selected]["surface"], tabs[active]["surface"]);
+        }
     }
 
     #[test]

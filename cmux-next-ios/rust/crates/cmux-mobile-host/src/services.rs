@@ -286,7 +286,7 @@ async fn chief(
 }
 
 /// Bound an unanswered ordered command; its splice closes on expiry. Terminal
-/// sends and close handling never wait on this timer.
+/// sends, long-running `wait-for` reads and close handling never wait on this timer.
 const SIDE_COMPLETION_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Splices one phone channel to a daemon socket. Responses and refusals
@@ -366,6 +366,16 @@ async fn splice(
                     }
                 }
                 _ => {
+                    // A terminal-output wait is a read, not a mutation barrier.
+                    // Forward it in order after earlier mutations, then let the
+                    // daemon own its requested timeout while later commands run.
+                    // Its response keeps the original ID and needs no cache invalidation.
+                    if is_terminal_wait(&line) {
+                        if ready_tx.send(Verdict::Rewrite(line)).await.is_err() {
+                            return;
+                        }
+                        continue;
+                    }
                     let changes_state = changes_cached_state(&line);
                     let line = with_pane_folder(cache.tree().as_deref(), line);
                     let (line, completion) =
@@ -566,6 +576,12 @@ async fn splice(
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+fn is_terminal_wait(line: &[u8]) -> bool {
+    serde_json::from_slice::<Value>(line)
+        .ok()
+        .is_some_and(|request| request.get("cmd").and_then(Value::as_str) == Some("wait-for"))
 }
 
 /// Reads do not dirty the cached state. Unknown operations conservatively do.
