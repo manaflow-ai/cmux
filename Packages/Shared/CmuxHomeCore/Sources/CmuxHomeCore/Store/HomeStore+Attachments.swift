@@ -98,8 +98,8 @@ extension HomeStore {
     /// (``HomeAttachmentPolicy/maxParts``) the parts go as several messages,
     /// consecutive slices in order (``HomeAttachmentPolicy/messageGroups(_:extraParts:)``):
     /// the first has `key`, each later one its own key, and each uploads the
-    /// blobs its own attachment parts name (the first also every blob no
-    /// attachment part names, a link preview's picture). Every file is checked
+    /// blobs its own parts name (attachments and link preview pictures; the
+    /// first also any blob no part names). Every file is checked
     /// before any message is logged, so a refusal gives the whole draft back.
     /// All of them are logged at once, then go strictly one after another:
     /// this call returns when the first commits, and a failed one holds the
@@ -163,9 +163,15 @@ extension HomeStore {
         try await uploadAndSubmit(key)
     }
 
-    /// The blob an attachment part names; nil for any other part.
+    /// The blob a part names: an attachment's, or a link preview's picture
+    /// (uploaded with the send that names it); nil for any other part.
     private nonisolated static func attachmentHash(_ part: MessagePart) -> String? {
-        if case .attachment(let ref) = part { ref.hash } else { nil }
+        switch part {
+        case .attachment(let ref): ref.hash
+        case .linkPreview(let link): link.image?.hash
+        default: nil
+        }
+    }
     }
 
     /// Logs `op`, a send whose `uploads` go first, under `key`: its row shows

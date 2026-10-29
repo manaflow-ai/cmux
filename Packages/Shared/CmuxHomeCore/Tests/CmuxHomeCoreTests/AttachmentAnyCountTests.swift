@@ -167,6 +167,39 @@ import UniformTypeIdentifiers
         #expect(try await committedGroups(files, in: source) == [files[0..<16].map(\.ref.hash), files[32..<40].map(\.ref.hash)])
     }
 
+    /// Review finding: a link card's picture in a later message was uploaded with the first one,
+    /// so a later message had nothing to upload again if the owner swept that picture before it
+    /// went. Each message now uploads the blobs its own parts name.
+    @MainActor @Test func aLaterMessagesLinkPictureGoesWithThatMessage() async throws {
+        let (store, source) = try await started()
+        var files: [LocalAttachment] = []
+        for index in 0..<16 {
+            files.append(try await store.prepareAttachment(data: Data("card \(index)".utf8), typeIdentifier: UTType.plainText.identifier))
+        }
+        let picture = try await store.prepareAttachment(data: Data("not really a jpeg".utf8), typeIdentifier: UTType.plainText.identifier)
+        let card = LinkPreview(url: "https://example.com", title: "Example",
+                               image: AttachmentDerivedImage(hash: picture.ref.hash, mimeType: picture.ref.mimeType,
+                                                             byteCount: picture.ref.byteCount))
+        let parts: [MessagePart] = files.map { .attachment($0.ref) } + [.linkPreview(card)]
+        // Offline, both messages are logged and wait, so their upload jobs can be read.
+        await source.setOnline(false)
+        await waitUntil { !store.isOnline }
+        _ = try? await store.send(conversation: conversation, parts: parts, uploads: files + [picture])
+        let keys = store.log.entries.map(\.intent.key)
+        try #require(keys.count == 2)
+        let first = Set(store.uploads[keys[0]]?.attachments.map(\.ref.hash) ?? [])
+        let second = Set(store.uploads[keys[1]]?.attachments.map(\.ref.hash) ?? [])
+        #expect(first == Set(files.map(\.ref.hash)))
+        #expect(second == [picture.ref.hash])
+
+        await source.setOnline(true)
+        await waitUntil { store.log.isEmpty }
+        let sent = try await source.snapshot(of: conversation, tail: 20).messages.filter { message in
+            message.parts.contains { if case .linkPreview = $0 { true } else { false } }
+        }
+        #expect(sent.count == 1)
+    }
+
     @MainActor @Test func sixtyFiveFilesSendAsMessagesWithinThePartLimitInOrder() async throws {
         let (store, source) = try await started()
 
