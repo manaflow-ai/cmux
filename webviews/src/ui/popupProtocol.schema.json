@@ -7,7 +7,7 @@
       "type": "string",
       "enum": ["action", "toggle", "choice", "section", "separator", "text", "slider", "submenu", "textField"]
     },
-    "NativePopupEventType": { "type": "string", "enum": ["pick", "change", "search", "highlight", "dismiss"] },
+    "NativePopupEventType": { "type": "string", "enum": ["pick", "change", "search", "highlight", "submit", "dismiss"] },
     "NativePopupSide": { "type": "string", "enum": ["top", "bottom"] },
     "NativePopupAlign": { "type": "string", "enum": ["start", "end"] },
     "NativePopupAnchor": {
@@ -36,6 +36,7 @@
         "keepOpen": { "type": "boolean" }
       }
     },
+    "NativePopupAutoHighlight": { "type": "string", "enum": ["none", "first", "always"] },
     "NativePopupField": {
       "type": "object",
       "required": ["id", "value", "placeholder"],
@@ -43,7 +44,9 @@
         "id": { "type": "string" },
         "value": { "type": "string" },
         "placeholder": { "type": "string" },
-        "disabled": { "type": "boolean" }
+        "disabled": { "type": "boolean" },
+        "submitOnReturn": { "type": "boolean" },
+        "autoHighlight": { "$ref": "#/$defs/NativePopupAutoHighlight" }
       }
     },
     "NativePopupSliderStyle": { "type": "string", "enum": ["accent", "minimal"] },

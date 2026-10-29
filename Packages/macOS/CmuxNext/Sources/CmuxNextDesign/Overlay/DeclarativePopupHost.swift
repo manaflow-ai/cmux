@@ -50,7 +50,7 @@ final class DeclarativePopupHost {
         popup.keepsOpen = { [weak self] event in self?.root.contains(event.window) == true }
         // NativePopupHost installs key-loss handling and the click/escape monitors. Keep that
         // callback intact: replacing it here would skip the host's focus restoration path.
-        content.emit = { [weak self] type, id, value in self?.event(type, id: id, value: value) }
+        content.emit = { [weak self] type, id, value in self?.event(type, id: id, value: value, reason: self?.content.selectionReason) }
         content.openSubmenu = { [weak self] row, view in self?.open(row, from: view) }
         content.dismiss = { [weak self] in self?.dismiss(reason: "escape") }
         content.commit = { [weak self] in self?.root.dismiss(reason: "commit") }
@@ -171,8 +171,8 @@ final class DeclarativePopupHost {
         hide()
     }
 
-    private func event(_ type: NativePopupEventType, id: String?, value: String?) {
-        guard let model, popup.isShown, let id,
+    private func event(_ type: NativePopupEventType, id: String?, value: String?, reason: String? = nil) {
+        guard let model, popup.isShown,
               let current = root.model, current.id == model.id, current.revision == model.revision else { return }
         let rows = Self.enabledRows((current.rail ?? []) + current.rows + (current.footer ?? []))
         let row = rows.first { $0.id == id }
@@ -180,7 +180,10 @@ final class DeclarativePopupHost {
         let action = actionParent?.actions?.first { $0.id == id }
         switch type {
         case .search:
-            guard model.search?.id == id, model.search?.disabled != true else { return }
+            guard let id, model.search?.id == id, model.search?.disabled != true else { return }
+        case .submit:
+            guard let search = model.search, search.submitOnReturn == true, search.disabled != true,
+                  value != nil, id == nil || row != nil else { return }
         case .pick:
             guard (row?.kind == .action && row?.disabled != true) ||
                   (action != nil && action?.disabled != true && actionParent?.disabled != true) else { return }
@@ -191,7 +194,7 @@ final class DeclarativePopupHost {
             guard let row, row.disabled != true else { return }
         case .dismiss: return
         }
-        deliver(NativePopupEvent(type: type, popupId: model.id, revision: model.revision, id: id, value: value))
+        deliver(NativePopupEvent(type: type, popupId: model.id, revision: model.revision, id: id, value: value, reason: type == .submit || type == .highlight ? reason : nil))
         if type == .pick, (action?.keepOpen ?? row?.keepOpen) != true { root.hide() }
     }
 

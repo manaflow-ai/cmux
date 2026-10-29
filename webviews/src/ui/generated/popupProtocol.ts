@@ -11,7 +11,7 @@ export type NativePopupRowKind =
   | "submenu"
   | "textField";
 
-export type NativePopupEventType = "pick" | "change" | "search" | "highlight" | "dismiss";
+export type NativePopupEventType = "pick" | "change" | "search" | "highlight" | "submit" | "dismiss";
 
 export type NativePopupSide = "top" | "bottom";
 
@@ -38,11 +38,15 @@ export interface NativePopupAction {
   keepOpen?: boolean;
 }
 
+export type NativePopupAutoHighlight = "none" | "first" | "always";
+
 export interface NativePopupField {
   id: string;
   value: string;
   placeholder: string;
   disabled?: boolean;
+  submitOnReturn?: boolean;
+  autoHighlight?: NativePopupAutoHighlight;
 }
 
 export type NativePopupSliderStyle = "accent" | "minimal";

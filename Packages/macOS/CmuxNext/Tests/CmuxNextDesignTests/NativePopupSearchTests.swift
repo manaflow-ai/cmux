@@ -25,9 +25,11 @@ import Testing
         #expect(events.last?.0 == "submit")
         #expect(events.last?.1 == nil)
         #expect(events.last?.2 == "typed")
+        #expect(content.selectionReason == "none")
         _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.moveDown(_:)))
         _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
         #expect(events.last?.0 == "submit" && events.last?.1 == "first")
+        #expect(content.selectionReason == "keyboard")
         var next = try model(policy: "none", query: "typed")
         next.revision += 1
         content.update(next)
@@ -38,6 +40,7 @@ import Testing
         let rebuilt = try #require(content.subviews.compactMap { $0 as? NSSearchField }.first)
         _ = content.control(rebuilt, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
         #expect(events.last?.0 == "submit" && events.last?.1 == nil)
+        #expect(content.selectionReason == "none")
     }
 
     @Test func firstHighlightsOnlyAfterTypingAndClearRemovesSelection() throws {
@@ -72,6 +75,10 @@ import Testing
         content.emit = { events.append(($0.rawValue, $1)) }
         _ = content.control(search, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
         #expect(events.last?.0 == "submit" && events.last?.1 == "first")
+        #expect(content.selectionReason == "none")
+        let row = try #require(content.rowView(id: "first") as? PopupRowView)
+        row.onHover?()
+        #expect(content.selectionReason == "pointer")
         events = []
         let editor = NSTextView()
         editor.setMarkedText("composition", selectedRange: NSRange(location: 11, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))

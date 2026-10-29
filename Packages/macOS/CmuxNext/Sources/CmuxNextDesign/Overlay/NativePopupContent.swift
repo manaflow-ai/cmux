@@ -14,6 +14,8 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     private var fields: [String: NSTextField] = [:]
     private var editableControls: [String: NSControl] = [:]
     private var selected: String?
+    private var searchHasInput = false
+    private(set) var selectionReason = "none"
     private var search: NSSearchField?
     private var title: ThemedLabel?
     private var pendingCompositionModel: NativePopupModel?
@@ -33,6 +35,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         }
         let selection = (focused?.value.currentEditor() as? NSTextView)?.selectedRange()
         let priorSelection = selected
+        if next.search?.id != model?.search?.id { searchHasInput = false }
         if next.rows != model?.rows || next.rail != model?.rail || next.footer != model?.footer || next.title != model?.title || next.search?.id != model?.search?.id {
             rebuild(next)
             if let focusedID, let replacement = editableControls[focusedID] ?? fields[focusedID] {
@@ -51,7 +54,13 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         }
         model = next
         selected = next.highlighted ?? priorSelection
-        if !enabledRows.contains(where: { $0.0.id == selected }) { selected = enabledRows.first?.0.id }
+        if selected != priorSelection { selectionReason = "none" }
+        if !enabledRows.contains(where: { $0.0.id == selected }) {
+            let policy = next.search?.autoHighlight
+            let auto = policy == nil || policy == .always || (policy == .first && searchHasInput && next.search?.value.isEmpty == false)
+            selected = auto ? enabledRows.first?.0.id : nil
+            selectionReason = "none"
+        }
         paintSelection()
         layoutRows()
     }
@@ -218,6 +227,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         view.setAccessibilityIdentifier(row.id)
         view.onHover = { [weak self] in
             self?.selected = row.id
+            self?.selectionReason = "pointer"
             self?.paintSelection()
             self?.emit(.highlight, row.id, nil)
         }
@@ -302,7 +312,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             typeahead = event.timestamp - typeaheadTime > 0.8 ? text : typeahead + text
             typeaheadTime = event.timestamp
             if let row = enabledRows.first(where: { $0.0.label.localizedStandardContains(typeahead) }) {
-                selected = row.0.id
+                selected = row.0.id; selectionReason = "keyboard"
                 paintSelection()
             }
             return
@@ -317,6 +327,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
             guard !enabled.isEmpty else { return true }
             let index = enabled.firstIndex(where: { $0.0.id == selected }) ?? (key == 125 ? -1 : 0)
             selected = enabled[(index + (key == 125 ? 1 : -1) + enabled.count) % enabled.count].0.id
+            selectionReason = "keyboard"
             paintSelection()
             emit(.highlight, selected, nil)
             return true
@@ -333,6 +344,11 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() { return }
         let value = field.stringValue
         let isSearch = field === search
+        if isSearch, model?.search?.autoHighlight != nil {
+            searchHasInput = true
+            selected = nil; selectionReason = "none"
+            paintSelection()
+        }
         if var pending = pendingCompositionModel {
             pendingCompositionModel = nil
             if isSearch {
@@ -359,7 +375,14 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         switch commandSelector {
         case #selector(NSResponder.moveDown(_:)): return handleKey(125)
         case #selector(NSResponder.moveUp(_:)): return handleKey(126)
-        case #selector(NSResponder.insertNewline(_:)): return control === search ? handleKey(36) : false
+        case #selector(NSResponder.insertNewline(_:)):
+            guard control === search, let search, search.isEnabled else { return false }
+            if model?.search?.submitOnReturn == true {
+                let id = enabledRows.first(where: { $0.0.id == selected })?.0.id
+                emit(.submit, id, search.stringValue)
+                return true
+            }
+            return handleKey(36)
         case #selector(NSResponder.cancelOperation(_:)): return handleKey(53)
         default: return false
         }
