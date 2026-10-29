@@ -161,6 +161,7 @@ on:
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/build_names.py
+      - scripts/cmux-next/rj_update.py
       - schemas/build-identity/vectors.json
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
@@ -424,6 +425,7 @@ on:
       - scripts/cmux-next/continue-nightly-next.sh
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/build_names.py
+      - scripts/cmux-next/rj_update.py
       - schemas/build-identity/vectors.json
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
@@ -1782,6 +1784,8 @@ jobs:
             python3 -I scripts/cmux-next/tests/test_build_names.py
             # Its view-report rows say what they saw (an unreadable report is not a missing grid).
             python3 -I scripts/cmux-next/tests/test_rj_rows.py
+            # Its update to another build installs B with the running copy's identity (rj_update.py).
+            python3 -I scripts/cmux-next/tests/test_rj_update.py
             # The fleet sidebar benches emit receipts; this portable test keeps their validator deterministic.
             python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py
             bash scripts/cef/tests/test-embedder-step.test.sh
