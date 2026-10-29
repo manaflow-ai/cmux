@@ -3132,6 +3132,10 @@ QUALITY_CASES = {
                             "    let text = try String(contentsOf: root.appending(path: \"Sources/CmuxFoo/Box.swift\"), encoding: .utf8)\n"
                             "    #expect(text.contains(\"NSLock\"))\n}\n",
                             "import Testing\n@testable import CmuxFoo\n@Test func box() {\n    #expect(Box().count == 0)\n}\n"),
+    "assume-isolated": (f"{SHARED}/Hop.swift",
+                        "func apply() {\n    MainActor.assumeIsolated { render() }\n}\n",
+                        "func apply() {\n    // main-proof: AppKit calls this display link callback on the main thread\n"
+                        "    MainActor.assumeIsolated { render() }\n}\n"),
     "multi-type-file": (f"{SHARED}/Pair.swift",
                         "public struct Left {\n    public let x = 0\n}\n\npublic struct Right {\n    public let y = 0\n}\n",
                         "public struct Left {\n    public let x = 0\n}\n\nprivate struct Helper {\n    let y = 0\n}\n"),
@@ -3313,13 +3317,47 @@ class QualityRatchetTests(Fixture):
         self.assertIn("static-shared", ids)
         self.assertIn("quality-baseline", ids)
 
+    def test_assume_isolated_takes_either_escape_and_is_not_judged_twice_in_cmux_next(self):
+        for line in ("model.assumeIsolated { $0.apply() }", "MainActor.assumeIsolated { render() }"):
+            with self.subTest(line=line):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(f"{SHARED}/Hop.swift", f"func f() {{\n    {line}\n}}\n")
+                self.commit("adds an assumeIsolated")
+                self.assertIn("assume-isolated", self.ids())
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{SHARED}/Hop.swift", "func f() {\n    // concurrency-allow: the C callback runs on the main queue\n"
+                                          "    MainActor.assumeIsolated { render() }\n}\n")
+        self.write(f"{KIT}/Hop.swift", "func f() {\n    MainActor.assumeIsolated { render() }\n}\n")
+        self.commit("an escaped one, and one in CmuxNext (crash_ratchet.py's)")
+        self.assertNotIn("assume-isolated", self.ids())
+
+    def test_a_rule_new_to_the_base_json_brings_its_baseline_once(self):
+        # The base's json predates assume-isolated; the push's first commit that introduces the rule is its
+        # reference: its old sites pass, a later rewrite that lists new debt does not.
+        path, bad, _ = QUALITY_CASES["assume-isolated"]
+        data = json.loads(self.baseline())
+        del data["sites"]["assume-isolated"]
+        self.rebase_on({guardrails.QUALITY_BASELINE: json.dumps(data, indent=1)}, "a baseline from before the rule")
+        self.write(path, bad)
+        self.commit("old assumeIsolated")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("the rule's first baseline")
+        self.assertEqual([i for i in self.ids() if i in ("assume-isolated", "quality-baseline")], [])
+        self.write(f"{SHARED}/Hop2.swift", "func g() {\n    MainActor.assumeIsolated { draw() }\n}\n")
+        self.commit("a new one")
+        self.write(guardrails.QUALITY_BASELINE, self.baseline())
+        self.commit("the baseline written again, with the new one")
+        ids = self.ids()
+        self.assertIn("assume-isolated", ids)
+        self.assertIn("quality-baseline", ids)
+
     def test_the_counts_name_each_rule_and_the_rules_are_listed(self):
         for rule, (path, bad, _) in QUALITY_CASES.items():
             self.write(path, bad)
         self.commit("one of each")
         data = json.loads(self.baseline())
         self.assertEqual(data["counts"], {"carve-out": 1, "static-shared": 1, "product-sleep": 1,
-                                          "source-reading-test": 1, "multi-type-file": 1})
+                                          "source-reading-test": 1, "multi-type-file": 1, "assume-isolated": 1})
         listed = {r.id for r in guardrails.RULES}
         self.assertTrue(set(QUALITY_CASES) | {"quality-baseline"} <= listed)
         self.assertTrue(all(r.local_only for r in guardrails.QUALITY_RULES))
