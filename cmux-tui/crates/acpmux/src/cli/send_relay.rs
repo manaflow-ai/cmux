@@ -94,18 +94,6 @@ pub(crate) struct Relayed {
     pub output: Option<String>,
 }
 
-/// Run the relay for SESSION with TEXT on stdin; `capture` keeps its stdout instead of passing
-/// it through.
-pub(crate) fn relay(
-    relay: &SendRelay,
-    session: &str,
-    text: &str,
-    from: Option<&str>,
-    capture: bool,
-) -> Result<Relayed> {
-    relay_with_deadline(relay, session, text, from, capture, None)
-}
-
 /// Run a relay while respecting the caller's absolute deadline. The child is
 /// put in its own process group so expiry can only terminate this command and
 /// any descendants it started.
@@ -203,17 +191,6 @@ fn terminate_child(child: &mut Child) {
 
 /// `acpmux send` to a target nobody here resolves, with a relay configured: run it, print what
 /// it printed and exit with its status (a refusal is an error that exits with it).
-pub(crate) fn send(
-    config: &SendRelay,
-    session: &str,
-    text: &str,
-    from: Option<&str>,
-    attachments: bool,
-    json_out: bool,
-) -> Result<()> {
-    send_with_deadline(config, session, text, from, attachments, json_out, None)
-}
-
 pub(crate) fn send_with_deadline(
     config: &SendRelay,
     session: &str,
@@ -327,11 +304,13 @@ mod tests {
         );
         let config = SendRelay { argv: vec![script.display().to_string(), "send".into()] };
 
-        let done = relay(&config, "lane-b", "hello\nthere", Some("vm/lane"), true).unwrap();
+        let done =
+            relay_with_deadline(&config, "lane-b", "hello\nthere", Some("vm/lane"), true, None)
+                .unwrap();
         assert_eq!(done, Relayed { status: 0, output: Some("delivery-42".into()) });
         assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|lane-b|-|vm/lane|hello\nthere");
 
-        let done = relay(&config, "refuse", "x", None, true).unwrap();
+        let done = relay_with_deadline(&config, "refuse", "x", None, true, None).unwrap();
         assert_eq!(done.status, 7);
         assert_eq!(std::fs::read_to_string(&seen).unwrap(), "send|refuse|-|unset|x");
 
@@ -343,18 +322,18 @@ mod tests {
         );
         let early = SendRelay { argv: vec![early.display().to_string()] };
         let big = "x".repeat(1 << 20);
-        let e = relay(&early, "lane-b", &big, None, true).unwrap_err();
+        let e = relay_with_deadline(&early, "lane-b", &big, None, true, None).unwrap_err();
         assert!(e.to_string().contains("did not read the whole message"), "{e}");
 
         let missing = SendRelay { argv: vec![dir.join("absent").display().to_string()] };
-        assert!(relay(&missing, "lane-b", "x", None, true).is_err());
+        assert!(relay_with_deadline(&missing, "lane-b", "x", None, true, None).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_relayed_send_with_attachments_is_refused() {
         let config = SendRelay { argv: vec!["/nonexistent/relay".into()] };
-        let e = send(&config, "lane-b", "x", None, true, true).unwrap_err();
+        let e = send_with_deadline(&config, "lane-b", "x", None, true, true, None).unwrap_err();
         assert_eq!(e.downcast_ref::<AppError>().map(|a| a.code), Some(Code::Usage));
         assert!(e.to_string().contains("text only"), "{e}");
     }
