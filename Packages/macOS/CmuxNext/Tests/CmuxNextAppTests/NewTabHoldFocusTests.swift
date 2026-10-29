@@ -202,4 +202,33 @@ struct NewTabHoldFocusTests {
             #expect(!input.isHolding(in: window), "the page's hold outlived the person's move: \(input.log)")
         }
     }
+
+    /// Held keys never run inside another action's run (review finding 7): a focus settle that comes inside a run (a
+    /// failed creation's task reduces the focus model in its turn) used to drain the New Tab hold there, so the keys ran
+    /// with that run's view-change permission and origin. They run in a fresh turn, outside any run.
+    @Test func heldKeysNeverRunInsideAnotherActionsRun() async throws {
+        try await Self.withUnreadyPage { h in
+            let (services, controller, window, other, page) = (h.services, h.controller, h.window, h.other, h.page)
+            let router = services.keyRouter
+            let input = router.newTabInputCoordinator
+            let token = try #require(input.begin(for: other))
+            input.didShow(in: window)
+            #expect(router.interceptKeyDown(try Self.key("h", keyCode: 4, in: window), in: window), "the hold did not take the key")
+            // The field reports ready while its page is hidden: the keys keep waiting.
+            page.isHidden = true
+            input.acknowledge(token, in: window)
+            page.isHidden = false
+            #expect(input.isHolding(in: window), "the keys went while the page was hidden: \(input.log)")
+            var scopes: [ActionRunScope?] = []
+            router.keyRecorder = { _, _ in scopes.append(ActionRunScope.current); return false }
+            defer { router.keyRecorder = nil }
+
+            // A settle inside a script's run.
+            ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: false)) {
+                router.focusDidSettle(controller.focus.state, in: window)
+            }
+            try await PasswordManagerRouteTests.until({ !scopes.isEmpty }, within: .seconds(2), report: { "the held key never ran: \(input.log)" })
+            #expect(scopes.allSatisfy { $0 == nil }, "a held key ran inside another action's run: \(scopes)")
+        }
+    }
 }
