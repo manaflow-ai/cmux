@@ -297,10 +297,7 @@ struct DevicesPage: View {
                     }
                 }
                 Text(subtitle(device)).font(theme.type.meta).foregroundStyle(theme.colors.label2)
-                if device.kind == .mac, device.online == true,
-                   let link = device.ids.lazy.compactMap({ store.macLinkStatus[$0] }).first {
-                    Text(link).font(theme.type.meta).foregroundStyle(theme.colors.label2).lineLimit(2)
-                }
+
             }
         }
         .accessibilityElement(children: .combine)
@@ -316,7 +313,7 @@ struct DevicesPage: View {
         }
         let presence: String
         if device.online == true {
-            presence = status(device)?.text ?? "Online"
+            presence = device.ids.lazy.compactMap { store.macLinkStatus[$0] }.first ?? status(device)?.text ?? "Online"
         } else if let seen = device.lastSeenAt {
             // The formatter and clock Workspaces uses ("Last seen 2h ago"); reading
             // the clock redraws the page on each minute tick.

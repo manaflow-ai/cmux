@@ -432,6 +432,7 @@ struct NotificationsPage: View {
 /// builds add the Relay only developer switch.
 struct TransportPage: View {
     let settings: SettingsStore
+    let store: AppStore
     /// Whether the service has a relay (nil: not known yet).
     let relayAvailable: Bool?
     #if DEBUG
@@ -451,9 +452,7 @@ struct TransportPage: View {
                         theme.haptics.selection()
                     } label: {
                         HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                UnbrokenText(kind.pickerTitle).foregroundStyle(theme.colors.label)
-                            }
+                            UnbrokenText(kind.pickerTitle).foregroundStyle(theme.colors.label)
                             Spacer(minLength: 8)
                             Image(systemName: "checkmark")
                                 .font(.body.weight(.semibold))
@@ -469,32 +468,20 @@ struct TransportPage: View {
                 }
             } footer: {
                 if relayAvailable == false {
-                    Text("Relay unavailable. Connections from outside your network may fail.")
+                    Text("Relay unavailable. Connections from outside your network may fail. Switching reconnects to your Macs.")
+                } else {
+                    Text("Switching reconnects to your Macs.")
                 }
             }
             #if !DEBUG
             Section {
-                DisclosureGroup("Connection details") {
-                    ForEach(TransportKind.allCases) { kind in
-                        Text(Self.detail(kind))
-                            .font(theme.type.meta)
-                            .foregroundStyle(theme.colors.label2)
-                            .cmuxMobileTextColumn()
-                    }
-                }
+                TransportDetails(store: store)
             }
             #endif
             #if DEBUG
             // No icons, as the transport choices above: the page keeps one text column.
             Section {
-                DisclosureGroup("Connection details") {
-                    ForEach(TransportKind.allCases) { kind in
-                        Text(Self.detail(kind))
-                            .font(theme.type.meta)
-                            .foregroundStyle(theme.colors.label2)
-                            .cmuxMobileTextColumn()
-                    }
-                }
+                TransportDetails(store: store, explainsDeveloperOptions: true)
                 Toggle(isOn: $relayOnly) {
                     Text("Relay only")
                 }
@@ -512,26 +499,54 @@ struct TransportPage: View {
                 .accessibilityIdentifier("settings.transport.browserVideoOnChannel")
             } header: {
                 Text("Developer")
-            } footer: {
-                Text(relayAvailable == false ? "Relay unavailable." : "Developer switches apply at the next connection.")
             }
             #endif
         }
         .settingsPage("Transport")
     }
 
-    static func subtitle(_ kind: TransportKind) -> String {
-        switch kind {
-        case .wireguard: String(localized: "Direct when possible.")
-        case .webrtc: String(localized: "Works across more networks.")
-        }
-    }
+}
 
-    static func detail(_ kind: TransportKind) -> String {
-        switch kind {
-        case .wireguard: String(localized: "Encrypted tunnel to your Mac. Browser tabs use WebRTC when it is faster.")
-        case .webrtc: String(localized: "One WebRTC connection, direct when possible and relayed when needed.")
+/// Live connection information is available on demand without filling normal status lines.
+struct TransportDetails: View {
+    let store: AppStore
+    var explainsDeveloperOptions = false
+    #if DEBUG
+    @State private var expanded = UserDefaults.standard.bool(forKey: "cmux-mobile-transport-details")
+    #else
+    @State private var expanded = false
+    #endif
+
+    var body: some View {
+        DisclosureGroup("Connection details", isExpanded: $expanded) {
+            if store.macLinkDiagnostics.isEmpty {
+                Text("No active connections.")
+                    .foregroundStyle(theme.colors.label2)
+            } else {
+                ForEach(store.macLinkDiagnostics.keys.sorted(), id: \.self) { macID in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(verbatim: store.teams.lazy.flatMap(\.macs).first(where: { $0.id == macID })?.name ?? String(localized: "Mac"))
+                            .font(theme.type.rowTitle)
+                        Text(verbatim: store.macLinkDiagnostics[macID] ?? "")
+                            .font(theme.type.meta)
+                            .foregroundStyle(theme.colors.label2)
+                            .textSelection(.enabled)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            #if DEBUG
+            if explainsDeveloperOptions {
+                Text("Relay only forces TURN. Block UDP uses TURN over TLS for WireGuard; WebRTC is unchanged. Both reconnect immediately.")
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+                Text("Browser video on channel skips the media lane at the next connection.")
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+            }
+            #endif
         }
+        .accessibilityIdentifier("settings.transport.details")
     }
 }
 

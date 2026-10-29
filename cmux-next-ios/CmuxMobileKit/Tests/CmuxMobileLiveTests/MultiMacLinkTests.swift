@@ -282,6 +282,44 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         #expect(live.focusedMacID == "m1")
     }
 
+    @Test func bannerRetryRedialsTheFocusedMacAndKeepsErrorsInDiagnostics() async throws {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        let session = try #require(live.sessions["m1"])
+        session.outdated = false
+        session.chatsError = "acpmux channel closed"
+        session.daemonError = "list-workspaces reply is not an object"
+        live.phaseChanged(session)
+        #expect(store.macLinkStatus["m1"] == "Connected")
+        #expect(store.macLinkDiagnostics["m1"]?.contains("acpmux channel closed") == true)
+        #expect(store.macLinkDiagnostics["m1"]?.contains("list-workspaces reply is not an object") == true)
+
+        // Fail a redial synchronously so Retry must bypass its backoff.
+        let link = session.link
+        link.send(.linkDropped(generation: link.dialGeneration, reason: "dropped"))
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
+        guard case .waiting = link.phase else {
+            Issue.record("expected retry backoff")
+            return
+        }
+        let generation = link.dialGeneration
+        live.retryConnection()
+        #expect(link.dialGeneration > generation)
+        guard case .connecting = link.phase else {
+            Issue.record("Retry did not begin a dial")
+            return
+        }
+        #expect(live.focusedMacID == "m1")
+        #expect(dialer.dialCount("m2") == 0)
+    }
+
     /// Review blocker: a chat tab id repeats across Macs; each Mac's chat is its own.
     @Test func chatsOfTwoMacsWithTheSameTabIDAreSeparate() {
         let sessions = AgentSessionDirectory()

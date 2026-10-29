@@ -399,6 +399,9 @@ final class ShellModel {
         #if DEBUG
         // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset`.
         switch UserDefaults.standard.string(forKey: "cmux-mobile-banner-demo") {
+        case "connected"?: return .connected
+        case "reconnecting"?: return .reconnecting(to: "Mac Studio")
+        case "offline"?: return .connectionFailed
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
         case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
         default: break

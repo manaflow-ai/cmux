@@ -121,7 +121,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     Text("Advanced").cmuxMobileTextColumn()
                 }
                 #if DEBUG
-                DeveloperSection(auth: auth)
+                DeveloperSection(auth: auth, store: store)
                 #endif
                 Section {
                     LinkRow("Help", symbol: "questionmark.circle", url: "https://cmux.com/docs")
@@ -222,7 +222,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             if let team = store.activeTeam {
                 TeamPage(team: team, auth: auth, edit: { editingTeam = team }, invite: { inviteToTeam(team) })
             }
-        case .transport: TransportPage(settings: settings, relayAvailable: directory?.relayAvailable)
+        case .transport: TransportPage(settings: settings, store: store, relayAvailable: directory?.relayAvailable)
         case .devices: DevicesPage(store: store, directory: directory, list: deviceList)
         case .terminal: TerminalPage(settings: settings)
         case .terminalSizing: TerminalSizingMacsPage(store: store)
@@ -495,6 +495,7 @@ private struct DiagonalHalf: Shape {
 /// Transport page.
 private struct DeveloperSection: View {
     let auth: CmuxMobileAuthModel
+    let store: AppStore
     @AppStorage(DeveloperOptions.mockDataKey) private var mockData = false
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
     @AppStorage(DeveloperOptions.slowFaceIDKey) private var slowFaceID = false
@@ -503,6 +504,7 @@ private struct DeveloperSection: View {
     var body: some View {
         let mock = DeveloperOptions.mockSwitch(stored: mockData)
         Section {
+            TransportDetails(store: store)
             Toggle(isOn: Binding(get: { mock.on }, set: { mockData = $0 })) {
                 SettingsLabel("Mock (layout only)", symbol: "theatermasks")
             }

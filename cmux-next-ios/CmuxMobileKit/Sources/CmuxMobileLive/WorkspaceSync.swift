@@ -15,7 +15,11 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "daemon")
 public final class WorkspaceSync {
     public private(set) var tree: DaemonTree?
     public private(set) var identity: String?
-    public private(set) var lastError: String?
+    public private(set) var lastError: String? {
+        didSet { if lastError != oldValue { onErrorChanged?() } }
+    }
+    /// Updates explicit diagnostics when a later refresh fails or recovers.
+    @ObservationIgnored var onErrorChanged: (@MainActor () -> Void)?
 
     @ObservationIgnored public var onTree: (@MainActor (DaemonTree) -> Void)?
     /// A notification was posted on the Mac (terminal agents, `cmux notify`).

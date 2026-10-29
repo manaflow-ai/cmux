@@ -411,6 +411,17 @@ struct ShellView: View {
     init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, live: LiveCoordinator?, options: ShellLaunchOptions) {
         let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
         shell.attach(live: live)
+        #if DEBUG
+        // Synthetic connection metadata for captures; never reads a real machine.
+        if auth.isMock, UserDefaults.standard.bool(forKey: "cmux-mobile-link-status-demo"),
+           let mac = store.activeTeam?.macs.first {
+            let phase = LinkMachine.Phase.connected(.wireGuard, .direct, rttMillis: 27)
+            let status = phase.statusLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
+            let detail = phase.diagnosticLine(macName: mac.name, media: .up(.turn, rttMillis: 30))
+            if store.macLinkStatus[mac.id] != status { store.macLinkStatus[mac.id] = status }
+            if store.macLinkDiagnostics[mac.id] != detail { store.macLinkDiagnostics[mac.id] = detail }
+        }
+        #endif
         if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
         if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
             shell.tab = .settings

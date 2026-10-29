@@ -234,13 +234,28 @@ extension LinkMachine.Phase {
     public func statusLine(macName _: String, media _: VideoMediaState = .off) -> String? {
         switch self {
         case .idle: nil
-        case .macOffline: "Offline · Retry"
+        case .macOffline: "Offline"
         case .connecting: "Reconnecting…"
         case .connected: "Connected"
         case .waiting(_, _, let reason, _):
             reason == LinkController.reason(LinkError(code: "offline", message: ""))
-                ? "Offline · Retry"
+                ? "Offline"
                 : "Reconnecting…"
+        }
+    }
+
+    /// Technical detail for the explicit diagnostics disclosure only.
+    public func diagnosticLine(macName: String, media: VideoMediaState = .off) -> String? {
+        switch self {
+        case .idle: nil
+        case .macOffline: "\(macName) is offline"
+        case .connecting(let transport, let attempt):
+            "\(transport.displayName) connecting · attempt \(attempt)"
+        case .connected(let transport, let path, let rtt):
+            ["Connected", "\(transport.displayName) \(path.displayName)", media.statusLabel, rtt.map { "\($0) ms" }]
+                .compactMap { $0 }.joined(separator: " · ")
+        case .waiting(let transport, _, let reason, let retryIn):
+            "\(transport.displayName) failed: \(reason) · retrying in \(retryIn.components.seconds) s"
         }
     }
 

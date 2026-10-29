@@ -57,9 +57,15 @@ extension LiveCoordinator {
             }
             _ = try WorkspaceSync.check(try await client.request("send", params: ["surface": surface, "bytes": bytes.base64EncodedString()]))
         }
+        session.workspaces.onErrorChanged = { [weak self, weak session] in
+            guard let self, let session else { return }
+            self.updateDiagnostics(session)
+        }
         session.workspaces.onTree = { [weak self, weak session] tree in
             guard let self, let session else { return }
+            session.daemonError = nil
             self.apply(tree, session: session)
+            self.updateDiagnostics(session)
         }
         session.terminalFeed.send = { [weak session] surface, text, expectForeground, agentSession, connection in
             guard let agentSession else { throw LinkError(code: "no-session", message: "The agent session is not known") }
@@ -275,6 +281,8 @@ extension LiveCoordinator {
     /// Opens the `daemon` channel and loads the workspaces; a failure or a
     /// Mac that never answers shows as a failure with Retry.
     private func bindWorkspaces(_ session: MacSession, _ link: any MacLink, prepared: Result<WorkspaceSync.Prepared, LinkError>? = nil) {
+        session.daemonError = nil
+        updateDiagnostics(session)
         armWorkspacesDeadline(session, link)
         let macID = session.macID
         Task { [weak self] in
@@ -290,12 +298,16 @@ extension LiveCoordinator {
                 }
                 // The link may have moved on (closed, or this Mac was removed).
                 if let error = session.workspaces.lastError, session.currentLink === link, self.store.macData[macID]?.source != .live {
-                    self.store.handleMacData(.failed(error), macID: macID)
+                    session.daemonError = error
+                    self.updateDiagnostics(session)
+                    self.store.handleMacData(.failed("Offline"), macID: macID)
                 }
             } catch {
                 log.error("daemon channel: \(String(describing: error), privacy: .public)")
                 if session.currentLink === link {
-                    self.store.handleMacData(.failed(LinkController.reason(error)), macID: macID)
+                    session.daemonError = LinkController.reason(error)
+                    self.updateDiagnostics(session)
+                    self.store.handleMacData(.failed("Offline"), macID: macID)
                 }
             }
         }
@@ -313,8 +325,17 @@ extension LiveCoordinator {
             // timeout fails the channel itself.
             if session.pairingState.isWaiting { return }
             log.error("workspaces did not arrive in time")
-            self.store.handleMacData(.failed("the Mac didn't send its workspaces"), macID: macID)
+            session.daemonError = "the Mac didn't send its workspaces"
+            self.updateDiagnostics(session)
+            self.store.handleMacData(.failed("Offline"), macID: macID)
         }
+    }
+
+    /// Retry the Mac represented by the global connection banner.
+    public func retryConnection() {
+        if store.isOffline || focused?.link.phase == .macOffline { retry() }
+        else if let focused { retry(macID: focused.macID) }
+        else { retry() }
     }
 
     /// Retry for a Mac (the Workspaces Retry and Reconnect): pairs the link
@@ -807,9 +828,9 @@ extension LiveCoordinator {
             }
         case .connected:
             store.macConnection[macID] = .connected
-        case .waiting(_, _, let reason, _):
-            store.handleMacData(.failed(reason), macID: macID)
-            store.macConnection[macID] = .failed(reason)
+        case .waiting:
+            store.handleMacData(.failed("Offline"), macID: macID)
+            store.macConnection[macID] = .failed("Offline")
         }
         scheduleSnapshotSave()
     }
@@ -852,12 +873,23 @@ extension LiveCoordinator {
                   let line = session.link.phase.statusLine(macName: target.name, media: session.link.media) else { continue }
             // Keep the section header actionable and calm. Raw acpmux/daemon
             // failures belong in diagnostics, never in the normal status line.
-            status[target.macID] = line
+            status[target.macID] = session.outdated ? "\(line) · Update cmux on this Mac" : line
         }
         return status
     }
 
+    private func updateDiagnostics(_ session: MacSession) {
+        guard sessions[session.macID] === session else { return }
+        var parts = [session.link.phase.diagnosticLine(macName: session.name, media: session.link.media)]
+        if let error = session.chatsError { parts.append("Chats: \(error)") }
+        if let error = session.daemonError ?? session.workspaces.lastError { parts.append("Workspaces: \(error)") }
+        let detail = parts.compactMap { $0 }.joined(separator: "\n")
+        let value = detail.isEmpty ? nil : detail
+        if store.macLinkDiagnostics[session.macID] != value { store.macLinkDiagnostics[session.macID] = value }
+    }
+
     func phaseChanged(_ session: MacSession) {
+        updateDiagnostics(session)
         updateMacState(session)
         updateTerminalsOffline(session)
         let status = statusLines()
@@ -885,7 +917,7 @@ extension LiveCoordinator {
             }
             everConnected = true
             if let macID = session.link.target?.macID { connectedMacIDs.insert(macID) }
-        case .connecting(let transport, let attempt):
+        case .connecting(_, let attempt):
             // Blips heal silently: the reconnecting banner waits 1.5 s.
             if attempt == 1, !everConnected {
                 banner = .connecting(to: name)
@@ -911,18 +943,14 @@ extension LiveCoordinator {
     /// a connection failure. A Mac a link was connected to is being
     /// reconnected (the machine keeps retrying), so a lost link reads
     /// "Reconnecting", not "Can't reach", which reads as giving up, for the
-    /// first `reconnectingAttempts` attempts. A Mac never reached, or still
-    /// unreachable after those, says so; without TURN neither transport gets
-    /// through from another network (WireGuard's backend relay is retired).
-    nonisolated static func waitingBanner(macName: String, transport: CmuxMobileTransport.TransportKind, reason: String,
+    /// first `reconnectingAttempts` attempts. Longer failures offer a retry;
+    /// transport and relay details stay in Settings diagnostics.
+    nonisolated static func waitingBanner(macName: String, transport _: CmuxMobileTransport.TransportKind, reason: String,
                                           attempt: Int, wasConnected: Bool,
-                                          relayAvailable: Bool?) -> ConnectionBannerState {
+                                          relayAvailable _: Bool?) -> ConnectionBannerState {
         if reason == LinkController.reason(LinkError(code: "offline", message: "")) { return .macOffline(macName) }
         if wasConnected, attempt <= reconnectingAttempts { return .reconnecting(to: macName) }
-        if relayAvailable == false {
-            return .failed("Offline · Retry")
-        }
-        return .failed("Offline · Retry")
+        return .connectionFailed
     }
 }
 
