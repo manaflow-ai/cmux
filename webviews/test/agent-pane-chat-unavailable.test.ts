@@ -255,6 +255,8 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await shown.waitFor({ timeout: 60_000 });
     const spinner = shown.locator(".acpmux-unavailable-spinner");
     await spinner.waitFor();
+    const field = page.locator('.acpmux-md-root [contenteditable="true"]');
+    await field.waitFor();
     const captureDir = process.env.CMUX_LOADING_CENTER_CAPTURE_DIR;
     if (captureDir) await mkdir(captureDir, { recursive: true });
 
@@ -273,6 +275,11 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
           spinner: rect(".acpmux-unavailable-spinner"),
           composer: rect(".acpmux-composer-box"),
           main: rect(".acpmux-main"),
+          copy: rect(".acpmux-unavailable-copy"),
+          otherUnavailable: Array.from(document.querySelectorAll<HTMLElement>('[data-unavailable="connecting"] .acpmux-unavailable-copy > *')).map((node) => {
+            const box = node.getBoundingClientRect();
+            return { top: box.top, bottom: box.bottom };
+          }),
         };
       });
     const assertCentered = (layout: Awaited<ReturnType<typeof measure>>) => {
@@ -280,22 +287,22 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       const contentBottom = layout.stage.bottom;
       const targetY = (contentTop + contentBottom) / 2;
       const spinnerY = (layout.spinner.top + layout.spinner.bottom) / 2;
-      expect({
-        viewport: layout.viewport,
-        spinnerY: Math.round(spinnerY * 10) / 10,
-        targetY: Math.round(targetY * 10) / 10,
-        composerHeight: Math.round(layout.composer.height * 10) / 10,
-      }).toMatchObject({ viewport: layout.viewport });
+      const contentCenterX = (layout.stage.left + layout.stage.right) / 2;
+      const spinnerX = (layout.spinner.left + layout.spinner.right) / 2;
       expect(Math.abs(spinnerY - targetY)).toBeLessThanOrEqual(2);
+      expect(Math.abs(spinnerX - contentCenterX)).toBeLessThanOrEqual(2);
+      for (const child of layout.otherUnavailable) expect(child.top).toBeGreaterThanOrEqual(layout.spinner.bottom - 1);
+      expect(layout.copy.bottom).toBeLessThanOrEqual(layout.stage.bottom);
       expect(layout.stage.bottom).toBeLessThanOrEqual(layout.composer.top + 1);
       expect(layout.composer.height).toBeGreaterThan(0);
       expect(layout.composer.bottom).toBeLessThanOrEqual(layout.main.bottom + 1);
     };
 
     const sizes = [
-      { width: 900, height: 760, name: "before-900x760" },
-      { width: 900, height: 620, name: "before-900x620" },
-      { width: 760, height: 760, name: "before-760x760" },
+      { width: 900, height: 760, name: "loading-center-900x760" },
+      { width: 900, height: 620, name: "loading-center-900x620" },
+      { width: 760, height: 760, name: "loading-center-760x760" },
+      { width: 400, height: 360, name: "loading-center-400x360" },
     ];
     for (const size of sizes) {
       await page.setViewportSize({ width: size.width, height: size.height });
@@ -305,6 +312,14 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
       console.info("loading-center", JSON.stringify(layout));
       assertCentered(layout);
     }
+    const initialComposer = await measure();
+    await field.fill("A loading-state draft that wraps across several lines.\n".repeat(8));
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const expandedComposer = await measure();
+    expect(expandedComposer.composer.height).toBeGreaterThan(initialComposer.composer.height);
+    console.info("loading-center-expanded", JSON.stringify(expandedComposer));
+    assertCentered(expandedComposer);
+    if (captureDir) await page.screenshot({ path: path.join(captureDir, "loading-center-expanded.png") });
     await page.close();
   });
 
@@ -351,6 +366,15 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     // Neutral, as connecting (86ebb89edfcf, #26115): "Reconnecting…", when it was last seen, and Reconnect.
     expect(await shown.locator("h2").innerText()).toBe("Reconnecting…");
     expect(await shown.getAttribute("role")).toBe("status");
+    const offlineSpinnerColors = await shown.locator(".acpmux-unavailable-spinner").evaluate((node) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--acpmux-composer-placeholder)";
+      node.parentElement?.append(probe);
+      const colors = { spinner: getComputedStyle(node).color, placeholder: getComputedStyle(probe).color };
+      probe.remove();
+      return colors;
+    });
+    expect(offlineSpinnerColors.spinner).toBe(offlineSpinnerColors.placeholder);
     await page.waitForFunction(() => document.body.innerText.includes("Last seen 5 minutes ago."));
     expect(await page.getByText(/isn't available|was deleted/).count()).toBe(0);
     const reconnect = shown.getByRole("button", { name: "Reconnect" });

@@ -99,15 +99,16 @@ export function ChatUnavailableState({
           )}
         </svg>
       )}
-      <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
-      {detail && <p className="acpmux-unavailable-detail">{detail}</p>}
-      {session && (
-        <p className="acpmux-unavailable-detail acpmux-unavailable-session">
-          {t("unavailable.session", { session: shortSession(session) })}
-        </p>
-      )}
-      {(action || onResume || closes) && (
-        <div className="acpmux-unavailable-actions">
+      <div className="acpmux-unavailable-copy">
+        <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
+        {detail && <p className="acpmux-unavailable-detail">{detail}</p>}
+        {session && (
+          <p className="acpmux-unavailable-detail acpmux-unavailable-session">
+            {t("unavailable.session", { session: shortSession(session) })}
+          </p>
+        )}
+        {(action || onResume || closes) && (
+          <div className="acpmux-unavailable-actions">
           {action && (
             <button type="button" className="acpmux-unavailable-action" data-action={action.kind} onClick={action.run}>
               {action.label}
@@ -123,8 +124,9 @@ export function ChatUnavailableState({
               {t("link.missing.close")}
             </button>
           )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
