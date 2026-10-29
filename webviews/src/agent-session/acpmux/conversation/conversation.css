@@ -4104,8 +4104,12 @@ article.acpmux-row:empty {
 .cv-user__send-now:hover:not(:disabled) {
   color: var(--cv-text);
 }
-.cv-user__send-now:disabled {
-  opacity: 0.5;
+/* A waiting steer's Send now and X are drawn while it waits, with no hover fade and no dimming while
+   one is asked: they never blink as the turn runs or as the X's take-back is answered (Leo,
+   2026-10-29: "it fucking blinks with the fucking send now text"). */
+.cv-user__actions:has(.cv-user__pending) {
+  opacity: 1;
+  transition: none;
 }
 /* The X that takes a waiting steer back to edit (PendingSteer.tsx): a plain glyph, as muted as
    Send now's text, on the same centred line. */
@@ -4122,9 +4126,6 @@ article.acpmux-row:empty {
 }
 .cv-user__take-back:hover:not(:disabled) {
   color: var(--cv-text);
-}
-.cv-user__take-back:disabled {
-  opacity: 0.5;
 }
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */
