@@ -56,9 +56,11 @@ stage() {
 }
 for attempt in 1 2 3; do
   # The lease lives as long as the acquire process; keep it in its own session.
-  setsid capture-host acquire --slot >"$work/lease" 2>&1 </dev/null &
+  # Exclusive: no fleet step and no other capture on the mini while it records (its timings are
+  # evidence only then; 2026-10-29 a run beside other agents' steps saw a 1-minute load of 14-24).
+  setsid capture-host acquire --slot --exclusive >"$work/lease" 2>&1 </dev/null &
   acquire=$!
-  for _ in $(seq 1 300); do grep -q '^slot-' "$work/lease" && break; sleep 2; done
+  for _ in $(seq 1 300); do grep -q '^slot-' "$work/lease" && break; kill -0 "$acquire" 2>/dev/null || break; sleep 2; done
   lease=$(grep '^slot-' "$work/lease" | tail -1)
   [ -n "$lease" ] || { echo "no capture slot: $(tail -3 "$work/lease")" >&2; exit 3; }
   eval "$(capture-host slot-info "$lease" | grep -E '^(host|slot|root)=')"
