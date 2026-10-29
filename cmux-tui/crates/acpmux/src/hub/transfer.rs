@@ -162,6 +162,8 @@ impl Hub {
         meta.agent_session_family = None;
         meta.parent_id = None;
         meta.fork_seq = None;
+        meta.fork_before = None;
+        meta.fork_requests.clear();
         meta.fork_parent_verified = Some(false);
         // A store comes from this machine's chat index, never from a bundle.
         meta.chat_store = None;

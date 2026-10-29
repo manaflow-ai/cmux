@@ -119,7 +119,9 @@
     {
       "kind": "request",
       "name": "acp.session.fork",
-      "params": true,
+      "params": {
+        "$ref": "#/types/ForkParams"
+      },
       "result": true
     },
     {
@@ -2062,6 +2064,47 @@
         "hasMore",
         "lastSeq",
         "pageThrough"
+      ],
+      "type": "object"
+    },
+    "ForkParams": {
+      "description": "`acp.session.fork`: a completed-turn, live, or before-prompt fork.\nBefore-prompt requests require requestId and omit both throughSeq and live.",
+      "properties": {
+        "_meta": true,
+        "beforePromptId": {
+          "description": "Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "live": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "requestId": {
+          "description": "Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "throughSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
       ],
       "type": "object"
     },

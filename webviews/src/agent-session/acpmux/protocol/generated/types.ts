@@ -190,6 +190,21 @@ export type EventsResult = {
   pageThrough: number;
 } & Record<string, unknown>;
 
+/**
+ * `acp.session.fork`: a completed-turn, live, or before-prompt fork.
+ * Before-prompt requests require requestId and omit both throughSeq and live.
+ */
+export type ForkParams = {
+  _meta?: unknown;
+  /** Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only. */
+  beforePromptId?: (string | null);
+  live?: (boolean | null);
+  /** Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source. */
+  requestId?: (string | null);
+  sessionId: string;
+  throughSeq?: (number | null);
+} & Record<string, unknown>;
+
 export interface HarnessUpdatePlanParams {
   cli: string;
 }

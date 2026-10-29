@@ -1339,6 +1339,40 @@ list with no daemon running, which the cmux app bundle records for its web pages
 Any other method that names a `sessionId` is forwarded to the agent unchanged, so vendor
 extensions keep working.
 
+### Fork before an edited prompt
+
+Gate Edit and Resend on `initialize._meta.acpmux.operations` containing
+`acp.session.fork.beforePromptId`. Send the source's recorded prompt identity and a stable
+client-generated retry identity:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"acp.session.fork","params":{"sessionId":"source","beforePromptId":"prompt-id","requestId":"edit-request-id"}}
+```
+
+Both ids must contain 1–512 UTF-8 bytes. Omit `throughSeq` and `live` entirely, including
+`live: false`. The daemon validates the complete source history. For Claude and Codex it
+forks through the preceding completed turn, or creates an empty configured child for the
+true first prompt. The reply's `sessionId` is the child; send the edited prompt there.
+Configuration and parent/boundary lineage follow fork semantics; source history stays unchanged.
+A retry with the same source, request id and boundary returns that child even after a lost reply.
+Reusing the request id for another boundary is refused. An incomplete persisted fork is refused
+without creating another child. Direct `session/fork` cannot supply internal boundary metadata.
+
+Refusals use JSON-RPC `-32602` and `data.reason`:
+
+| Reason | Meaning |
+| --- | --- |
+| `fork.invalid_boundary` | Invalid ids or combined boundary selectors. |
+| `fork.unknown_prompt` | No recorded prompt has that identity. |
+| `fork.ambiguous_prompt` | More than one recorded prompt has that identity. |
+| `fork.unsupported` | Unsupported harness or steering boundary. |
+| `fork.unreconstructable` | The full boundary or prompt content cannot be reconstructed. |
+| `fork.request_conflict` | The persisted request identity names a different boundary. |
+| `fork.incomplete` | The persisted fork has not completed safely. |
+
+Existing fork authorization and admission checks still apply. Retain the editor draft on refusal;
+never fall back to a whole-conversation fork when the capability is absent.
+
 ### Typed errors
 
 An error a client sees can say what kind of failure it is and what to do, in three keys added

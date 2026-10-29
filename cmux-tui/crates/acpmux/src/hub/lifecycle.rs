@@ -1102,7 +1102,7 @@ impl Hub {
                 );
             }
         }
-        if saved.agent_session_id.is_some() {
+        if saved.agent_session_id.is_some() || saved.fork_before.is_some() {
             self.replay_config(session, &child, &saved, off).await;
         }
         self.cap_full_access(session, &child, profile, off).await?;

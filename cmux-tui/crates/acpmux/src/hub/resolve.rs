@@ -308,6 +308,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         last_seq: 0,
         parent_id: None,
         fork_seq: None,
+        fork_before: None,
+        fork_requests: Default::default(),
         fork_parent_verified: None,
         agent_info: None,
         agent_capabilities: None,
