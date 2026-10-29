@@ -551,6 +551,58 @@ let package = Package(
         self.assertEqual(self.remote_head(), before)
         self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
 
+    def test_a_push_that_removes_one_of_two_baseline_imports_is_not_told_to_drop_the_baseline_line(self):
+        # Review of 115ed33e: without a manifest change the trees hold only the changed files, so the check saw no
+        # file importing CmuxNextWakeups and called IMPORT_BASELINE's line stale while an untouched file kept it.
+        package = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+        self.write(f"{PKG}/Package.swift", package)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/B.swift", "import CmuxNextWakeups\n")
+        self.commit("two files under the baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import Foundation\n")
+        self.commit("one file stops importing it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("drop its line", output)
+
+    def test_a_manifest_edit_does_not_put_a_changed_test_under_production_rules(self):
+        # Review of 115ed33e: the package's file list for the dependency check replaced ast-grep's list of changed
+        # production sources, so a test's try! failed only when the push also changed Package.swift.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.commit("a test target")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Package.swift",
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextApp", "CmuxNextKit"]'))
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/TryTests.swift", self.with_try("TryTests"))
+        self.commit("a manifest edit and a test with try!")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("TryTests.swift", output)
+
     def test_push_that_adds_a_raw_spawn_in_a_daemon_crate_is_refused(self):
         # Reviews 1 and 2 of pl-holder-11: on macOS a daemon child started any other way than
         # cmux_process::Command can inherit a PTY master the daemon is receiving on another thread.

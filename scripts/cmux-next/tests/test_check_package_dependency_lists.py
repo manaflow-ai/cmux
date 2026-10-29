@@ -245,6 +245,19 @@ class FixImportsTests(unittest.TestCase):
         self.assertIn('.product(name: "CmuxHomeCore", package: "CmuxHomeCore"),\n                "CmuxNextHome",\n'
                       "            ],", fixed)
 
+    def test_a_last_entry_with_a_trailing_comment_gets_its_comma_before_the_comment(self):
+        # Review of 115ed33e: the comma went after the comment, inside it, and the array lacked one between entries.
+        text = (
+            "        .target(\n"
+            '            name: "CmuxNextAgentPane",\n'
+            "            dependencies: [\n"
+            '                "CmuxNextCompat" // the compat shims\n'
+            "            ]\n"
+            "        ),\n")
+        fixed = lint.add_dependency(text, "CmuxNextAgentPane", "CmuxNextDaemon")
+        self.assertIn('                "CmuxNextCompat", // the compat shims\n                "CmuxNextDaemon",\n'
+                      "            ]\n", fixed)
+
     def test_an_inline_list_gets_the_entry_before_the_bracket(self):
         fixed = lint.add_dependency(self.manifest_text(), "CmuxNextHome", "CmuxNextDaemon")
         self.assertIn('dependencies: ["CmuxNextCompat", "CmuxNextDaemon"],', fixed)
