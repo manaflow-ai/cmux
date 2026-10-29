@@ -322,3 +322,41 @@ fn command_index(argv: &[OsString]) -> usize {
         .map(|i| i + 1)
         .unwrap_or(argv.len())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn os(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn a_stdio_mcp_server_runs_on_a_small_runtime() {
+        for name in
+            ["acpmux-mcp", "subsession-mcp", "forum-mcp", "offer-mcp", "secret-mcp", "cua-mcp"]
+        {
+            assert_eq!(runtime_workers(&os(&[name])), Some(MCP_WORKERS), "{name}");
+            assert_eq!(runtime_workers(&os(&["--json", name])), Some(MCP_WORKERS), "{name}");
+        }
+        assert!(MCP_WORKERS <= 2);
+    }
+
+    #[test]
+    fn every_other_command_keeps_the_default_runtime() {
+        for args in [&["ls"][..], &["daemon", "run"], &["send", "forum-mcp"], &[], &["--json"]] {
+            assert_eq!(runtime_workers(&os(args)), None, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn the_small_runtime_has_its_workers_and_not_one_per_core() {
+        let small = runtime(&os(&["forum-mcp"])).unwrap();
+        assert_eq!(small.metrics().num_workers(), MCP_WORKERS);
+        // Every other command keeps tokio's default: one worker per core.
+        let default = runtime(&os(&["ls"])).unwrap();
+        if std::thread::available_parallelism().unwrap().get() > MCP_WORKERS {
+            assert!(default.metrics().num_workers() > MCP_WORKERS);
+        }
+    }
+}
