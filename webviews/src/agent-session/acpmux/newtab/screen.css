@@ -977,12 +977,12 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-headline-machine-picker {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--ds-space-1);
   vertical-align: middle;
 }
 .nt-headline-machine-picker .acpmux-location-button {
   max-width: 240px;
-  padding: 0 6px;
+  padding: 0 var(--ds-space-1);
   cursor: pointer;
 }
 .nt-headline-machine-label {
