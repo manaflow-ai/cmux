@@ -412,6 +412,7 @@ def web_failures(log: str | None) -> WebFailures:
     in_stack = False
     summary = False
     grouped = False
+    pending: dict[str, int] = {}
 
     def diagnostic():
         said = "\n".join(error)
@@ -419,10 +420,21 @@ def web_failures(log: str | None) -> WebFailures:
 
     def end_file():
         if current and error:
-            found.failed[current] = diagnostic()
+            said = diagnostic()
+            if current in found.failed and found.failed[current] != said:
+                said = "\n--- repeated failure ---\n".join(sorted({found.failed[current], said}))
+            found.failed[current] = said
 
     texts = lines_of(log)
     for text in texts:
+        if match := BUN_STARTED.match(text):
+            name = match.group(1)
+            pending[name] = pending.get(name, 0) + 1
+            summary = False
+        elif (match := BUN_RESULT.match(text)) and not WEB_SUMMARY.match(text):
+            name = match.group(2)
+            if pending.get(name, 0):
+                pending[name] -= 1
         if match := WEB_GROUP.match(text):
             end_file()
             current, error, where, in_stack = match.group(2), [], "", False
@@ -476,12 +488,16 @@ def web_failures(log: str | None) -> WebFailures:
             found.failed[key] = said
             error, where, in_stack = [], "", False
         elif text.startswith("(pass) "):
+            end_file()  # an unhandled error is not the passing test's diagnostic
             error, where, in_stack = [], "", False
         elif error and not in_stack and text.strip():
             error.append(text.strip())
     end_file()
-    if (grouped or any(BUN_STARTED.match(text) for text in texts)) and not summary:
+    if (grouped or pending) and not summary:
         found.truncated.append("its webview run printed no closing summary")
+    unfinished = sorted(name for name, count in pending.items() if count)
+    if unfinished:
+        found.truncated.append("webview files started and never finished: " + "; ".join(unfinished))
     # Keep the common runtime and cut-short detection; Bun assertion titles can quote
     # crash words, so result lines are not runtime diagnostics.
     runtime = read("\n".join(text for text in texts if not WEB_FAIL.match(text)
@@ -515,7 +531,7 @@ def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "t
     files (where each failure's error is printed); base_logs: the base's red webview test jobs. None when the red job's
     log names no failing webview test (not a webview test red: the caller judges it as before). A file that timed out
     or crashed, an unreadable log, or a test whose error is printed on only one side is the head's own."""
-    if not head_logs or head_logs[0] is None:
+    if not head_logs or any(log is None for log in head_logs):
         return Verdict(True, [f"{job or 'the job'}: its log could not be read, so no test can be compared with {base}"])
     red = web_failures(head_logs[0])
     names = sorted(red.charged) if red.charged else sorted(red.failed)
