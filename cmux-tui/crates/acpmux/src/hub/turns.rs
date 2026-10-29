@@ -217,11 +217,10 @@ impl Hub {
         // wait again when it failed.
         let joined = super::digest::DigestTurn::default();
         let result = self.run_prompt_joined(session, blocks, client, steer, opts, &joined).await;
-        // `finish_turn` put them back already, held, when the turn itself failed. Any other error
-        // ended the turn before its prompt reached the agent (its agent could not start, or the
-        // turn was refused): they go back unheld, and each gets its own try.
+        // `finish_turn` put them back already when the turn itself failed, and a turn that never
+        // reached its agent put them back unheld (`fail_unstarted_turn`); this is any other way.
         if result.is_err() {
-            self.requeue_joined(session, &joined, false);
+            self.requeue_joined(session, &joined, true);
         }
         joined.answer.send_replace(Some(result.clone()));
         result
@@ -453,7 +452,7 @@ impl Hub {
         let (mut child, agent_sid) = match started {
             Ok(started) => started,
             Err(e) => {
-                self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e);
+                self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
                 drop(guard);
                 return Err(e);
             }
@@ -474,7 +473,7 @@ impl Hub {
             )
             .await
         {
-            self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
             drop(guard);
             return Err(e);
         }
@@ -483,7 +482,7 @@ impl Hub {
             Ok(gate) => gate,
             Err(e) => {
                 self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
-                self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
                 drop(guard);
                 return Err(e);
             }
@@ -529,13 +528,13 @@ impl Hub {
             Ok(wire) if !stopped => wire,
             Ok(_) => {
                 let e = stopped_before_prompt();
-                self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
                 self.forum_turn_end(session, &told, false);
                 drop(guard);
                 return Err(e);
             }
             Err(e) => {
-                self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+                self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
                 self.forum_turn_end(session, &told, false);
                 drop(guard);
                 return Err(e);
@@ -555,7 +554,7 @@ impl Hub {
         {
             let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
                 .with_data(json!({"reason": reason}));
-            self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e, joined);
             self.forum_turn_end(session, &told, false);
             drop(guard);
             return Err(e);
@@ -962,8 +961,9 @@ impl Hub {
         prompt_id: &str,
         turn_id: &str,
         e: &RpcError,
+        joined: &super::digest::DigestTurn,
     ) {
-        self.fail_unstarted_turn(session, prompt_id, turn_id, e);
+        self.fail_unstarted_turn(session, prompt_id, turn_id, e, joined);
         if session.status() == SessionStatus::Disconnected {
             self.set_status(session, SessionStatus::Ready);
         }
@@ -996,11 +996,14 @@ impl Hub {
         prompt_id: &str,
         turn_id: &str,
         e: &RpcError,
+        joined: &super::digest::DigestTurn,
     ) {
         let turn = session.meta().turn_count;
         *session.turn.lock().unwrap() = None;
         // The prompt behind it waits for no turn now (`queue_turn`).
         session.queue_moved.notify_waiters();
+        // The agent messages that joined it never reached the agent either: back unheld.
+        self.requeue_joined(session, joined, false);
         let mut e = e.clone();
         crate::recovery::annotate(&mut e, Some(&session.meta().cwd));
         let typed = crate::recovery::fields(&e);
