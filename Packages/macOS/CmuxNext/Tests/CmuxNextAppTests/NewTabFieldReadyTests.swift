@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextFocus
 @testable import CmuxNextPages
@@ -20,9 +21,9 @@ struct NewTabFieldReadyTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    /// One workspace, one pane, one tab.
-    private static func tree() -> DaemonTree {
-        let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
+    /// One workspace, one pane, `tabs` tabs.
+    private static func tree(tabs: Int) -> DaemonTree {
+        let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: (1...tabs).map { TabSnapshot(surface: SurfaceID(rawValue: UInt64($0)), title: "~") })
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(pane.id), panes: [pane])
         var tree = DaemonTree(registryID: "s-local", workspaces: [
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ready-ws"), name: "ready", screens: [screen]),
@@ -53,8 +54,9 @@ struct NewTabFieldReadyTests {
     }
 
     /// A window whose one pane shows a New Tab page; its field reported ready (focused once), and no
-    /// `newTab.inputReady` came.
-    private static func fixture() async throws -> Fixture {
+    /// `newTab.inputReady` came. `opening`: the pane shows its first tab and the page is its second one, not selected
+    /// yet, as `NewTabPage.open` finds the pane at Cmd-T (the hold begins on the tab shown before the page).
+    private static func fixture(opening: Bool = false) async throws -> Fixture {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -63,7 +65,7 @@ struct NewTabFieldReadyTests {
         let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
         store.noteHandshake(identity)
         store.connectionState = .connected(identity)
-        store.apply(snapshot: Self.tree())
+        store.apply(snapshot: Self.tree(tabs: opening ? 2 : 1))
         let controller = try #require(services.windows.openWindow(workspaces: ["ready-ws"], frame: CGRect(x: 200, y: 200, width: 1000, height: 700)))
         for _ in 0..<200 where controller.workspaceContent?.panes.count != 1 { try await Task.sleep(for: .milliseconds(10)) }
         let content = try #require(controller.workspaceContent)
@@ -73,7 +75,8 @@ struct NewTabFieldReadyTests {
         let pane = try #require(content.paneController(key: model.id))
         for _ in 0..<100 where pane.currentTabKey == nil { try await Task.sleep(for: .milliseconds(10)) }
         if pane.currentTabKey == nil { pane.showSelected() }
-        let key = try #require(pane.currentTabKey, "the pane shows no tab")
+        let shown = try #require(pane.currentTabKey, "the pane shows no tab")
+        let key = try #require(opening ? model.tabs.map(\.id).first { $0 != shown } : shown, "the pane has no second tab")
         let file = try #require(AgentPageAppTestRoot.page)
         let agent = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
         agent.becomeNewTab(AgentPaneNewTab(kind: .agent))
@@ -94,14 +97,20 @@ struct NewTabFieldReadyTests {
     }
 
     /// Cmd-T: the page shows with its field ready; the keys typed meanwhile go to it at the next key, with no readiness
-    /// message and long before the hold's limit.
+    /// message and long before the hold's limit. As `NewTabPage.open` does it: the hold begins on the tab the pane
+    /// showed before, the open selects the page's new tab, then `didShow`.
     @Test func cmdTKeysGoToAShownPageWhoseFieldIsReadyWithoutItsReadinessMessage() async throws {
-        let fixture = try await Self.fixture()
+        let fixture = try await Self.fixture(opening: true)
         defer { fixture.close() }
         let input = fixture.services.keyRouter.newTabInputCoordinator
         input.holdLimit = .seconds(600)
         input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
+        try #require(fixture.pane.currentTabKey != fixture.key, "the pane shows the page before the opening")
         _ = try #require(input.begin(for: fixture.pane))
+        // The open shows and selects the page's tab in its turn (`PaneController.openAgentTab`).
+        fixture.pane.applySelection(StripTabID(fixture.key))
+        try #require(fixture.pane.currentTabKey == fixture.key, "the pane does not show the page's tab")
+        try #require(fixture.page.window === fixture.window && !fixture.page.isHiddenOrHasHiddenAncestor, "the page left the window")
         input.didShow(in: fixture.window)
         let router = fixture.services.keyRouter
         let first = try Self.key("h", keyCode: 4, in: fixture.window)
