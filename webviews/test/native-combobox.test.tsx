@@ -1087,7 +1087,7 @@ test.each(["children", "rail", "footer", "actions"] as const)(
     const container = installDom();
     const { host, shown, listeners } = nativeHost();
     const changed: string[] = [];
-    const action = { id: "dark", kind: "action" as const, label: "Dark" };
+    const action = { id: "dark", kind: "action" as const, label: "Dark", value: "dark" };
     const model = {
       side: "bottom" as const,
       align: "start" as const,
@@ -1096,7 +1096,7 @@ test.each(["children", "rail", "footer", "actions"] as const)(
         location === "children"
           ? [{ id: "themes", kind: "submenu" as const, label: "Themes", children: [action] }]
           : location === "actions"
-            ? [{ id: "themes", kind: "text" as const, label: "Themes", actions: [action] }]
+            ? [{ id: "themes", kind: "text" as const, label: "Themes", actions: [{ id: "details", label: "Details" }] }]
             : [],
       ...(location === "rail" || location === "footer" ? { [location]: [action] } : {}),
     };
@@ -1127,9 +1127,9 @@ test.each(["children", "rail", "footer", "actions"] as const)(
     expect(sentAction.keepOpen).toBe(true);
     await act(async () => {
       for (const listener of listeners)
-        listener({ type: "pick", popupId: sent.id, revision: sent.revision, id: "dark" });
+        listener({ type: "pick", popupId: sent.id, revision: sent.revision, id: location === "actions" ? "details" : "dark" });
     });
-    expect(changed).toEqual(["dark"]);
+    expect(changed).toEqual(location === "actions" ? [] : ["dark"]);
     expect(button.getAttribute("aria-expanded")).toBe("true");
   },
 );
