@@ -261,7 +261,8 @@ import Testing
                 var chunk = [UInt8](repeating: 0, count: 4096)
                 let count = read(descriptor, &chunk, chunk.count)
                 try #require(count > 0, "the helper must answer and keep the connection open")
-                pending += try #require(buffer.append(Data(chunk.prefix(count))))
+                let lines = buffer.append(Data(chunk.prefix(count)))
+                pending += try #require(lines)
             }
             return try #require(HelperWire.object(pending.removeFirst()))
         }
@@ -296,7 +297,8 @@ import Testing
                     return count > 0 ? Data(bytes.prefix(count)) : Data()
                 }.value
                 try #require(!chunk.isEmpty)
-                pending += try #require(buffer.append(chunk))
+                let lines = buffer.append(chunk)
+                pending += try #require(lines)
             }
             return try #require(HelperWire.object(pending.removeFirst()))
         }
