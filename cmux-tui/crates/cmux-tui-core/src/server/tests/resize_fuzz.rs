@@ -38,9 +38,11 @@
 //!   limit), and every line the child printed during the burst reached each
 //!   viewer that was attached through it with only local READYs, in order,
 //!   once (the scripted case fails when no viewer was: then no line was
-//!   checked). The child prints a burst in chunks 50 ms apart and each resize
-//!   waits for its chunk, so the resizes and the mirror attach land while
-//!   the output streams; a burst that ends before its last resize fails.
+//!   checked). The child prints a burst in chunks and waits before each
+//!   chunk after the first until the test lets it go (a file handshake, no
+//!   timing): the test runs one mid-burst action (a resize, or the mirror
+//!   attach) at the end of each chunk, so every action lands at a known
+//!   offset with output still to come.
 //!
 //! The test runs one scripted case (each kind of step once, a few seconds)
 //! and then `CMUX_RESIZE_FUZZ_SEEDS` seeded random cases (default 0 here) of
@@ -117,8 +119,9 @@ impl Rng {
 /// SIGWINCH (SEQ counts the reports, so a report after a resize is told from
 /// an older one of the same size), prints `$2` (a first line, maybe wider
 /// than the grid) at once, then prints `n` numbered lines `TAG NNNNNN`
-/// whenever `$1/go` names `n TAG k`, in `k` equal chunks 50 ms apart, and
-/// marks each burst done with `$1/done-TAG`.
+/// whenever `$1/go` names `n TAG k`, in `k` chunks of `n / k` lines (the last
+/// with the rest). Before chunk `c > 0` it waits until `$1/next-TAG-c`
+/// exists. It marks each burst done with `$1/done-TAG`.
 const CHILD: &str = r#"
 dir=$1
 seq=0
@@ -136,7 +139,9 @@ while :; do
     per=$((n / k))
     c=0
     while [ $c -lt $k ]; do
-      if [ $c -gt 0 ]; then sleep 0.05; fi
+      if [ $c -gt 0 ]; then
+        while [ ! -e "$dir/next-$tag-$c" ]; do sleep 0.005; done
+      fi
       s=$((c * per))
       e=$((s + per))
       if [ $c -eq $((k - 1)) ]; then e=$n; fi
@@ -221,6 +226,9 @@ struct Viewer {
     after_cut: Vec<u8>,
     size_state_generation: Option<u64>,
     last_size_state: Option<(u16, u16)>,
+    /// The generation and grid of the size state the attach reply named,
+    /// until the first `size-state` event.
+    size_state_from_reply: Option<(u64, (u16, u16))>,
     /// READY grids and `size-state` grids since the last settle.
     window_readies: Vec<(u16, u16)>,
     window_size_states: Vec<(u16, u16)>,
@@ -282,8 +290,23 @@ impl Viewer {
                 let generation = state["generation"].as_u64().unwrap_or_default();
                 let grid = grid_of(state).unwrap_or_default();
                 self.note(format!("size-state g{generation} {}x{}", grid.0, grid.1));
+                // The stream's event of the change the attach itself made may carry the generation
+                // the attach reply already named; any later one must be newer. The daemon builds
+                // the reply after the attach's sizing change (attach_lifecycle.rs attach_response),
+                // so the same generation must name the same grid.
+                let reply = self.size_state_from_reply.take();
+                let same_as_reply =
+                    reply.is_some_and(|(reply_generation, _)| reply_generation == generation);
+                if let Some((_, reply_grid)) = reply
+                    && same_as_reply
+                    && reply_grid != grid
+                {
+                    self.fail(format!(
+                        "size-state g{generation} is {grid:?}, the attach reply's g{generation} was {reply_grid:?}"
+                    ));
+                }
                 if let Some(previous) = self.size_state_generation
-                    && generation <= previous
+                    && (generation < previous || (generation == previous && !same_as_reply))
                 {
                     self.fail(format!(
                         "size-state generation went back: g{generation} after g{previous}"
@@ -639,6 +662,20 @@ impl Case {
             self.fail(&format!("attach-surface gave no lease: {reply}"))
         };
         self.live_resize = live_resize;
+        // The attach reply carries the terminal's size state for a `shared-sizing-v1` view
+        // (spec/commands.md: "`participant`/`size_state` in terminal `attach-surface` responses");
+        // the stream sends `size-state` only when the state changes, so a viewer that joins without
+        // changing it (not the smallest) gets none there. The reply's state is its starting state.
+        let Some(attached_state) = reply.get("size_state").filter(|state| !state.is_null()) else {
+            self.fail(&format!("attach-surface gave no size_state: {reply}"))
+        };
+        let (Some(attached_generation), Some(attached_grid)) =
+            (attached_state["generation"].as_u64(), grid_of(attached_state))
+        else {
+            self.fail(&format!(
+                "attach-surface size_state has no generation or no cols/rows: {reply}"
+            ))
+        };
         self.viewers.push(Viewer {
             name,
             client,
@@ -651,10 +688,13 @@ impl Case {
             generation: 0,
             next_offset: 0,
             after_cut: Vec::new(),
-            size_state_generation: None,
-            last_size_state: None,
+            size_state_generation: Some(attached_generation),
+            last_size_state: Some(attached_grid),
+            size_state_from_reply: Some((attached_generation, attached_grid)),
             window_readies: Vec::new(),
-            window_size_states: Vec::new(),
+            // The reply's grid is the first announcement this view saw; the
+            // in-order check covers it.
+            window_size_states: vec![attached_grid],
             burst_bytes: Vec::new(),
             burst_contiguous: false,
             log: Default::default(),
@@ -731,9 +771,10 @@ impl Case {
         host
     }
 
-    /// Asks the child for `lines` numbered lines in `chunks` chunks 50 ms
-    /// apart; returns the burst's tag and the stream offsets where its output
-    /// starts and where the daemon must be when it is all in.
+    /// Asks the child for `lines` numbered lines in `chunks` chunks (it waits
+    /// for [`Self::release_chunk`] before each after the first); returns the
+    /// burst's tag and the stream offsets where its output starts and where
+    /// the daemon must be when it is all in.
     fn start_output(&mut self, lines: u64, chunks: u64) -> (String, u64, u64) {
         self.bursts += 1;
         let tag = format!("B{}", self.bursts);
@@ -744,6 +785,11 @@ impl Case {
         std::fs::write(&go, format!("{lines} {tag} {chunks}\n")).unwrap();
         std::fs::rename(go, self.dir.join("go")).unwrap();
         (tag, from, from + bytes)
+    }
+
+    /// Lets the child print chunk `chunk` of burst `tag`.
+    fn release_chunk(&self, tag: &str, chunk: u64) {
+        std::fs::write(self.dir.join(format!("next-{tag}-{chunk}")), b"").unwrap();
     }
 
     /// Waits until the daemon's stream is at least at `offset` (inside a
@@ -1106,39 +1152,45 @@ impl Case {
                 self.marker_line();
                 // The marker is in every view before the burst starts.
                 self.settle(&format!("{why}: before the burst"));
-                // One chunk of output before each resize and one after the
-                // last: resize i waits for chunk i, so every resize and the
-                // mirror attach land while the burst streams.
-                let count = resizes.len() as u64;
-                let lines = lines.max(count + 1);
-                let (tag, from, until) = self.start_output(lines, count + 1);
+                // The mid-burst actions: each resize, and the mirror attach
+                // after the first resize (first when there is none). One
+                // chunk of output before each action and one after the last.
+                let mut actions = resizes.into_iter().map(Some).collect::<Vec<_>>();
+                if mirror.is_some() {
+                    actions.insert(actions.len().min(1), None);
+                }
+                let pauses = actions.len() as u64;
+                let lines = lines.max(pauses + 1);
+                let (tag, from, until) = self.start_output(lines, pauses + 1);
                 self.begin_burst_window(&tag, lines);
-                // The child's chunks are `lines / (count + 1)` lines each, the
-                // last one with the remainder.
-                let chunk = (until - from) / lines * (lines / (count + 1));
-                let mut mirror = mirror;
-                for (index, (viewer, size)) in resizes.into_iter().enumerate() {
-                    let at = self.wait_stream_at(
-                        from + (index as u64 + 1) * chunk,
-                        &format!("{why}: resize {index} of burst {tag}"),
-                    );
-                    if at >= until {
+                // The child's chunks are `lines / (pauses + 1)` lines each, the
+                // last one with the rest.
+                let chunk = (until - from) / lines * (lines / (pauses + 1));
+                for (index, action) in actions.into_iter().enumerate() {
+                    let end = from + (index as u64 + 1) * chunk;
+                    let at =
+                        self.wait_stream_at(end, &format!("{why}: chunk {index} of burst {tag}"));
+                    // The child waits for the next chunk's release, so the
+                    // stream is exactly at the chunk's end, before `until`.
+                    if at != end || at >= until {
                         self.fail(&format!(
-                            "{why}: burst {tag} ended (o{at}) before its resize {index}: the \
-                             resizes did not land during the output"
+                            "{why}: burst {tag} is at o{at} after chunk {index}, expected o{end} \
+                             (the burst ends at o{until}): the child did not wait"
                         ));
                     }
-                    if index == 1
-                        && let Some((size, local_history)) = mirror.take()
-                    {
-                        self.connect(size, local_history);
+                    match action {
+                        Some((viewer, size)) => {
+                            let viewer = viewer.min(self.viewers.len() - 1);
+                            self.resize(viewer, size, None);
+                        }
+                        None => {
+                            if let Some((size, local_history)) = mirror {
+                                self.connect(size, local_history);
+                            }
+                        }
                     }
-                    let viewer = viewer.min(self.viewers.len() - 1);
-                    self.resize(viewer, size, None);
                     self.pump();
-                }
-                if let Some((size, local_history)) = mirror {
-                    self.connect(size, local_history);
+                    self.release_chunk(&tag, index as u64 + 1);
                 }
                 self.wait_output_done(&tag, until);
                 self.settle(&why);
