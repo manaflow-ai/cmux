@@ -309,6 +309,7 @@ impl Owner {
                 command.env(key, value);
             }
         }
+        command.env("CMUX_BROKER_LOCK_FD", lock_fd.to_string());
         let mut child = command
             .env("CODEX_HOME", home)
             .args(["-c", "cli_auth_credentials_store=\"file\"", "app-server"])

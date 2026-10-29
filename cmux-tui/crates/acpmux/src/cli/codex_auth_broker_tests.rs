@@ -210,10 +210,7 @@ async fn owner_stop_unlocks_when_a_detached_child_keeps_the_lock_fd() {
         r#"#!/usr/bin/env python3
 import json, os, subprocess, sys
 
-lock_fd = next(
-    int(fd) for fd in os.listdir('/proc/self/fd')
-    if os.path.basename(os.readlink('/proc/self/fd/' + fd)) == 'broker.lock'
-)
+lock_fd = int(os.environ['CMUX_BROKER_LOCK_FD'])
 child = subprocess.Popen(
     ['sleep', '30'],
     stdin=subprocess.DEVNULL,
