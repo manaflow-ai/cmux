@@ -101,4 +101,49 @@ import Testing
         sidebar.newWorkspaceOptionsButton.performClick(nil)
         #expect(presentations == 2, "Space/keyboard activation opens the same chooser")
     }
+    /// Leo 2026-10-26: "If it's a toggle, if it's something like that, then you keep it on when you click the
+    /// context menu, when you click the top, the drop-down, the popover, whatever the fuck. We say we keep it."
+    /// With controls on hover, the + and its chevron stay revealed and lit while the menu either one opened
+    /// is open, though the pointer leaves the sidebar for the menu; the reveal follows the pointer again on close.
+    @Test func theSidebarPlusAndChevronStayRevealedWhileTheirMenuIsOpen() throws {
+        _ = NSApplication.shared
+        let design = DesignSettings()
+        design.sidebarSections.controlsOnHover = true
+        let sidebar = SidebarView(model: SidebarModel(), design: design)
+        sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
+        sidebar.layoutSubtreeIfNeeded()
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Terminal", action: nil, keyEquivalent: "")
+        sidebar.contextMenuProvider = { _ in menu }
+        let shown = sidebar.chromeReveal(revealed: true).newButton
+        let hidden = sidebar.chromeReveal(revealed: false).newButton
+        #expect(hidden < shown, "controls on hover hides the + with the pointer away")
+
+        // The chevron's press menu: the pointer arrives, presses, then leaves for the menu.
+        sidebar.setChromeRevealed(true)
+        var whileOpen: (revealed: Bool, target: CGFloat?, lit: Bool)?
+        sidebar.newWorkspaceOptionsButton.presentMenu = { _, button in
+            sidebar.setChromeRevealed(false) // the pointer hover clears as the pointer moves into the menu
+            whileOpen = (sidebar.isChromeRevealed, sidebar.appliedChromeReveal?.newButton, button.hover.state.pressed)
+        }
+        sidebar.newWorkspaceOptionsButton.performPressMenu()
+        let open = try #require(whileOpen)
+        #expect(open.revealed && open.target == shown, "the + and chevron stay revealed while the chooser is open")
+        #expect(open.lit, "the chevron stays lit while its menu is open")
+        #expect(!sidebar.isChromeRevealed && sidebar.appliedChromeReveal?.newButton == hidden,
+                "on close the reveal follows the pointer, which has left")
+        #expect(!sidebar.newWorkspaceOptionsButton.hover.state.pressed)
+
+        // The +'s own right-click menu holds the reveal the same way.
+        sidebar.setChromeRevealed(true)
+        let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                    windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        sidebar.newButton.willOpenMenu(menu, with: event)
+        sidebar.setChromeRevealed(false)
+        #expect(sidebar.isChromeRevealed && sidebar.appliedChromeReveal?.newButton == shown)
+        #expect(sidebar.newButton.hover.state.pressed, "the + stays lit while its menu is open")
+        sidebar.newButton.didCloseMenu(menu, with: nil)
+        #expect(!sidebar.isChromeRevealed && sidebar.appliedChromeReveal?.newButton == hidden)
+        #expect(!sidebar.newButton.hover.state.pressed)
+    }
 }

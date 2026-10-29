@@ -74,6 +74,9 @@ public final class SidebarView: NSView {
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     var isChromeRevealed = false
+    /// Menus opened from the hover-revealed titlebar controls that are open now: the chrome
+    /// stays revealed until they close (``chromeMenuOpenChanged(_:)``).
+    var chromeMenuHolds = 0
     /// The pointer over the sidebar now (cx-3wu5).
     private(set) var chromeHover: PointerHover?
     /// Bands minimal mode hides right now (the fade's target, R54).
@@ -233,6 +236,8 @@ public final class SidebarView: NSView {
         newWorkspaceOptionsButton.pressMenu = { [weak self] in self?.list.contextMenuProvider?(.background) }
         newWorkspaceOptionsButton.target = self
         newWorkspaceOptionsButton.action = #selector(openNewWorkspaceOptions)
+        newButton.onMenuOpenChange = { [weak self] open in self?.chromeMenuOpenChanged(open) }
+        newWorkspaceOptionsButton.onMenuOpenChange = { [weak self] open in self?.chromeMenuOpenChanged(open) }
         newButton.alphaValue = chromeReveal(revealed: false).newButton
         newWorkspaceOptionsButton.alphaValue = newButton.alphaValue
         addSubview(newButton)
