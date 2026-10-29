@@ -623,6 +623,39 @@ struct EarlyTerminalKeysTests {
         }
     }
 
+    /// The daemon's give-back event (`terminal-input-unclaimed`) goes through the app's own wiring (`DaemonPrompts`, the
+    /// store's side events, `CreationInputCoordinator.giveBack`): the bytes typed for a terminal whose creation failed
+    /// never reach another target. A key the person typed meanwhile for a new terminal of this window stays held for it,
+    /// and still goes to it once it is ready (review finding 8: the earlier test checked the queue alone).
+    @Test func givenBackBytesFromTheDaemonNeverReachAnotherTarget() async throws {
+        try await Self.withTerminal { h in
+            let (controller, window, tab, entry) = (h.controller, h.window, h.tab, h.entry)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            _ = DaemonPrompts.start(h.services)
+            let mount = try Self.unmount(h)
+            _ = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation, earlyTab: tab, tab: tab))
+            #expect(router.interceptKeyDown(try Self.key("a", keyCode: 0, in: window), in: window), "the key was not held: \(Self.held(h))")
+            let before = coordinator.replayedCount
+
+            // The daemon gives back 3 bytes queued for a terminal whose creation failed.
+            let payload: CmuxNextDaemon.JSONValue = .object(["terminal_id": .string("term-failed"),
+                                              "bytes_base64": .string(Data("ls\r".utf8).base64EncodedString()),
+                                              "reason": .string("failed")])
+            h.services.daemon.store.sideEvents.deliver(.unknown(name: TerminalInputUnclaimed.eventName, payload: payload))
+            coordinator.reconcile(window)
+            #expect(coordinator.replayedCount == before, "the given-back bytes or the held key ran somewhere: \(Self.held(h))")
+            #expect(coordinator.heldCount(in: window) == 1, "the key held for the new terminal no longer waits: \(Self.held(h))")
+            #expect(coordinator.heldKeyProblems().isEmpty, "HK1: \(coordinator.heldKeyProblems())")
+
+            // The new terminal is ready: the person's key goes to it, and only it.
+            mount()
+            window.makeFirstResponder(entry.session.surfaceView)
+            #expect(!router.interceptKeyDown(try Self.key("b", keyCode: 11, in: window), in: window), "the next key waited: \(Self.held(h))")
+            #expect(coordinator.lastReplays.suffix(1).map(\.target) == [tab], "the held key went to another target: \(coordinator.lastReplays)")
+        }
+    }
+
     /// R3 at a failed creation: the daemon refused the new terminal and its pane is gone from the tree. In the same turn
     /// the model names a defined target (the other pane's terminal), never the gone one, so nothing waits for a view
     /// that cannot come. The keys typed for the failed terminal drop (reason targetFailed): they never go to another
