@@ -321,6 +321,101 @@ test("a compacting forced Stop is one notice and exposes Continue after the matc
   client.close();
 });
 
+test("an old Stop result clears its cancel without settling the newer turn or blocking send-now", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "old prompt", turnId: "turn-old" }],
+      ["mux", "turn_started", { turnId: "turn-old" }],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    await client.cancel();
+    daemon.push(
+      record([
+        ["mux", "user_message", { text: "new prompt", turnId: "turn-new" }],
+        ["mux", "turn_started", { turnId: "turn-new" }],
+        ["in", "agent_message_chunk", update({ content: { type: "text", text: "New work" } })],
+      ], 3),
+    );
+    const before = rows();
+    daemon.push(record([["mux", "turn_result", { turnId: "turn-old", status: "cancelled" }]], 6));
+    expect(rows()).toEqual(before);
+    daemon.push(
+      record([
+        ["mux", "queued", { promptId: "queued-next", text: "send this now" }],
+        ["mux", "queue_order", { promptId: "queued-next", next: true, order: ["queued-next"] }],
+        ["mux", "turn_result", { turnId: "turn-new", status: "cancelled" }],
+      ], 7),
+    );
+    expect(rows().find((row) => row.id === "summary-turn-new")?.continued).toBe(true);
+    // An unscoped subsequent turn must also accept its own Stop after the old Stop was answered.
+    daemon.push(record([["mux", "user_message", { text: "legacy next" }], ["mux", "turn_started", {}]], 10));
+    await client.cancel();
+    expect(daemon.sent.map((raw) => JSON.parse(raw)).filter((msg) => msg.method === "session/cancel")).toHaveLength(2);
+  } finally {
+    client.close();
+  }
+});
+
+test("a prompt without a turn ID still fences a retired compaction", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "old prompt", turnId: "turn-old" }],
+      ["mux", "turn_started", { turnId: "turn-old" }],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ["mux", "turn_result", { turnId: "turn-old", status: "cancelled", cancelForced: true }],
+      ["mux", "user_message", { text: "next prompt without identity" }],
+      ["mux", "turn_started", {}],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    const before = rows();
+    daemon.push(
+      record([
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })],
+        ["mux", "turn_end", {}],
+        ["mux", "turn_result", { status: "completed" }],
+      ], 8),
+    );
+    expect(rows()).toEqual(before);
+    expect(rows().filter((row) => row.kind === "compaction").map((row) => row.compaction?.state)).toEqual([
+      "failed", "running",
+    ]);
+  } finally {
+    client.close();
+  }
+});
+
+for (const terminal of ["turn_end", "turn_result"])
+  test(`a forced Stop without compaction preserves the next legacy ${terminal}`, async () => {
+    const daemon = fakeDaemon(
+      record([
+        // An older inferred compaction must not make this ordinary Stop look like compaction.
+        ["mux", "user_message", { text: "older prompt", turnId: "turn-older" }],
+        ["mux", "turn_started", { turnId: "turn-older" }],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+        ["mux", "turn_result", { turnId: "turn-older", status: "completed" }],
+        ["mux", "user_message", { text: "ordinary prompt", turnId: "turn-old" }],
+        ["mux", "turn_started", { turnId: "turn-old" }],
+        ["mux", "turn_result", { turnId: "turn-old", status: "cancelled", cancelForced: true }],
+        ["mux", "user_message", { text: "new prompt", turnId: "turn-new" }],
+        ["mux", "turn_started", { turnId: "turn-new" }],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ]),
+    );
+    const { client, rows } = await connect(daemon);
+    try {
+      daemon.push(record([["mux", terminal, { status: "completed" }]], 11));
+      expect(rows().some((row) => row.kind === "typing")).toBe(false);
+      expect(rows().filter((row) => row.kind === "compaction").at(-1)?.compaction?.state).toBe("failed");
+    } finally {
+      client.close();
+    }
+  });
+
 for (const turnId of ["turn-grace", undefined])
   test(`Stop grace and its authoritative result share one notice (${turnId ?? "unknown identity"})`, async () => {
     const daemon = fakeDaemon(
