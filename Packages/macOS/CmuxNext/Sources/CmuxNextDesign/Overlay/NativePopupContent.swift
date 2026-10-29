@@ -26,6 +26,12 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
+    func beginPresentation() {
+        model = nil; selected = nil; selectionReason = "none"
+        searchHasInput = false; pendingCompositionModel = nil
+        typeahead = ""; typeaheadTime = 0
+    }
+
     func update(_ next: NativePopupModel) {
         let focused = fields.first { $0.value.currentEditor() != nil }
         let focusedID = focused?.key ?? editableControls.first(where: { $0.value === window?.firstResponder })?.key
@@ -145,6 +151,7 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
                 guard let control = sender as? NSSwitch else { return }
                 self?.emit(.change, row.id, control.state == .on ? "true" : "false")
             }
+            editableControls[row.id] = control
             trailing.append(control)
         } else if row.kind == .choice {
             let control = NSSegmentedControl(labels: (row.options ?? []).map(\.label), trackingMode: .selectOne, target: nil, action: nil)
@@ -388,12 +395,4 @@ final class NativePopupContent: NSView, NSTextFieldDelegate, NSSearchFieldDelega
         default: return false
         }
     }
-}
-
-private extension NativePopupRow {
-    var isNoninteractive: Bool { kind == .section || kind == .separator || kind == .text }
-}
-
-private extension NSBox {
-    static func separator() -> NSBox { let box = NSBox(); box.boxType = .separator; return box }
 }

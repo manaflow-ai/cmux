@@ -78,6 +78,7 @@ final class DeclarativePopupHost {
             deliver(NativePopupEvent(type: .dismiss, popupId: current.id, revision: current.revision, reason: "replaced"))
         }
         if opening {
+            content.beginPresentation()
             child?.hide()
             child = nil
             returnWindow = window
