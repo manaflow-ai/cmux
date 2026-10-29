@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -551,6 +552,16 @@ final class AppControl {
             .mainActor("debug.sidebar_nested_fixture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarNestedFixture.show(call.params, services: services))
+            },
+            // Captures of agent rows (the Priority view, the Chief's subagents): fixture lanes of several harnesses, no acpmux.
+            .mainActor("debug.sidebar_agent_fixture") { call in
+                let clear = call.params["clear"]?.boolValue == true
+                if clear { (AgentLaneStore.shared.lanes, AgentLaneStore.chief.lanes) = ([:], [:]) }
+                let result: CmuxNextSettings.JSONValue = clear ? .object(["cleared": .bool(true)]) : .object([
+                    "chats": .number(Double(AgentLaneStore.shared.fillCaptureChats())),
+                    "subagents": .number(Double(AgentLaneStore.chief.fillCaptureSubagents())),
+                ])
+                return .value(result)
             },
             // Captures of Add Device: a fixture listing (network and ~/.ssh/config rows), never the capture host's tailnet.
             .mainActor("debug.add_device") { [weak services] call in

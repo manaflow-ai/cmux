@@ -1,0 +1,16 @@
+{
+  "title": "Sidebar agent identity: fixture agent sessions of Codex, Claude and a harness with no registered mark (acme-agent) in the Priority view and as the Chief's subagents (two untitled, one titled). Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/sidebar-agent-identity.json",
+  "steps": [
+    {"title": "Place the Chief in the sidebar", "cmux": ["action", "run", "sidebar.item.add", "--item", "chief"], "wait": 1.5, "shot": false},
+    {"title": "Seed the fixture agent sessions", "rpc": {"method": "debug.sidebar_agent_fixture", "params": {}}, "wait": 1, "shot": false},
+    {"title": "The Chief's subagents: two untitled (Claude, Codex) and Inspector (acme-agent, no registered mark)", "rpc": {"method": "debug.sidebar_agent_fixture", "params": {}}, "wait": 1.5},
+    {"title": "Priority view", "cmux": ["action", "run", "sidebar.priorityView.toggle"], "wait": 1, "shot": false},
+    {"title": "Priority rows: Codex asks, Claude works, acme-agent failed and working, Codex done", "rpc": {"method": "debug.sidebar_agent_fixture", "params": {}}, "wait": 1.5},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 1.5,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to the list view; clear the fixture", "cmux": ["action", "run", "sidebar.priorityView.toggle"], "wait": 0.5, "shot": false},
+    {"title": "Clear", "rpc": {"method": "debug.sidebar_agent_fixture", "params": {"clear": true}}, "wait": 0.5, "shot": false}
+  ]
+}
