@@ -1,6 +1,7 @@
 //! Owns the primary session and prompt command dispatch arms.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::io::IsTerminal;
 use std::sync::Arc;
 
@@ -419,7 +420,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 meta["forceAdmit"] = json!(true);
             }
             if let Some(n) = &launch.name {
-                meta["name"] = json!(n);
+                meta.set("name", json!(n));
             }
             if let Some(p) = &args.policy {
                 meta["policy"] = json!(p);
@@ -728,6 +729,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             from,
             status,
             supersede,
+            class,
             attach,
         } => {
             if let Some(delivery) = status {
@@ -745,14 +747,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
+            let classed = class.is_some();
+            prompt_id.class = class;
             // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
             let text = arg_or_stdin(&prompt)?;
             if session.starts_with('@') {
-                if !attach.is_empty() || superseding {
+                if !attach.is_empty() || superseding || classed {
                     return Err(anyhow!(
-                        "team messages currently carry text only and do not support --supersede"
+                        "team messages currently carry text only and do not support --supersede or --class"
                     ));
                 }
                 let client = connect(true).await?;
