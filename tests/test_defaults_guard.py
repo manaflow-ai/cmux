@@ -281,6 +281,24 @@ enum Defaults {{
                 self.assertEqual(result.returncode, 1, result.stdout)
                 self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Factory.swift:register", result.stdout)
 
+    def test_metatype_property_factory_still_requires_review(self):
+        path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Factory.swift"
+        source = """enum Factory {
+    static func points(_ value: Double) -> Tunable<Double> {
+        .number("factory.gap", .status, "Gap", default: value)
+    }
+}
+struct Services { let factory: Factory.Type }
+enum Defaults {
+    static func register(_ services: Services) { store(services.factory.points(2)) }
+}
+"""
+        self.repo.write(path, source)
+        self.base = self.repo.commit("factory through an instance property")
+        result = self.check(self.head(extra={path: source.replace("points(2)", "points(3)")}))
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Factory.swift:register", result.stdout)
+
     def test_backticked_static_default_dependency_is_snapshotted(self):
         path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DevTunables.swift"
         source = """enum DevTunables {
