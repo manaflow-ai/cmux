@@ -245,6 +245,42 @@ import Testing
         #expect(!lane.chunks.isEmpty)
     }
 
+    /// cp/fix-wrap-stale-view, case 1: the v2.2.7-opt stale view (a new terminal kept its first wrapped row while the
+    /// daemon's screen went on). The view applies a record (the replay of the wrapped row) and, before it resumes the
+    /// marker behind it, swaps in a fresh surface's lane (a replay into a surface with content). Output that came
+    /// meanwhile is held behind that marker: once the view resumed every marker it was given, all of it, and output
+    /// after it, reaches the lane the view named last, in order, and the route is open again.
+    @Test func outputHeldWhenTheViewSwapsLanesBehindAMarkerReachesTheNewLane() async throws {
+        let queue = TerminalEventQueue(recorder: nil)
+        let log = Log()
+        let first = FakeLane(log: log), fresh = FakeLane(log: log)
+        let router = try await Self.openRoute(queue, to: first)
+        // The reader: a record, then output while its marker is in flight.
+        router.receive(Self.control(1)) { _, _ in }
+        router.receive(Self.output("held-1;")) { _, _ in }
+        router.receive(Self.output("held-2;")) { _, _ in }
+        // The view: applies the record, swaps lanes (the replay's fresh surface), then resumes markers as they come.
+        guard case .scrollChanged? = await queue.next() else { throw EchoLaneTestError.noMarker }
+        log.append("c1;")
+        router.setSink(fresh.sink)
+        var resumed = 0
+        while !router.routesToLane, resumed < 8 {
+            switch await queue.next() {
+            case .outputResume(let marker)?:
+                marker.resume()
+                resumed += 1
+            case .output(let data, _)?: log.append(data)
+            case let other?: Issue.record("unexpected \(String(describing: other))")
+            case nil: Issue.record("the stream ended")
+            }
+        }
+        #expect(router.routesToLane, "the route stayed shut after \(resumed) markers: live output never reaches a lane")
+        router.receive(Self.output("after;")) { _, _ in }
+        #expect(log.joined == "c1;held-1;held-2;after;", "applied \(log.joined)")
+        #expect(fresh.chunks.last == Data("after;".utf8), "live output after the swap did not reach the new lane")
+        #expect(!first.chunks.contains(Data("after;".utf8)), "live output after the swap went to the replaced lane")
+    }
+
     /// Output held behind a marker past the hold limit stops the reader on its thread until the view resumes the
     /// marker; then the held output and everything after it reach the lane, in order, and none goes by the stream.
     @Test func heldOutputPastTheHoldLimitStopsTheReaderUntilTheMarkerPasses() async throws {
