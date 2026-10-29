@@ -68,8 +68,14 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // A working chat of an agent that forks only at its end forks as it is now.
     if live || (working && !can_cut) {
         let mut out = json!({"sessionId": session.id});
-        if let Some(via) = params.pointer("/_meta/acpmux/via") {
-            out.set("_meta", json!({"acpmux": {"via": via}}));
+        let mut mux = serde_json::Map::new();
+        for key in ["via", "requireFullAccess"] {
+            if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+                mux.insert(key.into(), value.clone());
+            }
+        }
+        if !mux.is_empty() {
+            out.set("_meta", json!({"acpmux": mux}));
         }
         return Ok(out);
     }
@@ -109,8 +115,10 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // A working chat moved past its latest finished turn: a fork through it cuts there too.
     let earlier = earlier || working;
     let mut mux = serde_json::Map::new();
-    if let Some(via) = params.pointer("/_meta/acpmux/via") {
-        mux.insert("via".into(), via.clone());
+    for key in ["via", "requireFullAccess"] {
+        if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+            mux.insert(key.into(), value.clone());
+        }
     }
     if earlier {
         mux.insert("throughSeq".into(), json!(through));
