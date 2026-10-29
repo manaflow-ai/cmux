@@ -236,6 +236,13 @@ export const githubRepos = async (
 /** A row is served only while it is live and nobody revoked it (checked after each await, with no await before the answer). */
 const stillLive = (sql: SqlStorage, tokenId: string) => sql.exec(`SELECT 1 FROM github_tokens WHERE token_id = ? AND revoking = 0`, tokenId).toArray().length > 0
 
+/** GitHub includes metadata:read implicitly; every other grant must equal the requested permission. */
+const exactGithubGrant = (granted: Readonly<Record<string, string>>, requested: Readonly<Record<string, "read" | "write">>): boolean =>
+  Object.entries(requested).every(([name, access]) => granted[name] === access) &&
+  Object.entries(granted).every(([name, access]) =>
+    (name === "metadata" && access === "read" && requested.metadata === undefined) || requested[name] === access
+  )
+
 const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation: number }, p: Principal, pk: string, cacheKey: string, ask: TokenAsk, now: number): Promise<TokenReply> => {
   const generation = h.revokes.get(pk) ?? 0
   expireRows(h.sql, now)
@@ -293,8 +300,8 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
     row.token_id, cacheKey, row.principal, row.install, row.team, row.repo, row.permissions, row.expires_at, row.provider_expires_at, sealed
   )
   // Refuse rather than hand out less than was asked (GitHub never widens; it must not narrow either), or what the state no longer allows.
-  const short = Object.entries(ask.permissions).find(([k, v]) => !(minted.permissions[k] === "write" || minted.permissions[k] === v))
-  if (short) return refuse(fail(403, "policy.denied", `GitHub granted less than ${short[0]}: ${short[1]}`))
+  if (!exactGithubGrant(minted.permissions, ask.permissions))
+    return refuse(fail(403, "policy.denied", "GitHub returned permissions different from the requested repository grant"))
   const changed = () => ((a) => ("ok" in a ? a : a.c.id !== picked.c.id ? fail(403, "policy.denied", "the team's GitHub connection changed; retry") : null))(authorize(h.state(), p, ask))
   const before = changed()
   if (before) return refuse(before)
