@@ -448,3 +448,14 @@ fn no_joined_source_adds_no_rows() {
     let listing = model::merge(&sources, tailscale_up(), &nodes());
     assert!(listing.devices.iter().all(|d| !d.id.starts_with("joined:")));
 }
+
+#[test]
+fn jsonl_reads_as_json_and_quiet_is_taken_out() {
+    let words = |w: &[&str]| w.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+    assert_eq!(
+        super::output_flags(&words(&["--jsonl", "x", "--quiet"])),
+        (words(&["--json", "x"]), true)
+    );
+    assert_eq!(super::output_flags(&words(&["-q", "--", "--quiet"])), (words(&["--", "--quiet"]), true));
+    assert_eq!(super::output_flags(&words(&["--json"])), (words(&["--json"]), false));
+}

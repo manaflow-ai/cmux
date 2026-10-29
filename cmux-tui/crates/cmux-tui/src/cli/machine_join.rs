@@ -57,7 +57,6 @@ const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|-
   and --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN.
   cmux machine add HOST opens the app's Add Machine card for an ssh host.";
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
-const QUIET_ADD: &str = "--quiet would hide the line; use --json and read .line";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct Auth {
@@ -556,10 +555,8 @@ pub(super) fn run(
 ) -> Result<i32, Failure> {
     match &command.verb {
         Verb::Add { name, ttl, wait } => {
-            if output == OutputMode::Quiet {
-                // Quiet prints nothing, so a minted line would be lost: refuse before minting.
-                return Err(Failure::usage(QUIET_ADD));
-            }
+            // Quiet mints and prints nothing (the exit code says whether it worked); the
+            // unused line expires on its own. Scripts that want the line read `--json`'s `.line`.
             let wait = wait.unwrap_or(output == OutputMode::Human && options.interactive);
             let add = Add { name: name.as_deref(), ttl: *ttl, wait, every: options.every };
             add_machine(platform, &add, output, out, interrupt)
@@ -676,7 +673,7 @@ fn add_machine(
     match output {
         OutputMode::Human => {
             let when = expiry_words(minted.expires_at_ms, now);
-            writeln!(out, "Run this on the new machine. It works once and {when}:\n\n  {line}\n")
+            writeln!(out, "Run this on the new machine. It works once and {when}:\n\n{line}\n")
                 .map_err(io)?;
         }
         OutputMode::JsonLines => {

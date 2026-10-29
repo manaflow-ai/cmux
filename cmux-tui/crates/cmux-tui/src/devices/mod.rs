@@ -22,7 +22,8 @@ use crate::remote_host::{audit, config as host_config, self_exe};
 use model::{Device, Listing, Role, Sources, State};
 use network::{Choice, TailscaleNetwork, WeftNetwork};
 
-const USAGE: &str = "usage: cmux device list [--json] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
+const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
+       cmux device list [--json] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
        cmux device add HOST --yes [--name NAME] [--json]
        cmux device invite [--role client|read-only] [--ttl 15m] [--label TEXT] [--json]
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
@@ -50,7 +51,15 @@ pub(crate) fn handles(raw_args: &[String]) -> bool {
 /// Runs `cmux device <rest>`; returns the exit code (0 ok, 1 failed, 2 usage).
 pub(crate) fn run(rest: &[String]) -> i32 {
     let verb = rest.first().map(String::as_str).unwrap_or("help");
-    let args = &rest[1.min(rest.len())..];
+    let (args, quiet) = output_flags(&rest[1.min(rest.len())..]);
+    if quiet && matches!(verb, "remove" | "rm") && !args.iter().any(|a| a == "--yes" || a == "-y") {
+        eprintln!("cmux device {verb}: --quiet cannot ask; pass --yes\n{USAGE}");
+        return 2;
+    }
+    // Quiet prints nothing on success: stdout goes nowhere for the verb; stderr (errors,
+    // the reason for a failure) stays.
+    let _silenced = if quiet { Silenced::stdout() } else { None };
+    let args = args.as_slice();
     let result = match verb {
         "list" | "ls" => list(args),
         "add" => add(args),
@@ -72,6 +81,67 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         Err(e) => {
             eprintln!("cmux device {verb}: {e:#}");
             1
+        }
+    }
+}
+
+/// `args` with `--jsonl` read as `--json` (each verb prints one JSON line) and `--quiet`
+/// (`-q`) taken out; whether it was there. Words after `--` stay as they are.
+fn output_flags(args: &[String]) -> (Vec<String>, bool) {
+    let mut quiet = false;
+    let mut kept = Vec::with_capacity(args.len());
+    let mut words = args.iter();
+    for word in words.by_ref() {
+        match word.as_str() {
+            "--" => {
+                kept.push(word.clone());
+                break;
+            }
+            "--quiet" | "-q" => quiet = true,
+            "--jsonl" => kept.push("--json".into()),
+            _ => kept.push(word.clone()),
+        }
+    }
+    kept.extend(words.cloned());
+    (kept, quiet)
+}
+
+/// Stdout pointed at the null device until this is dropped.
+struct Silenced {
+    #[cfg(unix)]
+    saved: libc::c_int,
+}
+
+impl Silenced {
+    #[cfg(unix)]
+    fn stdout() -> Option<Self> {
+        use std::os::fd::AsRawFd as _;
+        let null = std::fs::OpenOptions::new().write(true).open("/dev/null").ok()?;
+        let _ = std::io::stdout().flush();
+        // SAFETY: dup and dup2 on this process's own descriptors; `saved` is restored on drop.
+        let saved = unsafe { libc::dup(1) };
+        if saved < 0 || unsafe { libc::dup2(null.as_raw_fd(), 1) } < 0 {
+            return None;
+        }
+        Some(Self { saved })
+    }
+
+    #[cfg(not(unix))]
+    fn stdout() -> Option<Self> {
+        None
+    }
+}
+
+impl Drop for Silenced {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            let _ = std::io::stdout().flush();
+            // SAFETY: puts back the descriptor `stdout()` saved, then closes the copy.
+            unsafe {
+                libc::dup2(self.saved, 1);
+                libc::close(self.saved);
+            }
         }
     }
 }

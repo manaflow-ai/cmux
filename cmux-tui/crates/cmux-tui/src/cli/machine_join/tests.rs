@@ -307,7 +307,7 @@ fn add_human_prints_the_line_and_waits_on_a_terminal_until_it_joins() {
     assert_eq!(lines.next(), Some(""));
     assert_eq!(
         lines.next().unwrap(),
-        format!("   curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN={TOKEN} sh")
+        format!(" curl -fsSL {origin}/v1/machines/join.sh | CMUX_JOIN={TOKEN} sh")
     );
     assert!(ran.out.contains("Waiting for it to join…"), "{}", ran.out);
     assert!(
@@ -400,14 +400,18 @@ fn the_wait_stops_at_expiry_and_on_interrupt() {
 }
 
 #[test]
-fn quiet_add_prints_nothing_and_mints_nothing() {
+fn quiet_add_mints_and_prints_nothing() {
     let (origin, requests) = fake(joining(vec![json!([])], far()));
     let ran = run_with(&["machine", "add"], &origin, OutputMode::Quiet, true, true, never());
-    let failure = ran.code.unwrap_err();
-    assert_eq!(failure.exit, 2);
-    assert!(ran.out.is_empty());
-    no_secret(&failure.message);
-    assert!(requests.try_recv().is_err(), "nothing was minted");
+    assert_eq!(ran.code, Ok(0));
+    assert!(ran.out.is_empty(), "{}", ran.out);
+    assert!(requests.recv().unwrap().starts_with("POST /v1/machines/join-tokens "));
+    assert!(requests.try_recv().is_err(), "quiet does not wait unless asked");
+    // --quiet --wait waits and says how it ended only by its exit code.
+    let (origin, _requests) = fake(joining(vec![json!([entry("jt_1")])], far()));
+    let ran = run_with(&["machine", "add", "--wait"], &origin, OutputMode::Quiet, false, true, never());
+    assert_eq!(ran.code, Ok(0));
+    assert!(ran.out.is_empty(), "{}", ran.out);
 }
 
 #[test]
