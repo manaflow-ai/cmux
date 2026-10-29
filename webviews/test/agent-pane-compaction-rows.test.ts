@@ -3,7 +3,7 @@
 // Claude translator dropped `compact_boundary` (only the context ring reset) and no client drew
 // acpmux's `failover` record, so a chat that compacted, or moved to another harness after a usage
 // limit, went on with nothing in the transcript saying so.
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxCompaction, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
@@ -320,6 +320,67 @@ test("a compacting forced Stop is one notice and exposes Continue after the matc
   expect(compactions().at(-1)?.compaction?.state).toBe("running");
   client.close();
 });
+
+for (const turnId of ["turn-grace", undefined])
+  test(`Stop grace and its authoritative result share one notice (${turnId ?? "unknown identity"})`, async () => {
+    const daemon = fakeDaemon(
+      record([
+        ["mux", "user_message", { text: "work", turnId }],
+        ["mux", "turn_started", { turnId }],
+      ]),
+    );
+    const { client, rows } = await connect(daemon);
+    const notices = () => rows().filter((row) => row.kind === "notice" && row.text === translate("stop.forced"));
+    jest.useFakeTimers();
+    try {
+      await client.cancel();
+      jest.advanceTimersByTime(5_001);
+      expect(notices()).toHaveLength(turnId ? 1 : 0);
+      const result = { turnId: "turn-grace", status: "cancelled", cancelForced: true };
+      daemon.push(record([["mux", "turn_result", result]], 3));
+      daemon.push(record([["mux", "turn_result", result]], 4));
+      expect(notices()).toHaveLength(1);
+      expect(notices()[0]?.id).toBe("notice-stop-turn-grace");
+    } finally {
+      client.close();
+      jest.useRealTimers();
+    }
+  });
+
+for (const [kind, msg] of [
+  ["turn_end", {}],
+  ["turn_end", { turnId: "turn-old" }],
+  ["turn_result", {}],
+] as const)
+  test(`a fenced live turn ignores ambiguous ${kind} ${JSON.stringify(msg)}`, async () => {
+    const daemon = fakeDaemon(
+      record([
+        ["mux", "user_message", { text: "old prompt", turnId: "turn-old" }],
+        ["mux", "turn_started", { turnId: "turn-old" }],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+        ["mux", "turn_result", { turnId: "turn-old", status: "cancelled", cancelForced: true }],
+        ["mux", "user_message", { text: "next prompt", turnId: "turn-new" }],
+        ["mux", "turn_started", { turnId: "turn-new" }],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ]),
+    );
+    const { client, rows } = await connect(daemon);
+    const before = rows();
+    daemon.push(record([["mux", kind, msg]], 8));
+    expect(rows()).toEqual(before);
+    expect(
+      rows()
+        .filter((row) => row.kind === "compaction")
+        .at(-1)?.compaction?.state,
+    ).toBe("running");
+    daemon.push(record([["mux", "turn_result", { turnId: "turn-new", status: "completed" }]], 9));
+    expect(
+      rows()
+        .filter((row) => row.kind === "compaction")
+        .at(-1)?.compaction?.state,
+    ).toBe("failed");
+    client.close();
+  });
 
 test("fenced metadata receipts neither draw rows nor settle a running turn", async () => {
   const daemon = fakeDaemon(

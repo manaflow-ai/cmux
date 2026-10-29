@@ -451,7 +451,10 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         method: "session/update",
         params: { update: { sessionUpdate: "compaction", state: "completed" } },
       });
-      // Even after fresh running, this unscoped boundary could be the stopped compaction's.
+      // Even after fresh running, these ambiguous boundaries could belong to the stopped turn.
+      record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
+      record("turn_end", { stopReason: "cancelled" });
+      record("turn_result", { status: "cancelled" });
       await drawn(page);
       expect(await page.locator('.cv-compaction[data-state="completed"]').count()).toBe(0);
       expect(await page.locator('.cv-compaction[data-state="running"]').count()).toBe(1);

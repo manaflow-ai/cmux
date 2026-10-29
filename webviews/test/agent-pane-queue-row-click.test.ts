@@ -174,7 +174,7 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
     }
     if (passes(rec)) socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: rec }));
   };
-  function answer(ws: Socket, method: string, params: { kinds?: string[] } = {}): unknown {
+  function answer(ws: Socket, method: string, params: { kinds?: string[]; promptId?: string } = {}): unknown {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } };

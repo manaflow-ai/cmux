@@ -4251,6 +4251,13 @@ export class AcpmuxDirectClient {
         // close the new turn, clear its asks, or settle its compaction.
         const resultTurnId =
           event.kind === "turn_result" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+        // A fenced session has lost attribution for source completions. Only a scoped result
+        // for its live turn may settle it; legacy turn_end and unscoped results are ambiguous.
+        if (
+          this.compactionFenceSeq !== undefined &&
+          (resultTurnId === undefined || resultTurnId !== this.runningTurnId)
+        )
+          return;
         if (
           event.kind === "turn_result" &&
           resultTurnId !== undefined &&
@@ -5566,15 +5573,18 @@ export class AcpmuxDirectClient {
     if (!compacting) {
       const sessionId = this.actingSessionId;
       const generation = this.selectionGeneration;
+      const stopTurnId = this.stopTurnId;
       this.stopTimer = setTimeout(() => {
         if (this.closed || generation !== this.selectionGeneration || this.actingSessionId !== sessionId) return;
         if (!this.turnOpen && this.summary?.status !== "running") return;
         // A new explicit turn started before the old cancel's grace elapsed. Its live state must
         // never inherit the old Stop's forced notice.
-        if (this.stopTurnId !== undefined && this.runningTurnId !== undefined && this.runningTurnId !== this.stopTurnId)
-          return;
+        if (stopTurnId !== undefined && this.runningTurnId !== undefined && this.runningTurnId !== stopTurnId) return;
         this.stopGaveUp = true;
-        this.notice(translate("stop.forced"));
+        // Share the authoritative result's row identity. Without a daemon turn ID, wait for
+        // that result rather than fabricating a notice that cannot later be deduplicated.
+        if (stopTurnId) this.notice(translate("stop.forced"), `notice-stop-${stopTurnId}`);
+        else this.emit();
       }, STOP_GRACE_MS);
     }
   }
@@ -6506,9 +6516,8 @@ export class AcpmuxDirectClient {
     await this.create(text(summary.harness), text(summary.cwd));
   }
   /// A line in the shown transcript (a pick the agent refused); its row id, for `dismissNotice`.
-  notice(text: string): string {
+  notice(text: string, id = noticeId("notice")): string {
     const at = Date.now();
-    const id = noticeId("notice");
     this.rows.set(id, { id, version: 1, at, kind: "notice", text });
     this.emit();
     return id;
