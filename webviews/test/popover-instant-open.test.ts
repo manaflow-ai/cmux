@@ -176,8 +176,7 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
 };
 
 /// How many entrances a script asks for: `data-enter` attributes or keys, and `usePresence(` calls.
-const entranceCalls = (source: string) =>
-  source.match(/\bdata-enter\b["']?\s*[=:]|\busePresence\s*\(/g)?.length ?? 0;
+const entranceCalls = (source: string) => source.match(/\bdata-enter\b["']?\s*[=:]|\busePresence\s*\(/g)?.length ?? 0;
 
 /// Every script that drives the Web Animations API (`.animate(`, `new KeyframeEffect(`), with its
 /// call count and what it animates. None of them is a popup or menu. A new call anywhere under
