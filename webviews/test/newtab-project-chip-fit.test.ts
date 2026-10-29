@@ -31,22 +31,39 @@ await requireBrowserLane("newtab-project-chip-fit.test.ts", async () => {
   });
 
   for (const theme of ["Apple System Colors Light", "Apple System Colors"])
-    test(`${theme}: modern New Tab keeps its inherited project`, async () => {
-      const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
-      try {
-        const port = (vite!.httpServer!.address() as { port: number }).port;
-        await page.goto(
-          `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", { variant: "inherited-project", theme })}`,
-        );
-        await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
-        const report = await page.evaluate(() =>
-          JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
-        );
-        expect(playFailures(report)).toEqual([]);
-      } finally {
-        await page.close();
-      }
-    });
+    for (const width of [360, 760])
+      test(`${theme} ${width}px: modern New Tab keeps its inherited project`, async () => {
+        const page = await browser!.newPage({ viewport: { width, height: 560 } });
+        try {
+          const port = (vite!.httpServer!.address() as { port: number }).port;
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", { variant: "inherited-project", theme })}`,
+          );
+          await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
+          const report = await page.evaluate(() =>
+            JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
+          );
+          expect(playFailures(report)).toEqual([]);
+          const geometry = await page
+            .locator(".nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child button")
+            .evaluate((button) => {
+              const label = button.querySelector<HTMLElement>(".acpmux-location-label")!;
+              const chevron = button.querySelector<HTMLElement>(":scope > .ui-ghost-icon:last-child")!;
+              const text = document.createRange();
+              text.selectNodeContents(label);
+              return {
+                gap: chevron.getBoundingClientRect().left - text.getBoundingClientRect().right,
+                buttonWidth: button.getBoundingClientRect().width,
+                slotWidth: button.parentElement!.getBoundingClientRect().width,
+              };
+            });
+          expect(geometry.gap).toBeGreaterThanOrEqual(0);
+          expect(geometry.gap).toBeLessThanOrEqual(10);
+          expect(geometry.buttonWidth).toBeLessThanOrEqual(geometry.slotWidth + 0.5);
+        } finally {
+          await page.close();
+        }
+      });
 
   for (const theme of ["Apple System Colors Light", "Apple System Colors"])
     for (const width of [260, 360, 720])

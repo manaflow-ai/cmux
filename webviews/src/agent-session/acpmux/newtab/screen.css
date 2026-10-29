@@ -577,14 +577,16 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-foot:has(.acpmux-access) .acpmux-location-leading { margin-inline-end: 0; }
 /* Choosing a project replaces the folder glyph with its badge and can shorten its name.
-   Keep the footer's icon and label columns reserved, so the machine, permission and disclosure
-   controls stay where the person found them. Long project names still truncate in the label. */
+   Keep the folder slot reserved so machine and permission controls stay where the person found
+   them, but size its button to the content. Long names still truncate inside the slot. */
 .nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child { flex: 1; }
 .nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-button {
+  width: fit-content;
+  max-width: 100%;
   padding-inline-start: calc(var(--ui-ghost-inset) - var(--ui-ghost-bearing));
 }
 .nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
-  flex: 1;
+  flex: 0 1 auto;
   text-align: start;
 }
 .nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-project-badge {
