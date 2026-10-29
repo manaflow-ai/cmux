@@ -353,7 +353,8 @@ one schema, so do it like this:
   Exempt a surface only with a stated reason. `EXCLUDED` in `cli/mcp/v2_tools.rs` is for daemon wire ops only.
 - Renaming or removing a key: list a rename in `RenamedSettingKeys.swift`, so existing cmux.json values keep
   applying under the new key, or a removal in `schemas/settings/retired-keys.json`, so the CLI and socket
-  refuse the old key as `removed`. Neither keeps the old key working in the CLI or MCP; say so in the PR.
+  refuse a new value for the old key as `removed`. MCP refuses an old key; the CLI only sets it as raw
+  file text. Say so in the PR.
 - Verify all three on a tagged build: the palette row, `cmux settings get|set <key>`, and MCP `settings_get` /
   `settings_set` (or its refusal for a refused key). Say in the PR which ones you checked.
 
