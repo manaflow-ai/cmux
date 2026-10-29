@@ -343,8 +343,10 @@ struct ThreadPreview: Hashable {
         } else if case let .text(t, _) = part {
             let maxBox = ThreadPreview.maxTextBoxWidth(width: width)
             p.textLines = ThreadPreview.wrap(t, maxWidth: maxBox - ThreadPreview.textPadX)
-            let one = p.textLines.count == 1 ? p.textLines.first.map { TextDraw.width($0, font: ThreadPreview.textFont) } : nil
-            p.box = CGSize(width: one.map { min(maxBox, ($0 + ThreadPreview.textPadX).rounded(.toNearestOrEven)) } ?? maxBox,
+            // cmux (user, 2026-10-28): the quote hugs its widest line, wrapped or not, as Messages' does (it took the whole
+            // column when wrapped, leaving an empty band right of the text). Rounded up so the widest line always fits.
+            let widest = p.textLines.map { TextDraw.width($0, font: ThreadPreview.textFont) }.max() ?? 0
+            p.box = CGSize(width: min(maxBox, (widest + ThreadPreview.textPadX).rounded(.up)),
                            height: ThreadPreview.textHeight(lines: p.textLines.count))
         } else {
             let (title, sub) = p.lines

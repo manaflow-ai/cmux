@@ -112,10 +112,11 @@
      private func widthRows(_ st: AppState, now: Date, near: Range<Int>?) -> [RowSpec] {
          let msgs = st.conversation.messages
          let day = Format.dayInterval(now), strings = ObjectIdentifier(MessagesLabLocalization.bundle)
-@@ -683,6 +729,29 @@
+@@ -682,7 +728,30 @@
+            let rows = RowBuilder.rewidth(d.rows, messages: st.ui.streams.isEmpty ? msgs : msgs + st.ui.streams.map(\.message),
                                           width: bounds.width, exact: near, scale: renderScale) {
              return rows
-         }
++        }
 +        // cmux: while a reply streams, each chunk changes `streams` and nothing else. The rows of every
 +        // other message stay: they are re-measured, and only the newest message's rows and the trailing rows
 +        // (the stream, typing, notice) are derived again. Deriving every loaded message per chunk made each
@@ -137,7 +138,7 @@
 +                widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, st.ui.notice, st.ui.streams, day, strings, rows)
 +                return rows
 +            }
-+        }
+         }
 +        MessagesWindowView.widthRowsDerived += 1  // cmux
          let rows = RowBuilder.rows(st, messages: msgs, now: now, width: bounds.width, exact: near, scale: renderScale)
          widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, st.ui.notice, st.ui.streams, day, strings, rows)
@@ -161,10 +162,11 @@
          CATransaction.commit()
      }
  
-@@ -901,6 +982,18 @@
+@@ -900,6 +981,18 @@
+         // (RowCell.crispEdge). `.sending` and `.sent` (the send itself) keep the crisp edge.
          if case let .status(id, st) = action, st != .sending, st != .sent, crispSends.values.contains(id) {
              releaseCrisp { $0 == id }
-         }
++        }
 +        // cmux: also every crisp send whose message is past sent in the new state (delivered, read or failed), whatever
 +        // the action: Home sends one status per update (HomeDiff.keepNewestStatus: two sends delivered together give
 +        // only the newer one a status) and a rebuild's replaceWindow carries statuses with no status action. Sends are
@@ -176,10 +178,9 @@
 +                switch m.status { case .delivered?, .read?, .failed?: past.insert(m.id); default: break }
 +            }
 +            if !past.isEmpty { releaseCrisp { past.contains($0) } }
-+        }
+         }
          // this view's width (several Home tabs), not the process-wide `Metrics.current`.
          if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: bounds.width, scale: renderScale) }
-         // Rows configured in this transaction draw now (RowCell.transitionDepth).
 @@ -1007,7 +1100,8 @@
          // The same for an action whose rows came out unchanged.
          let draft: Bool = { if case .setDraft = action { return true }; return false }()
@@ -242,22 +243,21 @@
          case let .react(ref, _, _):
              guard let i = index(ref.messageId) else { return nil }
              idx.append(i)
-@@ -1511,8 +1622,15 @@
+@@ -1511,7 +1622,14 @@
          for case let cell as RowCell in collection.visibleCells {
              if let b = map[cell.key] { cell.renameRow(to: b) }
          }
 +        onRowsRenamed(map)
      }
- 
++
 +    /// cmux: rows renamed in place (a stream's final message took its rows), old key -> new key; the
 +    /// transcript selection follows (TranscriptSelection.renameRows).
 +    var onRowsRenamed: ([String: String]) -> Void = { _ in }
 +    /// cmux: a cell was configured for a row (decorate); the transcript selection draws its part in it.
 +    var onCellDecorated: (RowCell) -> Void = { _ in }
-+
+ 
      /// Live container motions: (displacement, spring, begin, end, rows it covered). A row that
      /// shows up while one runs (inserted later, or outside its band) gets the opposite motion,
-     /// so it moves as it did with per-row springs.
 @@ -1689,22 +1807,41 @@
      }
  
@@ -520,7 +520,7 @@
      }
  
      var threadOpen: Bool { store.state.ui.openThread != nil }
-+
+ 
 +    /// cmux: the space an open thread view's rows may take, between the header and the field (as a sheet's).
 +    var threadArea: CGRect {
 +        let top = Fixture.headerHeight + 12, bottom = max(top + 40, fieldTop - 12)
@@ -546,7 +546,7 @@
 +        CATransaction.commit()
 +        return true
 +    }
- 
++
 +    /// cmux: Reduce Motion (the host's pin or the system setting): the thread view and a reply sent in it change at once.
 +    private var reducesMotion: Bool { MessagesLabHomeView.reducesMotion }
 +
