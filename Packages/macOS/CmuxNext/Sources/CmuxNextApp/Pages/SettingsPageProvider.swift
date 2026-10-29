@@ -78,6 +78,8 @@ final class SettingsPageProvider: PageProvider {
     var removeDevice: (@MainActor (String) async -> String?)?
     /// Settings > Devices' Full access switch on a paired client machine: the error to show, or nil.
     var setDeviceFullAccess: (@MainActor (String, Bool) async -> String?)?
+    /// Settings > Devices' Screen sharing or Control switch of this joined Mac (`screen`, `control`): the error to show, or nil.
+    var setJoinConsent: (@MainActor (String, Bool) async -> String?)?
     /// Settings > Machines' "Dedicated agent machine" switch on a Cloud machine: the error to show, or nil.
     var setMachineVmHost: (@MainActor (String, Bool) async -> String?)?
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
@@ -160,6 +162,22 @@ final class SettingsPageProvider: PageProvider {
                 spentFullAccessGesture = event
             }
             return try await Self.host(setDeviceFullAccess, "devices")(id, on).map { ["error": .string($0)] } ?? .object([:])
+        case "cmux.settings.devices.join_consent":
+            guard let surface = params["surface"]?.stringValue, let on = params["on"]?.boolValue else {
+                throw PageError.invalidParams("surface and on are required")
+            }
+            // SECURITY: turning one on lets the team's other machines see or control this Mac, so,
+            // like Full access, only the person's own click or key in this page turns it on (spent
+            // once), and acpmux then takes it only over a line proven as the person. Off only
+            // narrows, so it needs no gesture.
+            if on {
+                guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
+                      event != spentFullAccessGesture else {
+                    throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+                }
+                spentFullAccessGesture = event
+            }
+            return try await Self.host(setJoinConsent, "devices")(surface, on).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.machines.vm_host":
             guard let id = params["id"]?.stringValue, let on = params["on"]?.boolValue else {
                 throw PageError.invalidParams("id and on are required")

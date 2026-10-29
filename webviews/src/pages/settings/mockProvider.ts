@@ -23,6 +23,7 @@ import {
   type ChannelSwitch,
   type ChannelsState,
   type AccountsState,
+  type DevicesJoinState,
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
@@ -72,6 +73,20 @@ export type MockOptions = {
   workspaceBackgrounds?: WorkspaceBackground[];
   /** Colors the Ghostty config sets itself (the host lists' `theme_overrides`). */
   themeOverrides?: ThemeOverride[];
+  /** This Mac joined to a team (the host lists' `devices_join`); absent: not joined. */
+  devicesJoin?: DevicesJoinState;
+};
+
+/** This Mac joined to a team with the one-line join, both consent switches off. */
+export const mockDevicesJoin: DevicesJoinState = {
+  title: "This Mac on Your Team",
+  joined: "Joined to Example Team as studio",
+  help: "Your team's machines reach this Mac through the mesh. They cannot see or control it until you allow it here.",
+  error: null,
+  switches: [
+    { surface: "screen", title: "Screen sharing", help: "Your team's machines can see this screen", on: false },
+    { surface: "control", title: "Control", help: "Your team's machines can move the pointer and type here", on: false },
+  ],
 };
 
 export const mockDomains: Domains = {
@@ -177,6 +192,7 @@ export class MockSettingsProvider {
     this.connected = options.connected ?? true;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
+    if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
     this.importable = options.importable ?? null;
     this.museumArt = options.museumArt ?? [];
     for (const background of options.workspaceBackgrounds ?? [])
@@ -220,6 +236,18 @@ export class MockSettingsProvider {
         const devices = this.host.devices;
         if (devices)
           this.setHost({ ...this.host, devices: { ...devices, rows: devices.rows.filter((r) => r.id !== params.id) } });
+        return {};
+      },
+      "cmux.settings.devices.join_consent": (params) => {
+        const join = this.host.devices_join;
+        if (join)
+          this.setHost({
+            ...this.host,
+            devices_join: {
+              ...join,
+              switches: join.switches.map((s) => (s.surface === params.surface ? { ...s, on: params.on === true } : s)),
+            },
+          });
         return {};
       },
       "cmux.settings.devices.full_access": (params) => {
@@ -501,6 +529,7 @@ export class MockSettingsProvider {
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",
       "cmux.settings.devices.full_access",
+      "cmux.settings.devices.join_consent",
       "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",

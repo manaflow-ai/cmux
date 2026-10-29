@@ -10,6 +10,7 @@ import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import type {
   DevicesDevice,
+  DevicesJoinState,
   DevicesLabels,
   DevicesRelay,
   DevicesRelayDraft,
@@ -22,7 +23,8 @@ import type {
 
 export function DevicesCard() {
   const store = useStore();
-  const { devices } = useSettingsState();
+  const { devices, host } = useSettingsState();
+  const join = host?.devices_join ?? null;
   // Like Accounts: the host reads again when the card mounts (a stable callback ref runs once per mount).
   const mounted = useCallback(
     (node: HTMLDivElement | null) => {
@@ -33,7 +35,64 @@ export function DevicesCard() {
   return (
     <div className="devices" data-card="devices" ref={mounted}>
       {devices && <DevicesBody state={devices} />}
+      {join && <JoinGroup join={join} />}
     </div>
+  );
+}
+
+/**
+ * This Mac joined to a team with the one-line join: what it joined as, and its Screen sharing and
+ * Control switches, off until the person turns one on here (the host takes an on only from the
+ * person's own click, then over a line acpmux proves as the person; off always works).
+ */
+function JoinGroup({ join }: { join: DevicesJoinState }) {
+  const store = useStore();
+  const [setting, setSetting] = useState<string | null>(null);
+  const titleId = useId();
+  return (
+    <section className="group" data-devices-group="join">
+      <h3 className="group-title">{join.title}</h3>
+      <div className="rows">
+        <div className="row">
+          <div className="row-label">
+            <div className="row-title" data-devices-join="">
+              {join.joined}
+            </div>
+            <div className="row-help">{join.help}</div>
+          </div>
+        </div>
+        {join.switches.map((item) => (
+          <div className="row" key={item.surface} data-devices-join-consent={item.surface}>
+            <div className="row-main">
+              <div className="row-label">
+                <div className="row-title" id={`${titleId}-${item.surface}`}>
+                  {item.title}
+                </div>
+                <div className="row-help">{item.help}</div>
+              </div>
+              <div className="row-control">
+                <Switch
+                  checked={item.on}
+                  disabled={setting === item.surface}
+                  labelId={`${titleId}-${item.surface}`}
+                  onToggle={(on) => {
+                    setSetting(item.surface);
+                    void store.setJoinConsent(item.surface, on).finally(() => setSetting(null));
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+        {join.error && (
+          <div className="row">
+            <div className="row-help" role="alert">
+              {join.error}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
