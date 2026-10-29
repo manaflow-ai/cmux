@@ -7,7 +7,7 @@ private final class DisplayBackdropDeinitAdapter {
     weak var owner: DisplayBackdropBinding?
 
     nonisolated func run() {
-        MainActor.assumeIsolated { owner?.teardown() } // main-proof: AppKit owns this binding on the main actor.
+        MainDelivery().run { @MainActor [weak owner] in owner?.teardown() }
     }
 }
 
