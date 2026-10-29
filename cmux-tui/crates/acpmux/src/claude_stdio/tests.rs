@@ -301,7 +301,7 @@ async fn a_fresh_compaction_answers_after_a_cancelled_compaction_emits_nothing()
 }
 
 #[tokio::test]
-async fn a_late_cancelled_boundary_is_suppressed_before_a_fresh_compaction_boundary() {
+async fn a_cancelled_boundary_before_new_compaction_does_not_complete_it() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     let prompt = |id, text| {
         Message::request(
@@ -313,10 +313,13 @@ async fn a_late_cancelled_boundary_is_suppressed_before_a_fresh_compaction_bound
     t.outbound(&prompt(1, "/compact")).await;
     t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
     t.outbound(&Message::notification(method::SESSION_CANCEL, json!({"sessionId":"acp-1"}))).await;
-    t.outbound(&prompt(2, "continue")).await;
-    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
+    let Outbound::Lines(lines) = t.outbound(&prompt(2, "continue")).await else { panic!() };
+    let mut echo = lines[0].clone();
+    echo["isReplay"] = json!(true);
+    t.inbound(&echo).await;
     let stale = t.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":10}})).await;
     assert!(!stale.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "{stale:?}");
+    t.inbound(&json!({"type":"system","subtype":"status","status":"compacting"})).await;
     let fresh = t.inbound(&json!({"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":9}})).await;
     assert!(fresh.iter().any(|m| matches!(m, Message::Notification { params, .. } if params.as_ref().and_then(|p| p.pointer("/update/sessionUpdate")) == Some(&json!("compaction")))), "{fresh:?}");
 }

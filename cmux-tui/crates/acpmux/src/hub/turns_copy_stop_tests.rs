@@ -76,6 +76,9 @@ async fn a_delayed_compaction_cancel_cannot_cancel_the_next_turn() {
     .expect("the first prompt reached the harness");
     s.compacting.store(true, std::sync::atomic::Ordering::SeqCst);
     let old_turn = s.turn().unwrap().turn_id;
+    // Simulate an earlier prompt handoff stuck on writer backpressure. Stop must settle
+    // without this lock, while reserving its place ahead of the next prompt's write.
+    let blocked_writer = s.input_handoff.clone().lock_owned().await;
     let (arrived_tx, arrived) = tokio::sync::oneshot::channel();
     let (release, release_rx) = tokio::sync::oneshot::channel();
     *hub.cancel_write_seam.lock().unwrap() = Some((arrived_tx, release_rx));
@@ -83,7 +86,6 @@ async fn a_delayed_compaction_cancel_cannot_cancel_the_next_turn() {
         let (hub, s) = (hub.clone(), s.clone());
         tokio::spawn(async move { hub.cancel(&s).await })
     };
-    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
     let result = tokio::time::timeout(Duration::from_secs(2), running)
         .await
         .expect("Stop must settle before its writer is released")
@@ -107,6 +109,8 @@ async fn a_delayed_compaction_cancel_cannot_cancel_the_next_turn() {
     };
     let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
     assert_ne!(accepted["turnId"], old_turn);
+    drop(blocked_writer);
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
     // Give the unfixed path time to deliver the new prompt before releasing the delayed
     // cancel. With ordering in place this event cannot arrive until release.
     let _ = tokio::time::timeout(Duration::from_millis(200), async {
@@ -133,6 +137,112 @@ async fn a_delayed_compaction_cancel_cannot_cancel_the_next_turn() {
         })
         .unwrap();
     assert!(cancel.seq < next.seq, "the new prompt overtook the old cancel");
+}
+
+/// Queue one prompt and wait for its durable admission, not a timer or queue-length poll.
+async fn queued_prompt(
+    hub: &Arc<Hub>,
+    session: &Arc<Session>,
+    text: &str,
+    interrupt: bool,
+) -> (String, tokio::task::JoinHandle<Result<Value, RpcError>>) {
+    let (accepted_tx, accepted) = tokio::sync::oneshot::channel();
+    let (hub, session, text) = (hub.clone(), session.clone(), text.to_owned());
+    let result = tokio::spawn(async move {
+        let opts = PromptOptions {
+            interrupt,
+            on_accepted: Some(Box::new(move |value| {
+                let _ = accepted_tx.send(value);
+            })),
+            ..Default::default()
+        };
+        hub.prompt_with(&session, vec![json!({"type": "text", "text": text})], "test", false, opts)
+            .await
+    });
+    let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
+    assert_eq!(accepted["queued"], true);
+    (accepted["promptId"].as_str().unwrap().to_owned(), result)
+}
+
+/// A compaction Stop withdraws pending work. Interrupt is different: only its explicit
+/// replacement survives, whether selected through queue_edit or submitted as an interrupt.
+async fn compaction_queue_stop(interrupt: Option<bool>) {
+    let (hub, s) = chat(&["FAKE_RESET_CANCEL_ON_PROMPT=1"], false).await;
+    let mut events = hub.subscribe();
+    let running = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move {
+            hub.prompt(&s, vec![json!({"type": "text", "text": "deaf-to-cancel"})], "test", false)
+                .await
+        })
+    };
+    tokio::time::timeout(WAIT, async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.record.msg["params"]["update"]["content"]["text"] == "running" {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    s.compacting.store(true, std::sync::atomic::Ordering::SeqCst);
+    let (promoted_id, promoted) = queued_prompt(&hub, &s, "previously promoted", false).await;
+    assert!(hub.put_next(&s, &promoted_id, None).unwrap());
+    let replacement = match interrupt {
+        Some(submit_interrupt) => {
+            let (id, answer) = queued_prompt(&hub, &s, "slow", submit_interrupt).await;
+            if !submit_interrupt {
+                let edited = hub
+                    .queue_edit(
+                        &s,
+                        &json!({"promptId": id, "op": "interrupt"}),
+                        Control::Local,
+                        false,
+                        None,
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(edited["sent"], "interrupt");
+            }
+            Some(answer)
+        }
+        None => {
+            hub.cancel(&s).await.unwrap();
+            None
+        }
+    };
+    let stopped = tokio::time::timeout(Duration::from_secs(2), running)
+        .await
+        .expect("compaction Stop settles promptly")
+        .unwrap()
+        .unwrap();
+    assert_eq!(stopped["_meta"]["acpmux"]["cancelForced"], true);
+    let withdrawn = tokio::time::timeout(WAIT, promoted).await.unwrap().unwrap().unwrap();
+    assert_eq!(withdrawn["_meta"]["acpmux"]["withdrawn"], true);
+    assert_eq!(written(&hub, &s, "previously promoted"), 0);
+    if let Some(replacement) = replacement {
+        let answer = tokio::time::timeout(WAIT, replacement).await.unwrap().unwrap().unwrap();
+        assert_eq!(answer["stopReason"], "end_turn");
+        assert_eq!(written(&hub, &s, "slow"), 1);
+    }
+    assert!(s.queue().is_empty());
+    assert!(s.turn().is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn compaction_stop_withdraws_a_previously_promoted_prompt() {
+    compaction_queue_stop(None).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn compaction_interrupt_preserves_only_its_replacement_prompt() {
+    compaction_queue_stop(Some(true)).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn compaction_queue_interrupt_preserves_only_its_replacement_prompt() {
+    compaction_queue_stop(Some(false)).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

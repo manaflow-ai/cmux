@@ -407,7 +407,7 @@ impl Hub {
         let Some(running) = running else {
             return Ok(Some("next"));
         };
-        self.cancel_turn(session, &running).await;
+        self.cancel_turn_for_replacement(session, &running, prompt_id).await;
         Ok(Some("interrupt"))
     }
 

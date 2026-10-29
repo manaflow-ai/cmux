@@ -45,6 +45,16 @@ impl Hub {
     }
 
     pub async fn cancel(&self, session: &Arc<Session>) -> Result<(), RpcError> {
+        self.cancel_preserving_queued(session, None).await
+    }
+
+    /// During compaction an interrupt keeps only the explicitly selected replacement. A
+    /// plain Stop withdraws every queued prompt, including one promoted with Send now.
+    pub(super) async fn cancel_preserving_queued(
+        &self,
+        session: &Arc<Session>,
+        replacement: Option<&str>,
+    ) -> Result<(), RpcError> {
         // First: a prompt about to be written sees it (`turns.rs`).
         session.cancels.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         // Stop also stops an automatic continuation that has not fired yet, and the running
@@ -68,6 +78,17 @@ impl Hub {
             .agent_session_id
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         self.cancel_pending_permissions(session);
+        // Reserve our FIFO place before ending the logical turn, without waiting for a
+        // backpressured prompt writer. Tokio mutexes queue only when polled; constructing the
+        // future alone would let the next prompt overtake the session-wide cancellation.
+        // Disable cooperative yielding for this first poll so Pending means a registered
+        // mutex waiter, rather than an exhausted task budget before queue registration.
+        let input_handoff = tokio::task::unconstrained(session.input_handoff.clone().lock_owned());
+        tokio::pin!(input_handoff);
+        let acquired = std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(std::future::Future::poll(input_handoff.as_mut(), cx))
+        })
+        .await;
         // Another Stop or a natural result may have ended the captured turn while this
         // caller prepared. Never settle or send its session-wide interrupt into a different turn.
         if session.turn().as_ref().map(|t| &t.turn_id) != turn.as_ref().map(|t| &t.turn_id) {
@@ -82,7 +103,7 @@ impl Hub {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .iter()
-                .filter(|q| !q.sent_now)
+                .filter(|q| replacement != Some(q.prompt_id.as_str()))
                 .map(|q| q.prompt_id.clone())
                 .collect();
             for prompt_id in queued {
@@ -90,13 +111,13 @@ impl Hub {
             }
             Self::force_cancel(session, turn);
         }
-        // The logical Stop must not wait behind a prompt writer stuck on backpressure. The
-        // handoff gate protects only transport ordering: once acquired, this cancel is queued
-        // before the next prompt can be handed to the child.
-        let input_handoff = session.input_handoff.clone().lock_owned().await;
-        if session.turn().as_ref().map(|t| &t.turn_id) != turn.as_ref().map(|t| &t.turn_id) {
-            return Ok(());
-        }
+        // The reservation precedes any next turn's transport handoff, even if that turn
+        // starts logically while this Stop waits. Do not reject our own forced settlement:
+        // its interrupt must still reach the harness before the replacement prompt.
+        let input_handoff = match acquired {
+            std::task::Poll::Ready(guard) => guard,
+            std::task::Poll::Pending => input_handoff.await,
+        };
         #[cfg(test)]
         {
             let seam = self.cancel_write_seam.lock().unwrap().take();

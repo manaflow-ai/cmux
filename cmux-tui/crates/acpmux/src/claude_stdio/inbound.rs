@@ -14,6 +14,14 @@ impl Translator {
         let main_line = line.get("parent_tool_use_id").and_then(Value::as_str).is_none();
         if main_line && kind == "system" && sub == "status" {
             if line.get("status").and_then(Value::as_str) == Some("compacting") {
+                // A new prompt has begun its own compaction. The stopped one may
+                // never emit a boundary or result; its marker must not consume this
+                // compaction's answer. Prompt text is not attribution evidence.
+                if !self.cancelled.load(Ordering::SeqCst) && self.prompt_echo.lock().await.is_none()
+                {
+                    self.cancelled_compaction.store(false, Ordering::SeqCst);
+                    self.cancelled_compaction_boundary.store(false, Ordering::SeqCst);
+                }
                 self.compacting.store(true, Ordering::SeqCst);
             } else if line.get("compact_result").is_some() {
                 // A successful compaction still has its boundary and summary
@@ -683,10 +691,7 @@ impl Translator {
                 if !abandoned.is_empty()
                     && (cancelled_compaction
                         || next_unread
-                        || !(self.turn_output.load(Ordering::SeqCst)
-                            || (sub == "success"
-                                && line.get("num_turns").and_then(Value::as_u64) == Some(0)
-                                && line.get("duration_api_ms").and_then(Value::as_u64) == Some(0))))
+                        || !self.turn_output.load(Ordering::SeqCst))
                 {
                     for k in abandoned.iter().cloned() {
                         self.pending.lock().await.remove(&k);
@@ -716,6 +721,8 @@ impl Translator {
                 // Out of the turn first: a steer that takes the steer locks after `fail_steers`
                 // finds it ended and is not left waiting (`steer_batch.rs` `write_steer`).
                 self.in_turn.store(false, Ordering::SeqCst);
+                self.cancelled_compaction.store(false, Ordering::SeqCst);
+                self.cancelled_compaction_boundary.store(false, Ordering::SeqCst);
                 out.extend(self.fail_steers().await);
                 *self.prompt_echo.lock().await = None;
                 // A Ctrl-B still unanswered leaves no mark past its turn.
@@ -795,13 +802,10 @@ impl Translator {
                 let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
                 self.awaiting_summary.store(true, Ordering::SeqCst);
-                // A cancelled compaction may emit its boundary after a later prompt has
-                // started. The boundary has no turn id, so suppress that one stale update;
-                // the next boundary (from a fresh compaction) remains visible.
-                if !self.cancelled_compaction_boundary.swap(false, Ordering::SeqCst) {
+                // Keep the cancelled boundary marker until its result; consuming it
+                // here would let that zero-turn result answer the next echoed prompt.
+                if !self.cancelled_compaction_boundary.load(Ordering::SeqCst) {
                     out.push(upd(compaction_update("completed", line)));
-                } else {
-                    self.cancelled_compaction.store(false, Ordering::SeqCst);
                 }
             }
             // Claude Code 2.1.303 says `status: compacting` when a compaction
