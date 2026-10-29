@@ -116,7 +116,8 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
       await row.locator("button.cv-tool").click();
       await row.locator(".cv-tool-output-card").waitFor();
       await row.locator("button.cv-tool").focus();
-      await row.hover();
+      // Output actions reveal when the output block is hovered; hovering the row header leaves them hidden.
+      await row.locator(".cv-tool-output__box").hover();
       const capture = process.env.CMUX_COPY_CAPTURE ?? path.resolve(import.meta.dir, "../artifacts/copy-controls.jpg");
       mkdirSync(path.dirname(capture), { recursive: true });
       await page.screenshot({ path: capture, type: "jpeg", quality: 75 });
