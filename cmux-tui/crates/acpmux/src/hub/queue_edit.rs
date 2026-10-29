@@ -390,7 +390,7 @@ impl Hub {
                     supersede: q.run.supersede.clone(),
                     full_access_device: device,
                 };
-                (q.run, q.steer) = (Arc::new(run), true);
+                (q.run, q.steer, q.inbox) = (Arc::new(run), true, false);
             }
             let mut now =
                 session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

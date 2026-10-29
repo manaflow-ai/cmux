@@ -440,6 +440,14 @@ pub enum Command {
     #[command(hide = true)]
     TurnCapCmd { session: String, minutes: Option<u64>, off: bool, clear: bool },
     #[command(hide = true)]
+    CoordinatorCmd {
+        session: String,
+        on: bool,
+        off: bool,
+        flush_minutes: Option<u64>,
+        interval_minutes: Option<u64>,
+    },
+    #[command(hide = true)]
     Schema,
     #[command(hide = true)]
     Models {
@@ -928,6 +936,25 @@ pub enum SessionCmd {
         #[arg(long)]
         clear: bool,
     },
+    /// A coordinator: other agents' messages wait in its inbox and reach it as one digest (a
+    /// block or a question at once; results and FYIs at a turn's end, after the flush while it
+    /// is idle, or every interval into a running turn), and its turn cap defaults to 20 minutes.
+    /// Omit the flags to show it; setting it takes the app or this socket, never an agent.
+    Coordinator {
+        session: String,
+        /// Make it a coordinator.
+        #[arg(long, conflicts_with = "off")]
+        on: bool,
+        /// Stop it being one: its inbox is released in order.
+        #[arg(long)]
+        off: bool,
+        /// Minutes results and FYIs wait while it is idle (1 to 1440; default 10).
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=1440))]
+        flush_minutes: Option<u64>,
+        /// Least minutes between digests into a running turn (1 to 1440; default 5).
+        #[arg(long, value_parser = clap::value_parser!(u64).range(1..=1440))]
+        interval_minutes: Option<u64>,
+    },
     /// One line per turn.
     History {
         session: String,
@@ -1212,6 +1239,9 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::TurnCap { session, minutes, off, clear } => {
                 Command::TurnCapCmd { session, minutes, off, clear }
+            }
+            SessionCmd::Coordinator { session, on, off, flush_minutes, interval_minutes } => {
+                Command::CoordinatorCmd { session, on, off, flush_minutes, interval_minutes }
             }
             SessionCmd::Rules { session, rules, clear } => {
                 Command::RulesCmd { session, rules, clear }

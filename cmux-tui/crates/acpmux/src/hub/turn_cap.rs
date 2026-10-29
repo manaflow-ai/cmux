@@ -17,18 +17,16 @@
 use super::*;
 use std::sync::Weak;
 
-/// The cap a coordinator session gets when it set none itself (the `coordinator` setting, which
-/// [`default_turn_cap_ms`] reads once it lands).
-#[allow(dead_code)] // read by `default_turn_cap_ms` with the coordinator setting
+/// The cap a coordinator session gets when it set none itself (`coordinator.rs`).
 pub const COORDINATOR_TURN_CAP_MS: u64 = 20 * 60 * 1000;
 
 /// The provenance kind of the notice (`prompt_provenance.rs`): hub-set, never a client's.
 pub const NOTICE_KIND: &str = "turn_cap";
 
-/// The cap a session's other settings give it when it set none itself: none today. The
-/// coordinator setting gives [`COORDINATOR_TURN_CAP_MS`] here, the one place that links the two.
-pub(crate) fn default_turn_cap_ms(_meta: &SessionMeta) -> Option<u64> {
-    None
+/// The cap a session's other settings give it when it set none itself: a coordinator's is
+/// [`COORDINATOR_TURN_CAP_MS`], the one place that links the two; any other session has none.
+pub(crate) fn default_turn_cap_ms(meta: &SessionMeta) -> Option<u64> {
+    meta.coordinator.then_some(COORDINATOR_TURN_CAP_MS)
 }
 
 /// The session's cap: its own `turnCapMs` (0 turns it off), else [`default_turn_cap_ms`].

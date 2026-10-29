@@ -130,6 +130,7 @@ fn queued(prompt_id: &str, agent: Option<&str>, class: Option<Class>, text: &str
         resume: false,
         steer: false,
         held: false,
+        inbox: false,
         sent_now: false,
         joined: Arc::new(StdMutex::new(None)),
         requeued: false,

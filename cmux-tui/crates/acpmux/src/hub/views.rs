@@ -395,6 +395,7 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    inbox: q.inbox,
                     from_agent: q.run.agent.clone(),
                     class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),

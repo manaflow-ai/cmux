@@ -1840,6 +1840,55 @@ async fn dispatch_request(
                 "effectiveTurnCapMs": crate::hub::turn_cap::turn_cap_ms(&meta),
             }))
         }
+        method::MUX_SET_COORDINATOR => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let keys = ["coordinator", "inboxFlushMs", "digestIntervalMs"];
+            if keys.iter().any(|k| params.get(*k).is_some()) {
+                // The person's, as the turn cap is: a session's agent never makes a chat a
+                // coordinator or stops it being one, its own or another's.
+                if !conn.is_person() && (conn.origin != Origin::Local || conn.caller().is_some()) {
+                    return Err(crate::hub::person::person_required(
+                        "changing whether a session is a coordinator",
+                    ));
+                }
+                let on = match params.get("coordinator") {
+                    None => None,
+                    Some(Value::Bool(on)) => Some(*on),
+                    Some(_) => {
+                        return Err(RpcError::invalid_params("coordinator must be true or false"));
+                    }
+                };
+                // At least a second: a digest the chat refuses (a move, a watch) is tried again
+                // no sooner than that.
+                let ms = |key: &str| match params.get(key) {
+                    None => Ok(None),
+                    Some(Value::Null) => Ok(Some(None)),
+                    Some(v) => {
+                        v.as_u64().filter(|ms| *ms >= 1000).map(|ms| Some(Some(ms))).ok_or_else(
+                            || {
+                                RpcError::invalid_params(format!(
+                                    "{key} must be a whole number of ms, at least 1000, or null"
+                                ))
+                            },
+                        )
+                    }
+                };
+                let (flush, interval) = (ms("inboxFlushMs")?, ms("digestIntervalMs")?);
+                hub.set_coordinator(&s, on, flush, interval);
+            }
+            let meta = s.meta();
+            let inbox = s.inbox_len();
+            Ok(json!({
+                "sessionId": s.id,
+                "coordinator": meta.coordinator,
+                "inboxFlushMs": meta.inbox_flush_ms,
+                "digestIntervalMs": meta.digest_interval_ms,
+                "effectiveInboxFlushMs": crate::hub::coordinator::inbox_flush_ms(&meta),
+                "effectiveDigestIntervalMs": crate::hub::coordinator::digest_interval_ms(&meta),
+                "effectiveTurnCapMs": crate::hub::turn_cap::turn_cap_ms(&meta),
+                "inbox": inbox,
+            }))
+        }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             // A restart reads the chat logs after its ready line: the queue, turn and status

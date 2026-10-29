@@ -111,6 +111,7 @@ pub(super) use session::{newest_first, prompt_text, short_text};
 mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
+pub(crate) mod coordinator;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
@@ -1087,6 +1088,9 @@ impl Hub {
             silent_turn: StdMutex::new(None),
             turn_cap_noticed: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
+            inbox_timer: StdMutex::new(None),
+            last_digest_at: AtomicU64::new(0),
+            inbox_digesting: std::sync::atomic::AtomicBool::new(false),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),

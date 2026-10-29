@@ -362,6 +362,19 @@ pub struct SessionMeta {
     /// (`turn_cap::default_turn_cap_ms`). Set by the person only; never copied to a fork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_cap_ms: Option<u64>,
+    /// A coordinator session (`hub/coordinator.rs`): other agents' messages wait in its inbox
+    /// for one digest instead of each taking a turn, and only a block or a question wakes it.
+    /// Set by the person only; never copied to a fork.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub coordinator: bool,
+    /// How long, in ms, a coordinator's results and FYIs wait while it is idle before a digest
+    /// brings them anyway; `None` takes `coordinator::INBOX_FLUSH_MS`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbox_flush_ms: Option<u64>,
+    /// The least time, in ms, between two digests steered into a coordinator's running turn;
+    /// `None` takes `coordinator::DIGEST_INTERVAL_MS`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest_interval_ms: Option<u64>,
 }
 
 /// Where a session sits in the tree of sessions that started each other

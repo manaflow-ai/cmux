@@ -242,6 +242,7 @@ impl Hub {
                     "prompt": q.preview,
                     "queuedAt": q.queued_at,
                     "held": q.held,
+                    "inbox": q.inbox,
                     "fromAgent": q.run.agent,
                     "class": q.run.class,
                     "author": crate::author::listed(q.run.provenance.as_ref()),

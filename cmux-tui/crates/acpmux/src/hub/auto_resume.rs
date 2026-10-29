@@ -219,7 +219,7 @@ impl Pending {
 /// not hold, and its last turn is that one.
 pub(super) fn still_cut(session: &Session, cut_turn: &str) -> bool {
     session.turn().is_none()
-        && session.queue().iter().all(|q| q.held)
+        && session.queue().iter().all(|q| q.parked())
         && session.meta().last_turn.as_ref().and_then(|t| t.get("turnId")).and_then(Value::as_str)
             == Some(cut_turn)
 }

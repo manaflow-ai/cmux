@@ -206,6 +206,12 @@ pub struct Session {
     pub(super) turn_cap_noticed: StdMutex<Option<String>>,
     /// The turn cap's timer for the running turn (`turn_cap.rs`); the next turn aborts it.
     pub(super) turn_cap_timer: StdMutex<Option<tokio::task::AbortHandle>>,
+    /// A coordinator's inbox timer (`coordinator.rs`): the next flush or interval digest.
+    pub(super) inbox_timer: StdMutex<Option<tokio::task::AbortHandle>>,
+    /// Unix ms of a coordinator's last inbox digest (`coordinator.rs`); 0: none since load.
+    pub(super) last_digest_at: AtomicU64,
+    /// A coordinator's digest is being made (`coordinator.rs`): no second one starts meanwhile.
+    pub(super) inbox_digesting: std::sync::atomic::AtomicBool,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
@@ -288,6 +294,14 @@ impl Session {
     }
     pub fn moving(&self) -> Option<String> {
         self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+    /// Whether the session is a coordinator (`coordinator.rs`), read without copying its meta.
+    pub fn is_coordinator(&self) -> bool {
+        self.meta.lock().unwrap_or_else(|e| e.into_inner()).coordinator
+    }
+    /// The other agents' messages waiting in a coordinator's inbox (`coordinator.rs`).
+    pub fn inbox_len(&self) -> usize {
+        self.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().filter(|q| q.inbox).count()
     }
     /// A failed turn holds the prompts that waited behind it (`queue.rs` `pause_queue`).
     pub fn queue_paused(&self) -> bool {

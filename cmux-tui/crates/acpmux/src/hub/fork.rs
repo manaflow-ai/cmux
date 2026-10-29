@@ -335,6 +335,9 @@ impl Hub {
             subagent_retry_open: false,
             // The person's setting for the chat it came from, not for the fork.
             turn_cap_ms: None,
+            coordinator: false,
+            inbox_flush_ms: None,
+            digest_interval_ms: None,
         };
         let new = self.make_session(meta);
         match made {

@@ -550,6 +550,7 @@ fn queued_prompt(prompt_id: &str, provenance: Option<Value>) -> crate::hub::queu
         resume: false,
         steer: false,
         held: false,
+        inbox: false,
         sent_now: false,
         joined: Arc::new(std::sync::Mutex::new(None)),
         requeued: false,

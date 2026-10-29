@@ -605,6 +605,11 @@ export type QueuedPromptSummary = {
   held: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
   images: QueuedImage[];
+  /**
+   * Waits in a coordinator's inbox for its digest (`hub/coordinator.rs`): another agent's
+   * message that takes no turn by itself. False from a peer on an older acpmux.
+   */
+  inbox: boolean;
   prompt: string;
   promptId: string;
   queuedAt: number;

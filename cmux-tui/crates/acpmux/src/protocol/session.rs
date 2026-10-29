@@ -353,6 +353,11 @@ pub struct QueuedPromptSummary {
     pub queued_at: u64,
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
+    /// Waits in a coordinator's inbox for its digest (`hub/coordinator.rs`): another agent's
+    /// message that takes no turn by itself. False from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub inbox: bool,
     /// The images it sends, in its order; `_acpmux/attachment` reads each by its id.
     #[serde(default)]
     pub images: Vec<QueuedImage>,

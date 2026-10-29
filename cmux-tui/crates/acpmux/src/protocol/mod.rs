@@ -281,6 +281,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/set_default_policy", Request),
         untyped(method::MUX_SET_RULES, Request),
         untyped(method::MUX_SET_TURN_CAP, Request),
+        untyped(method::MUX_SET_COORDINATOR, Request),
         untyped(method::MUX_PERSON_ENROLL, Request),
         untyped(method::MUX_COMPUTER_USE_ENROLL, Request),
         untyped(method::MUX_PERSON_PROVE, Request),

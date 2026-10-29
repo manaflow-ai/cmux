@@ -44,6 +44,9 @@ pub struct QueuedPrompt {
     pub(super) steer: bool,
     /// Waited behind a turn that failed (`pause_queue`): it waits until the queue is resumed.
     pub(super) held: bool,
+    /// Another agent's message to a coordinator (`coordinator.rs`): it waits in the queue for the
+    /// inbox digest and never runs by itself; turning the setting off releases it in place.
+    pub(super) inbox: bool,
     /// Sent now (`put_next`): a turn that fails as it stops does not hold it.
     pub(super) sent_now: bool,
     /// Set when it went in with an earlier agent message's turn (`digest.rs`): its waiting task
@@ -57,6 +60,12 @@ pub struct QueuedPrompt {
 }
 
 impl QueuedPrompt {
+    /// Whether it waits where it is instead of taking its turn: a failed turn held it, or it is
+    /// a coordinator's inbox item (`coordinator.rs`).
+    pub(super) fn parked(&self) -> bool {
+        self.held || self.inbox
+    }
+
     /// The person who sent it (`author.rs`), `None` for the owner or an agent.
     pub(super) fn sender(&self) -> Option<&str> {
         crate::author::of_provenance(self.run.provenance.as_ref())
@@ -107,6 +116,8 @@ pub(super) struct Slot<'a> {
     pub(super) agent: Option<&'a str>,
     /// Its class when it is another agent's message (`prompt_class.rs`).
     pub(super) class: Option<crate::prompt_class::PromptClass>,
+    /// Another agent's message to a coordinator: it waits as an inbox item (`coordinator.rs`).
+    pub(super) inbox: bool,
     /// Its `_meta.acpmux.supersede` key (`supersede.rs`).
     pub(super) supersede: Option<&'a str>,
     /// `PromptOptions::full_access_device`.
@@ -145,7 +156,7 @@ pub(super) fn withdrawn_reply(prompt_id: &str, turn_id: &str) -> Value {
 /// queue's lock.
 fn queue_waits(session: &Session) -> bool {
     let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    queue.iter().any(|q| !q.held)
+    queue.iter().any(|q| !q.parked())
 }
 
 impl Hub {
@@ -196,8 +207,9 @@ impl Hub {
                     self.release_held_agent_messages(session);
                 }
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
-                let held = session.queue().iter().filter(|q| q.held).count() as u64;
-                let waiting = session.turn().is_some() || session.queued() > held;
+                // Nor do a coordinator's inbox items (`coordinator.rs`), and one goes there itself.
+                let held = session.queue().iter().filter(|q| q.parked()).count() as u64;
+                let waiting = p.inbox || session.turn().is_some() || session.queued() > held;
                 // It never queues: busy when the queue's own test says it would wait. The turn
                 // lock is tried below, and the queue read again under it.
                 if p.no_queue && waiting {
@@ -211,6 +223,10 @@ impl Hub {
                     );
                     waits
                 });
+                // In a coordinator's inbox: a block or a question may bring the digest now.
+                if p.inbox {
+                    self.inbox_arrived(session, p.class);
+                }
                 (turn_id, withdraw)
             }
         };
@@ -435,6 +451,7 @@ impl Hub {
                 resume: false,
                 steer: false,
                 held: false,
+                inbox: p.inbox,
                 sent_now: false,
                 joined: joined.clone(),
                 requeued: false,
@@ -535,9 +552,9 @@ impl Hub {
             let (head, held, provenance) = {
                 let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let mine = queue.iter().find(|q| q.turn_id == turn_id);
-                let held = mine.is_some_and(|q| q.held);
+                let held = mine.is_some_and(QueuedPrompt::parked);
                 let provenance = mine.and_then(|q| q.run.provenance.clone());
-                let head = queue.iter().find(|q| !q.held).is_none_or(|q| q.turn_id == turn_id);
+                let head = queue.iter().find(|q| !q.parked()).is_none_or(|q| q.turn_id == turn_id);
                 (head, held, provenance)
             };
             let moving = session.moving().is_some();
@@ -584,7 +601,7 @@ impl Hub {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             queue
                 .iter_mut()
-                .filter(|q| !q.held && !q.sent_now)
+                .filter(|q| !q.parked() && !q.sent_now)
                 .map(|q| {
                     q.held = true;
                     q.prompt_id.clone()
@@ -652,7 +669,8 @@ impl Hub {
             // Only the last prompt sent now: one sent before it is a queued prompt again.
             queue.iter_mut().for_each(|q| q.sent_now = false);
             let mut q = queue.remove(from);
-            (q.held, q.sent_now) = (false, true);
+            // Nor is it an inbox item now: the person sent it (`coordinator.rs`).
+            (q.held, q.inbox, q.sent_now) = (false, false, true);
             queue.insert(0, q);
             queue.iter().map(|q| q.prompt_id.clone()).collect()
         };
@@ -957,6 +975,8 @@ impl Hub {
         for id in unstarted.prompts() {
             held.remove(id);
         }
+        // A coordinator's agent messages are its inbox again (`coordinator.rs`).
+        let coordinator = session.is_coordinator();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
         let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
@@ -982,6 +1002,11 @@ impl Hub {
             // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
             let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
             let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
+            let inbox = super::coordinator::is_inbox_item(
+                coordinator,
+                agent.is_some(),
+                provenance.as_ref(),
+            );
             // A record from before classes: an agent's message is a result (`prompt_class.rs`).
             let class = crate::prompt_class::of_message(
                 crate::prompt_class::recorded(&e.msg),
@@ -1013,6 +1038,9 @@ impl Hub {
                 resume: true,
                 steer: false,
                 held: held.contains(&prompt_id),
+                // A coordinator's agent messages wait for its digest again (`coordinator.rs`);
+                // `queued_at` is the record's time, so the flush comes when it would have.
+                inbox,
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),
@@ -1088,6 +1116,14 @@ impl Hub {
                         let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
                         hub.append(&session, "mux", "prompt_refused", msg);
                     }
+                });
+            }
+            // A coordinator's restored inbox: what is due goes in, the rest waits its timer.
+            if session.is_coordinator() {
+                let (hub, session) = (self.clone(), session.clone());
+                tokio::spawn(async move {
+                    hub.wait_startup().await;
+                    hub.inbox_restored(&session);
                 });
             }
         }

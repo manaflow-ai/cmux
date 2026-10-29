@@ -218,7 +218,11 @@ impl Hub {
         // The agent messages that go in with this one (`digest.rs`) answer with its answer, or
         // wait again when it failed.
         let joined = super::digest::DigestTurn::default();
-        let result = self.run_prompt_joined(session, blocks, client, steer, opts, &joined).await;
+        // On the heap: a prompt's whole turn is a large future, and a caller that awaits it in
+        // place (a test, `steer_queued`'s steer that falls back to a turn) would hold it on its
+        // stack; debug builds overflowed a 2 MB test thread with it.
+        let result =
+            Box::pin(self.run_prompt_joined(session, blocks, client, steer, opts, &joined)).await;
         // `finish_turn` put them back already when the turn itself failed, and a turn that never
         // reached its agent put them back unheld (`fail_unstarted_turn`); this is any other way.
         if result.is_err() {
@@ -273,12 +277,24 @@ impl Hub {
         let running = session.turn();
         // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+        // Another agent's message to a coordinator waits in its inbox for the digest, never
+        // steering in or stopping a turn by itself (`coordinator.rs`).
+        let inbox = super::coordinator::is_inbox_item(
+            session.is_coordinator(),
+            agent.is_some(),
+            opts.provenance.as_ref(),
+        );
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
         let capped = running.is_some() && self.turn_cap_holds(session, agent.is_some());
-        let steer_now =
-            steer && session.steering.load(Ordering::SeqCst) && running.is_some() && !capped;
+        let steer_now = steer
+            && !inbox
+            && session.steering.load(Ordering::SeqCst)
+            && running.is_some()
+            && !capped;
         if steer && opts.steer_only && !steer_now {
-            let why = if capped {
+            let why = if inbox {
+                "steer.unavailable: this session is a coordinator; other agents' messages wait for its inbox digest"
+            } else if capped {
                 "steer.unavailable: the running turn is past its turn cap; other agents' messages wait for its next turn"
             } else {
                 "steer.unavailable: the session has no running turn that its agent can steer"
@@ -312,11 +328,12 @@ impl Hub {
             prompt_id: &prompt_id,
             control,
             trust_gate,
-            interrupt: opts.interrupt,
+            interrupt: opts.interrupt && !inbox,
             interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
             class,
+            inbox,
             supersede: supersede.as_deref(),
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
@@ -412,6 +429,10 @@ impl Hub {
             return Err(e);
         }
         self.arm_turn_cap(session, &turn_id);
+        // A coordinator's inbox timer counts from this turn now (`coordinator.rs`).
+        if session.is_coordinator() {
+            self.arm_inbox(session);
+        }
         // A lane's report to a parent whose close began since `queue_slot` checked is refused
         // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
         // clears the turn, so a close that began any time before this check is seen.
@@ -887,7 +908,10 @@ impl Hub {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
-        let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
+        let ended = self.take_turn(session, turn_id).filter(|t| t.turn_id == turn_id);
+        let detached = ended.is_none();
+        // When it started, for a coordinator's turn end (`coordinator.rs`).
+        let started_at = ended.map(|t| t.started_at);
         session.queue_moved.notify_waiters();
         // Debug builds only: `ACPMUX_TEST_FINISH_HOLD_MS` holds a turn's end once its turn is
         // taken, as a slow end does (`tests/durable_agents.rs`). Bounded; release builds have no
@@ -1071,6 +1095,8 @@ impl Hub {
         self.save_meta(session);
         self.send_offer_result(session);
         self.lane_turn_ended(session, true, turn);
+        // A coordinator's inbox: the one digest its turn end may bring (`coordinator.rs`).
+        self.coordinator_turn_ended(session, started_at);
         result
     }
 
@@ -1149,6 +1175,7 @@ impl Hub {
         // The turn was counted: its lane's parent hears it failed, with no reply of its own
         // (`lane_reports.rs`).
         self.lane_turn_ended(session, false, turn);
+        self.coordinator_turn_ended(session, None);
     }
 
     /// Waits until the inbound loop handled every agent message queued before
@@ -1551,6 +1578,8 @@ impl Hub {
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
         self.set_status(session, SessionStatus::Closed);
+        // A closed coordinator's inbox timer stops (`coordinator.rs`).
+        self.disarm_inbox(session);
         // A lane link either end of which closes is retired (`lane_reports.rs`).
         self.lane_retire(&session.id);
         // The session's Claude Code MCP config holds the helper token.

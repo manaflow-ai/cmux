@@ -199,7 +199,7 @@ fn one_line(text: &str) -> String {
 
 /// Whether a waiting prompt goes into a digest: another agent's text message that may go in
 /// with others (module docs).
-fn digestible(q: &QueuedPrompt) -> bool {
+pub(in crate::hub) fn digestible(q: &QueuedPrompt) -> bool {
     let run = &q.run;
     run.agent.is_some()
         && !is_digest(run.provenance.as_ref())
@@ -329,6 +329,7 @@ impl Hub {
                 resume: false,
                 steer,
                 held: false,
+                inbox: false,
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: false,

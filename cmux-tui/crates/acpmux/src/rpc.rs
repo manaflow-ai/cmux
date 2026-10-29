@@ -353,6 +353,9 @@ pub mod method {
     /// A session's turn cap (`hub/turn_cap.rs`): `{sessionId, turnCapMs?}`, a number sets it
     /// (0 turns it off), null clears it, absent reads it.
     pub const MUX_SET_TURN_CAP: &str = "_acpmux/set_turn_cap";
+    /// Whether a session is a coordinator, and its inbox times (`hub/coordinator.rs`):
+    /// `{sessionId, coordinator?, inboxFlushMs?, digestIntervalMs?}`; absent reads them.
+    pub const MUX_SET_COORDINATOR: &str = "_acpmux/set_coordinator";
     pub const MUX_TAG: &str = "_acpmux/tag";
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.

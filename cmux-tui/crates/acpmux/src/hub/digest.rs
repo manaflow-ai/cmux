@@ -279,7 +279,7 @@ impl Hub {
             let mut i = 0;
             while i < queue.len() {
                 let q = &queue[i];
-                if q.held {
+                if q.parked() {
                     i += 1;
                     continue;
                 }
