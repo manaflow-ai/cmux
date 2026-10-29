@@ -529,12 +529,19 @@ pub(crate) struct Caller {
     pub daemon: String,
 }
 
-/// [`update_peer`] holding the host's update lock ([`lock_updates`]), so
+/// [`update_peer`] holding the host's update lock ([`lock_updates`]), once
+/// the host answers ([`Remote::reachable`]), so
 /// another update of the host (its self-update timer, or a `host update`,
 /// `host setup` or `host enroll --fix` from another machine) does not change
 /// the binary or `acpmux.prev` under it; `updateRunning` (nothing changed)
 /// while one does.
 fn update_locked(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
+    // A host that is down, or behind a hop that stalls, fails here in
+    // seconds: the lock's ssh and the probe's have no bound of their own
+    // past the connect.
+    if let Err(e) = remote.reachable() {
+        return PeerUpdate::new().end(Outcome::Failed, "unreachable", format!("{e:#}"));
+    }
     match lock_updates(remote) {
         Ok(Some(lock)) => update_peer(&lock.fence(remote), opts),
         Ok(None) => {

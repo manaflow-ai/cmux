@@ -1350,6 +1350,55 @@ impl Remote for Unreachable {
     fn spawn(&self, script: &str) -> Result<std::process::Child> {
         panic!("a held peer was reached: {script}")
     }
+
+    fn reachable(&self) -> Result<()> {
+        panic!("a held peer was reached")
+    }
+}
+
+/// A host that does not answer: down, or behind a hop that stalls.
+struct Down;
+
+impl Remote for Down {
+    fn host(&self) -> &str {
+        "leo@big-box"
+    }
+
+    fn exec(&self, script: &str, _: Option<&[u8]>) -> Result<RemoteOut> {
+        panic!("a host that does not answer was asked to run {script}")
+    }
+
+    fn push(&self, _: &Path, remote: &str) -> Result<()> {
+        panic!("a host that does not answer got {remote}")
+    }
+
+    fn spawn(&self, script: &str) -> Result<std::process::Child> {
+        panic!("a host that does not answer was asked to lock: {script}")
+    }
+
+    fn reachable(&self) -> Result<()> {
+        Err(anyhow!("leo@big-box is unreachable over ssh: no answer within 20 s"))
+    }
+}
+
+/// Leo, 2026-10-29: "Couldn't update big-red: acpmux ran past its 900.0 seconds deadline and was
+/// stopped; it exited". A host that does not answer fails at once as `unreachable`, before its lock
+/// or probe: nothing waits on its ssh, and the app retries it quietly once it is back.
+#[test]
+fn a_host_that_does_not_answer_is_unreachable_before_anything_runs() {
+    let opts = UpdateOptions { binary_dir: None, if_idle: false, keep_newer: true, caller: None };
+    let up = update_locked(&Down, &opts);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("unreachable")),
+        "{up:?}"
+    );
+    let row = up.to_json("big-box", "leo@big-box");
+    assert_eq!(
+        row["error"].as_str(),
+        Some("leo@big-box is unreachable over ssh: no answer within 20 s"),
+        "{row}"
+    );
 }
 
 /// Leo, 2026-10-26: a machine reserved for someone else ("cmux16 is reserved for lawrencecchen

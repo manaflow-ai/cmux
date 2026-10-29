@@ -74,7 +74,18 @@ pub(crate) trait Remote {
     /// its stdin, stdout and stderr piped: [`lock_updates`] holds the host's
     /// update lock with it.
     fn spawn(&self, script: &str) -> Result<Child>;
+    /// Whether the host answers at all, within a bound: `host update` asks
+    /// before it takes the host's lock, so a host that is down or behind a
+    /// stalled hop fails in seconds as `unreachable`. Ok for a fake (tests).
+    fn reachable(&self) -> Result<()> {
+        Ok(())
+    }
 }
+
+/// How long [`SshRemote::reachable`] waits for `ssh HOST true`: the connect
+/// and banner bound (`ConnectTimeout`), plus the key exchange and login,
+/// which no ssh option bounds.
+const REACH_BOUND: std::time::Duration = std::time::Duration::from_secs(20);
 
 pub(crate) struct SshRemote<'a>(pub &'a str);
 
@@ -112,6 +123,13 @@ impl Remote for SshRemote<'_> {
             .with_context(|| format!("ssh {}", self.0))
     }
 
+    fn reachable(&self) -> Result<()> {
+        let mut ssh = Command::new("ssh");
+        ssh.args(ssh_argv(self.0, "true")?);
+        bounded_ok(&mut ssh, REACH_BOUND)
+            .map_err(|why| anyhow!("{} is unreachable over ssh: {why}", self.0))
+    }
+
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
         // scp takes a path without `~/` as one under the remote home.
         let remote = remote.strip_prefix("~/").unwrap_or(remote);
@@ -136,6 +154,51 @@ fn scp_failed(host: &str, stderr: &str) -> anyhow::Error {
     } else {
         anyhow!("scp to {host} failed: {why}")
     }
+}
+
+/// Runs `cmd` with no stdin and its stdout dropped: Ok when it exits 0
+/// within `bound`, else why not, its last stderr line or that it gave no
+/// answer in time (it is killed then). Its stderr is read on a thread and
+/// given up a moment after the exit: a ProxyCommand ssh started may still
+/// hold the pipe.
+pub(crate) fn bounded_ok(
+    cmd: &mut Command,
+    bound: std::time::Duration,
+) -> std::result::Result<(), String> {
+    use std::io::Read;
+    use wait_timeout::ChildExt;
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    if let Some(mut pipe) = child.stderr.take() {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            let _ = pipe.read_to_string(&mut text);
+            let _ = tx.send(text);
+        });
+    }
+    let status = match child.wait_timeout(bound) {
+        Ok(Some(status)) => status,
+        Ok(None) | Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("no answer within {} s", bound.as_secs()));
+        }
+    };
+    if status.success() {
+        return Ok(());
+    }
+    let said = rx.recv_timeout(std::time::Duration::from_secs(1)).unwrap_or_default();
+    Err(said
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .map(|l| l.trim().to_owned())
+        .unwrap_or_else(|| format!("it exited with {status}")))
 }
 
 /// A plain absolute or home path: safe in a remote shell script unquoted
@@ -893,6 +956,31 @@ mod tests {
             assert_eq!(as_login_shell(shell, &argv).as_deref(), Some("after it's\n"), "{shell}");
         }
         assert_eq!(script_of(&argv[10]).as_deref(), Some(script));
+    }
+
+    #[test]
+    fn a_command_that_does_not_answer_in_time_is_stopped_and_named() {
+        let started = std::time::Instant::now();
+        let mut slow = Command::new("/bin/sh");
+        slow.args(["-c", "sleep 30"]);
+        let why = bounded_ok(&mut slow, std::time::Duration::from_secs(1)).unwrap_err();
+        assert_eq!(why, "no answer within 1 s");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    }
+
+    #[test]
+    fn a_command_that_fails_is_named_by_its_last_stderr_line() {
+        let mut fails = Command::new("/bin/sh");
+        fails.args(["-c", "echo first >&2; echo 'ssh: connect to host x port 22: Operation timed out' >&2; exit 255"]);
+        let why = bounded_ok(&mut fails, std::time::Duration::from_secs(10)).unwrap_err();
+        assert_eq!(why, "ssh: connect to host x port 22: Operation timed out");
+        let mut quiet = Command::new("/bin/sh");
+        quiet.args(["-c", "exit 3"]);
+        let why = bounded_ok(&mut quiet, std::time::Duration::from_secs(10)).unwrap_err();
+        assert!(why.starts_with("it exited with "), "{why}");
+        let mut ok = Command::new("/bin/sh");
+        ok.args(["-c", "true"]);
+        assert_eq!(bounded_ok(&mut ok, std::time::Duration::from_secs(10)), Ok(()));
     }
 
     /// Records each script and its stdin; answers ok with `stdout`.
