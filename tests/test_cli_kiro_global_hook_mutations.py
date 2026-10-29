@@ -35,6 +35,21 @@ class KiroGlobalHookMutationTests(unittest.TestCase):
                     if should_exist:
                         self.assertIn(foreign, json.loads(path.read_text())["hooks"])
 
+    def test_dangling_user_symlink_is_not_replaced(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root).resolve()
+            path = root / ".kiro" / "hooks" / "cmux.json"
+            path.parent.mkdir(parents=True)
+            missing = root / "user-hooks.json"
+            path.symlink_to(missing)
+            env = {"HOME": str(root), "CFFIXED_USER_HOME": str(root), "PATH": "/usr/bin:/bin",
+                   "CMUX_CLI_SENTRY_DISABLED": "1", "CMUX_SOCKET_PATH": str(root / "no-socket")}
+            result = subprocess.run([str(resolve_cmux_cli()), "hooks", "kiro", "install", "--global", "--yes"],
+                                    env=env, capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(path.is_symlink())
+            self.assertFalse(missing.exists())
+
     def test_competing_file_is_preserved_for_install_and_uninstall(self):
         for action, keep_foreign in (("install", False), ("uninstall", False), ("uninstall", True)):
             with self.subTest(action=action, keep_foreign=keep_foreign), tempfile.TemporaryDirectory() as root:

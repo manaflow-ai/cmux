@@ -327,6 +327,9 @@ extension CMUXCLI {
     private func kiroGlobalHooksData(atPath path: String) throws -> Data? {
         do { return try Data(contentsOf: URL(fileURLWithPath: path)) }
         catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
+            // A missing target does not make a user-owned symlink absent.
+            var metadata = stat()
+            guard lstat(path, &metadata) != 0, errno == ENOENT else { throw error }
             return nil
         }
     }
