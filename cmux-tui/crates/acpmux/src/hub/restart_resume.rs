@@ -49,7 +49,7 @@ const TOOL_PAGE_SIZE: usize = MAX_UNFINISHED_TOOLS + 1;
 /// events: each page sees every update for its retained IDs, including terminal replays.
 #[derive(Default)]
 struct ToolPage {
-    after: Option<[u8; 32]>,
+    discarded: bool,
     calls: BTreeMap<[u8; 32], Option<UnfinishedTool>>,
 }
 
@@ -60,11 +60,9 @@ impl ToolPage {
             return;
         };
         let digest: [u8; 32] = Sha256::digest(id.as_bytes()).into();
-        if self.after.is_some_and(|after| digest <= after) {
-            return;
-        }
         if !self.calls.contains_key(&digest) {
             if self.calls.len() == TOOL_PAGE_SIZE {
+                self.discarded = true;
                 // The threshold only decreases during this pass. A rejected/evicted
                 // identity cannot re-enter, so no retained history loses its start.
                 if self.calls.last_key_value().is_some_and(|(last, _)| digest > *last) {
@@ -98,27 +96,33 @@ impl ToolPage {
     }
 }
 
-/// Bounded-memory pagination through tool identities. Stop once the display is full
-/// and one more unfinished call proves omission. Mostly-completed large turns require
-/// extra scans, but only of the interrupted turn's tool payloads, never old turns.
-fn collect_unfinished(mut scan: impl FnMut(&mut ToolPage)) -> (Vec<UnfinishedTool>, usize) {
-    let mut open = Vec::new();
-    let mut after = None;
-    loop {
-        let mut page = ToolPage { after, calls: BTreeMap::new() };
-        scan(&mut page);
-        let count = page.calls.len();
-        after = page.calls.last_key_value().map(|(id, _)| *id);
-        for call in page.calls.into_values().flatten() {
-            if open.len() == MAX_UNFINISHED_TOOLS {
-                return (open, 1);
-            }
-            open.push(call);
-        }
-        if count < TOOL_PAGE_SIZE {
-            return (open, 0);
-        }
-    }
+/// Whether the bounded preview can prove another unfinished call exists, or merely
+/// knows that it discarded histories whose final state it cannot determine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ToolOmission {
+    None,
+    Unfinished,
+    Unknown,
+}
+
+/// Scan each current-turn payload once. Keeping the lowest digest histories preserves
+/// all updates for each retained identity: an evicted ID can never re-enter. Unlike
+/// paging through every identity, this has linear scan work even for long turns with
+/// thousands of completed tools. Discarded histories are explicitly unknown, not
+/// asserted to be unfinished.
+fn collect_unfinished(mut scan: impl FnMut(&mut ToolPage)) -> (Vec<UnfinishedTool>, ToolOmission) {
+    let mut page = ToolPage::default();
+    scan(&mut page);
+    let mut open: Vec<_> = page.calls.into_values().flatten().collect();
+    let omitted = if open.len() > MAX_UNFINISHED_TOOLS {
+        open.truncate(MAX_UNFINISHED_TOOLS);
+        ToolOmission::Unfinished
+    } else if page.discarded {
+        ToolOmission::Unknown
+    } else {
+        ToolOmission::None
+    };
+    (open, omitted)
 }
 
 /// One tool call that started before the daemon restart and has no terminal update.
@@ -295,9 +299,10 @@ fn mask_input_assignments(text: &str) -> String {
             continue;
         }
         let mut quote = None;
+        let mut ansi_c = false;
         while end < bytes.len() {
             let byte = bytes[end];
-            if byte == b'\\' && end + 1 < bytes.len() {
+            if byte == b'\\' && (quote != Some(b'\'') || ansi_c) && end + 1 < bytes.len() {
                 // Consume an escaped quote as content, not the end of its value.
                 end += 2;
                 continue;
@@ -314,12 +319,20 @@ fn mask_input_assignments(text: &str) -> String {
                 end = bytes.len();
                 break;
             }
+            if quote.is_none() && byte == b'$' && bytes.get(end + 1) == Some(&b'\'') {
+                quote = Some(b'\'');
+                ansi_c = true;
+                end += 2;
+                continue;
+            }
             if let Some(delimiter) = quote {
                 if byte == delimiter {
                     quote = None;
+                    ansi_c = false;
                 }
             } else if matches!(byte, b'\"' | b'\'') {
                 quote = Some(byte);
+                ansi_c = false;
             } else if byte.is_ascii_whitespace()
                 || byte == b';'
                 || (!shell_assignment && matches!(byte, b',' | b'}' | b']'))
@@ -374,7 +387,7 @@ fn enrich_tool(existing: &mut UnfinishedTool, update: &Value) {
 
 /// Collects tool calls in the cut turn for the journal-fold regression test.
 #[cfg(test)]
-fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, usize) {
+fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, ToolOmission) {
     collect_unfinished(|page| {
         for record in records {
             if let Some(update) = tool_update(record, None) {
@@ -385,7 +398,11 @@ fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, usize) {
 }
 
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
-fn continue_text(prompts: &[String], tools: &[UnfinishedTool], omitted_tools: usize) -> String {
+fn continue_text(
+    prompts: &[String],
+    tools: &[UnfinishedTool],
+    omitted_tools: ToolOmission,
+) -> String {
     let mut text = String::from(
         "acpmux restarted (an update or a crash) while your previous turn was running, and the \
          turn was cut off.",
@@ -395,7 +412,7 @@ fn continue_text(prompts: &[String], tools: &[UnfinishedTool], omitted_tools: us
         let what = if i == 0 { "Its prompt" } else { "A message sent into it" };
         text.push_str(&format!("\n\n{what}:\n<message>\n{quoted}\n</message>"));
     }
-    if !tools.is_empty() || omitted_tools > 0 {
+    if !tools.is_empty() || omitted_tools == ToolOmission::Unfinished {
         text.push_str("\n\nTool calls started but not finished:");
         for tool in tools {
             text.push_str(&format!("\n- {} (id: {})", tool.name, tool.id));
@@ -403,9 +420,15 @@ fn continue_text(prompts: &[String], tools: &[UnfinishedTool], omitted_tools: us
                 text.push_str(&format!(" input: {input}"));
             }
         }
-        if omitted_tools > 0 {
+        if omitted_tools == ToolOmission::Unfinished {
             text.push_str("\n- additional unfinished tool calls omitted");
         }
+    }
+    if omitted_tools == ToolOmission::Unknown {
+        text.push_str(
+            "\n\nAdditional tool histories were not retained in this bounded preview; \
+            their completion status is unknown. Check the journal before repeating their work.",
+        );
     }
     text.push_str(
         "\n\nCheck what already finished (files, commands, messages), then continue from where it \
@@ -678,11 +701,12 @@ mod tests {
 
     #[test]
     fn the_continuation_quotes_the_cut_prompt_and_its_steers() {
-        let text = continue_text(&["do the thing".into(), "also this".into()], &[], 0);
+        let text =
+            continue_text(&["do the thing".into(), "also this".into()], &[], ToolOmission::None);
         assert!(text.contains("Its prompt:\n<message>\ndo the thing\n</message>"), "{text}");
         assert!(text.contains("A message sent into it:\n<message>\nalso this\n</message>"));
         assert!(text.ends_with("Do not redo work that completed."));
-        let long = continue_text(&["x".repeat(MAX_QUOTE_CHARS + 10)], &[], 0);
+        let long = continue_text(&["x".repeat(MAX_QUOTE_CHARS + 10)], &[], ToolOmission::None);
         assert!(!long.contains(&"x".repeat(MAX_QUOTE_CHARS + 1)));
     }
 
@@ -768,7 +792,7 @@ mod tests {
     }
 
     #[test]
-    fn overflow_completion_replays_are_exact_beyond_the_old_cap() {
+    fn overflow_completion_replays_preserve_exact_retained_histories() {
         let mut records = Vec::new();
         for id in 0..200 {
             records.push(tool_record(id, "in_progress"));
@@ -776,45 +800,85 @@ mod tests {
         }
         let (tools, omitted) = unfinished_tools(&records);
         assert_eq!(tools.len(), MAX_UNFINISHED_TOOLS);
-        assert_eq!(omitted, 1);
-        for id in 0..199 {
+        assert_eq!(omitted, ToolOmission::Unfinished);
+        let retained = tools[0].id.clone();
+        for id in 0..200 {
+            if format!("call-{id}") == retained {
+                continue;
+            }
             records.push(tool_record(id, "completed"));
             records.push(tool_record(id, "completed"));
-            // History can replay an already completed call's old nonterminal update.
             records.push(tool_record(id, "in_progress"));
         }
-        records.push(tool_record(999, "completed")); // unrelated terminal identity
+        records.push(tool_record(999, "completed"));
         let (tools, omitted) = unfinished_tools(&records);
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].id, "call-199");
-        assert_eq!(omitted, 0);
-        records.push(tool_record(199, "failed"));
+        assert!(tools.len() <= 1);
+        assert!(tools.iter().all(|tool| tool.id == retained));
+        assert_eq!(omitted, ToolOmission::Unknown);
+        for id in 0..200 {
+            records.push(tool_record(id, "failed"));
+        }
         let (tools, omitted) = unfinished_tools(&records);
         assert!(tools.is_empty());
-        assert_eq!(omitted, 0);
-        assert!(!continue_text(&[], &tools, omitted).contains("Tool calls started"));
+        assert_eq!(omitted, ToolOmission::Unknown);
+        let text = continue_text(&[], &tools, omitted);
+        assert!(!text.contains("Tool calls started"));
+        assert!(!text.contains("unfinished tool calls omitted"));
+        assert!(text.contains("completion status is unknown"));
     }
 
     #[test]
-    fn every_page_remains_bounded_and_preserves_late_tool_metadata() {
-        let mut records: Vec<_> = (0..200).map(|id| tool_record(id, "in_progress")).collect();
-        for id in 0..199 {
-            records.push(tool_record(id, "completed"));
-        }
-        let mut metadata = tool_record(199, "in_progress");
-        metadata.msg["params"]["update"]["title"] = json!("Last live tool");
-        metadata.msg["params"]["update"]["rawInput"] = json!({"command": "cargo check"});
-        records.push(metadata);
-        let (tools, omitted) = collect_unfinished(|page| {
+    fn completed_tool_histories_are_visited_once() {
+        let mut records: Vec<_> = (0..10_000).map(|id| tool_record(id, "in_progress")).collect();
+        records.extend((0..10_000).map(|id| tool_record(id, "completed")));
+        let mut scans = 0;
+        let mut visits = 0;
+        let (tools, _) = collect_unfinished(|page| {
+            scans += 1;
             for record in &records {
+                visits += 1;
                 page.note(tool_update(record, None).unwrap());
                 assert!(page.calls.len() <= TOOL_PAGE_SIZE);
             }
         });
+        assert!(tools.is_empty());
+        assert_eq!((scans, visits), (1, records.len()));
+    }
+
+    #[test]
+    fn discarded_later_active_tool_is_reported_as_unknown_not_unfinished() {
+        let mut identities: Vec<_> = (0..200)
+            .map(|id| {
+                let digest: [u8; 32] = Sha256::digest(format!("call-{id}").as_bytes()).into();
+                (digest, id)
+            })
+            .collect();
+        identities.sort();
+        let later = identities.last().unwrap().1;
+        let mut records = Vec::new();
+        for (_, id) in &identities[..TOOL_PAGE_SIZE] {
+            records.push(tool_record(*id, "in_progress"));
+            records.push(tool_record(*id, "completed"));
+        }
+        records.push(tool_record(later, "in_progress"));
+        let (tools, omitted) = unfinished_tools(&records);
+        assert!(tools.is_empty());
+        assert_eq!(omitted, ToolOmission::Unknown);
+        assert!(continue_text(&[], &tools, omitted).contains("completion status is unknown"));
+    }
+
+    #[test]
+    fn retained_tool_metadata_updates_are_preserved() {
+        let mut records = vec![tool_record(1, "in_progress")];
+        let mut metadata = tool_record(1, "in_progress");
+        metadata.msg["params"]["update"]["title"] = json!("Last live tool");
+        metadata.msg["params"]["update"]["rawInput"] = json!({"command": "cargo check"});
+        records.push(metadata);
+        let (tools, omitted) = unfinished_tools(&records);
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].name, "Last live tool");
         assert_eq!(tools[0].input.as_deref(), Some("{\"command\":\"cargo check\"}"));
-        assert_eq!(omitted, 0);
+        assert_eq!(omitted, ToolOmission::None);
     }
 
     #[test]
@@ -954,6 +1018,25 @@ mod tests {
                 (json!([command]), json!([expected])),
             ] {
                 assert_eq!(input_prefix(&json!({"rawInput": raw})).unwrap(), masked.to_string());
+            }
+        }
+    }
+
+    #[test]
+    fn quoted_assignments_distinguish_literal_and_ansi_c_backslashes() {
+        for command in [
+            r#"PASSWORD='prefix\'"it's open sesame" ./deploy"#,
+            r#"PASSWORD='prefix\'"open sesame" ./deploy"#,
+            r#"PASSWORD=\$'prefix\'"it's open sesame" ./deploy"#,
+            r#"PASSWORD=$'prefix\' open sesame' ./deploy"#,
+            r#"PASSWORD=$'prefix\\'"it's open sesame" ./deploy"#,
+        ] {
+            for (raw, expected) in [
+                (json!(command), r#""PASSWORD=[secret] ./deploy""#),
+                (json!({"command": command}), r#"{"command":"PASSWORD=[secret] ./deploy"}"#),
+                (json!([command]), r#"["PASSWORD=[secret] ./deploy"]"#),
+            ] {
+                assert_eq!(input_prefix(&json!({"rawInput": raw})).unwrap(), expected, "{command}");
             }
         }
     }
@@ -1184,6 +1267,6 @@ mod tests {
         ];
         let (tools, omitted) = unfinished_tools(&records);
         assert!(tools.is_empty());
-        assert_eq!(omitted, 0);
+        assert_eq!(omitted, ToolOmission::None);
     }
 }
