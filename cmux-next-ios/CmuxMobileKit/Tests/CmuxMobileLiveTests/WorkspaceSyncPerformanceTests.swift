@@ -1,4 +1,5 @@
 import CmuxMobileModel
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxMobileLive
@@ -23,17 +24,20 @@ import Testing
         // This is the old path's work on the main actor: one full JSON parse
         // and tree projection for every title event.
         let baselineStart = clock.now
+        let baselineCPUStart = Self.mainThreadMilliseconds()
         var baselineTree: DaemonTree?
         for snapshot in fixture.snapshots {
             baselineTree = try DaemonTree(reply: snapshot, macID: "perf")
         }
-        let baselineMilliseconds = Self.milliseconds(baselineStart.duration(to: clock.now))
+        let baselineMilliseconds = Self.mainThreadMilliseconds() - baselineCPUStart
+        let baselineElapsedMilliseconds = Self.milliseconds(baselineStart.duration(to: clock.now))
 
         // The new path performs the initial snapshot before streaming starts;
         // the timed section is only the event stream and has no full fetch.
         let projection = WorkspaceProjection()
         _ = try await projection.reset(snapshot: fixture.initial, macID: "perf")
         let incrementalStart = clock.now
+        let incrementalCPUStart = Self.mainThreadMilliseconds()
         var changedRows = 0
         for event in fixture.events {
             if let update = try await projection.apply(.titleChanged(surface: event.surface, title: event.title),
@@ -41,7 +45,8 @@ import Testing
                 changedRows += update.changedWorkspaceIDs.count
             }
         }
-        let incrementalMilliseconds = Self.milliseconds(incrementalStart.duration(to: clock.now))
+        let incrementalMilliseconds = Self.mainThreadMilliseconds() - incrementalCPUStart
+        let incrementalElapsedMilliseconds = Self.milliseconds(incrementalStart.duration(to: clock.now))
 
         // The event stream represents one simulated second. Keep the values
         // in the test output so the PR's Performance table comes from this
@@ -50,6 +55,7 @@ import Testing
         let incrementalFetchesPerMinute = 0.0
         print("workspace-sync perf agents=\(agentCount) simulated_seconds=1 "
             + "baseline_main_ms=\(baselineMilliseconds) incremental_main_ms=\(incrementalMilliseconds) "
+            + "baseline_elapsed_ms=\(baselineElapsedMilliseconds) incremental_elapsed_ms=\(incrementalElapsedMilliseconds) "
             + "baseline_full_fetches_per_min=\(baselineFetchesPerMinute) "
             + "incremental_full_fetches_per_min=\(incrementalFetchesPerMinute)")
 
@@ -113,5 +119,11 @@ import Testing
     private static func milliseconds(_ duration: Duration) -> Double {
         let components = duration.components
         return Double(components.seconds) * 1_000 + Double(components.attoseconds) / 1_000_000_000_000_000
+    }
+
+    private static func mainThreadMilliseconds() -> Double {
+        var time = timespec()
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &time)
+        return Double(time.tv_sec) * 1_000 + Double(time.tv_nsec) / 1_000_000
     }
 }
