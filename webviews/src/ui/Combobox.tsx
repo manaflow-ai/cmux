@@ -316,7 +316,7 @@ export function Combobox({
       ))}
     </Autocomplete.List>
   );
-  if (nativePopup.available && native !== undefined) return null;
+  const nativeOnly = nativePopup.available && native !== undefined;
   const root = (
     <Autocomplete.Root
       items={enabledSuggestions as string[]}
@@ -349,17 +349,18 @@ export function Combobox({
             onCancel();
         }}
       />
-      {inline ? (
-        list
-      ) : (
-        <Autocomplete.Portal container={container}>
-          <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
-            <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-glass ui-combobox-popup">
-              {list}
-            </Autocomplete.Popup>
-          </Autocomplete.Positioner>
-        </Autocomplete.Portal>
-      )}
+      {!nativeOnly &&
+        (inline ? (
+          list
+        ) : (
+          <Autocomplete.Portal container={container}>
+            <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
+              <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-glass ui-combobox-popup">
+                {list}
+              </Autocomplete.Popup>
+            </Autocomplete.Positioner>
+          </Autocomplete.Portal>
+        ))}
     </Autocomplete.Root>
   );
   return rootClassName ? <div className={rootClassName}>{root}</div> : root;
