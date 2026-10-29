@@ -175,6 +175,24 @@ test("an alias probe does not guess a pinned release's identity metadata", () =>
   expect(ids([...retry.latest, ...retry.more])).toContain("haiku");
 });
 
+for (const harnessId of ["opencode", "pi"]) {
+  test(`${harnessId}: a provider probe does not inherit another harness's identity`, () => {
+    const catalog = buildPickerCatalog({
+      catalog: BUNDLED_MODEL_CATALOG,
+      acpmux: [
+        {
+          id: harnessId,
+          family: harnessId,
+          name: harnessId,
+          models: [{ id: "openai/gpt-6.1-sol", name: "GPT-6.1 Sol" }],
+        },
+      ],
+    });
+    const model = catalog.harnesses.find((entry) => entry.id === harnessId)!.models[0]!;
+    expect(model.family).toBe("gpt-sol");
+  });
+}
+
 test("Retry keeps the running unavailable model and excludes unavailable alternatives", () => {
   const sections = retryModelSections(
     [

@@ -465,8 +465,8 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   );
   const models = entry.models
     .filter((probe) => !isHiddenByUser(entry.id, probe.id, join) && !hiddenReleases.has(probe.id))
-    .map((probe) => probedModel(probe, entry.id, join));
-  addSessionModels(models, live, entry.id, listed, join, hiddenReleases);
+    .map((probe) => probedModel(probe, entry.id, join, kin?.id));
+  addSessionModels(models, live, entry.id, listed, join, hiddenReleases, kin?.id);
   const releases = listed.map((model) => listedModel(model, entry.id, entry.models, join));
   const offered = kin
     ? foldAliases(models, releases, runs, reported, join, (release, alias) =>
@@ -670,6 +670,7 @@ function addSessionModels(
   listed: HarnessModel[],
   join: Join,
   hiddenReleases: Set<string> = new Set(),
+  identityHarnessId = harnessId,
 ): void {
   const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
   if (!option) return;
@@ -686,7 +687,7 @@ function addSessionModels(
     models.push(
       pinned
         ? pickerModel(layeredModel(pinned, harnessId, undefined, join), join.catalog)
-        : probedModel({ id: choice.id, name: choice.name } as AcpmuxModel, harnessId, join),
+        : probedModel({ id: choice.id, name: choice.name } as AcpmuxModel, harnessId, join, identityHarnessId),
     );
   }
 }
@@ -722,10 +723,10 @@ function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog,
 
 /** A model acpmux probed that the catalog does not list: described by its ref ("provider/model",
  *  as OpenCode and Pi report it) when the catalog knows it, else by the name the harness gave. */
-function probedModel(probe: AcpmuxModel, harnessId: string, join: Join): PickerModel {
+function probedModel(probe: AcpmuxModel, harnessId: string, join: Join, identityHarnessId = harnessId): PickerModel {
   const info = join.catalog.models[probe.id];
   const provider = probe.id.includes("/") ? probe.id.slice(0, probe.id.indexOf("/")) : undefined;
-  const catalogModel = catalogIdentity(probe.id, join);
+  const catalogModel = catalogIdentity(probe.id, identityHarnessId, join);
   const name = info?.name ?? catalogModel?.name ?? probe.name ?? probe.id;
   const base: HarnessModel = {
     id: probe.id,
@@ -752,10 +753,10 @@ function includeCatalogIdentity(
 }
 
 /** Recover family/provider metadata for a reported release that was filtered from `listed`. */
-function catalogIdentity(id: string, join: Join): HarnessModel | undefined {
-  for (const harness of join.sourceCatalog.harnesses)
-    for (const model of harness.models) if (model.id === id) return model;
-  return undefined;
+function catalogIdentity(id: string, harnessId: string, join: Join): HarnessModel | undefined {
+  return join.sourceCatalog.harnesses
+    .find((harness) => harness.id === harnessId)
+    ?.models.find((model) => model.id === id && isIdentityOnlyCurrentModel(model));
 }
 
 function isHiddenByUser(harnessId: string, modelId: string, join: Join): boolean {
