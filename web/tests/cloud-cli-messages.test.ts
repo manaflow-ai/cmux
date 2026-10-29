@@ -18,6 +18,7 @@ test("docs search includes every generated Cloud command", async () => {
   const pages = await docsSearchPages();
   const page = pages.find((entry: { locale: string; href: string }) => entry.locale === "en" && entry.href === "/docs/cloud/cli");
   expect(page).toBeDefined();
+  if (!page) throw new Error("Cloud CLI page missing from docs search");
   const text = page.sections.flatMap((section: { texts: string[] }) => section.texts).join("\n");
   for (const { command, id } of catalog.actions) {
     expect(text).toContain(command);
