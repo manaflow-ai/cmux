@@ -368,6 +368,26 @@ impl Terminal {
         self.kitty_replay_pixel_cache.0.clear();
     }
 
+    /// The terminal a snapshot viewer shows on READY: the READY prefix of
+    /// `snapshot` decoded into a new terminal, before any history page (a
+    /// local-history READY never has one). Stream checkers write the bytes
+    /// after the READY's cut to it and compare it with the source terminal.
+    /// Its parser resumes inside the source's unfinished sequence (the
+    /// CONTINUATION record), tracked with the limit [`Terminal::new`] sets.
+    pub fn from_ready_snapshot(snapshot: &[u8], max_scrollback: usize) -> Result<Self> {
+        let mut terminal = Self::new(1, 1, max_scrollback, Callbacks::default())?;
+        terminal.release_raw();
+        let raw = decode_ready(snapshot)?;
+        terminal.raw = raw;
+        terminal.instance_id = NEXT_TERMINAL_ID.fetch_add(1, Ordering::Relaxed);
+        // SAFETY: `hooks` is heap-pinned for the wrapper's lifetime, and Drop
+        // uninstalls the trampolines before the terminal is freed.
+        unsafe { callbacks::install(raw, &mut terminal.hooks) };
+        configure_kitty_graphics(raw)?;
+        terminal.reset_history_anchor();
+        Ok(terminal)
+    }
+
     /// Decode `pages` into a new libghostty terminal owned by this wrapper,
     /// whose handle is NULL. On error the handle may be set; the caller
     /// releases it.
@@ -396,6 +416,57 @@ impl Terminal {
         }
         self.reset_history_anchor();
         Ok(())
+    }
+}
+
+/// Decode the READY prefix of `snapshot` (GHOSTSNP, not compressed) into a
+/// new caller-owned terminal that tracks its unfinished sequence.
+fn decode_ready(snapshot: &[u8]) -> Result<sys::GhosttyTerminal> {
+    let mut decoder: sys::GhosttySnapshotDecoder = ptr::null_mut();
+    // SAFETY: the decoder borrows `snapshot` without copying, and `snapshot`
+    // outlives it (freed below).
+    check(unsafe {
+        sys::ghostty_snapshot_decoder_new_buf(
+            ptr::null(),
+            &mut decoder,
+            snapshot.as_ptr(),
+            snapshot.len(),
+        )
+    })?;
+    let max_continuation = SNAPSHOT_CONTINUATION_MAX_BYTES;
+    let retain = true;
+    let mut raw: sys::GhosttyTerminal = ptr::null_mut();
+    // SAFETY: the option pointers have the documented input types (size_t,
+    // bool) and outlive the calls; `raw` is a writable local.
+    let result = check(unsafe {
+        sys::ghostty_snapshot_decoder_set(
+            decoder,
+            sys::GHOSTTY_SNAPSHOT_DECODER_OPT_MAX_CONTINUATION_BYTES,
+            (&max_continuation as *const usize).cast(),
+        )
+    })
+    .and_then(|()| {
+        // SAFETY: as above.
+        check(unsafe {
+            sys::ghostty_snapshot_decoder_set(
+                decoder,
+                sys::GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION,
+                (&retain as *const bool).cast(),
+            )
+        })
+    })
+    // SAFETY: `decoder` is live and `raw` a writable local.
+    .and_then(|()| check(unsafe { sys::ghostty_snapshot_decoder_ready(decoder, &mut raw) }));
+    // SAFETY: the decoder only borrows `raw` (caller-owned); it is freed once
+    // here, after its last use. `raw` stays valid and is returned or freed.
+    unsafe { sys::ghostty_snapshot_decoder_free(decoder) };
+    match result {
+        Ok(()) => Ok(raw),
+        Err(error) => {
+            // SAFETY: `raw` is null (allowed) or the terminal READY returned.
+            unsafe { sys::ghostty_terminal_free(raw) };
+            Err(error)
+        }
     }
 }
 
