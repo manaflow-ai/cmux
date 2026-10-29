@@ -569,9 +569,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if let Some(relay) = mesh_relay {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
     }
-    // Tell peers and web clients this is a service restart before tearing down transports.
-    // Hosted agents keep running through the existing shutdown/adoption path.
-    ws_shutdown.restart();
+    // Tell peers and web clients this is a service restart only for an explicit
+    // update/restart handoff. Ordinary stops use a normal WebSocket close.
+    if hub
+        .restart_requested
+        .swap(false, std::sync::atomic::Ordering::SeqCst)
+    {
+        ws_shutdown.restart();
+    } else {
+        ws_shutdown.close_clients();
+    }
     let drain_deadline = tokio::time::Instant::now() + crate::server::WS_DRAIN_BUDGET;
     if tokio::time::timeout_at(drain_deadline, ws_shutdown.drained()).await.is_err() {
         tracing::warn!("websocket listeners did not drain before the shutdown deadline");

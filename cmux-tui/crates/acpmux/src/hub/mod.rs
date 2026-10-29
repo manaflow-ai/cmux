@@ -394,6 +394,9 @@ pub struct Hub {
     pub shutdown: Notify,
     /// Latched daemon restart and drain shared by TCP and embedded-tailnet listeners.
     pub(crate) ws_shutdown: crate::server::WsShutdown,
+    /// Set only by an explicit daemon restart/update handoff. Ordinary stops
+    /// close clients normally so they do not immediately reconnect to a dead daemon.
+    pub(crate) restart_requested: std::sync::atomic::AtomicBool,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
@@ -638,6 +641,7 @@ impl Hub {
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
+            restart_requested: std::sync::atomic::AtomicBool::new(false),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: Default::default(),
