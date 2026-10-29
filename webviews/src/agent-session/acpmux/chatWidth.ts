@@ -39,9 +39,13 @@ type Snapshot = { width: ChatWidth; scale: number };
 
 const readUIScale = (): number => {
   if (typeof document === "undefined") return 1;
+  const computedStyle =
+    typeof window !== "undefined" && typeof window.getComputedStyle === "function"
+      ? window.getComputedStyle(document.documentElement)
+      : undefined;
   const value = Number.parseFloat(
     document.documentElement.style.getPropertyValue("--cmux-ui-scale") ||
-      getComputedStyle(document.documentElement).getPropertyValue("--cmux-ui-scale"),
+      computedStyle?.getPropertyValue("--cmux-ui-scale"),
   );
   return Number.isFinite(value) && value > 0 ? value : 1;
 };
