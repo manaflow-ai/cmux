@@ -179,12 +179,14 @@ import Testing
         #expect(JoinedMachine.list(from: Data("{}".utf8)) == nil)
     }
 
-    @Test func aMintDecodesEitherExpiryForm() throws {
-        let rfc = try #require(JoinLine.decode(Data(#"{"line":" curl x | CMUX_JOIN=cmj_A sh","token":"cmj_A","joinTokenId":"jt","expiresAt":"2026-10-29T04:00:00Z"}"#.utf8)))
-        #expect(rfc.expiresAt == Date(timeIntervalSince1970: 1_793_246_400))
-        let ms = try #require(JoinLine.decode(Data(#"{"line":"l","joinTokenId":"jt","expiresAt":1793246400000}"#.utf8)))
-        #expect(ms.expiresAt == rfc.expiresAt)
-        #expect(JoinLine.decode(Data(#"{"line":"l","expiresAt":1}"#.utf8)) == nil)
+    @Test func aMintDecodesThePlatformsISOExpiry() throws {
+        // The platform's exact shape: `Date.toISOString()`, milliseconds and Z.
+        let mint = try #require(JoinLine.decode(Data(#"{"line":" curl x | CMUX_JOIN=cmj_A sh","token":"cmj_A","joinTokenId":"jt","expiresAt":"2026-10-29T03:30:00.123Z"}"#.utf8)))
+        #expect(abs(mint.expiresAt.timeIntervalSince1970 - 1_793_244_600.123) < 0.0005)
+        #expect(mint.joinTokenId == "jt")
+        // Epoch milliseconds are not a time the platform sends: such a mint is unreadable.
+        #expect(JoinLine.decode(Data(#"{"line":"l","joinTokenId":"jt","expiresAt":1793244600123}"#.utf8)) == nil)
+        #expect(JoinLine.decode(Data(#"{"line":"l","expiresAt":"2026-10-29T03:30:00.123Z"}"#.utf8)) == nil)
     }
 
     static func services(_ devices: AddDeviceFlowTests.Fake, _ fake: Fake) -> AddDeviceServices {
