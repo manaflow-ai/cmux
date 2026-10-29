@@ -15,7 +15,8 @@ const editSearch: Play = async (ctx) => {
   const initial = input.getBoundingClientRect();
   const assertSearchAnchor = () => {
     const current = input.getBoundingClientRect();
-    if (["top", "left", "width", "height"].some((key) => current[key as keyof DOMRect] !== initial[key as keyof DOMRect]))
+    const dimensions = ["top", "left", "width", "height"] as const;
+    if (dimensions.some((key) => current[key] !== initial[key]))
       throw new Error("Filtering moved or resized the palette search field");
   };
   await ctx.type("browser", { role: "combobox" });
