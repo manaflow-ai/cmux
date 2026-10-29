@@ -19,6 +19,14 @@ public final class SessionStateStore {
     /// True once this connection's daemon answered whether it serves state
     /// resources (a snapshot, or a stream it refused); reset on connect.
     public internal(set) var known = false
+    /// True only after this stream supplied its own snapshot; a retained mirror or stream
+    /// refusal is not proof that its current connection's attention marks are current.
+    public private(set) var hasCurrentSnapshot = false
+    /// Every replacement snapshot establishes a quiet baseline for replay-sensitive consumers.
+    public private(set) var snapshotGeneration: UInt64 = 0
+    /// Requests already present in the stream's initial snapshot. Capture at application time,
+    /// before later deltas can coalesce with it in an observer or arrive ahead of the live tree.
+    public private(set) var snapshotAttention: [ResourceID: UInt64] = [:]
     /// Recently closed tabs, screens, and workspaces, newest first. Its own
     /// stored value: written only when the closed list changed, so its
     /// observers do not run on every status tick.
@@ -40,6 +48,7 @@ public final class SessionStateStore {
     /// A new connection: known at once when its daemon serves no state
     /// resources, else once the stream's snapshot (or its end) arrives.
     func connected(servesStateResources: Bool) {
+        hasCurrentSnapshot = false
         known = !servesStateResources
     }
 
@@ -49,6 +58,9 @@ public final class SessionStateStore {
     func apply(_ item: SessionStreamItem, in store: DaemonStore) {
         switch item {
         case .snapshot(let snapshot):
+            snapshotAttention = snapshot.tabs.compactMapValues { $0.attention?.atMs }
+            snapshotGeneration &+= 1
+            hasCurrentSnapshot = true
             if mirror != snapshot { mirror = snapshot }
             if !known { known = true }
             publishClosed()
@@ -66,6 +78,7 @@ public final class SessionStateStore {
             }
             for record in touched { lay(record, in: store) }
         case .ended:
+            hasCurrentSnapshot = false
             // The reopened stream's snapshot replaces the mirror; a stream
             // that could not open leaves no snapshot to wait for.
             if !known { known = true }

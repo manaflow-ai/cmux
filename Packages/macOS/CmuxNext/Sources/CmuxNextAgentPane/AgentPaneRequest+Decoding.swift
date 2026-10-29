@@ -364,6 +364,8 @@ extension AgentPaneRequest {
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .asksOpen(id) } else { self = .unsupported(method) }
         case "chat.asks.answer":
             if let ask = AgentPaneAskAnswer(params) { self = .asksAnswer(ask) } else { self = .unsupported(method) }
+        case "chat.attention.open":
+            if let id = params?["tabId"] as? String, !id.isEmpty, id.utf8.count <= AgentPaneAttentionTabs.maximumTabID { self = .attentionOpen(id) } else { self = .unsupported(method) }
         case "chat.offer.open":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .offerOpen(id, sender: params?["sender"] as? Bool == true) } else { self = .unsupported(method) }
         case "chat.upload":

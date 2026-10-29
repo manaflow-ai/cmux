@@ -43,8 +43,19 @@ extension AppActionContext {
 
     /// The personal groups workspace `id` sits in, innermost first (its notification sound levels).
     func soundGroups(ofWorkspace id: String) -> [NotificationSoundScope.Group] {
-        guard usesPersonalGroups, let workspace = services.machines.daemons.lazy.flatMap(\.store.workspaces).first(where: { $0.id == id }) else { return [] }
-        var groups: [NotificationSoundScope.Group] = [], next = personalGroupID(of: workspace)
+        guard usesPersonalGroups else { return [] }
+        // Notification keys keep legacy bare ids local; remote workspace ids are qualified.
+        // Resolve the owning object before reading personal membership, including cloned ids.
+        var membership: WorkspaceGroupID?
+        for daemon in services.machines.daemons {
+            guard let workspace = daemon.store.workspaces.first(where: {
+                NotificationWorkspaceKey.settingsKey(machine: daemon.machineID, workspace: $0.id,
+                                                       localMachine: services.machines.local.machineID) == id
+            }), let session = daemon.store.registryID else { continue }
+            membership = personal.workspace(session: session, key: workspace.key?.rawValue ?? workspace.id)?.group
+            break
+        }
+        var groups: [NotificationSoundScope.Group] = [], next = membership
         // Depth-bounded: a malformed parent loop cannot spin here.
         while let id = next, groups.count < 16, let group = personal.group(id) {
             groups.append(.init(id: id.rawValue, name: group.name))
