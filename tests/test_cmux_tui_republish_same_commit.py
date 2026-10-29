@@ -575,6 +575,59 @@ class ParallelUploadsOfAClaimedPrefix(unittest.TestCase):
         self.assertGreater(len(self.uploads("cmux-tui")), 2)
 
 
+class WindowsPassKeepsTheFirstPassPrefixes(unittest.TestCase):
+    """publish-windows runs the same Upload to R2 step after the first pass
+    published every Unix prefix. It keeps them without reading them back
+    (21 min of every publish-windows, run 40921878495) and writes only its
+    own cmux-tui-windows/<sha>/."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.box = Sandbox(Path(self.tmp.name))
+        self.upload = step_script("publish", "Upload to R2")
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def published(self) -> dict[str, bytes]:
+        return {str(p.relative_to(self.box.r2)): p.read_bytes() for p in self.box.r2.rglob("*") if p.is_file()}
+
+    def windows_build(self) -> Path:
+        windows = self.box.repo / "assets" / "cmux-tui-windows"
+        windows.mkdir(parents=True)
+        exe = windows / "cmux-tui-x86_64-pc-windows-gnu.exe"
+        exe.write_text("windows build\n")
+        (windows / "cmux-tui-windows-checksums.txt").write_text(f"{sha256(exe)}  {exe.name}\n")
+        (windows / "manifest.json").write_text(json.dumps({"commit": self.box.sha, "binaries": {exe.name: sha256(exe)}}))
+        return windows
+
+    def test_the_windows_pass_reads_none_of_the_unix_prefixes(self) -> None:
+        self.box.build("1", real_checksums=True)
+        self.assertEqual(self.box.run(self.upload, CMUX_TUI_PUBLISH_PASS="unix").returncode, 0)
+        earlier = self.published()
+        self.box.build("1", real_checksums=True)
+        self.windows_build()
+        # Any read from R2 fails: the Windows pass must not need one.
+        result = self.box.run(self.upload, CMUX_TUI_PUBLISH_PASS="windows",
+                              FAKE_DOWNLOAD_FAIL=f"cmux-tui/{self.box.sha}/manifest.json=1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("the Windows pass does not read it back", result.stdout)
+        now = self.published()
+        self.assertEqual({k: v for k, v in now.items() if not k.startswith("cmux-tui-windows/")}, earlier)
+        self.assertIn(f"cmux-tui-windows/{self.box.sha}/manifest.json", now)
+
+    def test_a_missing_legacy_prefix_fails_the_windows_pass(self) -> None:
+        self.box.build("1", real_checksums=True)
+        self.assertEqual(self.box.run(self.upload, CMUX_TUI_PUBLISH_PASS="unix").returncode, 0)
+        shutil.rmtree(self.box.r2 / "mux")
+        self.box.build("2", real_checksums=True)
+        self.windows_build()
+        result = self.box.run(self.upload, CMUX_TUI_PUBLISH_PASS="windows")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("mux prefix missing", result.stdout + result.stderr)
+        self.assertFalse((self.box.r2 / "mux").exists(), "this run's bytes are not published under mux/")
+
+
 class TwoRunsOfOneCommitAtOnce(unittest.TestCase):
     """cx-a1q4d: a lane commit's side-branch run and its fast-forwarded
     feat-cmux-next run build the same commit and publish it at the same time.

@@ -2039,6 +2039,33 @@ jobs:
           # bytes the commit prefix serves. Each prefix's manifest.json sorts
           # after its binaries (all named c*), so it exists only for a
           # complete upload; the verify step below checks it.
+          # A bounded pool of background transfers: pool_run starts one (at
+          # most 8 at once), pool_wait waits for all of them and returns 75 if
+          # any lost a write-once race, else the last other failure, else 0.
+          # Each background publish_prefix below is its own subshell, so each
+          # has its own pool.
+          pool_pids=()
+          pool_conflict=0
+          pool_failed=0
+          pool_reap() {
+            local rc=0
+            wait "${pool_pids[0]}" || rc=$?
+            pool_pids=("${pool_pids[@]:1}")
+            if [[ "$rc" == 75 ]]; then pool_conflict=1; elif [[ "$rc" != 0 ]]; then pool_failed="$rc"; fi
+          }
+          pool_run() {
+            (( ${#pool_pids[@]} < 8 )) || pool_reap
+            "$@" &
+            pool_pids+=("$!")
+          }
+          pool_wait() {
+            while (( ${#pool_pids[@]} > 0 )); do pool_reap; done
+            local failed="$pool_failed" conflict="$pool_conflict"
+            pool_failed=0
+            pool_conflict=0
+            [[ "$failed" == 0 ]] || return "$failed"
+            [[ "$conflict" == 0 ]] || return 75
+          }
           published_before() {
             local status=0
             curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 60 -o /dev/null \
@@ -2054,6 +2081,16 @@ jobs:
           # detector), so this run's own file list is not it.
           adopt_published() {
             local directory="$1" prefix="$2" name names checksums=""
+            # The Windows pass reads none of the first pass's prefixes back
+            # from its own copy: after this step it only checks them through
+            # files.cmux.com ("Verify published Unix manifests"). Copying them
+            # here read ~1.6 GB and took 21 min of every publish-windows (run
+            # 40921878495). Only its own cmux-tui-windows/ prefix is copied.
+            if [[ "${CMUX_TUI_PUBLISH_PASS:-}" == windows && "$prefix" != "cmux-tui-windows/"* ]]; then
+              echo "Kept https://files.cmux.com/$prefix/ as published; the Windows pass does not read it back."
+              [[ "$prefix" == "cmux-tui/"* ]] && unix_copy_skipped=1
+              return 0
+            fi
             # Straight from R2, as the uploads go: files.cmux.com served a
             # 31 MB binary at 4-35 KB/s here and the job failed after 20
             # minutes (run 40637082673). The CDN is the fallback, and a
@@ -2083,10 +2120,13 @@ jobs:
               names.update(a["name"] for a in target.values())
           print(" ".join(sorted(names)))
           ' "$directory/manifest.json")"
+            # The files are independent reads, each to its own name: 8 at once.
             for name in $checksums $names; do
-              [[ "$name" == manifest.json ]] || fetch_published "$name"
+              [[ "$name" == manifest.json ]] || pool_run fetch_published "$name"
             done
+            pool_wait
           }
+          unix_copy_skipped=0
           # Two runs of one commit at once (a lane commit's side-branch run
           # and its fast-forwarded feat-cmux-next run, cx-a1q4d) race on the
           # write-once prefix. Both upload the files in the same order and
@@ -2171,26 +2211,17 @@ jobs:
                 return
               fi
               [[ "$status" == 0 ]] || exit "$status"
-              local pids=() worst=0 conflict=0
-              # Waits for the oldest upload; any exit is kept for the end.
-              reap_oldest() {
-                local rc=0
-                wait "${pids[0]}" || rc=$?
-                pids=("${pids[@]:1}")
-                if [[ "$rc" == 75 ]]; then conflict=1; elif [[ "$rc" != 0 ]]; then worst="$rc"; fi
-              }
               for file in "$directory"/*; do
                 [[ "$file" == "$claim" || "$(basename "$file")" == manifest.json ]] && continue
-                (( ${#pids[@]} < 8 )) || reap_oldest
-                upload_object "$file" "$prefix" "$cache" true &
-                pids+=("$!")
+                pool_run upload_object "$file" "$prefix" "$cache" true
               done
-              while (( ${#pids[@]} > 0 )); do reap_oldest; done
-              [[ "$worst" == 0 ]] || exit "$worst"
-              if [[ "$conflict" == 1 ]]; then
+              status=0
+              pool_wait || status=$?
+              if [[ "$status" == 75 ]]; then
                 adopt_after_conflict "$directory" "$prefix"
                 return
               fi
+              [[ "$status" == 0 ]] || exit "$status"
               if [[ -f "$directory/manifest.json" ]]; then
                 status=0
                 upload_object "$directory/manifest.json" "$prefix" "$cache" true || status=$?
@@ -2238,6 +2269,14 @@ jobs:
           # (https://github.com/manaflow-ai/cmux-cloud/pull/2).
           legacy_assets="assets-legacy"
           mkdir -p "$legacy_assets"
+          # The legacy copy is made from assets/cmux-tui. When the Windows pass
+          # kept cmux-tui/<sha>/ without copying it, that is this run's build,
+          # which need not be the bytes the prefix serves: the first pass must
+          # have published mux/<sha>/ too, so nothing of it is written here.
+          if [[ "$unix_copy_skipped" == 1 ]] && ! published_before "mux/$GITHUB_SHA" windows; then
+            echo "::error title=mux prefix missing::the first pass published cmux-tui/$GITHUB_SHA/ but not mux/$GITHUB_SHA/; rerun publish" >&2
+            exit 1
+          fi
           for file in assets/cmux-tui/cmux-tui-*; do
             if [[ "$(basename "$file")" == cmux-tui-hook-* || "$(basename "$file")" == cmux-tui-acpmux-* || "$(basename "$file")" == cmux-tui-app-host-* || "$(basename "$file")" == cmux-tui-cloud-server-* || "$(basename "$file")" == cmux-tui-browser-host-* || "$(basename "$file")" == cmux-tui-host-* || "$(basename "$file")" == cmux-tui-holder-* || "$(basename "$file")" == cmux-tui-agent-screen-detection-* ]]; then
               continue
