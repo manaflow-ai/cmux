@@ -473,6 +473,9 @@ import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
+import { BtwNotes, type BtwRow as InlineBtwRow } from "./aside/btwNotes";
+import { BtwAside } from "./aside/BtwAside";
+import { askBtwQuestion } from "./btwCapability";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -1434,6 +1437,10 @@ const StartedSessionsRow = memo(
 );
 
 const defaultRegistry: NativeRegistry = {
+  btw: ({ row }) => {
+    const aside = row as InlineBtwRow;
+    return <BtwAside note={aside.btw} onDismiss={aside.dismissBtw} />;
+  },
   user: MessageRow,
   assistant: MessageRow,
   activity: ToolActivityRow,
@@ -5141,8 +5148,13 @@ function AcpmuxPane() {
     if (next.length === previous.length && next.every((at, index) => at === previous[index])) return previous;
     return (lastMessageBreaks.current = next);
   }, [chatShellRuns]);
-  /// A fresh chat shows its empty state until something is in it: a prompt, or a command it ran.
-  const freshView = freshChat && chatShellRuns.length === 0;
+  // Inline `/btw` asides (aside/btwNotes.ts): rows of their chat's transcript, not of acpmux's.
+  const [btwNotes] = useState(() => new BtwNotes());
+  const btwSnapshot = useSyncExternalStore(btwNotes.subscribe, btwNotes.snapshot, btwNotes.snapshot);
+  const hasBtwNotes = btwSnapshot.some((note) => note.sessionId === snapshot.sessionId);
+  /// A fresh chat shows its empty state until something is in it: a prompt, a command it ran, or
+  /// a side question asked in it (its aside is a transcript row).
+  const freshView = freshChat && chatShellRuns.length === 0 && !hasBtwNotes;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
   // A subagent's "Subagent of" pill names the chat as the chat list does: never acpmux's generated
   // name (`claude-2`), and "New chat" before it has a title, never nothing.
@@ -5346,10 +5358,10 @@ function AcpmuxPane() {
     if (childRows) return NO_ROWS;
     return (lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current));
   }, [childRows, snapshot.queue]);
-  const transcriptRows = useMemo(
-    () => (queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown),
-    [turnRowsShown, queuedRows],
-  );
+  const transcriptRows = useMemo(() => {
+    const rows = queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown;
+    return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
+  }, [childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
   // question is open, which acpmux would refuse again.
@@ -5618,6 +5630,10 @@ function AcpmuxPane() {
   );
   const reconnectMcp = useCallback(
     (server: string) => directClient.current?.reconnectMcp(server) ?? Promise.reject(new Error()),
+    [],
+  );
+  const reconnectPeer = useCallback(
+    (peer: string) => directClient.current?.reconnectPeer(peer) ?? Promise.reject(new Error()),
     [],
   );
   // An opened background task note reads the end of the task's output from the same registry
@@ -6686,7 +6702,8 @@ function AcpmuxPane() {
   );
   // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
   useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
-  // `/btw` opens a side session beside the chat, behind its gate; the Quick Composer has none.
+  // `/btw` opens a read-only side session beside the chat; the Debug toggle is an explicit
+  // kill switch, and the Quick Composer has none.
   const sideSessions = useSideSessions();
   const opensSideSessions = !quick && sideSessions;
   const opensSideSessionsRef = useRef(opensSideSessions);
@@ -7006,8 +7023,8 @@ function AcpmuxPane() {
       if (localCwd !== undefined && !quick) enabledCmuxActions.add("side");
     }
     if (continueAvailable) enabledCmuxActions.add("continue");
-    // A side session asks nothing aside: its composer answers in it.
-    if (opensSideSessions && snapshot.sessionId && !isSideSession) enabledCmuxActions.add("btw");
+    // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
+    if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = { ...snapshot, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
     // Prompts still waiting for a new chat to take them follow acpmux's queue.
     if (startingRows.length)
@@ -7016,18 +7033,7 @@ function AcpmuxPane() {
         ...startingRows.map((row) => ({ id: row.id, prompt: row.text, sending: true })),
       ];
     return withDraftFolder(withCommands, projectDraft);
-  }, [
-    snapshot,
-    projectDraft,
-    continueAvailable,
-    forkable,
-    forkSeq,
-    opensSideSessions,
-    isSideSession,
-    startingRows,
-    localCwd,
-    quick,
-  ]);
+  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, isSideSession, startingRows, localCwd, quick]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -9782,16 +9788,28 @@ function AcpmuxPane() {
               if (command.action === "btw") {
                 const question = args?.trim();
                 const sessionId = snapshot.sessionId;
-                if (!opensSideSessions || !question || !sessionId) return false;
-                setBtwFailure(undefined);
-                // Not a prompt: the chat's turn keeps running and nothing joins its queue. The
-                // composer keeps the question until the side session has started.
-                const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
-                const started = callNative<string>("chat.btw", { question });
-                // Started is sent: the question clears even when the app can't open the side session,
-                // so sending it again can't start a second one.
-                started.then((side) => postNative("chat.sideChat", { sessionId: side }).catch(fail), fail);
-                return started;
+                const client = directClient.current;
+                if (!opensSideSessions || isSideSession || !question || !sessionId || !client) return false;
+                btwNotes.ask(
+                  sessionId,
+                  question,
+                  [...turnRowsShown]
+                    .reverse()
+                    .find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind)),
+                  (question, sessionId) =>
+                    askBtwQuestion(client, question, sessionId, {
+                      inline: (question, sessionId) =>
+                        postNative<{ text: string }>("chat.btw.inline", { question, sessionId }).then(
+                          (reply) => reply.text,
+                        ),
+                      openSide: (sessionId) => postNative("chat.sideChat", { sessionId }),
+                      discardSide: (sessionId) => client.discard(sessionId),
+                      openedMessage: () => translate("sideQuestion.opened"),
+                      staleMessage: () => translate("error.notOpen"),
+                    }),
+                );
+                // The pending aside keeps the whole question; typing and the main turn continue.
+                return true;
               }
               if (command.action === "side") {
                 if (!forkable || forkSeq === undefined || args?.trim()) return false;
@@ -10606,7 +10624,13 @@ function AcpmuxPane() {
                   />
                 )}
                 {snapshot.peerCopy?.offline && (
-                  <PeerCopyBanner copy={snapshot.peerCopy} machine={peerMachine.state} onResume={peerMachine.resume} />
+                  <PeerCopyBanner
+                    key={`${snapshot.sessionId ?? ""}:${snapshot.peerCopy.peer}`}
+                    copy={snapshot.peerCopy}
+                    machine={peerMachine.state}
+                    onResume={peerMachine.resume}
+                    onReconnect={reconnectPeer}
+                  />
                 )}
                 {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
                     mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}

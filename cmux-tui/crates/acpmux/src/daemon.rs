@@ -1452,6 +1452,46 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 #[path = "daemon/state_file_tests.rs"]
 mod state_file_tests;
 
+#[cfg(target_os = "linux")]
+fn cgroup_is_in_sessions_scope(contents: &str) -> bool {
+    contents.lines().filter_map(|line| line.splitn(3, ':').nth(2)).any(|path| {
+        path.split('/').any(|component| component == crate::session_scope::SESSIONS_SLICE)
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn daemon_started_in_session_scope() -> bool {
+    std::fs::read_to_string("/proc/self/cgroup")
+        .is_ok_and(|contents| cgroup_is_in_sessions_scope(&contents))
+}
+
+#[cfg(target_os = "linux")]
+fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Command {
+    if daemon_started_in_session_scope()
+        && let Some(runner) = crate::session_scope::scope_runner()
+        && crate::session_scope::can_make_scope(&runner)
+    {
+        let mut command = std::process::Command::new(runner);
+        command.args([
+            "--user",
+            "--scope",
+            "--quiet",
+            "--collect",
+            "--no-block",
+            "--description=acpmux daemon",
+            "--",
+        ]);
+        command.arg(&this.exe).args(&this.prefix).args(["daemon", "run", "--ready-fd"]);
+        return command;
+    }
+    this.command(&["daemon", "run", "--ready-fd"])
+}
+
+#[cfg(not(target_os = "linux"))]
+fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Command {
+    this.command(&["daemon", "run", "--ready-fd"])
+}
+
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe. With `key`, the daemon also
 /// gets `--person-key-fd M`, one end of a socket pair: the key is written
@@ -1478,7 +1518,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
         None => None,
     };
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
-    let mut cmd = this.command(&["daemon", "run", "--ready-fd"]);
+    let mut cmd = daemon_command(&this);
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon serves every session: its starter's turn values are not its own.
     for k in crate::config::inherited_caller_scoped_keys() {
@@ -1565,5 +1605,26 @@ pub(crate) fn first_run_listen(shared_home: bool, saved: Option<&str>) -> &str {
         Some(saved) if shared_home || !saved.ends_with(":47811") => saved,
         _ if shared_home => SHARED,
         _ => ANY,
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod scope_tests {
+    use super::cgroup_is_in_sessions_scope;
+
+    #[test]
+    fn daemon_scope_escape_matches_only_an_exact_session_slice_component() {
+        assert!(cgroup_is_in_sessions_scope(
+            "0::/user.slice/user-1000.slice/user@1000.service/acpmuxsessions.slice/run-a.scope\n"
+        ));
+        assert!(!cgroup_is_in_sessions_scope(
+            "0::/user.slice/user-1000.slice/user@1000.service/app.slice/run-a.scope\n"
+        ));
+        assert!(!cgroup_is_in_sessions_scope(
+            "0::/user.slice/acpmuxsessions.slice.backup/run-a.scope\n"
+        ));
+        assert!(cgroup_is_in_sessions_scope(
+            "1:name=systemd:/user.slice/acpmuxsessions.slice/run-a.scope\n"
+        ));
     }
 }

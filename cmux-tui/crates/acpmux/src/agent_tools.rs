@@ -57,6 +57,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 mod cua_helper;
@@ -820,7 +821,7 @@ impl AgentTools {
                     json!({"name": s.name, "command": s.command, "args": s.args, "env": env});
                 // The secret card waits for the person, not for a timer.
                 if s.name == crate::secret_mcp::SERVER_NAME {
-                    spec["callTimeoutSecs"] = json!(3600);
+                    spec.set("callTimeoutSecs", json!(3600));
                 }
                 spec
             })
