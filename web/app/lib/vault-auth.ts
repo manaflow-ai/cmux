@@ -9,6 +9,17 @@ export function vaultSignInHref(returnPath: string): string {
   return `${signIn.pathname}${signIn.search}`;
 }
 
+/**
+ * The sign-in page's account chooser, coming back to `returnPath` as
+ * whichever account is picked. Saved accounts switch in one click; nothing is
+ * signed out first.
+ */
+export function vaultSwitchAccountHref(returnPath: string): string {
+  const url = new URL(vaultSignInHref(returnPath), "https://cmux.com");
+  url.searchParams.set("prompt", "select_account");
+  return `${url.pathname}${url.search}`;
+}
+
 export function localizedVaultPath(locale: string, path: string): string {
   const suffix = path.startsWith("/") ? path : `/${path}`;
   return `/${locale}${suffix}`;

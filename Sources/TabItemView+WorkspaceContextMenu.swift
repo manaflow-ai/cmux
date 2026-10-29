@@ -20,19 +20,16 @@ extension TabItemView {
         isMulti ? multi : single
     }
 
-    private func remoteContextMenuWorkspaces() -> [Workspace] {
-        guard !remoteContextMenuWorkspaceIds.isEmpty else { return [] }
-        return remoteContextMenuWorkspaceIds.compactMap { workspaceId in
-            tabManager.tabs.first(where: { $0.id == workspaceId })
-        }
-    }
-
     @ViewBuilder
     var workspaceContextMenu: some View {
         let workspaceSnapshot = self.workspaceSnapshot
-        let targetIds = contextMenuWorkspaceIds
+        let context = snapshot.contextMenu
+        let targetIds = context.targetWorkspaceIds
         let isMulti = targetIds.count > 1
-        let shouldPin = contextMenuPinState?.pinned ?? !tab.isPinned
+        let muteNotificationsLabel = context.allNotificationsMuted
+            ? (isMulti ? NotificationMuteMenuOption.unmuteWorkspaces : .unmuteWorkspace).title
+            : (isMulti ? NotificationMuteMenuOption.muteWorkspaces : .muteWorkspace).title
+        let shouldPin = context.pinState?.pinned ?? !workspaceSnapshot.isPinned
         let reconnectLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
             single: String(localized: "contextMenu.reconnectWorkspace", defaultValue: "Reconnect Workspace"),
@@ -77,43 +74,49 @@ extension TabItemView {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
-        let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
+        let windowMoveTargets = actions.currentWindowMoveTargets()
         let moveMenuTitle = targetIds.count > 1
             ? String(localized: "contextMenu.moveWorkspacesToWindow", defaultValue: "Move Workspaces to Window")
             : String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")
 
         Button(pinLabel) {
-            guard let contextMenuPinState else {
-                NSSound.beep()
-                return
-            }
-            let result = WorkspaceActionDispatcher.performPinAction(contextMenuPinState, in: tabManager)
-            if result.changedWorkspaceIds.isEmpty {
-                refreshWorkspaceSnapshot(force: true)
-            }
-            syncSelectionAfterMutation()
+            actions.performPin()
         }
-        .disabled(contextMenuPinState == nil)
+        .disabled(context.pinState == nil)
+
+        Button {
+            let requestedMuted = !actions.currentNotificationsMuted(targetIds)
+            actions.setNotificationsMuted(targetIds, requestedMuted)
+        } label: {
+            Label(
+                muteNotificationsLabel,
+                systemImage: context.allNotificationsMuted ? "bell" : "bell.slash"
+            )
+        }
+        .disabled(targetIds.isEmpty)
 
         workspaceGroupContextMenuSection(targetIds: targetIds, isMulti: isMulti)
 
         Divider()
 
+        workspaceTodoContextMenuSection
+
+        Divider()
+
         if let key = renameWorkspaceShortcut.keyEquivalent {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
+                beginInlineRenameFromContextMenu()
             }
             .keyboardShortcut(key, modifiers: renameWorkspaceShortcut.eventModifiers)
         } else {
             Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
+                beginInlineRenameFromContextMenu()
             }
         }
 
-        if tab.hasCustomTitle {
+        if snapshot.hasCustomTitle {
             Button(String(localized: "contextMenu.removeCustomWorkspaceName", defaultValue: "Remove Custom Workspace Name")) {
-                tabManager.clearCustomTitle(tabId: tab.id)
+                actions.clearCustomTitle()
             }
         }
 
@@ -129,35 +132,39 @@ extension TabItemView {
                 }
             }
 
-            if tab.hasCustomDescription {
+            if snapshot.hasCustomDescription {
                 Button(String(localized: "contextMenu.clearWorkspaceDescription", defaultValue: "Clear Workspace Description")) {
-                    tabManager.clearCustomDescription(tabId: tab.id)
+                    actions.clearCustomDescription()
                 }
             }
         }
 
-        if !remoteContextMenuWorkspaceIds.isEmpty {
+        if !context.remoteTargetWorkspaceIds.isEmpty {
             Divider()
 
             Button(reconnectLabel) {
-                for workspace in remoteContextMenuWorkspaces() {
-                    workspace.reconnectRemoteConnection()
-                }
+                actions.reconnectTargets(context.remoteTargetWorkspaceIds)
             }
-            .disabled(allRemoteContextMenuTargetsConnecting)
+            .disabled(context.allRemoteTargetsConnecting)
 
             Button(disconnectLabel) {
-                for workspace in remoteContextMenuWorkspaces() {
-                    workspace.disconnectRemoteConnection(clearConfiguration: false)
-                }
+                actions.disconnectTargets(context.remoteTargetWorkspaceIds)
             }
-            .disabled(allRemoteContextMenuTargetsDisconnected)
+            .disabled(context.allRemoteTargetsDisconnected)
         }
 
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
             let tabColorPalette = WorkspaceTabColorSettings.palette()
+            // The menu edits persisted manual colors. An origin tint is only a
+            // rendering fallback and must not appear selected or prefill the
+            // custom-color editor as though the user chose it.
+            let currentColorHex = (workspaceSnapshot.hasManualCustomColor ? workspaceSnapshot.customColorHex : nil).flatMap {
+                WorkspaceTabColorSettings.normalizedHex($0)
+            }
 
-            if tab.customColor != nil {
+            // Gate on the MANUAL color, not the effective row color: an
+            // origin-tinted row with no manual color has nothing to clear.
+            if context.hasManualCustomColor {
                 Button {
                     applyTabColor(nil, targetIds: targetIds)
                 } label: {
@@ -176,13 +183,19 @@ extension TabItemView {
             }
 
             ForEach(tabColorPalette, id: \.id) { entry in
+                let isSelected = WorkspaceTabColorSettings.paletteEntryMatches(
+                    currentHex: currentColorHex,
+                    entryHex: entry.hex
+                )
                 Button {
                     applyTabColor(entry.hex, targetIds: targetIds)
                 } label: {
-                    Label {
-                        Text(entry.name)
-                    } icon: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark")
+                            .opacity(isSelected ? 1 : 0)
+                            .frame(width: 12)
                         Image(nsImage: coloredCircleImage(color: tabColorSwatchColor(for: entry.hex)))
+                        Text(entry.name)
                     }
                 }
             }
@@ -206,17 +219,16 @@ extension TabItemView {
         Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
             moveBy(1)
         }
-        .disabled(index >= tabManager.tabs.count - 1)
+        .disabled(index >= snapshot.workspaceCount - 1)
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
-            tabManager.moveTabsToTop(Set(targetIds))
-            syncSelectionAfterMutation()
+            actions.moveTargetsToTop(targetIds)
         }
         .disabled(targetIds.isEmpty)
 
         Menu(moveMenuTitle) {
             Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
-                moveWorkspacesToNewWindow(targetIds)
+                actions.moveTargetsToNewWindow(targetIds)
             }
             .disabled(targetIds.isEmpty)
 
@@ -226,59 +238,63 @@ extension TabItemView {
 
             ForEach(windowMoveTargets) { target in
                 Button(target.label) {
-                    moveWorkspaces(targetIds, toWindow: target.windowId)
+                    actions.moveTargetsToWindow(targetIds, target.windowId)
                 }
                 .disabled(target.isCurrentWindow || targetIds.isEmpty)
             }
         }
         .disabled(targetIds.isEmpty)
 
+        if !isMulti {
+            WorkspaceMergeIntoMenu(sourceWorkspaceId: snapshot.workspaceId)
+        }
+
         Divider()
 
         if let key = closeWorkspaceShortcut.keyEquivalent {
             Button(closeLabel) {
-                closeTabs(targetIds, allowPinned: true)
+                actions.closeTargets(targetIds, true)
             }
             .keyboardShortcut(key, modifiers: closeWorkspaceShortcut.eventModifiers)
             .disabled(targetIds.isEmpty)
         } else {
             Button(closeLabel) {
-                closeTabs(targetIds, allowPinned: true)
+                actions.closeTargets(targetIds, true)
             }
             .disabled(targetIds.isEmpty)
         }
 
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
-            closeOtherTabs(targetIds)
+            actions.closeOtherTargets(targetIds)
         }
-        .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
+        .disabled(snapshot.workspaceCount <= 1 || targetIds.count == snapshot.workspaceCount)
 
         Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
-            closeTabsBelow(tabId: tab.id)
+            actions.closeTargetsBelow()
         }
-        .disabled(index >= tabManager.tabs.count - 1)
+        .disabled(index >= snapshot.workspaceCount - 1)
 
         Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
-            closeTabsAbove(tabId: tab.id)
+            actions.closeTargetsAbove()
         }
         .disabled(index == 0)
 
         Divider()
 
         Button(markReadLabel) {
-            markTabsRead(targetIds)
+            actions.markRead(targetIds)
         }
-        .disabled(!notificationStore.canMarkWorkspaceRead(forTabIds: targetIds))
+        .disabled(!context.canMarkRead)
 
         Button(markUnreadLabel) {
-            markTabsUnread(targetIds)
+            actions.markUnread(targetIds)
         }
-        .disabled(!notificationStore.canMarkWorkspaceUnread(forTabIds: targetIds))
+        .disabled(!context.canMarkUnread)
 
         Button(clearLatestNotificationLabel) {
-            clearLatestNotifications(targetIds)
+            actions.clearLatestNotifications(targetIds)
         }
-        .disabled(!hasLatestNotifications(in: targetIds))
+        .disabled(!context.hasLatestNotification)
 
         workspaceNotificationsContextMenu(targetIds)
         Divider()

@@ -50,11 +50,15 @@ extension CMUXCLI {
             return claudeHookWorkspaceExists(raw, client: client) ? raw : nil
         }
         // Explicit non-UUID selectors (handle refs like "workspace:1", numeric indexes —
-        // both documented for --workspace) resolve strictly. `resolveWorkspaceId` fails
-        // closed for every non-blank selector, and `raw` is non-blank here (callers pass
-        // it through `nonEmptyClaudeHookIdentifier`), so the focused-tab fallback inside
-        // `resolveWorkspaceId` is structurally unreachable and the "never fall back to
-        // focused" invariant holds.
+        // both documented for --workspace) resolve strictly. `raw` is non-blank here
+        // (callers pass it through `nonEmptyClaudeHookIdentifier`), so the focused-tab
+        // fallback inside `resolveWorkspaceId` is unreachable.
+        //
+        // `resolveWorkspaceId` no longer fails closed for every selector: a handle ref
+        // it could not scan for — a relay session, or a window that went away mid-scan —
+        // comes back unresolved so the host can resolve it against its own registry.
+        // The `isUUID(resolved)` check below is what keeps the "never fall back to
+        // focused" invariant here; it is load-bearing, not defensive.
         guard let resolved = try? resolveWorkspaceId(raw, client: client),
               isUUID(resolved),
               claudeHookWorkspaceExists(resolved, client: client) else {
@@ -76,15 +80,25 @@ extension CMUXCLI {
         client: SocketClient,
         includeAmbientTTY: Bool = true
     ) -> CallerTerminalBinding? {
-        guard let ttyName = resolveCallerTTYName(includeAmbientTTY: includeAmbientTTY),
-              let payload = try? client.sendV2(method: "debug.terminals") else {
+        guard let ttyName = resolveCallerTTYName(includeAmbientTTY: includeAmbientTTY) else {
             return nil
         }
+        return uniqueCallerTerminalBindingByTTY(ttyName: ttyName, client: client)
+    }
+
+    func uniqueCallerTerminalBindingByTTY(
+        ttyName: String,
+        client: SocketClient,
+        workspaceId: String? = nil
+    ) -> CallerTerminalBinding? {
+        guard let payload = try? client.sendV2(method: "debug.terminals") else { return nil }
         let terminals = payload["terminals"] as? [[String: Any]] ?? []
+        let scopedWorkspaceId = normalizedHandleValue(workspaceId)
         var matched: [CallerTerminalBinding] = []
         for terminal in terminals {
             guard normalizedTTYName(terminal["tty"] as? String) == ttyName,
                   let workspaceId = normalizedHandleValue(terminal["workspace_id"] as? String),
+                  scopedWorkspaceId == nil || workspaceId == scopedWorkspaceId,
                   let surfaceId = normalizedHandleValue(terminal["surface_id"] as? String) else {
                 continue
             }

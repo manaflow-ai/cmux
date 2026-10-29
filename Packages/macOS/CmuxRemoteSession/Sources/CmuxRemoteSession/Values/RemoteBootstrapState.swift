@@ -5,4 +5,5 @@ struct RemoteBootstrapState {
     let platform: RemotePlatform
     let homeDirectory: String
     let binaryExists: Bool
+    let binarySize: Int64?
 }

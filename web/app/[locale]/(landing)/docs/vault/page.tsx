@@ -6,7 +6,7 @@ import {
 } from "@/i18n/locale-availability";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
 import { DocsSchema } from "../docs-schema";
-import { Link } from "@/i18n/navigation";
+import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
 export async function generateMetadata({

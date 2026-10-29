@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 /// Round-trip coverage for per-monitor window-geometry memory (issue #2135).
-@Suite(.serialized)
+@Suite(.serialized, .exclusiveAppContext)
 @MainActor
 struct AppDelegateDisplayConfigRestoreTests {
     // MARK: fixtures
@@ -73,6 +73,16 @@ struct AppDelegateDisplayConfigRestoreTests {
     }
 
     // MARK: the headline round-trip
+
+    @Test
+    func displayReconciliationLeavesVisibleWindowsOnInactiveSpacesToAppKit() {
+        #expect(!AppDelegate.shouldReconcileWindowAfterScreenChange(
+            isOnActiveSpace: false
+        ))
+        #expect(AppDelegate.shouldReconcileWindowAfterScreenChange(
+            isOnActiveSpace: true
+        ))
+    }
 
     @Test
     func windowFrameIsRestoredToExternalMonitorAfterReconnect() throws {
@@ -352,6 +362,18 @@ struct AppDelegateDisplayConfigRestoreTests {
     }
 
     @Test
+    func restoredMainWindowsRestoreAppKitKeyViewLoopAfterTopologyAssembly() {
+        let appDelegate = testAppDelegate()
+        let windowId = appDelegate.createMainWindow(
+            sessionWindowSnapshot: emptyWindowSnapshot(),
+            shouldActivate: false
+        )
+        defer { closeCreatedWindow(appDelegate, windowId: windowId) }
+
+        #expect(appDelegate.mainWindow(for: windowId)?.autorecalculatesKeyViewLoop == true)
+    }
+
+    @Test
     func reconcileSkippedDuringSessionRestoreKeepsCaptureFirewallArmed() {
         let appDelegate = testAppDelegate()
         appDelegate.isScreenChangeCaptureSuppressed = true
@@ -374,6 +396,7 @@ struct AppDelegateDisplayConfigRestoreTests {
         appDelegate.isScreenChangeCaptureSuppressed = true
         appDelegate.screenChangeCaptureSuppressionSignature = nil
         defer {
+            appDelegate.didObserveDisplayReconfigurationSinceReconcile = false
             appDelegate.isScreenChangeCaptureSuppressed = false
             appDelegate.screenChangeCaptureSuppressionSignature = nil
             appDelegate.screenChangeCaptureSuppressionSignatureGeneration = nil
@@ -397,10 +420,15 @@ struct AppDelegateDisplayConfigRestoreTests {
         let appDelegate = testAppDelegate()
         try #require(!NSScreen.screens.isEmpty)
         let restoredWindowId = UUID()
+        // Restore drops phantom (0-workspace, no Dock) windows (#6646), so the
+        // restored window carries one workspace.
+        var restoredWindow = emptyWindowSnapshot(windowId: restoredWindowId)
+        restoredWindow.tabManager = TabManager(autoWelcomeIfNeeded: false)
+            .sessionSnapshot(includeScrollback: false)
         let snapshot = AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
             createdAt: 1_000,
-            windows: [emptyWindowSnapshot(windowId: restoredWindowId)]
+            windows: [restoredWindow]
         )
         appDelegate.isScreenChangeCaptureSuppressed = true
         defer {
@@ -416,6 +444,190 @@ struct AppDelegateDisplayConfigRestoreTests {
         #expect(!appDelegate.isApplyingSessionRestore)
         #expect(appDelegate.isScreenChangeCaptureSuppressed)
     }
+    // MARK: display flap that settles on the same configuration
+
+    /// Registers a window whose remembered frame for the live display
+    /// configuration is `remembered`, and returns it with the signature.
+    private func windowWithRememberedFrame(
+        _ appDelegate: AppDelegate,
+        remembered: CGRect
+    ) throws -> (windowId: UUID, window: CmuxMainWindow, signature: String) {
+        let signature = try #require(appDelegate.currentDisplayConfigurationSignature())
+        let windowId = appDelegate.createMainWindow(
+            sessionWindowSnapshot: emptyWindowSnapshot(),
+            shouldActivate: false
+        )
+        let window = try #require(appDelegate.mainWindow(for: windowId) as? CmuxMainWindow)
+        window.orderFrontRegardless()
+        window.setFrame(remembered, display: false)
+        appDelegate.windowConfigFrames[windowId] = SessionConfigFrameRing().upserting(
+            SessionConfigFrameEntry(
+                signature: signature,
+                frame: SessionRectSnapshot(remembered),
+                display: appDelegate.displaySnapshot(for: window),
+                lastUsedAt: 100
+            )
+        )
+        appDelegate.lastAppliedConfigurationSignature = signature
+        appDelegate.didObserveUnknownDisplayConfiguration = false
+        appDelegate.didObserveDisplayReconfigurationSinceReconcile = false
+        return (windowId, window, signature)
+    }
+
+    private func resetDisplayChangeState(_ appDelegate: AppDelegate) {
+        appDelegate.didObserveDisplayReconfigurationSinceReconcile = false
+        appDelegate.isScreenChangeCaptureSuppressed = false
+        appDelegate.screenChangeCaptureSuppressionSignature = nil
+        appDelegate.screenChangeCaptureSuppressionSignatureGeneration = nil
+        appDelegate.screenChangeReconcileRetryBudget = 0
+        appDelegate.visibleFrameFitTopologyRetryBudget = 0
+    }
+
+    private func rememberedFrameInsideLiveDisplay(_ appDelegate: AppDelegate) throws -> CGRect {
+        let visible = try #require(appDelegate.currentDisplayGeometries().available.first).visibleFrame
+        return CGRect(
+            x: visible.minX + 40,
+            y: visible.minY + 40,
+            width: min(900, visible.width - 80),
+            height: min(700, visible.height - 80)
+        )
+    }
+
+    @Test
+    func displayFlapSettlingOnSameSignatureRestoresRememberedFrame() throws {
+        // Wake with a clamshell display: macOS shrinks the window while the
+        // display reports a transient mode, then the real monitor comes back
+        // with the same signature. The shrunken frame must not stick.
+        let appDelegate = testAppDelegate()
+        let remembered = try rememberedFrameInsideLiveDisplay(appDelegate)
+        let (windowId, window, _) = try windowWithRememberedFrame(appDelegate, remembered: remembered)
+        defer {
+            closeCreatedWindow(appDelegate, windowId: windowId)
+            appDelegate.windowConfigFrames.removeValue(forKey: windowId)
+            resetDisplayChangeState(appDelegate)
+        }
+
+        appDelegate.handleDisplayReconfiguration(isBeginning: true)
+        var shrunk = remembered
+        shrunk.size.height -= 200
+        shrunk.origin.y += 200
+        window.setFrame(shrunk, display: false)
+        appDelegate.handleDisplayReconfiguration(isBeginning: false)
+        appDelegate.reconcileMainWindowFramesAfterScreenChange()
+
+        #expect(window.frame == remembered)
+    }
+
+    @Test
+    func screenParameterChangeWithoutDisplayReconfigurationLeavesWindowAlone() throws {
+        // A Dock resize raises the screen-parameters notification without a
+        // CoreGraphics reconfiguration; a window the user placed must not move.
+        let appDelegate = testAppDelegate()
+        let remembered = try rememberedFrameInsideLiveDisplay(appDelegate)
+        let (windowId, window, _) = try windowWithRememberedFrame(appDelegate, remembered: remembered)
+        defer {
+            closeCreatedWindow(appDelegate, windowId: windowId)
+            appDelegate.windowConfigFrames.removeValue(forKey: windowId)
+            resetDisplayChangeState(appDelegate)
+        }
+
+        var moved = remembered
+        moved.origin.x += 20
+        moved.size.width -= 100
+        window.setFrame(moved, display: false)
+        appDelegate.handleScreenParametersDidChange()
+        appDelegate.reconcileMainWindowFramesAfterScreenChange()
+
+        #expect(window.frame == moved)
+    }
+
+    private final class NotificationCounter: @unchecked Sendable {
+        var count = 0
+    }
+
+    /// Runs the main run loop until `condition` holds or `timeout` elapses.
+    private func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
+
+    /// Drops reconcile passes already queued, so a test only sees ones its own
+    /// calls schedule.
+    private func discardQueuedReconciles(_ appDelegate: AppDelegate) {
+        NotificationQueue.default.dequeueNotifications(
+            matching: Notification(name: AppDelegate.screenChangeReconcileNotification, object: appDelegate),
+            coalesceMask: Int(NotificationQueue.NotificationCoalescing([.onName, .onSender]).rawValue)
+        )
+    }
+
+    @Test
+    func endingDisplayReconfigurationSchedulesFinalReconcile() {
+        // An idle reconcile can run between the begin and end callbacks. The
+        // end callback must queue its own pass, or the marker it sets is left
+        // with nothing to consume it.
+        let appDelegate = testAppDelegate()
+        defer { resetDisplayChangeState(appDelegate) }
+
+        appDelegate.handleDisplayReconfiguration(isBeginning: true)
+        appDelegate.reconcileMainWindowFramesAfterScreenChange()
+        discardQueuedReconciles(appDelegate)
+
+        let counter = NotificationCounter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: AppDelegate.screenChangeReconcileNotification,
+            object: appDelegate,
+            queue: nil
+        ) { _ in counter.count += 1 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        appDelegate.handleDisplayReconfiguration(isBeginning: false)
+
+        #expect(waitUntil { counter.count > 0 })
+    }
+
+    @Test
+    func reconcileBetweenBeginAndEndDoesNotLeaveStaleRestoreMarker() throws {
+        let appDelegate = testAppDelegate()
+        let remembered = try rememberedFrameInsideLiveDisplay(appDelegate)
+        let (windowId, window, _) = try windowWithRememberedFrame(appDelegate, remembered: remembered)
+        defer {
+            closeCreatedWindow(appDelegate, windowId: windowId)
+            appDelegate.windowConfigFrames.removeValue(forKey: windowId)
+            resetDisplayChangeState(appDelegate)
+        }
+
+        appDelegate.handleDisplayReconfiguration(isBeginning: true)
+        appDelegate.reconcileMainWindowFramesAfterScreenChange()
+        discardQueuedReconciles(appDelegate)
+
+        let counter = NotificationCounter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: AppDelegate.screenChangeReconcileNotification,
+            object: appDelegate,
+            queue: nil
+        ) { _ in counter.count += 1 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        appDelegate.handleDisplayReconfiguration(isBeginning: false)
+        // The pass the end callback queued; without it the marker stays set.
+        #expect(waitUntil { counter.count > 0 })
+        appDelegate.reconcileMainWindowFramesAfterScreenChange()
+
+        // The user then places the window, and a later Dock resize raises a
+        // screen-parameters change. It must not be pulled back.
+        var moved = remembered
+        moved.origin.x += 20
+        moved.size.width -= 100
+        window.setFrame(moved, display: false)
+        appDelegate.handleScreenParametersDidChange()
+        appDelegate.reconcileMainWindowFramesAfterScreenChange()
+
+        #expect(window.frame == moved)
+    }
+
     // MARK: LRU ring behavior
     @Test
     func ringUpsertReplacesSameSignatureAndKeepsLatest() {

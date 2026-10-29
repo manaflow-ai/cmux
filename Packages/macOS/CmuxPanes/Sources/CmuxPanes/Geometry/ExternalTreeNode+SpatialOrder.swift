@@ -19,27 +19,13 @@ extension ExternalTreeNode {
     /// order, tabs within each pane in tab order, then any panels missing
     /// from the tree in the caller-provided stable fallback order. Formerly
     /// `SidebarBranchOrdering.orderedPanelIds(tree:paneTabs:fallbackPanelIds:)`.
+    /// Building the ``ExternalTreeNode`` this reads costs a live container-frame
+    /// read, so a SwiftUI `body` should use ``SpatialPanelOrder`` directly.
     public func orderedPanelIds(
         paneTabs: [String: [UUID]],
         fallbackPanelIds: [UUID]
     ) -> [UUID] {
-        var ordered: [UUID] = []
-        var seen: Set<UUID> = []
-
-        for paneId in orderedPaneIds {
-            for panelId in paneTabs[paneId] ?? [] {
-                if seen.insert(panelId).inserted {
-                    ordered.append(panelId)
-                }
-            }
-        }
-
-        for panelId in fallbackPanelIds {
-            if seen.insert(panelId).inserted {
-                ordered.append(panelId)
-            }
-        }
-
-        return ordered
+        SpatialPanelOrder(orderedPaneIds: orderedPaneIds)
+            .panelIds(paneTabs: paneTabs, fallbackPanelIds: fallbackPanelIds)
     }
 }

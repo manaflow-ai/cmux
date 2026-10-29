@@ -1,0 +1,352 @@
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite
+struct VaultCheckpointForkTests {
+    private let parentSessionID = "aaaaaaaa-1111-2222-3333-444444444444"
+    private let newSessionID = "bbbbbbbb-5555-6666-7777-888888888888"
+
+    private func line(
+        uuid: String,
+        type: String,
+        text: String,
+        sessionID: String? = nil
+    ) -> String {
+        let session = sessionID ?? parentSessionID
+        if type == "user" {
+            return #"{"sessionId":"\#(session)","uuid":"\#(uuid)","type":"user","timestamp":"2026-08-14T10:00:00Z","message":{"role":"user","content":"\#(text)"}}"#
+        }
+        return #"{"sessionId":"\#(session)","uuid":"\#(uuid)","type":"assistant","timestamp":"2026-08-14T10:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"\#(text)"}]}}"#
+    }
+
+    private func writeParent(_ lines: [String]) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fork-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(parentSessionID + ".jsonl")
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: url)
+        return url
+    }
+
+    private func readLines(_ url: URL) throws -> [[String: Any]] {
+        let content = try String(contentsOf: url, encoding: .utf8)
+        return content.split(separator: "\n").compactMap {
+            try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any]
+        }
+    }
+
+    private func turnCheckpoint(anchorUUID: String?, turnIndex: Int) -> VaultSessionCheckpoint {
+        VaultSessionCheckpoint(
+            id: "turn:test",
+            source: .turn,
+            timestamp: nil,
+            name: nil,
+            turnIndex: turnIndex,
+            anchor: anchorUUID.map { "uuid:" + $0 },
+            gitSHA: nil,
+            promptSnippet: nil
+        )
+    }
+
+    /// Claude fork through the harness adapter, as the UI does.
+    private func forkClaude(
+        parent: URL,
+        checkpoint: VaultSessionCheckpoint,
+        maxBytes: Int? = nil
+    ) throws -> URL {
+        let entry = SessionEntry(
+            id: "claude:" + parent.path,
+            agent: .claude,
+            sessionId: parentSessionID,
+            title: "parent",
+            cwd: "/tmp",
+            gitBranch: nil,
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 0),
+            fileURL: parent,
+            specifics: .claude(model: nil, permissionMode: nil, configDirectoryForResume: nil)
+        )
+        if let maxBytes {
+            // Byte-cap paths exercise the engine directly (the adapter has no
+            // cap override parameter).
+            let plan = VaultForkPlan(
+                parentFileURL: parent,
+                destinationFileURL: parent.deletingLastPathComponent()
+                    .appendingPathComponent(newSessionID + ".jsonl"),
+                anchorToken: { obj, _ in
+                    (obj["uuid"] as? String).flatMap { $0.isEmpty ? nil : "uuid:" + $0 }
+                },
+                userPrompt: VaultSessionCheckpoints.claudeUserPromptText(from:),
+                rewriteLine: { obj in
+                    guard obj["sessionId"] is String else { return nil }
+                    var next = obj
+                    next["sessionId"] = newSessionID
+                    return next
+                }
+            )
+            return try VaultCheckpointForker.fork(plan: plan, checkpoint: checkpoint, maxBytes: maxBytes)
+        }
+        return try VaultCheckpointHarness.fork(
+            entry: entry,
+            checkpoint: checkpoint,
+            newSessionID: newSessionID
+        )
+    }
+
+    @Test
+    func turnForkCopiesStrictlyBeforeAnchorAndRewritesEverySessionID() throws {
+        let parent = try writeParent([
+            line(uuid: "u1", type: "user", text: "first prompt"),
+            line(uuid: "a1", type: "assistant", text: "reply one"),
+            line(uuid: "u2", type: "user", text: "second prompt"),
+            line(uuid: "a2", type: "assistant", text: "reply two"),
+        ])
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+        let parentBytes = try Data(contentsOf: parent)
+
+        let forked = try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2))
+
+        let rows = try readLines(forked)
+        // Strictly before the second user prompt: u1 + a1 only.
+        #expect(rows.count == 2)
+        #expect(rows.map { $0["uuid"] as? String } == ["u1", "a1"])
+        // #10156 class: every line carries the NEW session id; never the parent's.
+        for row in rows {
+            #expect(row["sessionId"] as? String == newSessionID)
+        }
+        #expect(forked.lastPathComponent == newSessionID + ".jsonl")
+        // Parent untouched, byte-for-byte.
+        #expect(try Data(contentsOf: parent) == parentBytes)
+    }
+
+    @Test
+    func turnForkFallsBackToTurnIndexWhenAnchorUUIDAbsent() throws {
+        let parent = try writeParent([
+            line(uuid: "u1", type: "user", text: "first"),
+            line(uuid: "a1", type: "assistant", text: "one"),
+            line(uuid: "u2", type: "user", text: "second"),
+        ])
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+
+        let forked = try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: nil, turnIndex: 2))
+        let rows = try readLines(forked)
+        #expect(rows.map { $0["uuid"] as? String } == ["u1", "a1"])
+    }
+
+    @Test
+    func manualForkCopiesThroughAnchorInclusive() throws {
+        let parent = try writeParent([
+            line(uuid: "u1", type: "user", text: "first"),
+            line(uuid: "a1", type: "assistant", text: "one"),
+            line(uuid: "u2", type: "user", text: "second"),
+        ])
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+
+        let manual = VaultSessionCheckpoint(
+            id: "manual:test",
+            source: .manual,
+            timestamp: nil,
+            name: "before refactor",
+            turnIndex: 1,
+            anchor: "uuid:a1",
+            gitSHA: nil,
+            promptSnippet: nil
+        )
+        let forked = try forkClaude(parent: parent, checkpoint: manual)
+        let rows = try readLines(forked)
+        #expect(rows.map { $0["uuid"] as? String } == ["u1", "a1"])
+    }
+
+    @Test
+    func multibyteContentSurvivesRewrite() throws {
+        let parent = try writeParent([
+            line(uuid: "u1", type: "user", text: "日本語のプロンプト🚀"),
+            line(uuid: "u2", type: "user", text: "next"),
+        ])
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+
+        let forked = try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2))
+        let rows = try readLines(forked)
+        let message = rows[0]["message"] as? [String: Any]
+        #expect(message?["content"] as? String == "日本語のプロンプト🚀")
+        #expect(rows[0]["sessionId"] as? String == newSessionID)
+    }
+
+    @Test
+    func nestedSessionIdStringsInContentAreNotTouched() throws {
+        let embedded = #"{"sessionId":"\#(parentSessionID)","uuid":"u1","type":"user","message":{"role":"user","content":"the parent id is \#(parentSessionID)"}}"#
+        let parent = try writeParent([
+            embedded,
+            line(uuid: "u2", type: "user", text: "next"),
+        ])
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+
+        let forked = try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2))
+        let rows = try readLines(forked)
+        #expect(rows[0]["sessionId"] as? String == newSessionID)
+        let message = rows[0]["message"] as? [String: Any]
+        // Content mentioning the parent id stays intact — only the top-level
+        // field is identity.
+        #expect((message?["content"] as? String)?.contains(parentSessionID) == true)
+    }
+
+    @Test
+    func driftedManualAnchorThrowsInsteadOfIncludingNewerTurns() throws {
+        // A manual checkpoint whose anchored line no longer exists (rewritten
+        // transcript) must refuse: copying to EOF would silently include
+        // turns added after the checkpoint was taken.
+        let parent = try writeParent([
+            line(uuid: "u1", type: "user", text: "first"),
+            line(uuid: "a1", type: "assistant", text: "one"),
+            line(uuid: "u2", type: "user", text: "added after the checkpoint"),
+        ])
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+
+        let drifted = VaultSessionCheckpoint(
+            id: "manual:drifted", source: .manual, timestamp: nil, name: nil,
+            turnIndex: 1, anchor: "uuid:rewritten-away", gitSHA: nil, promptSnippet: nil
+        )
+        #expect(throws: VaultCheckpointForkError.anchorNotFound) {
+            try forkClaude(parent: parent, checkpoint: drifted)
+        }
+        let leftover = parent.deletingLastPathComponent()
+            .appendingPathComponent(newSessionID + ".jsonl")
+        #expect(!FileManager.default.fileExists(atPath: leftover.path))
+    }
+
+    @Test
+    func missingTurnAnchorThrowsInsteadOfForkingWholeTranscript() throws {
+        let parent = try writeParent([
+            line(uuid: "u1", type: "user", text: "only prompt"),
+        ])
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+
+        #expect(throws: VaultCheckpointForkError.anchorNotFound) {
+            try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "missing-uuid", turnIndex: 9))
+        }
+        // Failed forks must not leave a partial file behind.
+        let leftover = parent.deletingLastPathComponent()
+            .appendingPathComponent(newSessionID + ".jsonl")
+        #expect(!FileManager.default.fileExists(atPath: leftover.path))
+    }
+
+    @Test(arguments: ["", "../escape", "nested/session", "space id", "colon:id"])
+    func rejectsPathHostileSessionIDs(_ candidate: String) {
+        #expect(throws: VaultCheckpointForkError.invalidSessionID) {
+            try VaultCheckpointForker.validateSessionID(candidate)
+        }
+    }
+
+    @Test
+    func acceptsUUIDSessionID() throws {
+        try VaultCheckpointForker.validateSessionID(newSessionID)
+    }
+
+    @Test
+    func forkAtFirstTurnIsRefusedAsEmpty() throws {
+        let parent = try writeParent([
+            line(uuid: "u1", type: "user", text: "first"),
+            line(uuid: "a1", type: "assistant", text: "one"),
+        ])
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+
+        #expect(throws: VaultCheckpointForkError.emptyFork) {
+            try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "u1", turnIndex: 1))
+        }
+    }
+
+    @Test
+    func anchorInsideCapForksEvenWhenFileExceedsCap() throws {
+        // The anchor sits in the first kilobyte; the huge tail past the byte
+        // cap must not fail the fork because streaming stops at the anchor.
+        let parent = try writeParent([
+            line(uuid: "u1", type: "user", text: "small first"),
+            line(uuid: "u2", type: "user", text: "anchor here"),
+            line(uuid: "a2", type: "assistant", text: String(repeating: "x", count: 64 * 1024)),
+        ])
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+
+        let forked = try forkClaude(
+            parent: parent,
+            checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2),
+            maxBytes: 4 * 1024
+        )
+        let rows = try readLines(forked)
+        #expect(rows.map { $0["uuid"] as? String } == ["u1"])
+    }
+
+    @Test
+    func fileEndingExactlyAtCapForksCleanly() throws {
+        let lines = [
+            line(uuid: "u1", type: "user", text: "first"),
+            line(uuid: "a1", type: "assistant", text: "reply"),
+        ]
+        let parent = try writeParent(lines)
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+        let exactSize = try Data(contentsOf: parent).count
+
+        let manual = VaultSessionCheckpoint(
+            id: "manual:test",
+            source: .manual,
+            timestamp: nil,
+            name: nil,
+            turnIndex: 1,
+            anchor: nil,
+            gitSHA: nil,
+            promptSnippet: nil
+        )
+        let forked = try forkClaude(parent: parent, checkpoint: manual, maxBytes: exactSize)
+        #expect(try readLines(forked).count == 2)
+    }
+
+    @Test
+    func byteCapAborts() throws {
+        let parent = try writeParent([
+            line(uuid: "u1", type: "user", text: String(repeating: "x", count: 4096)),
+            line(uuid: "u2", type: "user", text: "next"),
+        ])
+        defer { try? FileManager.default.removeItem(at: parent.deletingLastPathComponent()) }
+
+        #expect(throws: VaultCheckpointForkError.byteCapExceeded) {
+            try forkClaude(parent: parent, checkpoint: turnCheckpoint(anchorUUID: "u2", turnIndex: 2), maxBytes: 1024)
+        }
+    }
+
+    @Test
+    func forkedEntryCarriesNewIdentityAndParentCwd() {
+        let parent = SessionEntry(
+            id: "claude:/tmp/parent.jsonl",
+            agent: .claude,
+            sessionId: parentSessionID,
+            title: "Parent session",
+            cwd: "/Users/dev/projects/cmux",
+            gitBranch: "main",
+            pullRequest: nil,
+            modified: Date(timeIntervalSince1970: 1000),
+            fileURL: URL(fileURLWithPath: "/tmp/parent.jsonl"),
+            specifics: .claude(model: "opus", permissionMode: nil, configDirectoryForResume: "/Users/dev/.claude")
+        )
+        let forkedURL = URL(fileURLWithPath: "/tmp/\(newSessionID).jsonl")
+        let forked = parent.forkedEntry(
+            newSessionID: newSessionID,
+            fileURL: forkedURL,
+            now: Date(timeIntervalSince1970: 2000)
+        )
+        #expect(forked.sessionId == newSessionID)
+        #expect(forked.sessionId != parent.sessionId)
+        // #5941: forks stay in the parent's cwd.
+        #expect(forked.cwd == parent.cwd)
+        #expect(forked.specifics == parent.specifics)
+        // The resume command built for the forked entry uses the NEW id and
+        // never the parent's (#10156 class).
+        let resume = forked.copyResumeCommand
+        #expect(resume?.contains(newSessionID) == true)
+        #expect(resume?.contains(parentSessionID) == false)
+    }
+}

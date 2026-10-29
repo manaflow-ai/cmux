@@ -38,6 +38,16 @@ extension ControlCommandCoordinator {
             return "ERROR: Invalid metadata format '\(formatRaw)' — use: plain, markdown"
         }
 
+        let workState: ControlSidebarAgentWorkState?
+        if let rawWorkState = sidebarNormalizedOptionValue(parsed.options["work"]) {
+            guard let parsedWorkState = ControlSidebarAgentWorkState(rawValue: rawWorkState.lowercased()) else {
+                return "ERROR: Invalid work state '\(rawWorkState)' — use: running, subagents, waiting"
+            }
+            workState = parsedWorkState
+        } else {
+            workState = nil
+        }
+
         let priority: Int
         if let rawPriority = sidebarNormalizedOptionValue(parsed.options["priority"]) {
             guard let parsedPriority = Int(rawPriority) else {
@@ -66,7 +76,7 @@ extension ControlCommandCoordinator {
         }
         let panelResolution = sidebarParseOptionalPanelIdOption(
             options: parsed.options,
-            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+            usage: "set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--work=running|subagents|waiting] [--tab=X] [--panel=ID]"
         )
         if let error = panelResolution.error {
             return error
@@ -90,7 +100,8 @@ extension ControlCommandCoordinator {
             priority: priority,
             format: format,
             panelID: panelResolution.panelId,
-            pid: pidValue
+            pid: pidValue,
+            workState: workState
         )
         return "OK"
     }
@@ -111,8 +122,19 @@ extension ControlCommandCoordinator {
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: No tab selected"
         }
+        let panelResolution = sidebarParseOptionalPanelIdOption(
+            options: parsed.options,
+            usage: usage
+        )
+        if let error = panelResolution.error {
+            return error
+        }
 
-        context?.controlSidebarScheduleStatusClear(target: target, key: key)
+        context?.controlSidebarScheduleStatusClear(
+            target: target,
+            key: key,
+            panelID: panelResolution.panelId
+        )
         return "OK"
     }
 
@@ -120,7 +142,7 @@ extension ControlCommandCoordinator {
     nonisolated func sidebarSetStatus(_ args: String, context: (any ControlCommandContext)?) -> String {
         sidebarUpsertMetadata(
             args,
-            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]",
+            missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--work=running|subagents|waiting] [--tab=X]",
             context: context
         )
     }
@@ -418,7 +440,8 @@ extension ControlCommandCoordinator {
             target: target,
             key: key,
             panelID: panelResolution.panelId,
-            clearStatus: parsed.options["clear-status"] != nil
+            clearStatus: parsed.options["clear-status"] != nil,
+            requireOwnedKey: parsed.options["require-owned-key"] != nil
         )
         return "OK"
     }

@@ -1,0 +1,625 @@
+import AppKit
+import SwiftUI
+
+// AppKit materials for the live window. Captures and the differential harness
+// keep the shared drawn glass and fitted header blur (deterministic pixels);
+// a live window shows these instead.
+
+// MARK: Compose bar
+
+/// The compose bar's Liquid Glass: the field (NSGlassEffectView behind the
+/// text view) and the round "+" and emoji buttons (glass circles holding
+/// borderless NSButtons). The buttons share one NSGlassEffectContainerView
+/// (merging when closer than `mergeSpacing`, as system glass does); the field
+/// has its own container, because only a container's `alphaValue` fades the
+/// glass (the send's field fade; the buttons do not fade in Messages). At
+/// rest the field is 9.5 pt from each button, so the field never merged with
+/// them. The field follows the shared field geometry; a height change is
+/// animated by `FieldAnimation`.
+final class FieldChrome: NSView {
+    // LabGlass: system glass on macOS 26 and newer, a visual-effect stand-in on 14 and 15.
+    let container = LabGlass.container()
+    private let group = FlippedView()
+    let fieldContainer = LabGlass.container()
+    private let fieldGroup = FlippedView()
+    let field = LabGlass.surface()
+    let plusGlass = LabGlass.surface()
+    let emojiGlass = LabGlass.surface()
+    let plus = NSButton()
+    let emoji = NSButton()
+    var onPlus: () -> Void = {}
+    var onEmoji: () -> Void = {}
+    /// Real Messages' key-window glass rims over the system glass (GlassKeyFix.swift), in a
+    /// non-flipped view above both glass containers (a container tones its content).
+    let keyFix = GlassKeyFix()
+    private let keyFixView = NSView()
+    /// Glass shapes closer than this merge (the "+" button is 9.5 pt from
+    /// the field: separate at rest).
+    static let mergeSpacing: CGFloat = 6
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        container.spacing = FieldChrome.mergeSpacing
+        container.contentView = group
+        addSubview(container)
+        fieldContainer.spacing = FieldChrome.mergeSpacing
+        fieldContainer.contentView = fieldGroup
+        addSubview(fieldContainer)
+        keyFixView.wantsLayer = true
+        for l in keyFix.layers { keyFixView.layer?.addSublayer(l) }
+        addSubview(keyFixView)
+        field.cornerRadius = 15
+        // Real Messages' field glass reacts to a press (field-keyboard reference: the rim
+        // and a light under the pointer brighten 14 ms after the click and fade in 0.1 s).
+        // `effectIsInteractive` is declared only in the macOS 27 SDK; Swift 6.4 ships with
+        // it (Xcode 27), Swift 6.3.3 with the 26.5 SDK (Xcode 26.6), where #available
+        // cannot hide an undeclared symbol.
+        #if compiler(>=6.4)
+        if #available(macOS 27.0, *) { (field as? NSGlassEffectView)?.effectIsInteractive = true }
+        #endif
+        fieldGroup.addSubview(field)
+        for (g, b, sym, label, sel) in [(plusGlass, plus, "plus", NativeStrings.attach, #selector(plusClicked)),
+                                         (emojiGlass, emoji, "face.smiling", NativeStrings.emoji, #selector(emojiClicked))] {
+            g.cornerRadius = 15
+            #if compiler(>=6.4)
+            if #available(macOS 27.0, *) { (g as? NSGlassEffectView)?.effectIsInteractive = true }
+            #endif
+            b.isBordered = false
+            b.bezelStyle = .regularSquare
+            b.imagePosition = .imageOnly
+            let cfg = FieldChrome.glyphConfig
+            b.image = (sym == "face.smiling" ? FieldChrome.emojiGlyph(tinted: false) : NSImage(systemSymbolName: sym, accessibilityDescription: label)?.withSymbolConfiguration(cfg))
+            b.image?.accessibilityDescription = label
+            // White on dark glass, black on light glass (light Messages capture, 2026-10-09).
+            b.contentTintColor = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? .black : .white }
+            b.setAccessibilityLabel(label)
+            b.toolTip = label
+            b.target = self
+            b.action = sel
+            g.contentView = b
+            group.addSubview(g)
+        }
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+    /// The field's text view. A click in the field hits `pressSensor` (the field glass's content
+    /// view), so the interactive glass sees the press as its own (Messages: the field brightens about
+    /// 1.2 levels from +6 ms after the release, gone by +0.36 s); the sensor hands the event to
+    /// the text view, which tracks the drag itself.
+    weak var pressTarget: NSView? {
+        didSet { if pressTarget != nil, Self.pressGlow { pressSensor.target = pressTarget; field.contentView = pressSensor } }
+    }
+    private let pressSensor = PressSensor()
+    static let pressGlow = ProcessInfo.processInfo.arguments.contains("--field-press-sensor")
+    /// Only the buttons (and, with the sensor, the field) take clicks; else the field's clicks reach
+    /// the text view.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let p = convert(point, from: superview)
+        for g in [plusGlass, emojiGlass] where g.frame.contains(p) { return g.contentView }
+        if pressTarget != nil, field.contentView === pressSensor, field.frame.contains(p) { return pressSensor }
+        return nil
+    }
+    // MARK: Press light
+
+    /// Real Messages' field glass answers a press with a light under the pointer (macOS 27,
+    /// Catalyst's interactive glass): a vertical band across the field, Gaussian across x, that
+    /// rises from +35 ms after the down to +3.2 levels over the field's 59 at +95 ms, then spreads
+    /// and fades (sigma 27 -> 95 pt) until +416 ms; the same in field-focus-type-take1,
+    /// link-url-only-take1, link-url-and-text-take1 and attach-image-paste-send-take1 (2x frames,
+    /// the band's center 600-640 px and profiles every 8 px). AppKit's `effectIsInteractive` shows
+    /// no light for this field (a click on the glass itself, on an NSControl content view, or on
+    /// the text view: takes 6301-6304), so the light is drawn here, timed from the event.
+    /// `--no-field-press-light`: none.
+    static let pressLightOn = !ProcessInfo.processInfo.arguments.contains("--no-field-press-light")
+    /// (ms after the down, levels at the center, sigma in pt).
+    static let pressLightCurve: [(Double, Double, Double)] = [
+        (0, 0, 27), (30, 0, 27), (41, 1.04, 27), (66, 2.15, 26), (83, 2.95, 27), (95, 3.2, 28), (125, 3.2, 36),
+        (150, 3.0, 41), (166, 2.8, 51), (183, 2.45, 55), (200, 2.13, 65), (216, 1.9, 68), (241, 1.7, 77),
+        (258, 1.32, 87), (283, 1.06, 89), (316, 0.83, 90), (349, 0.6, 92), (400, 0.19, 95), (416, 0, 95)]
+    static let pressLightSigma: CGFloat = 25
+    private lazy var lightHost: NSView = {
+        let v = NSView(frame: .zero)
+        v.wantsLayer = true
+        v.layer?.masksToBounds = true
+        v.layer?.cornerRadius = 15
+        v.layer?.cornerCurve = .continuous
+        v.layer?.addSublayer(pressLightLayer)
+        v.layer?.addSublayer(flashLayer)
+        fieldGroup.addSubview(v, positioned: .above, relativeTo: field)
+        return v
+    }()
+    private let pressLightLayer: CALayer = {
+        let l = CALayer()
+        let w = 256, s = Double(w) / 8
+        let px = (0..<w).map { i -> UInt8 in let x = (Double(i) + 0.5 - Double(w) / 2) / s; return UInt8(clamping: CrashGuard.int((exp(-x * x / 2) * 255).rounded(), in: 0...255)) } // no trap
+        let data = px.flatMap { [UInt8(255), UInt8(255), UInt8(255), $0] }
+        if let p = CGDataProvider(data: Data(data) as CFData) {
+            l.contents = CGImage(width: w, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                 bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: p, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+        }
+        l.contentsGravity = .resize
+        l.opacity = 0
+        l.actions = ["position": NSNull(), "bounds": NSNull(), "opacity": NSNull(), "transform": NSNull()]
+        return l
+    }()
+
+    /// The release flash: real Messages' field shows +2 levels flat over the whole field for ONE frame
+    /// about 14 ms after the mouse-up (the second frame after it: +13, +14.5 and +25 ms in field-focus-type,
+    /// link-url-only and link-url-and-text take1; attach-image-paste-send-take1 has no capture between
+    /// +0 and +25 ms after its up, a capture hole there). The press light is hidden in that frame (the
+    /// frame's center is +2.1, not the sum).
+    private let flashLayer: CALayer = {
+        let l = CALayer()
+        l.backgroundColor = NSColor.white.cgColor
+        l.opacity = 0
+        l.actions = ["position": NSNull(), "bounds": NSNull(), "opacity": NSNull()]
+        return l
+    }()
+    /// Opacity per level: 1/168 (take 6701: 1/120 gave +2.8 for +2; the flat layer is toned less than the band).
+    static let flashLevels = 2.0, flashDelay: CFTimeInterval = 0.008, flashLength: CFTimeInterval = 1.0 / 120
+
+    func releaseFlash(_ up: NSEvent) {
+        guard Self.pressLightOn, #available(macOS 27.0, *), lightHost.superview != nil else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        flashLayer.frame = lightHost.bounds
+        // Never before this commit can show it (a late main thread would skip the frame).
+        let begin = max(flashLayer.convertTime(up.timestamp, from: nil) + Self.flashDelay, flashLayer.convertTime(CACurrentMediaTime(), from: nil) + 0.002)
+        let f = CABasicAnimation(keyPath: "opacity"); f.fromValue = Self.flashLevels / 168; f.toValue = Self.flashLevels / 168
+        let h = CABasicAnimation(keyPath: "hidden"); h.fromValue = true; h.toValue = true
+        for (a, l) in [(f, flashLayer), (h, pressLightLayer)] as [(CABasicAnimation, CALayer)] {
+            a.beginTime = begin; a.duration = Self.flashLength; a.isRemovedOnCompletion = true
+            l.add(a, forKey: "press.flash")
+        }
+        CATransaction.commit()
+    }
+
+    /// The light for a press at `e` (a down in the field), as Messages', from the event's time.
+    func pressLight(_ e: NSEvent) {
+        guard Self.pressLightOn, #available(macOS 27.0, *), let last = Self.pressLightCurve.last else { return }
+        let p = fieldGroup.convert(e.locationInWindow, from: nil)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        lightHost.frame = field.frame
+        let x = p.x - field.frame.minX, w = Self.pressLightSigma * 8
+        pressLightLayer.frame = CGRect(x: x - w / 2, y: 0, width: w, height: field.frame.height)
+        let c = Self.pressLightCurve, total = last.0 / 1000
+        let times = c.map { NSNumber(value: $0.0 / 1000 / total) }
+        // White over the field glass: +1 level per 1/120 of opacity (measured on the rig, take 6400: 1/196,
+        // the over-blend's gain, gave 0.61 of the levels asked for; the glass container tones its content).
+        let op = CAKeyframeAnimation(keyPath: "opacity"); op.values = c.map { $0.1 / 120 }; op.keyTimes = times
+        let sc = CAKeyframeAnimation(keyPath: "transform.scale.x"); sc.values = c.map { $0.2 / Double(Self.pressLightSigma) }; sc.keyTimes = times
+        let begin = pressLightLayer.convertTime(e.timestamp, from: nil)
+        for a in [op, sc] { a.duration = total; a.beginTime = begin; a.fillMode = .both; a.calculationMode = .linear; a.isRemovedOnCompletion = true }
+        pressLightLayer.removeAllAnimations()
+        pressLightLayer.add(op, forKey: "press.opacity")
+        pressLightLayer.add(sc, forKey: "press.scale")
+        CATransaction.commit()
+    }
+
+    @objc private func plusClicked() { onPlus() }
+    @objc private func emojiClicked() { onEmoji() }
+
+    override func layout() {
+        super.layout()
+        container.frame = bounds
+        group.frame = bounds
+        fieldContainer.frame = bounds
+        fieldGroup.frame = bounds
+        keyFixView.frame = bounds
+        placeKeyFix()
+    }
+
+    /// The correction follows the field glass's model frame (an animated height change adds the same
+    /// spring to its layers, `FieldAnimation.internal`).
+    /// On whole device pixels, as the system glass draws its rims; the buttons' maps include the dark
+    /// outline's column on each side.
+    private func placeKeyFix() {
+        if keyFixView.frame != bounds { keyFixView.frame = bounds }
+        let snap = { (r: CGRect) in self.keyFixView.backingAlignedRect(self.keyFixView.convert(r, from: self), options: .alignAllEdgesNearest) }
+        keyFix.field.place(snap(field.frame))
+        keyFix.plus.place(snap(plusGlass.frame.insetBy(dx: -0.5, dy: 0)))
+        keyFix.emoji.place(snap(emojiGlass.frame.insetBy(dx: -0.5, dy: 0)))
+    }
+    /// Key state, appearance or scale changed: the correction shows only where it was measured.
+    func updateKeyFix() { keyFix.update(window: window) }
+    private var keyFixObservers: [NSObjectProtocol] = []
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        for o in keyFixObservers { NotificationCenter.default.removeObserver(o) }
+        keyFixObservers = []
+        guard let w = window else { return }
+        for n in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.didChangeBackingPropertiesNotification] {
+            keyFixObservers.append(NotificationCenter.default.addObserver(forName: n, object: w, queue: .main) { [weak self] _ in
+                self?.updateKeyFix()
+            })
+        }
+        updateKeyFix()
+    }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); updateKeyFix() }
+    /// Snapped at the new scale's device pixels.
+    override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); placeKeyFix(); updateKeyFix() }
+    deinit { for o in keyFixObservers { NotificationCenter.default.removeObserver(o) } }
+    /// AppKit's own animators (`--field-anim appkit|swiftui`, A/B only) move the glass on the main thread: the
+    /// correction is hidden until their completion, then placed at the glass's frame.
+    func keyFixHidden(_ hidden: Bool) {
+        if !hidden { placeKeyFix() }
+        for l in keyFix.field.layers { l.opacity = hidden ? 0 : 1 }
+    }
+
+    func place(field f: CGRect, plus p: CGRect, emoji e: CGRect) {
+        follow(field: f)
+        if plusGlass.frame != p { plusGlass.frame = p }
+        if emojiGlass.frame != e { emojiGlass.frame = e }
+        placeKeyFix()
+    }
+
+    /// Model geometry (no animation), unless an animation is moving there.
+    private var animatingTo: CGRect?
+    func follow(field f: CGRect) {
+        guard field.frame != f, animatingTo != f else { return }
+        animatingTo = nil
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        field.frame = f
+        field.layoutSubtreeIfNeeded()
+        placeKeyFix()
+        CATransaction.commit()
+    }
+
+    /// The field grew or shrank by `new - old` in this transaction.
+    func animateField(from old: CGFloat, to new: CGFloat, _ el: SpringElement, begin: CFTimeInterval) {
+        guard let host = superview as? HostView, let demo = host.demo else { return }
+        let target = demo.compose.fieldRect
+        var start = target
+        start.origin.y -= old - new
+        start.size.height = old
+        FieldAnimation.mode.run(self, from: start, to: target, el, begin: begin)
+    }
+
+    func setFrameNow(_ r: CGRect) {
+        animatingTo = nil
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        field.frame = r
+        field.layoutSubtreeIfNeeded()
+        placeKeyFix()
+        CATransaction.commit()
+    }
+    func markAnimating(to r: CGRect) { animatingTo = r }
+
+    /// The send's glass fade (catalyst's field opacity pulse, `field.opacity`;
+    /// Messages fades only the field, not the "+" and emoji glass). Opacity on
+    /// the glass view's layer, on its internal layers, or the glass view's own
+    /// `alphaValue` shows nothing (A/B takes ffalpha/ffhide-*-take80): the
+    /// system draws the glass from its container. The field's own container
+    /// fades it: an opacity keyframe animation on the container's layer, on the
+    /// render server (no main-thread frame can delay it).
+    /// `MLAB_FIELD_FADE` (A/B only): `link` sets the container's `alphaValue`
+    /// on the main thread at each display frame instead (one frame late in
+    /// take 83 when the send's commit ran long), `off` leaves the field as is.
+    func sendPulse(begin: CFTimeInterval) {
+        switch FieldChrome.fadeMode {
+        case "off": return
+        case "link":
+            fadeBegin = begin
+            if fadeLink == nil {
+                let l = displayLink(target: self, selector: #selector(fadeFrame(_:)))
+                l.add(to: .main, forMode: .common)
+                fadeLink = l
+            }
+            fadeLink?.isPaused = false
+        default:
+            guard let l = fieldContainer.layer else { return }
+            Animate.sampledPulse(l, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
+            for k in keyFix.field.layers { Animate.sampledPulse(k, "opacity", Springs.fieldOpacity, base: 1, begin: begin) }
+        }
+    }
+
+    private static let fadeMode = ProcessInfo.processInfo.environment["MLAB_FIELD_FADE"] ?? "layer"
+    private var fadeBegin: CFTimeInterval = 0
+    private var fadeLink: CADisplayLink?
+
+    @objc private func fadeFrame(_ link: CADisplayLink) {
+        let e = Springs.fieldOpacity
+        let tau = link.targetTimestamp - fadeBegin
+        let done = tau >= e.settleTime
+        let v = done ? 1 : CGFloat(min(1, max(0, e.value(tau, from: 1, to: 1))))
+        if fieldContainer.alphaValue != v { fieldContainer.alphaValue = v }
+        for l in keyFix.field.layers where l.opacity != Float(v) { l.opacity = Float(v) }
+        if done { link.isPaused = true }
+    }
+}
+
+/// How the glass field follows a height change (`--field-anim`). Measured with
+/// `--probe-field` (presentation against model height of every layer in the
+/// glass view while a 79 -> 30 pt send runs); see README.
+enum FieldAnimation: String {
+    /// AppKit's animator with the element's spring as the view's
+    /// `frameOrigin`/`frameSize` animation (NSAnimatablePropertyContainer),
+    /// layout inside the group: public API only, but AppKit sets the glass
+    /// view's frame on the main thread every frame (measured: model height
+    /// equals the presented height at every sample).
+    case appkit
+    /// NSAnimationContext.animate with the SwiftUI spring (public; AppKit
+    /// lays the glass out every frame on the main thread).
+    case swiftui
+    /// Default. The shared spring added to the glass view's layer and to
+    /// every internal layer that spans it: render server only (the model is
+    /// at the final height from the first frame). Depends on the
+    /// NSGlassEffectView's private layer structure; guarded: when no internal
+    /// layer spans the glass, it falls back to `appkit`.
+    case `internal`
+    /// No animation: the glass takes the new size at once.
+    case none
+
+    static let mode: FieldAnimation = {
+        let a = ProcessInfo.processInfo.arguments
+        return a.firstIndex(of: "--field-anim").flatMap { a.dropFirst($0 + 1).first }.flatMap { FieldAnimation(rawValue: $0) } ?? .`internal`
+    }()
+
+    func run(_ chrome: FieldChrome, from start: CGRect, to target: CGRect, _ el: SpringElement, begin: CFTimeInterval) {
+        let field = chrome.field
+        guard let c = el.components.first else { chrome.setFrameNow(target); return }
+        switch self {
+        case .none:
+            chrome.setFrameNow(target)
+        case .appkit:
+            chrome.setFrameNow(start)
+            chrome.markAnimating(to: target)
+            chrome.keyFixHidden(true)
+            let spring = { (key: String) -> CASpringAnimation in
+                let a = CASpringAnimation(keyPath: key)
+                a.mass = 1
+                a.stiffness = c.spring.stiffness
+                a.damping = c.spring.damping
+                a.duration = c.spring.settlingTime()
+                return a
+            }
+            field.animations = ["frameOrigin": spring("frameOrigin"), "frameSize": spring("frameSize")]
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = c.spring.settlingTime()
+                ctx.allowsImplicitAnimation = true
+                field.animator().frame = target
+                field.layoutSubtreeIfNeeded()
+            }, completionHandler: { [weak chrome] in chrome?.keyFixHidden(false) })
+        case .swiftui:
+            chrome.setFrameNow(start)
+            chrome.markAnimating(to: target)
+            // The SwiftUI-spring NSAnimationContext needs macOS 15; 14 takes the size at once.
+            guard #available(macOS 15, *) else { chrome.setFrameNow(target); return }
+            chrome.keyFixHidden(true)
+            NSAnimationContext.animate(.spring(duration: c.spring.duration, bounce: c.spring.bounce), changes: {
+                NSAnimationContext.current.allowsImplicitAnimation = true
+                field.animator().frame = target
+                field.layoutSubtreeIfNeeded()
+            }, completion: { [weak chrome] in chrome?.keyFixHidden(false) })
+        case .`internal`:
+            chrome.setFrameNow(target)
+            guard let root = field.layer else { return }
+            let new = target.height
+            let d = Double(target.height - start.height)
+            Animate.scalar(root, "bounds.size.height", from: Double(root.bounds.height) - d, to: Double(root.bounds.height), el, begin: begin)
+            Animate.scalar(root, "position.y", from: Double(root.position.y) + d, to: Double(root.position.y), el, begin: begin)
+            var found = 0
+            func walk(_ l: CALayer) {
+                for s in l.sublayers ?? [] {
+                    if abs(s.bounds.height - new) < 0.01, abs(s.frame.minY) < 0.01 {
+                        found += 1
+                        let ay = Double(s.anchorPoint.y)
+                        Animate.scalar(s, "bounds.size.height", from: Double(s.bounds.height) - d, to: Double(s.bounds.height), el, begin: begin)
+                        if ay != 0 { Animate.scalar(s, "position.y", from: Double(s.position.y) - ay * d, to: Double(s.position.y), el, begin: begin) }
+                    }
+                    walk(s)
+                }
+            }
+            walk(root)
+            // Guard: no internal layer spans the glass (AppKit changed its
+            // structure): fall back to AppKit's own animator.
+            if found == 0 {
+                root.removeAllAnimations()
+                FieldAnimation.appkit.run(chrome, from: start, to: target, el, begin: begin)
+                return
+            }
+            // The key glass correction (a non-flipped view: y up) keeps its bottom edge, as the glass does.
+            for k in chrome.keyFix.field.layers {
+                let ay = Double(k.anchorPoint.y)
+                Animate.scalar(k, "bounds.size.height", from: Double(k.bounds.height) - d, to: Double(k.bounds.height), el, begin: begin)
+                Animate.scalar(k, "position.y", from: Double(k.position.y) - ay * d, to: Double(k.position.y), el, begin: begin)
+            }
+        }
+    }
+}
+
+/// The field glass's content: takes the field's mouse events for the glass and gives them to the
+/// text view (FieldChrome.pressTarget).
+final class PressSensor: NSView {
+    weak var target: NSView?
+    override func mouseDown(with event: NSEvent) { target.map { $0.mouseDown(with: event) } ?? super.mouseDown(with: event) }
+    override func rightMouseDown(with event: NSEvent) { target.map { $0.rightMouseDown(with: event) } ?? super.rightMouseDown(with: event) }
+    override func otherMouseDown(with event: NSEvent) { target.map { $0.otherMouseDown(with: event) } ?? super.otherMouseDown(with: event) }
+    override func scrollWheel(with event: NSEvent) { target.map { $0.scrollWheel(with: event) } ?? super.scrollWheel(with: event) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { target?.acceptsFirstMouse(for: event) ?? false }
+}
+
+final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+// MARK: Tapback picker
+
+/// Double-click picker: six tapbacks in a glass capsule above the bubble.
+/// Real buttons (keyboard and VoiceOver reach each one). The capsule is a
+/// LabGlass surface that fills this view (macOS 14 has no NSGlassEffectView).
+final class TapbackPickerView: NSView {
+    let ref: PartRef
+    private let glass = LabGlass.surface()
+    private let stack = NSStackView()
+    private let selected: Reaction.Kind?
+    private let pick: (Reaction.Kind) -> Void
+    static let item: CGFloat = 34
+    /// Real Messages (macOS 27, press-and-hold reference, lossless): a glass strip 286 x 42 pt
+    /// with its left edge at the bubble's, 6 pt above it; the six tapbacks then recent emoji
+    /// (the last one clipped by the strip's end), 37.8 pt apart, the first centered 21 pt in,
+    /// glyphs 20 pt.
+    static let size = NSSize(width: 286, height: 42)
+    static let pitch: CGFloat = 37.8, firstCenter: CGFloat = 21, glyphSize: CGFloat = 20
+    /// The strip's recent emoji after the six tapbacks (the last one clipped by the strip).
+    static var extras: [String] { Array(RecentEmoji.list.prefix(2)) }
+
+    init(ref: PartRef, selected: Reaction.Kind?, pick: @escaping (Reaction.Kind) -> Void) {
+        self.ref = ref
+        self.selected = selected
+        self.pick = pick
+        super.init(frame: .zero)
+        glass.frame = bounds
+        addSubview(glass)
+        glass.cornerRadius = Self.size.height / 2
+        stack.orientation = .horizontal
+        stack.spacing = 0
+        stack.alignment = .centerY
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: Self.firstCenter - Self.pitch / 2, bottom: 0, right: 0)
+        let kinds: [(Reaction.Kind, String, Int)] = TapbackGlyph.all.enumerated().map { (.tapback($1), Strings.tapbackName($1), $0) }
+            + Self.extras.enumerated().map { (.emoji($1), $1, 100 + $0) }
+        for (kind, label, tag) in kinds {
+            let b = NSButton()
+            b.isBordered = false
+            b.imagePosition = .imageOnly
+            b.image = Self.stripGlyph(kind, on: selected == kind)
+            b.tag = tag
+            b.target = self
+            b.action = #selector(tapped(_:))
+            b.setAccessibilityLabel(label)
+            b.toolTip = label
+            b.widthAnchor.constraint(equalToConstant: Self.pitch).isActive = true
+            b.heightAnchor.constraint(equalToConstant: Self.size.height).isActive = true
+            stack.addArrangedSubview(b)
+        }
+        let clip = NSView()
+        clip.wantsLayer = true
+        clip.layer?.masksToBounds = true
+        clip.addSubview(stack)
+        stack.frame = NSRect(x: 0, y: 0, width: Self.firstCenter - Self.pitch / 2 + Self.pitch * CGFloat(kinds.count), height: Self.size.height)
+        glass.contentView = clip
+        setAccessibilityLabel(Strings.menuTapback)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// The glass fills the picker, set on every size change: autoresizing from the zero
+    /// size of init put the glass 0.5 pt off (y -0.5 for 42 pt), one pixel row lower than
+    /// the picker that was itself the glass view.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        glass.frame = bounds
+    }
+
+    override var fittingSize: NSSize { Self.size }
+
+    @objc private func tapped(_ b: NSButton) {
+        pick(b.tag >= 100 ? .emoji(Self.extras[b.tag - 100]) : .tapback(TapbackGlyph.all[b.tag]))
+    }
+
+    func rescale() {
+        for case let b as NSButton in stack.arrangedSubviews {
+            let kind: Reaction.Kind = b.tag >= 100 ? .emoji(Self.extras[b.tag - 100]) : .tapback(TapbackGlyph.all[b.tag])
+            b.image = Self.stripGlyph(kind, on: selected == kind)
+        }
+    }
+
+    /// The strip's glyphs (macOS 27): color emoji, a pink heart for Love, blue HA HA,
+    /// a purple question mark.
+    static func stripGlyph(_ kind: Reaction.Kind, on: Bool) -> NSImage {
+        NSImage(size: NSSize(width: pitch, height: size.height), flipped: true) { r in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            if on {
+                Fixture.outgoing.setFill()
+                NSBezierPath(ovalIn: CGRect(x: r.midX - 16, y: r.midY - 16, width: 32, height: 32)).fill()
+            }
+            drawGlyph(kind, in: CGRect(x: r.midX - glyphSize / 2, y: r.midY - glyphSize / 2, width: glyphSize, height: glyphSize), ctx: ctx)
+            return true
+        }
+    }
+
+    /// The same glyph alone (glyphSize square), for the context menu's palette rows:
+    /// AppKit fits a palette image into a 20 pt box, so padding would shrink the glyph.
+    static func menuGlyph(_ kind: Reaction.Kind) -> NSImage {
+        NSImage(size: NSSize(width: glyphSize, height: glyphSize), flipped: true) { r in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            drawGlyph(kind, in: r, ctx: ctx)
+            return true
+        }
+    }
+
+    static func drawGlyph(_ kind: Reaction.Kind, in g: CGRect, ctx: CGContext) {
+        switch kind {
+        case .tapback("love"): PartRenderer.drawEmoji("\u{1FA77}", in: g, ctx: ctx)
+        case .tapback("laugh"): TapbackGlyph.draw("laugh", in: g.insetBy(dx: 1, dy: 1), color: NSColor(srgbRed: 0.33, green: 0.64, blue: 1, alpha: 1), ctx: ctx)
+        case .tapback("question"): TapbackGlyph.draw("question", in: g.insetBy(dx: 1, dy: 1), color: NSColor(srgbRed: 0.62, green: 0.45, blue: 1, alpha: 1), ctx: ctx)
+        case let .tapback(t): if let e = TapbackGlyph.emoji(t) { PartRenderer.drawEmoji(e, in: g, ctx: ctx) }
+        case let .emoji(e): PartRenderer.drawEmoji(e, in: g, ctx: ctx)
+        }
+    }
+
+    /// The row's own tapback drawing (emoji, or the HA HA glyph), as a
+    /// resolution-independent NSImage (drawn at the destination's scale).
+    static func glyph(_ t: String, on: Bool) -> NSImage {
+        NSImage(size: NSSize(width: item, height: item), flipped: true) { r in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            if on {
+                Fixture.outgoing.setFill()
+                NSBezierPath(ovalIn: r.insetBy(dx: 2, dy: 2)).fill()
+            }
+            let inner = r.insetBy(dx: 7, dy: 7)
+            if let e = TapbackGlyph.emoji(t) { PartRenderer.drawEmoji(e, in: inner, ctx: ctx) }
+            else { TapbackGlyph.draw(t, in: inner.insetBy(dx: 2, dy: 2), color: on ? .white : NSColor(white: 0.85, alpha: 1), ctx: ctx) }
+            return true
+        }
+    }
+}
+
+// MARK: Inline editor
+
+/// Inline editor over a sent bubble: Return saves, Esc cancels.
+final class InlineEditor: NSView {
+    let textView = FieldTextView(usingTextLayoutManager: true)
+    init(text: String, frame body: CGRect, maxX: CGFloat, commit: @escaping (String) -> Void, cancel: @escaping () -> Void) {
+        var f = body
+        if f.width < 120 { f.size.width = 120; f.origin.x = min(body.minX, maxX - 120) }
+        super.init(frame: f)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(white: 0.18, alpha: 1).cgColor
+        layer?.cornerRadius = 15
+        layer?.cornerCurve = .continuous
+        layer?.borderColor = Fixture.outgoing.cgColor
+        layer?.borderWidth = 1.5
+        textView.frame = bounds.insetBy(dx: Fixture.bubblePadX, dy: 0)
+        textView.drawsBackground = false
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainerInset = NSSize(width: 0, height: Fixture.textBaseline - 13.26)
+        textView.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: ComposeView.typing))
+        textView.typingAttributes = ComposeView.typing
+        textView.insertionPointColor = Fixture.caret
+        textView.isContinuousSpellCheckingEnabled = true
+        if #available(macOS 15, *) { textView.writingToolsBehavior = ComposeView.writingTools }
+        textView.setAccessibilityLabel(Strings.menuEdit)
+        textView.onSend = { [weak textView] in commit(textView?.string ?? text) }
+        textView.onEscape = cancel
+        addSubview(textView)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    override var isFlipped: Bool { true }
+}
+
+extension FieldChrome {
+    /// Compose glyphs, fitted to the lossless stills: plus and emoji 15.5 pt medium.
+    static let glyphConfig = NSImage.SymbolConfiguration(pointSize: 15.5, weight: .medium)
+    /// Messages' emoji button glyph: the private SF Symbol `emoji.face.grinning`
+    /// (CoreGlyphsPrivate.bundle, a named symbol image; README: Glyphs). Falls back to
+    /// the public `face.smiling.inverse`. `tinted` bakes white in (layer drawing);
+    /// the button tints it itself.
+    static func emojiGlyph(tinted: Bool = true) -> NSImage? {
+        let base = Bundle(path: "/System/Library/CoreServices/CoreGlyphsPrivate.bundle")?.image(forResource: "emoji.face.grinning")
+            ?? NSImage(systemSymbolName: "face.smiling.inverse", accessibilityDescription: nil)
+        guard let img = base?.withSymbolConfiguration(glyphConfig) else { return nil }
+        guard tinted else { return img }
+        return NSImage(size: img.size, flipped: false) { r in
+            img.draw(in: r); NSColor.white.set(); r.fill(using: .sourceAtop); return true
+        }
+    }
+}

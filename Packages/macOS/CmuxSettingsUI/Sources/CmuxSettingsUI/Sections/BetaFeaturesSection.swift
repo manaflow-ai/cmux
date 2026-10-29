@@ -2,23 +2,37 @@ import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
-/// **Beta Features** section — a warning note followed by the
-/// experimental toggles. Each toggle gates an unstable feature that is
-/// off by default.
+/// **Beta Features** section — a warning note followed by the experimental
+/// toggles. Each toggle gates an unstable feature that is off by default.
 @MainActor
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
-    @State private var dock: DefaultsValueModel<Bool>
+    @State private var conversationSidebar: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
+    @State private var remoteTmuxNewWorkspaceOnHost: DefaultsValueModel<Bool>
+    @State private var remoteTmuxOriginColors: DefaultsValueModel<Bool>
+    @State private var remoteTmuxOriginHostTitles: DefaultsValueModel<Bool>
+    @State private var workspaceTodoControls: DefaultsValueModel<Bool>
+    @State private var clickByHint: DefaultsValueModel<Bool>
+    @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
+    /// `DisableCustomSidebars` (MDM): same treatment for the interpreted
+    /// custom sidebars opt-in.
+    @State private var customSidebarsManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableCustomSidebars)
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
-        _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
+        _conversationSidebar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.conversationSidebar))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
+        _remoteTmuxNewWorkspaceOnHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxNewWorkspaceOnHost))
+        _remoteTmuxOriginColors = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxOriginColors))
+        _remoteTmuxOriginHostTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxOriginHostTitles))
+        _workspaceTodoControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodoControls))
+        _clickByHint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.windowHints))
+        _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
 
     public var body: some View {
@@ -31,27 +45,120 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 feedRow
                 SettingsCardDivider()
-                dockRow
+                conversationSidebarRow
                 SettingsCardDivider()
                 extensionsRow
                 SettingsCardDivider()
                 customSidebarsRow
                 SettingsCardDivider()
                 remoteTmuxRow
+                SettingsCardDivider()
+                remoteTmuxNewWorkspaceOnHostRow
+                SettingsCardDivider()
+                remoteTmuxOriginColorsRow
+                SettingsCardDivider()
+                remoteTmuxOriginHostTitlesRow
+                SettingsCardDivider()
+                workspaceTodoControlsRow
+                SettingsCardDivider()
+                workspaceTodosChecklistStyleRow
+                SettingsCardDivider()
+                clickByHintRow
             }
         }
         .task { startObservingSettings() }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                let policy = ManagedDevicePolicy()
+                customSidebarsManagedByPolicy = policy.isEnforced(.disableCustomSidebars)
+            }
+        }
     }
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             feed,
-            dock,
+            conversationSidebar,
             extensions,
             customSidebars,
             remoteTmux,
+            remoteTmuxNewWorkspaceOnHost,
+            remoteTmuxOriginColors,
+            remoteTmuxOriginHostTitles,
+            workspaceTodoControls,
+            workspaceTodosChecklistStyle,
+            clickByHint,
         ]
         models.forEach { $0.startObserving() }
+    }
+
+    @ViewBuilder
+    private var conversationSidebarRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("sidebar.beta.conversations.enabled"),
+            searchAnchorID: "setting:betaFeatures:conversationSidebar",
+            String(localized: "settings.betaFeatures.conversationSidebar", defaultValue: "Conversation Sidebar"),
+            subtitle: conversationSidebar.current
+                ? String(localized: "settings.betaFeatures.conversationSidebar.subtitleOn", defaultValue: "Shows Conversations in the left sidebar picker.")
+                : String(localized: "settings.betaFeatures.conversationSidebar.subtitleOff", defaultValue: "Hides Conversations while preserving existing agent sessions.")
+        ) {
+            Toggle("", isOn: Binding(get: { conversationSidebar.current }, set: { conversationSidebar.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaConversationSidebarToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceTodoControlsRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("sidebar.beta.workspaceTodos.controls.enabled"),
+            searchAnchorID: "setting:betaFeatures:workspace-todo-controls",
+            String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"),
+            subtitle: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Shows Add Checklist Item and status controls on workspaces. A remote rollout can turn them on even while this is off.")
+        ) {
+            Toggle("", isOn: Binding(get: { workspaceTodoControls.current }, set: { workspaceTodoControls.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaWorkspaceTodoControlsToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var clickByHintRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("windowHints.beta.enabled"),
+            searchAnchorID: "setting:betaFeatures:click-by-hint",
+            String(localized: "settings.betaFeatures.clickByHint", defaultValue: "Click by Hint"),
+            subtitle: String(localized: "settings.betaFeatures.clickByHint.subtitle", defaultValue: "Preview: Cmd-J labels every clickable control in the window, and typing a label clicks it.")
+        ) {
+            Toggle("", isOn: Binding(get: { clickByHint.current }, set: { clickByHint.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaClickByHintToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceTodosChecklistStyleRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("sidebar.beta.workspaceTodos.checklistStyle"),
+            searchAnchorID: "setting:betaFeatures:workspace-todos-checklist-style",
+            String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"),
+            subtitle: String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitle", defaultValue: "Choose whether clicking a workspace checklist opens a popover or expands it under the row."),
+            controlWidth: 196
+        ) {
+            Picker(String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), selection: Binding(
+                get: { workspaceTodosChecklistStyle.current },
+                set: { workspaceTodosChecklistStyle.set($0) }
+            )) {
+                Text(String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.popover", defaultValue: "Popover")).tag(WorkspaceTodoChecklistStyle.popover)
+                Text(String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.inline", defaultValue: "Inline")).tag(WorkspaceTodoChecklistStyle.inline)
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("SettingsBetaWorkspaceTodosChecklistStylePicker")
+        }
     }
 
     @ViewBuilder
@@ -60,9 +167,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:feed",
             String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"),
-            subtitle: feed.current
-                ? String(localized: "settings.betaFeatures.feed.subtitleOn", defaultValue: "Shows Feed in the right sidebar mode switcher for inline agent decisions.")
-                : String(localized: "settings.betaFeatures.feed.subtitleOff", defaultValue: "Hides Feed from the right sidebar until you enable it here.")
+            subtitle: String(localized: "settings.betaFeatures.feed.subtitle", defaultValue: "Adds Feed to the right sidebar for answering agent requests.")
         ) {
             Toggle("", isOn: Binding(get: { feed.current }, set: { feed.set($0) }))
                 .labelsHidden()
@@ -72,31 +177,12 @@ public struct BetaFeaturesSection: View {
     }
 
     @ViewBuilder
-    private var dockRow: some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:betaFeatures:dock",
-            String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"),
-            subtitle: dock.current
-                ? String(localized: "settings.betaFeatures.dock.subtitleOn", defaultValue: "Shows Dock in the right sidebar mode switcher for custom terminal controls.")
-                : String(localized: "settings.betaFeatures.dock.subtitleOff", defaultValue: "Hides Dock from the right sidebar until you enable it here.")
-        ) {
-            Toggle("", isOn: Binding(get: { dock.current }, set: { dock.set($0) }))
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsBetaDockToggle")
-        }
-    }
-
-    @ViewBuilder
     private var extensionsRow: some View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:extensions",
             String(localized: "settings.betaFeatures.extensions", defaultValue: "Extensions"),
-            subtitle: extensions.current
-                ? String(localized: "settings.betaFeatures.extensions.subtitleOn", defaultValue: "Shows the puzzle button, the sidebar-toggle extension menu, and lets you install and host sidebar extensions.")
-                : String(localized: "settings.betaFeatures.extensions.subtitleOff", defaultValue: "Hides all extension UI until you enable it here.")
+            subtitle: String(localized: "settings.betaFeatures.extensions.subtitle", defaultValue: "Adds the extensions button and lets cmux install and run sidebar extensions.")
         ) {
             Toggle("", isOn: Binding(get: { extensions.current }, set: { extensions.set($0) }))
                 .labelsHidden()
@@ -111,13 +197,14 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:customSidebars",
             String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"),
-            subtitle: customSidebars.current
-                ? String(localized: "settings.betaFeatures.customSidebars.subtitleOn", defaultValue: "Lists your sidebars from ~/.config/cmux/sidebars in the sidebar picker, rendered in an isolated helper process.")
-                : String(localized: "settings.betaFeatures.customSidebars.subtitleOff", defaultValue: "Hides custom sidebars from the sidebar picker until you enable them here.")
+            subtitle: customSidebarsManagedByPolicy
+                ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                : String(localized: "settings.betaFeatures.customSidebars.subtitle", defaultValue: "Adds sidebars from ~/.config/cmux/sidebars to the sidebar picker.")
         ) {
-            Toggle("", isOn: Binding(get: { customSidebars.current }, set: { customSidebars.set($0) }))
+            Toggle("", isOn: Binding(get: { customSidebars.current && !customSidebarsManagedByPolicy }, set: { customSidebars.set($0) }))
                 .labelsHidden()
                 .controlSize(.small)
+                .disabled(customSidebarsManagedByPolicy)
                 .accessibilityIdentifier("SettingsBetaCustomSidebarsToggle")
         }
     }
@@ -128,14 +215,63 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:remoteTmux",
             String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"),
-            subtitle: remoteTmux.current
-                ? String(localized: "settings.betaFeatures.remoteTmux.subtitleOn", defaultValue: "Mirrors a remote host's tmux sessions in the sidebar over ssh tmux -CC; sessions become workspaces and windows become tabs. Quitting cmux leaves the remote tmux server running.")
-                : String(localized: "settings.betaFeatures.remoteTmux.subtitleOff", defaultValue: "Hides remote tmux mirroring until you enable it here.")
+            subtitle: String(localized: "settings.betaFeatures.remoteTmux.subtitle", defaultValue: "Shows tmux sessions on remote hosts as workspaces in the sidebar. The sessions keep running after cmux quits.")
         ) {
             Toggle("", isOn: Binding(get: { remoteTmux.current }, set: { remoteTmux.set($0) }))
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaRemoteTmuxToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var remoteTmuxNewWorkspaceOnHostRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:remoteTmuxNewWorkspaceOnHost",
+            String(localized: "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost", defaultValue: "New Workspace on the remote host"),
+            subtitle: remoteTmuxNewWorkspaceOnHost.current
+                ? String(localized: "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOn", defaultValue: "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host. New Local Workspace opens a local one.")
+                : String(localized: "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOff", defaultValue: "New Workspace always opens a local workspace, even with a remote tmux workspace selected.")
+        ) {
+            Toggle("", isOn: Binding(get: { remoteTmuxNewWorkspaceOnHost.current }, set: { remoteTmuxNewWorkspaceOnHost.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaRemoteTmuxNewWorkspaceOnHostToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var remoteTmuxOriginColorsRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("remoteTmux.beta.originColors.enabled"),
+            searchAnchorID: "setting:betaFeatures:remoteTmuxOriginColors",
+            String(localized: "settings.betaFeatures.remoteTmuxOriginColors", defaultValue: "Remote host colors"),
+            subtitle: remoteTmuxOriginColors.current
+                ? String(localized: "settings.betaFeatures.remoteTmuxOriginColors.subtitleOn", defaultValue: "Tints each remote workspace's sidebar row with a stable per-host color so servers are easy to tell apart. Your manual workspace color always wins.")
+                : String(localized: "settings.betaFeatures.remoteTmuxOriginColors.subtitleOff", defaultValue: "Leaves remote workspaces without an origin color until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { remoteTmuxOriginColors.current }, set: { remoteTmuxOriginColors.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaRemoteTmuxOriginColorsToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var remoteTmuxOriginHostTitlesRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("remoteTmux.beta.originHostTitles.enabled"),
+            searchAnchorID: "setting:betaFeatures:remoteTmuxOriginHostTitles",
+            String(localized: "settings.betaFeatures.remoteTmuxOriginHostTitles", defaultValue: "Remote host names on duplicate titles"),
+            subtitle: remoteTmuxOriginHostTitles.current
+                ? String(localized: "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOn", defaultValue: "When workspaces share a title, shows each remote one's host after the title, leaving off the domain the hosts share.")
+                : String(localized: "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOff", defaultValue: "Leaves duplicate workspace titles as they are until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { remoteTmuxOriginHostTitles.current }, set: { remoteTmuxOriginHostTitles.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaRemoteTmuxOriginHostTitlesToggle")
         }
     }
 }

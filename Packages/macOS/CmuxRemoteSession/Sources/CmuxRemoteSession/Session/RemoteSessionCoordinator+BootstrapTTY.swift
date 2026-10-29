@@ -26,10 +26,10 @@ extension RemoteSessionCoordinator {
         bootstrapRemoteTTYFetchInFlight = true
         defer { bootstrapRemoteTTYFetchInFlight = false }
 
-        let command = "sh -c \("tty_path=\"$HOME/.cmux/relay/\(relayPort).tty\"; if [ -r \"$tty_path\" ]; then cat \"$tty_path\"; fi".shellSingleQuoted)"
+        let command = RemotePOSIXShellCommand(script: "tty_path=\"$HOME/.cmux/relay/\(relayPort).tty\"; if [ -r \"$tty_path\" ]; then cat \"$tty_path\"; fi").commandLine
         do {
             let result = try sshExec(
-                arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
+                arguments: sshCommonArguments(batchMode: true) + ["--", configuration.destination, command],
                 timeout: 2
             )
             guard result.status == 0 else {

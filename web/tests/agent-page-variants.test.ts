@@ -4,7 +4,7 @@ import {
   resolveAgentPageVariant,
   variantPathForPage,
 } from "../app/lib/agent-page-paths";
-import sitemap from "../app/sitemap";
+import { sitemapEntries as sitemap } from "../app/sitemap";
 import {
   featureWorkflowContentLocales,
   featureWorkflowDocPathForRequest,
@@ -13,6 +13,7 @@ import { buildAlternateLinkHeader } from "../i18n/seo";
 import {
   extractReadableHtml,
   headersForAgentPage,
+  canonicalUrlFromHtml,
   markdownFromHtml,
   plainTextFromMarkdown,
 } from "../app/lib/agent-page-markdown";
@@ -23,6 +24,41 @@ import {
 import { sameOriginRedirectUrl } from "../app/lib/agent-page-redirects";
 
 describe("agent page variants", () => {
+  test("drops docs chrome and uses the public canonical host", () => {
+    const html = `
+      <html>
+        <head>
+          <title>Getting Started \u2014 cmux docs</title>
+          <link rel="canonical" href="https://cmux.com/docs/getting-started"/>
+        </head>
+        <body>
+          <main>
+            <div data-pagefind-ignore="all"><button>Copy page</button></div>
+            <div data-docs-page-body>
+              <h1 class="docs-heading" id="title"><a data-pagefind-ignore="all" href="#title"><svg></svg></a>Getting Started</h1>
+              <p>Read the <a href="/docs/api">API docs</a>.</p>
+              <h2 id="install"><a data-pagefind-ignore="all" href="#install">#</a>Install</h2>
+            </div>
+            <div data-pagefind-ignore="all"><p>Was this page helpful?</p></div>
+            <div data-pagefind-ignore="all"><footer>Product Blog</footer></div>
+          </main>
+        </body>
+      </html>`;
+    const sourceUrl = canonicalUrlFromHtml(html);
+    expect(sourceUrl).toBe("https://cmux.com/docs/getting-started");
+    const markdown = markdownFromHtml({ html, sourceUrl: sourceUrl! });
+    expect(markdown).toBe(
+      "# Getting Started\n\nRead the [API docs](https://cmux.com/docs/api).\n\n## Install\n\n" +
+        "Canonical: https://cmux.com/docs/getting-started\n\n" +
+        "Documentation index: https://cmux.com/llms.txt\n",
+    );
+  });
+
+  test("ignores non-http canonical links", () => {
+    expect(canonicalUrlFromHtml(`<link rel="canonical" href="javascript:alert(1)">`)).toBeNull();
+    expect(canonicalUrlFromHtml(`<link rel="alternate" href="https://x.test/">`)).toBeNull();
+  });
+
   test("maps Markdown and text extension paths to canonical HTML pages", () => {
     expect(resolveAgentPageVariant("/docs/getting-started.md")).toEqual({
       kind: "page",
@@ -355,6 +391,8 @@ describe("agent page variants", () => {
     expect(llms).toContain("[Remote tmux](https://cmux.com/docs/remote-tmux.md)");
     expect(llms).toContain("Remote tmux: attach to existing tmux sessions over SSH");
     expect(llms).toContain("Text: https://cmux.com/docs/getting-started.txt");
+    expect(llms).not.toContain("https://cmux.com/docs/base.md");
+    expect(llms).not.toContain("https://cmux.com/docs/base.txt");
     expect(variantPathForPage("/", "md")).toBe("/index.md");
   });
 
@@ -406,10 +444,15 @@ describe("agent page variants", () => {
   });
 
   test("limits partially translated blog variants to authored locales", () => {
-    const path = "/blog/cmux-ssh";
-    expect(resolveAgentPageVariant(`${path}.md`)).not.toBeNull();
-    expect(resolveAgentPageVariant(`/ja${path}.md`)).not.toBeNull();
-    expect(resolveAgentPageVariant(`/de${path}.txt`)).toBeNull();
+    for (const path of [
+      "/blog/367-billion-tokens",
+      "/blog/claude-code-best-worktree-manager",
+      "/blog/cmux-ssh",
+    ]) {
+      expect(resolveAgentPageVariant(`${path}.md`)).not.toBeNull();
+      expect(resolveAgentPageVariant(`/ja${path}.md`)).not.toBeNull();
+      expect(resolveAgentPageVariant(`/de${path}.txt`)).toBeNull();
+    }
   });
 
   test("limits en-ja docs alternate links to live localized routes", () => {
@@ -425,6 +468,24 @@ describe("agent page variants", () => {
     expect(header).toContain("<https://cmux.com/ja/docs/vault>; rel=\"alternate\"; hreflang=\"ja\"");
     expect(header).toContain("<https://cmux.com/docs/vault>; rel=\"alternate\"; hreflang=\"x-default\"");
     expect(header).not.toContain("/de/docs/vault");
+  });
+
+  test("maps versioned changelog variants across locales", () => {
+    expect(resolveAgentPageVariant("/docs/changelog/0.64.22.md")).toEqual({
+      kind: "page",
+      format: "md",
+      requestedPath: "/docs/changelog/0.64.22.md",
+      canonicalPath: "/docs/changelog/0.64.22",
+    });
+    expect(resolveAgentPageVariant("/ja/docs/changelog/0.64.22.txt")).toEqual({
+      kind: "page",
+      format: "txt",
+      requestedPath: "/ja/docs/changelog/0.64.22.txt",
+      canonicalPath: "/ja/docs/changelog/0.64.22",
+    });
+    expect(
+      resolveAgentPageVariant("/docs/changelog/0.64.22/notes.md"),
+    ).toBeNull();
   });
 
   test("supports Markdown and text variants for sitemap pages", () => {

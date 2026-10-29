@@ -3,14 +3,23 @@ import SwiftUI
 
 struct WorkspaceGroupFooterRow: View {
     let groupName: String?
+    let showsBoundary: Bool
+
+    init(groupName: String?, showsBoundary: Bool = false) {
+        self.groupName = groupName
+        self.showsBoundary = showsBoundary
+    }
 
     var body: some View {
-        // Invisible spacer row: the end-of-group drop slot (before it = into
-        // the group, after it = root) and accessibility element, drawing
-        // nothing. 16pt keeps the slot draggable without a visible gap; only
-        // populated expanded groups emit it, so header stacks stay slot-free.
-        Color.clear
-            .frame(height: 16)
+        ZStack {
+            Color.clear
+            Capsule()
+                .fill(Color(uiColor: .separator))
+                .frame(height: 2)
+                .opacity(showsBoundary ? 1 : 0)
+        }
+        .frame(height: 16)
+        .animation(.easeOut(duration: 0.12), value: showsBoundary)
         .contentShape(Rectangle())
         .accessibilityElement()
         .accessibilityLabel(footerAccessibilityLabel)

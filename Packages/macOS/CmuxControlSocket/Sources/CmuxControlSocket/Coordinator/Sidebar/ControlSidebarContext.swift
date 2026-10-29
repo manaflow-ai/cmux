@@ -46,6 +46,9 @@ public protocol ControlSidebarContext: AnyObject {
     /// `guard let tabManager` head of several v1 bodies).
     func controlSidebarTabManagerAvailable() -> Bool
 
+    /// App-bundle-resolved messages for the legacy close command.
+    func controlSidebarCloseStrings() -> ControlSidebarCloseStrings
+
     // MARK: Scheduled sidebar mutations (status / agent / blocks)
 
     /// Enqueues the `set_status`/`report_meta` upsert mutation.
@@ -59,11 +62,16 @@ public protocol ControlSidebarContext: AnyObject {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        workState: ControlSidebarAgentWorkState?
     )
 
     /// Enqueues the `clear_status`/`clear_meta` removal mutation.
-    nonisolated func controlSidebarScheduleStatusClear(target: ControlSidebarTabTarget, key: String)
+    nonisolated func controlSidebarScheduleStatusClear(
+        target: ControlSidebarTabTarget,
+        key: String,
+        panelID: UUID?
+    )
 
     /// Enqueues the `set_agent_pid` record mutation.
     nonisolated func controlSidebarScheduleAgentPIDRecord(
@@ -113,7 +121,8 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
-        clearStatus: Bool
+        clearStatus: Bool,
+        requireOwnedKey: Bool
     )
 
     /// Enqueues the `report_meta_block` upsert mutation.
@@ -185,6 +194,24 @@ public protocol ControlSidebarContext: AnyObject {
     /// values).
     nonisolated func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool
 
+    /// Returns an app-bundle-localized error for an invalid handoff or missing workspace.
+    nonisolated func controlSidebarManualPullRequestError(invalidTarget: Bool) -> String
+
+    /// Applies a workspace-owned pull request handoff before acknowledging it.
+    /// - Returns: False when the target no longer exists.
+    func controlSidebarAttachManualPullRequest(
+        tabArg: String?,
+        number: Int,
+        label: String,
+        url: URL,
+        statusRawValue: String,
+        branch: String?
+    ) -> Bool
+
+    /// Clears a workspace-owned pull request before acknowledging it.
+    /// - Returns: False when the target no longer exists.
+    func controlSidebarClearManualPullRequest(tabArg: String?) -> Bool
+
     /// Enqueues the `report_pr` panel pull-request update.
     nonisolated func controlSidebarSchedulePanelPullRequestUpdate(
         target: ControlSidebarPanelMutationTarget,
@@ -226,6 +253,11 @@ public protocol ControlSidebarContext: AnyObject {
     /// Runs the explicit-scope `report_shell_state` fast path (dedupe gate +
     /// enqueue).
     nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String)
+
+    /// Returns the app-bundle-localized v1 error for a malformed terminal
+    /// lifecycle token. This stays app-side so package code never resolves
+    /// `String(localized:)` against the package bundle.
+    nonisolated func controlSidebarInvalidTerminalLifecycleIDError() -> String
 
     /// Applies the fallback `report_shell_state` update.
     func controlSidebarUpdateShellState(tabArg: String?, panelArg: String?, stateRawValue: String) -> ControlSidebarPanelWriteResolution
@@ -305,12 +337,15 @@ public protocol ControlSidebarContext: AnyObject {
     func controlSidebarNewSurface(isBrowser: Bool, paneArg: String?, url: URL?) -> ControlSidebarNewSurfaceResolution
 
     /// Closes a surface (`close_surface`; empty argument = focused surface).
-    func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution
+    func controlSidebarCloseSurface(surfaceArg: String?, force: Bool) -> ControlSidebarCloseSurfaceResolution
 
     // MARK: Misc ops
 
-    /// Reloads the Ghostty configuration (`reload_config`).
-    func controlSidebarReloadConfig()
+    /// Reloads the Ghostty configuration (`reload_config`) and invokes the
+    /// completion after the replacement configuration commits.
+    func controlSidebarReloadConfig(
+        completion: @escaping @MainActor () -> Void
+    )
 
     /// Force-refreshes the selected workspace's terminal panels
     /// (`refresh_surfaces`); returns the refreshed count.
@@ -319,4 +354,11 @@ public protocol ControlSidebarContext: AnyObject {
     /// Snapshots panel health rows (`surface_health`), or `nil` when the tab
     /// can't resolve.
     func controlSidebarSurfaceHealth(tabArg: String) -> [ControlSidebarSurfaceHealthRow]?
+}
+
+public extension ControlSidebarContext {
+    /// Backward-compatible non-forced close for legacy socket callers.
+    func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution {
+        controlSidebarCloseSurface(surfaceArg: surfaceArg, force: false)
+    }
 }

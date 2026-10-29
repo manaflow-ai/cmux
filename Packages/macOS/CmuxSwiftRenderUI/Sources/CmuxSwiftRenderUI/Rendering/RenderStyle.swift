@@ -106,6 +106,21 @@ func dslVAlignment(_ token: String?) -> VerticalAlignment {
     }
 }
 
+/// Resolves a full 2D alignment token for ZStack (default `.center`).
+func dslAlignment(_ token: String?) -> Alignment {
+    switch token?.lowercased() {
+    case "leading": return .leading
+    case "trailing": return .trailing
+    case "top": return .top
+    case "bottom": return .bottom
+    case "topleading": return .topLeading
+    case "toptrailing": return .topTrailing
+    case "bottomleading": return .bottomLeading
+    case "bottomtrailing": return .bottomTrailing
+    default: return .center
+    }
+}
+
 /// Resolves a `Font.Design` token (`.monospaced`/`.rounded`/`.serif`/`.default`).
 /// Returns `nil` for unknown tokens so the system design is kept.
 func dslFontDesign(_ token: String?) -> Font.Design? {
@@ -142,6 +157,24 @@ func dslTruncationMode(_ token: String?) -> Text.TruncationMode {
     case "head": return .head
     case "middle": return .middle
     default: return .tail
+    }
+}
+
+/// Resolves a `.fixedSize` prop: `true` or `"both"` fixes both axes,
+/// `"horizontal"` or `"vertical"` one; anything else leaves sizing alone.
+func dslFixedSizeAxes(_ value: ScenePropValue?) -> (horizontal: Bool, vertical: Bool)? {
+    switch value {
+    case .bool(true):
+        return (true, true)
+    case let .string(token):
+        switch token.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".")) {
+        case "horizontal": return (true, false)
+        case "vertical": return (false, true)
+        case "both": return (true, true)
+        default: return nil
+        }
+    default:
+        return nil
     }
 }
 

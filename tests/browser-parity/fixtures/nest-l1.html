@@ -1,0 +1,6 @@
+<!doctype html><html><head><title>Level one</title></head><body>
+<p>Level one (peer origin)</p><input aria-label="L1 field">
+<iframe id="l2" title="Level two" width="460" height="220"></iframe>
+<script>
+fetch("/origins.json").then((r) => r.json()).then((o) => { document.getElementById("l2").src = o.primary + "/nest-l2.html"; });
+</script></body></html>

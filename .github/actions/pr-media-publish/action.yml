@@ -1,0 +1,91 @@
+name: Publish to pr-media
+description: >-
+  The one way a workflow writes the public pr-media branch. It loads the
+  pr-media environment's private-terms list, sets up OCR (tesseract on Linux,
+  Vision on macOS), proves the check refuses a canary picture, then runs the
+  listed publisher, whose every write goes through scripts/pr-media.py's
+  privacy check before it reaches the branch. scripts/pr-media.py refuses any
+  GitHub Actions write made outside this action, and
+  tests/test_ci_pr_media_privacy.py fails a workflow job that writes pr-media
+  without it. main's pr-media-privacy.yml still rescans the branch with Vision
+  every 10 minutes as a backstop.
+
+# The job's checkout needs .github/actions/pr-media-publish, scripts/pr-media.py
+# and scripts/ci/pr_media_{privacy,gate,ocr_tesseract}.py (plus pr_media_ocr.swift
+# on macOS).
+inputs:
+  private-terms:
+    description: secrets.PR_MEDIA_PRIVATE_TERMS, which only the pr-media environment holds.
+    required: true
+  agent-authors:
+    description: "vars.PR_MEDIA_AGENT_AUTHORS. The pre-push check no longer reads it: a hit refuses in every pull request's folder (#24189). Kept so callers need no change."
+    required: false
+    default: ""
+  github-token:
+    description: The token the publisher writes and comments with.
+    required: true
+  script:
+    description: >-
+      The publisher, run with python3. Only the scripts the Publish step lists
+      are accepted, so a caller cannot hand this token-bearing step a shell
+      command.
+    required: true
+  args:
+    description: >-
+      The publisher's arguments, one per line. Each line is passed as one
+      argument as it is: no shell expansion, quoting or word splitting.
+      Blank lines are skipped, so an argument cannot be empty.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install the OCR tools
+      id: tools
+      if: ${{ runner.os == 'Linux' }}
+      shell: bash
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        set -euo pipefail
+        if ! command -v tesseract >/dev/null || ! command -v ffmpeg >/dev/null; then
+          # A runner image's own apt run can hold the lock for a while after boot.
+          sudo apt-get -o DPkg::Lock::Timeout=120 update -qq
+          sudo apt-get -o DPkg::Lock::Timeout=120 install -y -qq --no-install-recommends \
+            tesseract-ocr tesseract-ocr-eng ffmpeg >/dev/null
+        fi
+        echo "ocr=$GITHUB_WORKSPACE/scripts/ci/pr_media_ocr_tesseract.py" >> "$GITHUB_OUTPUT"
+
+    - name: Check the terms list and the OCR against the canary
+      id: gate
+      shell: bash
+      env:
+        PR_MEDIA_PRIVATE_TERMS: ${{ inputs.private-terms }}
+        # Empty on macOS, where the check compiles pr_media_ocr.swift (Vision).
+        PR_MEDIA_PRIVACY_OCR: ${{ steps.tools.outputs.ocr }}
+      run: |
+        set -euo pipefail
+        python3 scripts/ci/pr_media_gate.py --canary "$GITHUB_ACTION_PATH/canary.png" >> "$GITHUB_OUTPUT"
+
+    - name: Publish
+      shell: bash
+      env:
+        PR_MEDIA_PRIVATE_TERMS: ${{ inputs.private-terms }}
+        PR_MEDIA_AGENT_AUTHORS: ${{ inputs.agent-authors }}
+        PR_MEDIA_PRIVACY_OCR: ${{ steps.gate.outputs.ocr }}
+        PR_MEDIA_PUBLISH_GATE: "1"
+        GH_TOKEN: ${{ inputs.github-token }}
+        PUBLISH_SCRIPT: ${{ inputs.script }}
+        PUBLISH_ARGS: ${{ inputs.args }}
+      run: |
+        set -euo pipefail
+        case "$PUBLISH_SCRIPT" in
+          scripts/ci/pr_media.py) ;;
+          *) echo "::error::pr-media-publish runs only the publishers it lists; add yours to this case"; exit 1 ;;
+        esac
+        args=()
+        while IFS= read -r arg; do
+          [ -n "$arg" ] && args+=("$arg")
+        done <<< "$PUBLISH_ARGS"
+        python3 "$PUBLISH_SCRIPT" "${args[@]}"

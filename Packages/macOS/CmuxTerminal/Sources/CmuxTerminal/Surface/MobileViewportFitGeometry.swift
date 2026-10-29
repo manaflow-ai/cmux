@@ -21,7 +21,16 @@ public struct MobileViewportFitGeometry {
     public let verticalNonGridPixels: Int
 
     /// The minimum runtime font size used by mobile viewport fitting.
-    public static let defaultFontFloorPointSize: Float = 6
+    ///
+    /// This is a rendering-safety floor, not a legibility floor: mobile viewport
+    /// fitting only runs while a phone/tablet is mirroring the pane, and in that
+    /// state the person is reading the phone, not the Mac. So the Mac font may
+    /// shrink well past readable size to grant the mobile viewer its full column
+    /// width instead of letterboxing it. A too-high floor (the old 6pt) caps the
+    /// grant on narrow Mac panes (half-screen windows, splits) and leaves a dead
+    /// band on a wide phone in landscape. 2pt keeps cells safely above sub-pixel
+    /// while covering realistic narrow-pane / wide-viewer combinations.
+    public static let defaultFontFloorPointSize: Float = 2
 
     /// Creates geometry for one measured pane/cell state.
     ///

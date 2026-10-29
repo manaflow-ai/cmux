@@ -1,0 +1,60 @@
+{
+  "permissionId": "perm_codex_1",
+  "session": "sess_codex_1",
+  "request": {
+    "sessionId": "sess_codex_1",
+    "toolCall": {
+      "toolCallId": "call_codex_1",
+      "title": "Question",
+      "kind": "other",
+      "status": "pending",
+      "rawInput": {
+        "questions": [
+          {
+            "id": "db_engine",
+            "header": "Database",
+            "question": "Which database should the service use?",
+            "isOther": true,
+            "options": [
+              {
+                "label": "Postgres",
+                "description": "Managed Postgres with point-in-time restore."
+              },
+              {
+                "label": "SQLite",
+                "description": "One file next to the service."
+              }
+            ]
+          },
+          {
+            "id": "service_name",
+            "header": "Name",
+            "question": "What should the service be called?",
+            "isOther": true,
+            "options": null
+          }
+        ]
+      },
+      "_meta": {
+        "codex": {
+          "tool": "request_user_input"
+        },
+        "acpmux": {
+          "interactive": true
+        }
+      }
+    },
+    "options": [
+      {
+        "optionId": "allow_once",
+        "name": "Answer",
+        "kind": "allow_once"
+      },
+      {
+        "optionId": "reject_once",
+        "name": "Reject",
+        "kind": "reject_once"
+      }
+    ]
+  }
+}

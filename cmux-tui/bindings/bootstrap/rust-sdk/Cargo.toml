@@ -1,0 +1,16 @@
+[package]
+name = "cmux-sdk"
+version = "0.0.0-bootstrap.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "Ownership bootstrap for the cmux Rust SDK"
+repository = "https://github.com/manaflow-ai/cmux"
+homepage = "https://github.com/manaflow-ai/cmux/tree/main/cmux-tui/bindings/rust"
+publish = true
+include = ["Cargo.toml", "Cargo.lock", "README.md", "src/lib.rs"]
+
+[lib]
+name = "cmux"
+
+[workspace]

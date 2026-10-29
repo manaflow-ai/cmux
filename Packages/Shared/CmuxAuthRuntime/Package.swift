@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxAuthRuntime",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
@@ -16,6 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CMUXAuthCore"),
+        .package(path: "../CMUXMobileCore"),
         .package(path: "../../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
     targets: [
@@ -23,6 +24,7 @@ let package = Package(
             name: "CmuxAuthRuntime",
             dependencies: [
                 "CMUXAuthCore",
+                "CMUXMobileCore",
                 .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
             ],
             swiftSettings: [
@@ -34,7 +36,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxAuthRuntimeTests",
-            dependencies: ["CmuxAuthRuntime"],
+            dependencies: [
+                "CmuxAuthRuntime",
+                .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
+            ],
             swiftSettings: [
                 .define("CMUX_DEV_AUTH", .when(configuration: .debug)),
                 .swiftLanguageMode(.v6),

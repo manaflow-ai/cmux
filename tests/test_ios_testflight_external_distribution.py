@@ -86,6 +86,28 @@ def main():
     else:
         _check(False, "ambiguous external groups fail loudly")
 
+    selected = module._select_groups(
+        ambiguous_groups,
+        "external-1",
+        "",
+        ["external-2"],
+    )
+    _check(
+        [group["id"] for group in selected] == ["external-1", "external-2"],
+        "explicit primary and additional external groups are both selected",
+    )
+
+    selected = module._select_groups(
+        ambiguous_groups,
+        "external-1",
+        "",
+        ["external-1", "external-2", "external-2"],
+    )
+    _check(
+        [group["id"] for group in selected] == ["external-1", "external-2"],
+        "duplicate additional external groups are assigned only once",
+    )
+
     try:
         module._select_group([_group("internal-1", "cmux beta", True)], "", "")
     except RuntimeError as exc:

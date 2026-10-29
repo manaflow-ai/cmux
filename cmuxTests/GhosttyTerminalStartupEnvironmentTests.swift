@@ -38,6 +38,55 @@ struct GhosttyTerminalStartupEnvironmentTests {
             "CMUX_SOCKET_PATH should be present"
         )
         expectFalse(socketPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+        let terminalLifecycleID = try #require(
+            surface.startupEnvironmentValue("CMUX_TERMINAL_LIFECYCLE_ID"),
+            "CMUX_TERMINAL_LIFECYCLE_ID should be present"
+        )
+        #expect(UUID(uuidString: terminalLifecycleID) != nil)
+    }
+
+    @MainActor
+    @Test
+    func terminalLifecycleIDChangesWhenTheSameSurfaceRespawns() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let original = TerminalSurface(
+            id: surfaceID,
+            tabId: workspaceID,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil
+        )
+        var originalNeedsTeardown = true
+        defer {
+            if originalNeedsTeardown {
+                GhosttyApp.terminalSurfaceRegistry.unregister(original)
+                original.teardownHostedSurfaceForTesting()
+            }
+        }
+        let originalLifecycleID = try #require(
+            original.startupEnvironmentValue("CMUX_TERMINAL_LIFECYCLE_ID")
+        )
+        GhosttyApp.terminalSurfaceRegistry.unregister(original)
+        original.teardownHostedSurfaceForTesting()
+        originalNeedsTeardown = false
+
+        let replacement = TerminalSurface(
+            id: surfaceID,
+            tabId: workspaceID,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil
+        )
+        defer {
+            GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
+            replacement.teardownHostedSurfaceForTesting()
+        }
+        let replacementLifecycleID = try #require(
+            replacement.startupEnvironmentValue("CMUX_TERMINAL_LIFECYCLE_ID")
+        )
+
+        #expect(replacement.id == original.id)
+        #expect(replacementLifecycleID != originalLifecycleID)
     }
 
     @Test
@@ -62,6 +111,27 @@ struct GhosttyTerminalStartupEnvironmentTests {
         expectTrue(protectedKeys.contains("TERM"))
         expectTrue(protectedKeys.contains("COLORTERM"))
         expectTrue(protectedKeys.contains("TERM_PROGRAM"))
+    }
+
+    @Test
+    func testManagedTerminalIdentityBlanksEmbeddedGhosttyVersion() {
+        // Ghostty exports its own TERM_PROGRAM_VERSION before applying cmux's
+        // environment, so cmux must override it with an empty value; omitting
+        // the key would leave the embedded version in the child environment.
+        var environment = [
+            "TERM_PROGRAM": "Apple_Terminal",
+            "TERM_PROGRAM_VERSION": "1.3.2-HEAD-+324c027",
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        expectEqual(environment["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        expectEqual(environment["TERM_PROGRAM_VERSION"], "")
+        expectTrue(protectedKeys.contains("TERM_PROGRAM_VERSION"))
     }
 
     @Test
@@ -179,7 +249,56 @@ struct GhosttyTerminalStartupEnvironmentTests {
     }
 
     @Test
-    func testInstallClaudeCommandShimCreatesExecutableOutsideBundleBin() throws {
+    func testLiveAgentCommandShimSurvivesTemporaryDirectoryReaping() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LiveCommandShimTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let temporary = root.appendingPathComponent("tmp", isDirectory: true)
+        let wrappers = root.appendingPathComponent("wrappers", isDirectory: true)
+        let userBin = root.appendingPathComponent("user-bin", isDirectory: true)
+        for directory in [home, temporary, wrappers, userBin] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let wrapper = wrappers.appendingPathComponent("cmux-claude-wrapper")
+        let realClaude = userBin.appendingPathComponent("claude")
+        try "#!/bin/sh\nprintf 'wrapped:%s\\n' \"$*\"\n".write(
+            to: wrapper, atomically: true, encoding: .utf8
+        )
+        try "#!/bin/sh\necho UNWRAPPED\n".write(to: realClaude, atomically: true, encoding: .utf8)
+        for executable in [wrapper, realClaude] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        }
+
+        let filesystem = TerminalSurfaceRuntimeFilesystem.live(homeDirectory: home)
+        let installed = await filesystem.installAgentCommandShims(
+            wrappers, UUID(), filesystem.agentCommandShimRootDirectory, [.claude]
+        )
+        let shims = try #require(installed)
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["--noprofile", "--norc", "-c", """
+        command claude before "two words"
+        /bin/rm -rf -- "$TMPDIR/cmux-cli-shims"
+        command claude after "two words"
+        """]
+        process.environment = [
+            "HOME": home.path,
+            "TMPDIR": temporary.path,
+            "PATH": "\(shims.directoryPath):\(userBin.path):/usr/bin:/bin"
+        ]
+        process.standardOutput = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        #expect(String(decoding: data, as: UTF8.self) == "wrapped:before two words\nwrapped:after two words\n")
+        #expect(shims.directoryPath.hasPrefix(home.appendingPathComponent(".cmuxterm/").path))
+    }
+
+    @Test
+    func testInstallAgentCommandShimsCreatesAmpHermesAndClaudeExecutablesOutsideBundleBin() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "GhosttyTerminalStartupEnvironmentTests-\(UUID().uuidString)", isDirectory: true)
@@ -204,17 +323,32 @@ struct GhosttyTerminalStartupEnvironmentTests {
         } > "$CMUX_TEST_LOG"
         """.write(to: wrapperURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapperURL.path)
+        let hermesWrapperURL = bundleBin.appendingPathComponent("cmux-hermes-agent-wrapper", isDirectory: false)
+        try "#!/usr/bin/env bash\nexit 0\n".write(to: hermesWrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: hermesWrapperURL.path
+        )
+        let ampWrapperURL = bundleBin.appendingPathComponent("cmux-amp-wrapper", isDirectory: false)
+        try "#!/usr/bin/env bash\nexit 0\n".write(to: ampWrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: ampWrapperURL.path
+        )
 
         let surfaceId = UUID()
-        let shim = try #require(
-            TerminalSurface.installClaudeCommandShimIfPossible(
-                wrapperURL: wrapperURL,
+        let shims = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: bundleBin,
                 surfaceId: surfaceId,
-                temporaryDirectory: tempRoot
+                rootDirectory: tempRoot
             ))
+        let shim = try #require(shims.shim(named: "claude"))
+        let hermesShim = try #require(shims.shim(named: "hermes"))
+        let ampShim = try #require(shims.shim(named: "amp"))
 
         expectEqual(
-            shim.directoryPath,
+            shims.directoryPath,
             tempRoot
                 .appendingPathComponent("cmux-cli-shims", isDirectory: true)
                 .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
@@ -222,8 +356,12 @@ struct GhosttyTerminalStartupEnvironmentTests {
                 .path
         )
         expectEqual(URL(fileURLWithPath: shim.executablePath).lastPathComponent, "claude")
+        expectEqual(URL(fileURLWithPath: hermesShim.executablePath).lastPathComponent, "hermes")
+        expectEqual(URL(fileURLWithPath: ampShim.executablePath).lastPathComponent, "amp")
         expectFalse(shim.executablePath.contains("/Contents/Resources/bin/claude"))
         expectTrue(FileManager.default.isExecutableFile(atPath: shim.executablePath))
+        expectTrue(FileManager.default.isExecutableFile(atPath: hermesShim.executablePath))
+        expectTrue(FileManager.default.isExecutableFile(atPath: ampShim.executablePath))
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shim.executablePath)
@@ -238,12 +376,12 @@ struct GhosttyTerminalStartupEnvironmentTests {
         expectEqual(process.terminationStatus, 0)
         let output = try String(contentsOf: logURL, encoding: .utf8)
         expectTrue(output.contains("shim=\(shim.executablePath)\n"), output)
-        expectTrue(output.contains("root=\(shim.directoryPath)\n"), output)
+        expectTrue(output.contains("root=\(shims.directoryPath)\n"), output)
         expectTrue(output.contains("args=hello two words\n"), output)
     }
 
     @Test
-    func testClaudeCommandShimFallsBackToCurrentBundledWrapperWhenEmbeddedWrapperWasReaped() throws {
+    func testAgentCommandShimFallsBackToCurrentBundledWrapperWhenEmbeddedWrapperWasReaped() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "GhosttyTerminalStartupEnvironmentTests-\(UUID().uuidString)", isDirectory: true)
@@ -284,12 +422,13 @@ struct GhosttyTerminalStartupEnvironmentTests {
         exit 0
         """)
 
-        let shim = try #require(
-            TerminalSurface.installClaudeCommandShimIfPossible(
-                wrapperURL: staleWrapperURL,
+        let shims = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: oldBundleBin,
                 surfaceId: UUID(),
-                temporaryDirectory: tempRoot
+                rootDirectory: tempRoot
             ))
+        let shim = try #require(shims.shim(named: "claude"))
         try FileManager.default.removeItem(at: staleWrapperURL)
 
         let process = Process()
@@ -309,7 +448,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
     }
 
     @Test
-    func testClaudeCommandShimFallbackSkipsInheritedCmuxShimRoots() throws {
+    func testAgentCommandShimFallbackSkipsInheritedCmuxShimRoots() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "GhosttyTerminalStartupEnvironmentTests-\(UUID().uuidString)", isDirectory: true)
@@ -350,19 +489,20 @@ struct GhosttyTerminalStartupEnvironmentTests {
         printf 'real %s\\n' "$*" > "$CMUX_TEST_LOG"
         """)
 
-        let shim = try #require(
-            TerminalSurface.installClaudeCommandShimIfPossible(
-                wrapperURL: wrapperURL,
+        let shims = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: bundleBin,
                 surfaceId: UUID(),
-                temporaryDirectory: tempRoot
+                rootDirectory: tempRoot
             ))
+        let shim = try #require(shims.shim(named: "claude"))
         try FileManager.default.removeItem(at: wrapperURL)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shim.executablePath)
         process.arguments = ["--resume", "session-id"]
         process.environment = [
-            "PATH": "\(shim.directoryPath):\(oldShimRoot.path):\(realBin.path):/usr/bin:/bin",
+            "PATH": "\(shims.directoryPath):\(oldShimRoot.path):\(realBin.path):/usr/bin:/bin",
             "CMUX_TEST_LOG": logURL.path,
         ]
         try process.run()
@@ -440,12 +580,14 @@ struct GhosttyTerminalStartupEnvironmentTests {
                 "TERM": "screen-256color",
                 "COLORTERM": "false",
                 "TERM_PROGRAM": "WarpTerminal",
+                "TERM_PROGRAM_VERSION": "9.9.9",
             ]
         )
 
         expectEqual(merged["TERM"], TerminalSurface.managedTerminalType)
         expectEqual(merged["COLORTERM"], TerminalSurface.managedColorTerm)
         expectEqual(merged["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        expectEqual(merged["TERM_PROGRAM_VERSION"], "")
     }
 
     @Test

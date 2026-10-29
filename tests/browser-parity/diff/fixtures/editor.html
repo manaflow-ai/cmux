@@ -1,0 +1,45 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>Grid editor</title><script src="/diff/log.js"></script>
+<style>body{font:14px sans-serif;margin:8px} .cell{border:1px solid #888;min-height:20px;width:240px;padding:2px;margin:4px 0}</style></head><body>
+<h1>Grid editor</h1>
+<!--
+  Reproduces how Google Sheets' cell editor behaves in WebKit. A selected cell
+  holds focus but is not editing: text that arrives without a keydown or a
+  composition is left in the DOM and dropped from the model. A trusted paste
+  is read from its clipboardData. Enter commits the edit to #value.
+-->
+<div id="grid" class="cell" role="textbox" aria-label="Grid cell" contenteditable="true"></div>
+<p>Committed: <output id="value"></output></p>
+<p>Paste: <output id="paste"></output></p>
+<!-- Accepts only text announced by a trusted beforeinput; any other change is reverted. -->
+<div id="strict" class="cell" role="textbox" aria-label="Strict editor" contenteditable="true"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+__watch($("grid"), ["keydown", "beforeinput", "input", "compositionstart", "compositionend", "paste"], (e) => [e.inputType || e.key || null, e.data === undefined ? null : e.data]);
+let editing = false;
+let model = "";
+const grid = $("grid");
+const commit = () => { $("value").textContent = model; editing = false; grid.textContent = ""; };
+grid.addEventListener("focus", () => { editing = false; });
+grid.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); if (editing) model = grid.textContent; commit(); return; }
+  if (!editing && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) { editing = true; grid.textContent = ""; }
+});
+grid.addEventListener("compositionstart", () => { if (!editing) { editing = true; } });
+grid.addEventListener("input", () => { if (!editing) { grid.dataset.ignored = String(Number(grid.dataset.ignored || 0) + 1); } });
+grid.addEventListener("paste", (e) => {
+  e.preventDefault();
+  if (!e.isTrusted || !e.clipboardData) { $("paste").textContent = "untrusted"; return; }
+  const text = e.clipboardData.getData("text/plain");
+  $("paste").textContent = JSON.stringify({ text, html: e.clipboardData.getData("text/html"), types: [...e.clipboardData.types].sort() });
+  model = text; editing = false; $("value").textContent = model;
+});
+const strict = $("strict");
+let announced = 0;
+let accepted = "";
+strict.addEventListener("beforeinput", (e) => { if (e.isTrusted) announced++; });
+new MutationObserver(() => {
+  if (announced > 0) { announced = 0; accepted = strict.textContent; strict.dataset.accepted = accepted; return; }
+  if (strict.textContent !== accepted) strict.textContent = accepted;
+}).observe(strict, { childList: true, characterData: true, subtree: true });
+</script>
+</body></html>

@@ -5,7 +5,9 @@ public struct WindowAppearanceUserSettingsSnapshot {
     /// Whether sidebars share the terminal root backdrop.
     public let unifySurfaceBackdrops: Bool
 
-    /// Color scheme selected for sidebar tint resolution.
+    /// Ambient color-scheme fallback retained for settings compatibility.
+    /// ``WindowAppearanceSnapshot`` resolves chrome from the terminal backdrop
+    /// instead, so this value never overrides the shared authority.
     public let colorScheme: ColorScheme
 
     /// Raw `sidebarMaterial` value.
@@ -44,6 +46,9 @@ public struct WindowAppearanceUserSettingsSnapshot {
     /// Background glass tint opacity.
     public let bgGlassTintOpacity: Double
 
+    /// The macOS Reduce Transparency setting.
+    public let reduceTransparency: Bool
+
     /// Creates a user settings snapshot for window appearance.
     public init(
         unifySurfaceBackdrops: Bool,
@@ -59,7 +64,8 @@ public struct WindowAppearanceUserSettingsSnapshot {
         sidebarBlurOpacity: Double,
         bgGlassEnabled: Bool,
         bgGlassTintHex: String,
-        bgGlassTintOpacity: Double
+        bgGlassTintOpacity: Double,
+        reduceTransparency: Bool = false
     ) {
         self.unifySurfaceBackdrops = unifySurfaceBackdrops
         self.colorScheme = colorScheme
@@ -75,5 +81,6 @@ public struct WindowAppearanceUserSettingsSnapshot {
         self.bgGlassEnabled = bgGlassEnabled
         self.bgGlassTintHex = bgGlassTintHex
         self.bgGlassTintOpacity = bgGlassTintOpacity
+        self.reduceTransparency = reduceTransparency
     }
 }

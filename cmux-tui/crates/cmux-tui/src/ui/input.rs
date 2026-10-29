@@ -1,4 +1,6 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::buffer::CellWidth;
+use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputEvent {
@@ -41,6 +43,7 @@ impl TextInput {
         }
         self.buffer.insert_str(self.cursor, &sanitized);
         self.cursor += sanitized.len();
+        self.cursor = self.grapheme_boundary_at_or_after(self.cursor);
         true
     }
 
@@ -73,26 +76,27 @@ impl TextInput {
                 InputEvent::None
             }
             KeyCode::Backspace if key.modifiers.contains(KeyModifiers::ALT) => {
-                self.delete_word_left();
-                InputEvent::Changed
+                if self.delete_word_left() { InputEvent::Changed } else { InputEvent::None }
             }
             KeyCode::Backspace => {
-                self.delete_left();
-                InputEvent::Changed
+                if self.delete_left() {
+                    InputEvent::Changed
+                } else {
+                    InputEvent::None
+                }
             }
             KeyCode::Delete => {
-                self.delete_right();
-                InputEvent::Changed
+                if self.delete_right() {
+                    InputEvent::Changed
+                } else {
+                    InputEvent::None
+                }
             }
             KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.handle_control(c)
             }
             KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::ALT) => self.handle_alt(c),
-            KeyCode::Char(c)
-                if !key.modifiers.intersects(
-                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
-                ) =>
-            {
+            KeyCode::Char(c) if !key.modifiers.intersects(crate::keys::SHORTCUT_MODIFIERS) => {
                 self.insert_char(c);
                 InputEvent::Changed
             }
@@ -100,15 +104,32 @@ impl TextInput {
         }
     }
 
-    pub fn visible_text_and_cursor(&mut self, width: usize) -> (String, usize) {
+    pub fn visible_text_and_cursor(&self, width: usize) -> (String, usize) {
         if width == 0 {
             return (String::new(), 0);
         }
-        self.ensure_cursor_visible(width);
-        let scroll_col = self.char_col(self.scroll);
-        let cursor_col = self.char_col(self.cursor);
-        let text: String = self.buffer[self.scroll..].chars().take(width).collect();
-        (text, cursor_col.saturating_sub(scroll_col).min(width))
+        let (scroll, _, cursor_col) = self.viewport_for_width(width);
+        let mut used = 0;
+        let mut end = scroll;
+        for (offset, grapheme) in self.buffer[scroll..].grapheme_indices(true) {
+            let grapheme_width = grapheme.cell_width() as usize;
+            if used + grapheme_width > width {
+                break;
+            }
+            used += grapheme_width;
+            end = scroll + offset + grapheme.len();
+        }
+        (self.buffer[scroll..end].to_string(), cursor_col.min(width - 1))
+    }
+
+    /// Reconcile the persistent horizontal viewport at a layout or input boundary.
+    pub(crate) fn sync_viewport(&mut self, width: usize) {
+        if width == 0 {
+            return;
+        }
+        let (scroll, cursor, _) = self.viewport_for_width(width);
+        self.scroll = scroll;
+        self.cursor = cursor;
     }
 
     pub fn set_cursor_from_visible_column(&mut self, column: usize, width: usize) {
@@ -116,9 +137,31 @@ impl TextInput {
             return;
         }
         self.ensure_cursor_visible(width);
-        let scroll_col = self.char_col(self.scroll);
-        let target = scroll_col + column.min(width.saturating_sub(1));
-        self.cursor = self.byte_for_char_col(target.min(self.char_len()));
+        let target = column.min(width - 1);
+        let mut used = 0;
+        let mut cursor = self.scroll;
+        for (offset, grapheme) in self.buffer[self.scroll..].grapheme_indices(true) {
+            let start = self.scroll + offset;
+            let end = start + grapheme.len();
+            let grapheme_width = grapheme.cell_width() as usize;
+            if used + grapheme_width > width {
+                break;
+            }
+            if target < used + grapheme_width {
+                let distance = target.saturating_sub(used);
+                cursor = if distance < grapheme_width.div_ceil(2) { start } else { end };
+                self.cursor = cursor;
+                self.ensure_cursor_visible(width);
+                return;
+            }
+            used += grapheme_width;
+            cursor = end;
+            if target < used {
+                break;
+            }
+        }
+        self.cursor = cursor;
+        self.ensure_cursor_visible(width);
     }
 
     fn handle_control(&mut self, c: char) -> InputEvent {
@@ -126,24 +169,23 @@ impl TextInput {
             'a' => self.move_start(),
             'e' => self.move_end(),
             'd' => {
-                self.delete_right();
-                return InputEvent::Changed;
+                return if self.delete_right() { InputEvent::Changed } else { InputEvent::None };
             }
             'w' => {
-                self.delete_word_left();
-                return InputEvent::Changed;
+                return if self.delete_word_left() {
+                    InputEvent::Changed
+                } else {
+                    InputEvent::None
+                };
             }
             'k' => {
-                self.kill_end();
-                return InputEvent::Changed;
+                return if self.kill_end() { InputEvent::Changed } else { InputEvent::None };
             }
             'u' => {
-                self.kill_start();
-                return InputEvent::Changed;
+                return if self.kill_start() { InputEvent::Changed } else { InputEvent::None };
             }
             'c' => {
-                self.clear();
-                return InputEvent::Changed;
+                return if self.clear() { InputEvent::Changed } else { InputEvent::None };
             }
             _ => {}
         }
@@ -155,8 +197,11 @@ impl TextInput {
             'b' => self.move_word_left(),
             'f' => self.move_word_right(),
             'd' => {
-                self.delete_word_right();
-                return InputEvent::Changed;
+                return if self.delete_word_right() {
+                    InputEvent::Changed
+                } else {
+                    InputEvent::None
+                };
             }
             _ => {}
         }
@@ -166,6 +211,7 @@ impl TextInput {
     fn insert_char(&mut self, c: char) {
         self.buffer.insert(self.cursor, c);
         self.cursor += c.len_utf8();
+        self.cursor = self.grapheme_boundary_at_or_after(self.cursor);
     }
 
     fn move_start(&mut self) {
@@ -192,53 +238,54 @@ impl TextInput {
         self.cursor = self.word_right(self.cursor);
     }
 
-    fn delete_left(&mut self) {
+    fn delete_left(&mut self) -> bool {
         let start = self.prev_boundary(self.cursor);
-        self.delete_range(start, self.cursor);
+        self.delete_range(start, self.cursor)
     }
 
-    fn delete_right(&mut self) {
+    fn delete_right(&mut self) -> bool {
         let end = self.next_boundary(self.cursor);
-        self.delete_range(self.cursor, end);
+        self.delete_range(self.cursor, end)
     }
 
-    fn delete_word_left(&mut self) {
+    fn delete_word_left(&mut self) -> bool {
         let start = self.word_left(self.cursor);
-        self.delete_range(start, self.cursor);
+        self.delete_range(start, self.cursor)
     }
 
-    fn delete_word_right(&mut self) {
+    fn delete_word_right(&mut self) -> bool {
         let end = self.word_right(self.cursor);
-        self.delete_range(self.cursor, end);
+        self.delete_range(self.cursor, end)
     }
 
-    fn kill_end(&mut self) {
-        self.delete_range(self.cursor, self.buffer.len());
+    fn kill_end(&mut self) -> bool {
+        self.delete_range(self.cursor, self.buffer.len())
     }
 
-    fn kill_start(&mut self) {
-        self.delete_range(0, self.cursor);
+    fn kill_start(&mut self) -> bool {
+        self.delete_range(0, self.cursor)
     }
 
-    fn delete_range(&mut self, start: usize, end: usize) {
+    fn delete_range(&mut self, start: usize, end: usize) -> bool {
         if start >= end {
-            return;
+            return false;
         }
         self.buffer.replace_range(start..end, "");
         self.cursor = start;
         self.scroll = self.scroll.min(self.cursor);
+        true
     }
 
     fn word_left(&self, from: usize) -> usize {
         let mut idx = from;
-        while let Some((prev, ch)) = self.prev_char(idx) {
-            if ch.is_alphanumeric() {
+        while let Some((prev, grapheme)) = self.prev_grapheme(idx) {
+            if Self::is_word_grapheme(grapheme) {
                 break;
             }
             idx = prev;
         }
-        while let Some((prev, ch)) = self.prev_char(idx) {
-            if !ch.is_alphanumeric() {
+        while let Some((prev, grapheme)) = self.prev_grapheme(idx) {
+            if !Self::is_word_grapheme(grapheme) {
                 break;
             }
             idx = prev;
@@ -248,14 +295,14 @@ impl TextInput {
 
     fn word_right(&self, from: usize) -> usize {
         let mut idx = from;
-        while let Some((next, ch)) = self.char_at(idx) {
-            if ch.is_alphanumeric() {
+        while let Some((next, grapheme)) = self.grapheme_at(idx) {
+            if Self::is_word_grapheme(grapheme) {
                 break;
             }
             idx = next;
         }
-        while let Some((next, ch)) = self.char_at(idx) {
-            if !ch.is_alphanumeric() {
+        while let Some((next, grapheme)) = self.grapheme_at(idx) {
+            if !Self::is_word_grapheme(grapheme) {
                 break;
             }
             idx = next;
@@ -264,57 +311,70 @@ impl TextInput {
     }
 
     fn prev_boundary(&self, from: usize) -> usize {
-        if from == 0 {
-            return 0;
-        }
-        self.buffer[..from].char_indices().last().map(|(idx, _)| idx).unwrap_or(0)
+        self.prev_grapheme(from).map_or(0, |(idx, _)| idx)
     }
 
     fn next_boundary(&self, from: usize) -> usize {
-        if from >= self.buffer.len() {
-            return self.buffer.len();
-        }
-        let mut chars = self.buffer[from..].char_indices();
-        let _ = chars.next();
-        chars.next().map(|(idx, _)| from + idx).unwrap_or(self.buffer.len())
+        self.grapheme_at(from).map_or(self.buffer.len(), |(idx, _)| idx)
     }
 
-    fn prev_char(&self, from: usize) -> Option<(usize, char)> {
-        self.buffer[..from].char_indices().last()
+    fn prev_grapheme(&self, from: usize) -> Option<(usize, &str)> {
+        self.buffer[..from].grapheme_indices(true).next_back()
     }
 
-    fn char_at(&self, from: usize) -> Option<(usize, char)> {
-        let ch = self.buffer[from..].chars().next()?;
-        Some((from + ch.len_utf8(), ch))
+    fn grapheme_at(&self, from: usize) -> Option<(usize, &str)> {
+        let grapheme = self.buffer[from..].graphemes(true).next()?;
+        Some((from + grapheme.len(), grapheme))
     }
 
     fn ensure_cursor_visible(&mut self, width: usize) {
         if width == 0 {
             return;
         }
-        if self.cursor < self.scroll {
-            self.scroll = self.cursor;
+        self.sync_viewport(width);
+    }
+
+    fn grapheme_boundary_at_or_after(&self, byte: usize) -> usize {
+        self.buffer
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .find(|index| *index >= byte)
+            .unwrap_or(self.buffer.len())
+    }
+
+    fn viewport_for_width(&self, width: usize) -> (usize, usize, usize) {
+        debug_assert!(width > 0);
+        let cursor = self.grapheme_boundary_at_or_after(self.cursor.min(self.buffer.len()));
+        let mut scroll = self.grapheme_boundary_at_or_after(self.scroll.min(cursor));
+        if cursor < scroll {
+            scroll = cursor;
         }
-        let cursor_col = self.char_col(self.cursor);
-        let scroll_col = self.char_col(self.scroll);
-        if cursor_col < scroll_col {
-            self.scroll = self.cursor;
-        } else if cursor_col > scroll_col + width {
-            let target_col = cursor_col.saturating_sub(width);
-            self.scroll = self.byte_for_char_col(target_col);
+
+        // Measure the cursor suffix once, then discard leading graphemes until it fits.
+        // Recomputing widths from `scroll` on every iteration makes long inputs quadratic.
+        let mut cursor_col = 0;
+        for grapheme in self.buffer[scroll..cursor].graphemes(true) {
+            cursor_col += grapheme.cell_width() as usize;
         }
+        if cursor_col >= width {
+            let viewport_start = scroll;
+            for (offset, grapheme) in self.buffer[viewport_start..cursor].grapheme_indices(true) {
+                let next = viewport_start + offset + grapheme.len();
+                if next > cursor {
+                    break;
+                }
+                cursor_col = cursor_col.saturating_sub(grapheme.cell_width() as usize);
+                scroll = next;
+                if cursor_col < width {
+                    break;
+                }
+            }
+        }
+        (scroll, cursor, cursor_col)
     }
 
-    fn char_len(&self) -> usize {
-        self.buffer.chars().count()
-    }
-
-    fn char_col(&self, byte: usize) -> usize {
-        self.buffer[..byte].chars().count()
-    }
-
-    fn byte_for_char_col(&self, col: usize) -> usize {
-        self.buffer.char_indices().nth(col).map(|(idx, _)| idx).unwrap_or(self.buffer.len())
+    fn is_word_grapheme(grapheme: &str) -> bool {
+        grapheme.chars().any(char::is_alphanumeric)
     }
 }
 
@@ -411,6 +471,41 @@ mod tests {
     }
 
     #[test]
+    fn deletion_reports_changed_only_when_text_was_removed() {
+        let no_op_keys = [
+            key(KeyCode::Backspace, KeyModifiers::NONE),
+            key(KeyCode::Delete, KeyModifiers::NONE),
+            key(KeyCode::Backspace, KeyModifiers::ALT),
+            key(KeyCode::Char('d'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('w'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('d'), KeyModifiers::ALT),
+            key(KeyCode::Char('k'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('u'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        ];
+        for key in no_op_keys {
+            let mut input = text_input("");
+            assert_eq!(input.handle_key(&key), InputEvent::None, "{key:?}");
+        }
+
+        let mut input = text_input("x");
+        input.cursor = 1;
+        assert_eq!(
+            input.handle_key(&key(KeyCode::Backspace, KeyModifiers::NONE)),
+            InputEvent::Changed
+        );
+        assert!(input.buffer.is_empty());
+
+        let mut input = text_input("x");
+        input.cursor = 0;
+        assert_eq!(
+            input.handle_key(&key(KeyCode::Delete, KeyModifiers::NONE)),
+            InputEvent::Changed
+        );
+        assert!(input.buffer.is_empty());
+    }
+
+    #[test]
     fn utf8_safe_movement_and_deletion() {
         let mut input = text_input("héllo wörld");
         input.handle_key(&key(KeyCode::Char('a'), KeyModifiers::CONTROL));
@@ -426,14 +521,57 @@ mod tests {
     }
 
     #[test]
+    fn movement_and_backspace_treat_extended_graphemes_as_one_character() {
+        let family = "👨‍👩‍👧‍👦";
+        let mut input = text_input(&format!("á{family}"));
+
+        input.handle_key(&key(KeyCode::Left, KeyModifiers::NONE));
+        assert_eq!(&input.as_str()[..input.cursor], "á");
+        input.handle_key(&key(KeyCode::Backspace, KeyModifiers::NONE));
+
+        assert_eq!(input.as_str(), family);
+        assert_eq!(input.cursor, 0);
+    }
+
+    #[test]
+    fn visible_cursor_uses_terminal_cell_width() {
+        let input = text_input("界a");
+
+        let (shown, cursor) = input.visible_text_and_cursor(4);
+
+        assert_eq!(shown, "界a");
+        assert_eq!(cursor, 3);
+    }
+
+    #[test]
     fn visible_text_keeps_cursor_visible() {
         let mut input = text_input("abcdef");
         let (shown, cursor) = input.visible_text_and_cursor(3);
-        assert_eq!(shown, "def");
-        assert_eq!(cursor, 3);
+        assert_eq!(shown, "ef");
+        assert_eq!(cursor, 2);
         input.handle_key(&key(KeyCode::Char('a'), KeyModifiers::CONTROL));
         let (shown, cursor) = input.visible_text_and_cursor(3);
         assert_eq!(shown, "abc");
         assert_eq!(cursor, 0);
+    }
+
+    #[test]
+    fn viewport_scan_keeps_wide_graphemes_in_order() {
+        let input = text_input("界界界界");
+
+        let (shown, cursor) = input.visible_text_and_cursor(4);
+
+        assert_eq!(shown, "界");
+        assert_eq!(cursor, 2);
+    }
+
+    #[test]
+    fn visible_cursor_counts_halfwidth_sound_marks_as_terminal_cells() {
+        let input = text_input("ｶﾞa");
+
+        let (shown, cursor) = input.visible_text_and_cursor(4);
+
+        assert_eq!(shown, "ｶﾞa");
+        assert_eq!(cursor, 3);
     }
 }

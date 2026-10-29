@@ -1,0 +1,15 @@
+{
+  "oracle": {
+    "deep-chain-click": "deep clicked true",
+    "srcdoc-click": "srcdoc clicked true",
+    "l1-fill": "level one",
+    "frame-count": 5,
+    "deep-frame-url": 1,
+    "deep-ref-click": "deep clicked true"
+  },
+  "cmux": {
+    "full": "title: Nested Frames\nurl: PRIMARY/nest-top.html\n- heading \"Top\" [level=1]\n- button \"Top button\" [ref=e1]\n- iframe \"Level one\" [ref=e2]:\n  - text: \"Level one (peer origin)\"\n  - textbox \"L1 field\" [ref=f1e1]\n  - iframe \"Level two\" [ref=f1e2]:\n    - text: \"Level two (primary origin)\"\n    - iframe \"Level three\" [ref=f2e1]:\n      - button \"Deep button\" [ref=f3e1]\n      - button \"Closed shadow button\" [ref=f3e2]\n- iframe \"Srcdoc\" [ref=e3]:\n  - button \"Srcdoc button\" [ref=f4e1]",
+    "closed-in-frame-click": "closed clicked true",
+    "closed-in-frame-ref": true
+  }
+}

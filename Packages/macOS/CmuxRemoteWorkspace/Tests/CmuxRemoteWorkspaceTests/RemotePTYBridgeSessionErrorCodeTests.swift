@@ -6,10 +6,14 @@ import Testing
 @Suite("RemotePTYBridgeServer error codes")
 struct RemotePTYBridgeSessionErrorCodeTests {
     private func bridgeErrorPayload(for message: String) throws -> [String: Any] {
-        let rpc = RecordingPTYBridgeRPCClient()
-        rpc.attachError = NSError(domain: "test", code: 1, userInfo: [
+        try bridgeErrorPayload(for: NSError(domain: "test", code: 1, userInfo: [
             NSLocalizedDescriptionKey: message,
-        ])
+        ]))
+    }
+
+    private func bridgeErrorPayload(for error: any Error) throws -> [String: Any] {
+        let rpc = RecordingPTYBridgeRPCClient()
+        rpc.attachError = error
         let server = RemotePTYBridgeServer(
             rpcClient: rpc,
             sessionID: "session-1",
@@ -38,6 +42,22 @@ struct RemotePTYBridgeSessionErrorCodeTests {
         #expect(payload["type"] as? String == "error")
         #expect(payload["message"] as? String == "test-session-ended")
         #expect(payload["code"] as? String == "pty_session_not_found")
+    }
+
+    @Test("structured daemon errors carry their exact code")
+    func structuredUnavailableCarriesCode() throws {
+        let payload = try bridgeErrorPayload(for: NSError(
+            domain: "cmux.remote.daemon.rpc",
+            code: 14,
+            userInfo: [
+                NSLocalizedDescriptionKey: "pty.attach failed (unavailable): capacity reached",
+                "cmux.remote.daemon.rpc.error_code": "unavailable",
+            ]
+        ))
+
+        #expect(payload["type"] as? String == "error")
+        #expect(payload["message"] as? String == "test-attach-failed")
+        #expect(payload["code"] as? String == "unavailable")
     }
 
     @Test("generic attach failures omit the bridge error code")

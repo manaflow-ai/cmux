@@ -48,6 +48,55 @@ import Testing
         await waitUntilTokenTouchingCleanupFinished(coordinator)
     }
 
+    @Test func inheritedDeadlineIsNotRebasedWhenTokenPhaseStartsLate() async {
+        let clock = ManualTestClock()
+        let deadline = clock.authTokenDeadline(after: .seconds(2))
+        clock.advance(by: .seconds(1))
+        let coordinator = makeCoordinator(client: FakeAuthClient(), clock: clock)
+        let entered = TestPhaseSignal()
+        let release = TestPhaseSignal()
+        let phase = Task {
+            try await coordinator.runTokenTouchingPhase(
+                .accessToken,
+                timeout: .seconds(2),
+                deadline: deadline
+            ) {
+                await entered.markStarted()
+                await release.waitUntilStarted()
+                return "captured"
+            }
+        }
+
+        await entered.waitUntilStarted()
+        await clock.waitUntilSleepers()
+        clock.advance(by: .seconds(1))
+        // Even if the operation resumes first at the boundary, the phase's
+        // post-operation check must apply the inherited absolute deadline.
+        await release.markStarted()
+        await #expect(throws: AuthError.timedOut) { try await phase.value }
+    }
+
+    @Test func expiredInheritedDeadlineSkipsTokenOperation() async {
+        let clock = ManualTestClock()
+        let deadline = clock.authTokenDeadline(after: .seconds(2))
+        clock.advance(by: .seconds(2))
+        let coordinator = makeCoordinator(client: FakeAuthClient(), clock: clock)
+        let entered = TestPhaseSignal()
+        let phase = Task {
+            try await coordinator.runTokenTouchingPhase(
+                .accessToken,
+                timeout: .seconds(2),
+                deadline: deadline
+            ) {
+                await entered.markStarted()
+                return "unexpected"
+            }
+        }
+
+        await #expect(throws: AuthError.timedOut) { try await phase.value }
+        #expect(await entered.didStart == false)
+    }
+
     private func waitUntilTokenTouchingPhaseGated(_ coordinator: AuthCoordinator, phase: AuthPhase) async {
         for _ in 0..<100 {
             if coordinator.timedOutTokenTouchingPhaseStates[phase] != nil {

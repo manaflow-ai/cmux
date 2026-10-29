@@ -6,6 +6,7 @@ Regression tests for Resources/bin/open.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -38,7 +39,18 @@ def run_wrapper(
     fail_urls: list[str] | None = None,
     local_files: list[str] | None = None,
     python_bin: str | None = None,
+    bash_bin: str = "/bin/bash",
+    extra_env: dict[str, str | None] | None = None,
+    locale_capture: dict[str, list[str]] | None = None,
 ) -> tuple[list[str], list[str], int, str]:
+    """Run Resources/bin/open with faked system_open/cmux/defaults and return its dispatch.
+
+    If `locale_capture` is given, it is populated (before the temp dir is
+    cleaned up) with the LC_ALL each fake child process observed, under the
+    keys "open" and "cmux" -- used to verify the wrapper restores the
+    caller's original locale for dispatch instead of leaking its own
+    internal `LC_ALL=C` (see test_child_processes_observe_original_locale).
+    """
     with tempfile.TemporaryDirectory(prefix="cmux-open-wrapper-test-") as td:
         tmp = Path(td)
         wrapper = tmp / "open"
@@ -47,6 +59,8 @@ def run_wrapper(
 
         open_log = tmp / "open.log"
         cmux_log = tmp / "cmux.log"
+        open_locale_log = tmp / "open-locale.log"
+        cmux_locale_log = tmp / "cmux-locale.log"
         system_open = tmp / "system-open"
         defaults = tmp / "defaults"
         cmux = tmp / "cmux"
@@ -56,6 +70,7 @@ def run_wrapper(
             """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "$FAKE_OPEN_LOG"
+printf '%s\\n' "${LC_ALL-<unset>}" >> "$FAKE_OPEN_LOCALE_LOG"
 """,
         )
 
@@ -115,6 +130,7 @@ esac
             """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "$FAKE_CMUX_LOG"
+printf '%s\\n' "${LC_ALL-<unset>}" >> "$FAKE_CMUX_LOCALE_LOG"
 url=""
 for arg in "$@"; do
   url="$arg"
@@ -144,6 +160,8 @@ exit 0
         env["CMUX_OPEN_WRAPPER_DEFAULTS"] = str(defaults)
         env["FAKE_OPEN_LOG"] = str(open_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
+        env["FAKE_OPEN_LOCALE_LOG"] = str(open_locale_log)
+        env["FAKE_CMUX_LOCALE_LOG"] = str(cmux_locale_log)
         if python_bin is None:
             env.pop("CMUX_OPEN_WRAPPER_PYTHON3", None)
         else:
@@ -179,8 +197,15 @@ exit 0
         else:
             env.pop("FAKE_CMUX_FAIL_URLS", None)
 
+        if extra_env:
+            for key, value in extra_env.items():
+                if value is None:
+                    env.pop(key, None)
+                else:
+                    env[key] = value
+
         result = subprocess.run(
-            ["/bin/bash", str(wrapper), *args],
+            [bash_bin, str(wrapper), *args],
             cwd=tmp,
             env=env,
             capture_output=True,
@@ -188,12 +213,44 @@ exit 0
             check=False,
         )
 
+        if locale_capture is not None:
+            locale_capture["open"] = read_log(open_locale_log)
+            locale_capture["cmux"] = read_log(cmux_locale_log)
+
         return read_log(open_log), read_log(cmux_log), result.returncode, result.stderr.strip()
 
 
 def expect(condition: bool, message: str, failures: list[str]) -> None:
     if not condition:
         failures.append(message)
+
+
+def discover_alternate_bash_binaries() -> list[str]:
+    """Find bash builds other than the default /bin/bash.
+
+    Some third-party bash builds (observed with MacPorts bash 5.3.9 on
+    macOS 15) crash with SIGSEGV in their multibyte-aware glob/pattern
+    matcher when a case statement or ${var%pattern}/${var#pattern}
+    expansion is evaluated against a non-ASCII argument under a UTF-8
+    locale. /bin/bash (Apple's bundled bash 3.2) does not reproduce this,
+    so this regression test only has teeth on a machine that also has one
+    of these alternate builds installed.
+    """
+    candidates = [
+        "/opt/local/bin/bash",
+        "/usr/local/bin/bash",
+        "/opt/homebrew/bin/bash",
+    ]
+    which_bash = shutil.which("bash")
+    if which_bash and which_bash not in candidates:
+        candidates.append(which_bash)
+
+    found = []
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.is_file() and os.access(path, os.X_OK) and str(path) != "/bin/bash":
+            found.append(str(path))
+    return found
 
 
 def test_toggle_disabled_passthrough(failures: list[str]) -> None:
@@ -570,6 +627,404 @@ def test_local_non_html_file_passthrough(failures: list[str]) -> None:
     expect(open_log == [filename], f"local non-html file: expected system open [{filename}], got {open_log}", failures)
 
 
+def _run_multibyte_argument(bash_bin: str) -> tuple[list[str], list[str], int, str]:
+    """Run the wrapper on a Japanese filename argument under a UTF-8 locale."""
+    filename = "日本語.pdf"
+    return run_wrapper(
+        args=[filename],
+        intercept_setting="1",
+        whitelist="",
+        local_files=[filename],
+        bash_bin=bash_bin,
+        extra_env={
+            "LANG": "ja_JP.UTF-8",
+            "LC_CTYPE": "ja_JP.UTF-8",
+            "LC_ALL": "",
+        },
+    )
+
+
+def test_multibyte_filename_argument_does_not_crash_default_bash(failures: list[str]) -> None:
+    """Sanity baseline: a multibyte filename passes through unchanged on /bin/bash."""
+    filename = "日本語.pdf"
+    open_log, cmux_log, code, stderr = _run_multibyte_argument("/bin/bash")
+    expect(
+        code == 0,
+        f"multibyte filename (/bin/bash): wrapper exited {code}: {stderr}",
+        failures,
+    )
+    expect(
+        cmux_log == [],
+        f"multibyte filename (/bin/bash): cmux should not be called, got {cmux_log}",
+        failures,
+    )
+    expect(
+        open_log == [filename],
+        f"multibyte filename (/bin/bash): expected system open [{filename}], got {open_log}",
+        failures,
+    )
+
+
+def test_multibyte_filename_argument_does_not_crash_alternate_bash_builds(
+    failures: list[str],
+) -> None:
+    """Regression test for the trim()/case-statement multibyte SIGSEGV.
+
+    Some bash builds crash in their multibyte-aware glob/pattern matcher
+    when a case statement or pattern-removal expansion runs against a
+    non-ASCII argument (e.g. a Japanese filename) under a UTF-8 locale.
+    This only reproduces on a bash build with that bug, so it is a no-op
+    (documented, not failed) when none is installed on the machine running
+    this test.
+    """
+    alternates = discover_alternate_bash_binaries()
+    if not alternates:
+        print(
+            "note: no alternate bash build found (e.g. MacPorts /opt/local/bin/bash); "
+            "skipping multibyte-argument crash repro (see cmux issue for the original "
+            "SIGSEGV report under MacPorts bash 5.3.9)."
+        )
+        return
+
+    filename = "日本語.pdf"
+    for bash_bin in alternates:
+        open_log, cmux_log, code, stderr = _run_multibyte_argument(bash_bin)
+        expect(
+            code != -11 and code != 139,
+            f"multibyte filename ({bash_bin}): wrapper crashed with SIGSEGV "
+            f"(exit {code}): {stderr}",
+            failures,
+        )
+        expect(
+            code == 0,
+            f"multibyte filename ({bash_bin}): wrapper exited {code}: {stderr}",
+            failures,
+        )
+        expect(
+            cmux_log == [],
+            f"multibyte filename ({bash_bin}): cmux should not be called, got {cmux_log}",
+            failures,
+        )
+        expect(
+            open_log == [filename],
+            f"multibyte filename ({bash_bin}): expected system open [{filename}], got {open_log}",
+            failures,
+        )
+
+
+_HEREDOC_OPEN_RE = re.compile(r"<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?")
+_TRAILING_COMMENT_RE = re.compile(r"(?:^|\s)#.*$")
+_CASE_RE = re.compile(r"(?:^|[;&|]\s*)case\b")
+_PATTERN_REMOVAL_RE = re.compile(r"\$\{(?:[A-Za-z_][A-Za-z0-9_]*|[0-9]+)(\[[^]]*\])?(##?|%%?)")
+
+
+def _strip_trailing_comment(line: str) -> str:
+    """Best-effort strip of a ' #...' trailing comment for heuristic matching.
+
+    Does not track quotes, so a literal '#' preceded by whitespace inside a
+    quoted string would be misread as a comment start. No top-level line in
+    this script does that today.
+    """
+    match = _TRAILING_COMMENT_RE.search(line)
+    return line[: match.start()] if match else line
+
+
+def _top_level_statement_lines(lines: list[str]) -> list[tuple[int, str]]:
+    """Return (0-based index, text) for lines bash runs unconditionally at load.
+
+    Excludes function-body lines (indented in this file, and only executed
+    once the function is *called* -- every function here is called after the
+    locale fix) and heredoc bodies (verbatim text, never parsed as bash
+    statements). A heredoc operator is only recognized outside a trailing
+    comment, so e.g. `x=1  # example: <<EOF` does not start heredoc tracking.
+
+    Does not attempt to special-case indented top-level if/for/while bodies
+    (as opposed to function bodies) -- this script has none that touch
+    arguments, and distinguishing those in general needs real bash parsing,
+    out of scope for this guard. Nor does it track quoting, so a heredoc-like
+    `<<NAME` inside a quoted string (e.g. `echo "use <<EOF here"`) would still
+    be misdetected as a real heredoc open; no such line exists in this script
+    today.
+    """
+    result = []
+    heredoc_terminator: str | None = None
+    for i, line in enumerate(lines):
+        if heredoc_terminator is not None:
+            if line == heredoc_terminator:
+                heredoc_terminator = None
+            continue
+        if line and line[0] not in (" ", "\t") and not line.startswith("#"):
+            result.append((i, line))
+        heredoc_open = _HEREDOC_OPEN_RE.search(_strip_trailing_comment(line))
+        if heredoc_open:
+            heredoc_terminator = heredoc_open.group(1)
+    return result
+
+
+def test_top_level_statement_line_heuristics(failures: list[str]) -> None:
+    """Pin the exact behavior of the _top_level_statement_lines heuristic.
+
+    Regression inputs requested in review: a commented-out heredoc-looking
+    line must not start heredoc tracking; a top-level `case` after a `;`
+    separator must still be detected; a heredoc-like token inside a quoted
+    string is a known, documented false positive (no such line exists in
+    Resources/bin/open today).
+    """
+    synthetic = [
+        'before_comment_heredoc="x"',
+        'x=1  # example: <<EOF style heredoc, not a real one',
+        'after_comment_heredoc="y"',
+        "func_with_real_heredoc() {",
+        "    value=\"$(cmd <<'PY'",
+        "heredoc body line that must be skipped, not a top-level statement",
+        "PY",
+        ")\"",
+        "}",
+        'after_real_heredoc="z"',
+        'true; case "$x" in',
+        "esac",
+    ]
+    top_level_texts = [line for _, line in _top_level_statement_lines(synthetic)]
+
+    expect(
+        "after_comment_heredoc=\"y\"" in top_level_texts,
+        "a '#' comment mentioning '<<EOF' must not start heredoc tracking "
+        f"and swallow the next top-level statement, got {top_level_texts!r}",
+        failures,
+    )
+    expect(
+        "heredoc body line that must be skipped, not a top-level statement"
+        not in top_level_texts,
+        "a real heredoc body must not be treated as a top-level statement",
+        failures,
+    )
+    expect(
+        'after_real_heredoc="z"' in top_level_texts,
+        "the statement following a real heredoc's closing delimiter must "
+        f"still be seen as top-level, got {top_level_texts!r}",
+        failures,
+    )
+    expect(
+        any(_CASE_RE.search(_strip_trailing_comment(t)) for t in top_level_texts if t == 'true; case "$x" in'),
+        "a top-level 'case' appearing after a ';' separator must be detected",
+        failures,
+    )
+    for separator, sample in (
+        ("&&", 'true && case "$x" in'),
+        ("||", 'false || case "$x" in'),
+    ):
+        expect(
+            bool(_CASE_RE.search(_strip_trailing_comment(sample))),
+            f"a top-level 'case' appearing after a '{separator}' separator must be detected, got {sample!r}",
+            failures,
+        )
+
+    # Known, documented limitation: no quote-tracking, so a heredoc-like
+    # token inside a quoted string is misdetected as a real heredoc open.
+    # This pins that documented behavior rather than silently drifting.
+    quoted_lookalike = ['echo "use <<EOF here"', "should_be_swallowed=1"]
+    quoted_top_level = [line for _, line in _top_level_statement_lines(quoted_lookalike)]
+    expect(
+        "should_be_swallowed=1" not in quoted_top_level,
+        "documented limitation regressed: a quoted heredoc-like token no "
+        "longer starts (false-positive) heredoc tracking -- if this now "
+        "fails, the limitation note on _top_level_statement_lines is stale "
+        "and should be updated",
+        failures,
+    )
+
+
+def test_pattern_removal_regex_detects_positional_parameters(failures: list[str]) -> None:
+    """_PATTERN_REMOVAL_RE must catch pattern removal on $1, $2, ... too.
+
+    Resources/bin/open always copies an argument into a named local (e.g.
+    `local value="$1"`) before trimming it, so today only named-variable
+    pattern removal appears before LC_ALL=C. But an attacker-controlled
+    wrapper argument reaches bash as a positional parameter first, and
+    `${1#prefix}`/`${1%suffix}` crash the same way as the named-variable
+    form on the affected bash builds -- so the guard must not have a blind
+    spot for someone pattern-matching a positional parameter directly.
+    """
+    positional_cases = ['${1#prefix}', '${1%suffix}', '${1##prefix}', '${1%%suffix}', '${10#prefix}']
+    for sample in positional_cases:
+        expect(
+            bool(_PATTERN_REMOVAL_RE.search(sample)),
+            f"expected _PATTERN_REMOVAL_RE to match positional-parameter pattern removal {sample!r}",
+            failures,
+        )
+
+    # Preserve existing named-variable matching (this is not a replacement).
+    expect(
+        bool(_PATTERN_REMOVAL_RE.search("${value#pattern}")),
+        "named-variable pattern removal must still match after adding positional-parameter support",
+        failures,
+    )
+
+    # End-to-end: the same case/pattern-removal scan used by
+    # test_wrapper_forces_c_locale_before_arg_processing must flag a
+    # positional-parameter pattern removal that runs on an
+    # attacker-controlled argument before LC_ALL=C is set.
+    vulnerable_script = [
+        'value="$1"',
+        'trimmed="${1#prefix}"',
+        "export LC_ALL=C",
+    ]
+    top_level = _top_level_statement_lines(vulnerable_script)
+    lc_all_index = next(i for i, line in top_level if line == "export LC_ALL=C")
+    flagged = [
+        line
+        for i, line in top_level
+        if i < lc_all_index and _PATTERN_REMOVAL_RE.search(_strip_trailing_comment(line))
+    ]
+    expect(
+        flagged == ['trimmed="${1#prefix}"'],
+        "expected the positional-parameter pattern removal ahead of 'export "
+        f"LC_ALL=C' to be flagged, got {flagged!r}",
+        failures,
+    )
+
+
+def test_wrapper_forces_c_locale_before_arg_processing(failures: list[str]) -> None:
+    """Static guard for the multibyte SIGSEGV fix.
+
+    CI does not provision a bash build affected by the crash (see
+    test_multibyte_filename_argument_does_not_crash_alternate_bash_builds,
+    which is a no-op there), so a dynamic repro alone would not catch someone
+    later dropping the mitigation, or reintroducing a `case` statement or
+    `${var%pattern}`/`${var#pattern}` expansion -- the two constructs that
+    crash on the affected bash builds -- ahead of the fix. This checks the
+    fix statically instead: `export LC_ALL=C` must be present, and no
+    top-level statement before it may contain either construct.
+    """
+    source = SOURCE_WRAPPER.read_text(encoding="utf-8")
+    lines = source.splitlines()
+    top_level = _top_level_statement_lines(lines)
+
+    lc_all_index = next(
+        (i for i, line in top_level if re.match(r"^export LC_ALL=C\s*$", line)),
+        None,
+    )
+    expect(
+        lc_all_index is not None,
+        "expected 'export LC_ALL=C' in Resources/bin/open to force byte-wise "
+        "glob/pattern matching (see the multibyte SIGSEGV fix)",
+        failures,
+    )
+    if lc_all_index is None:
+        return
+
+    for i, line in top_level:
+        if i >= lc_all_index:
+            break
+        code = _strip_trailing_comment(line)
+        if _CASE_RE.search(code) or _PATTERN_REMOVAL_RE.search(code):
+            failures.append(
+                f"Resources/bin/open:{i + 1}: top-level case/pattern-removal "
+                f"construct appears before 'export LC_ALL=C': {line!r}"
+            )
+
+    arg_scan_index = next(
+        (i for i, line in top_level if line.startswith('for arg in "$@"; do')),
+        None,
+    )
+    expect(
+        arg_scan_index is not None,
+        "expected the wrapper's arg-scanning loop ('for arg in \"$@\"; do') to still exist",
+        failures,
+    )
+    if arg_scan_index is None:
+        return
+
+    expect(
+        lc_all_index < arg_scan_index,
+        "'export LC_ALL=C' must be set before the wrapper starts case/pattern "
+        "matching against arguments, or the multibyte SIGSEGV fix has no effect",
+        failures,
+    )
+
+
+def test_system_open_observes_original_locale(failures: list[str]) -> None:
+    """system_open must restore the caller's locale, not leak LC_ALL=C.
+
+    `export LC_ALL=C` forces byte-wise matching for this script's own bash
+    pattern matching (see test_wrapper_forces_c_locale_before_arg_processing),
+    but /usr/bin/open should still see whatever locale the caller actually
+    had -- forcing C for it too would be an unintended side effect on real
+    locale-sensitive behavior in the system `open` command.
+    """
+    filename = "readme.txt"
+
+    # Case 1: caller had a real, non-C locale set.
+    locale_capture: dict[str, list[str]] = {}
+    run_wrapper(
+        args=[filename],
+        intercept_setting="1",
+        whitelist="",
+        local_files=[filename],
+        locale_capture=locale_capture,
+        extra_env={"LC_ALL": "ja_JP.UTF-8"},
+    )
+    expect(
+        locale_capture.get("open") == ["ja_JP.UTF-8"],
+        "system_open should observe the caller's original LC_ALL "
+        f"('ja_JP.UTF-8'), not the wrapper's internal C locale, got {locale_capture.get('open')!r}",
+        failures,
+    )
+
+    # Case 2: caller had no LC_ALL set at all -- system_open must not inherit
+    # the wrapper's forced C either; it should see LC_ALL unset too.
+    locale_capture_unset: dict[str, list[str]] = {}
+    run_wrapper(
+        args=[filename],
+        intercept_setting="1",
+        whitelist="",
+        local_files=[filename],
+        locale_capture=locale_capture_unset,
+        extra_env={"LC_ALL": None},
+    )
+    expect(
+        locale_capture_unset.get("open") == ["<unset>"],
+        "system_open should observe LC_ALL as unset when the caller never "
+        f"set it, got {locale_capture_unset.get('open')!r}",
+        failures,
+    )
+
+
+def test_cmux_cli_observes_original_locale(failures: list[str]) -> None:
+    """The cmux CLI invocation must also restore the caller's original locale."""
+    url = "https://example.com"
+
+    locale_capture: dict[str, list[str]] = {}
+    run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="*.example.com",
+        locale_capture=locale_capture,
+        extra_env={"LC_ALL": "de_DE.UTF-8"},
+    )
+    expect(
+        locale_capture.get("cmux") == ["de_DE.UTF-8"],
+        "the cmux CLI should observe the caller's original LC_ALL "
+        f"('de_DE.UTF-8'), not the wrapper's internal C locale, got {locale_capture.get('cmux')!r}",
+        failures,
+    )
+
+    locale_capture_unset: dict[str, list[str]] = {}
+    run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="*.example.com",
+        locale_capture=locale_capture_unset,
+        extra_env={"LC_ALL": None},
+    )
+    expect(
+        locale_capture_unset.get("cmux") == ["<unset>"],
+        "the cmux CLI should observe LC_ALL as unset when the caller never "
+        f"set it, got {locale_capture_unset.get('cmux')!r}",
+        failures,
+    )
+
+
 def test_unicode_whitelist_matches_punycode_url(failures: list[str]) -> None:
     url = "https://xn--bcher-kva.example/path"
     open_log, cmux_log, code, stderr = run_wrapper(
@@ -595,6 +1050,7 @@ def test_punycode_whitelist_matches_unicode_url(failures: list[str]) -> None:
 
 
 def main() -> int:
+    """Run every open-wrapper regression test and report aggregate pass/fail."""
     failures: list[str] = []
     test_toggle_disabled_passthrough(failures)
     test_toggle_disabled_case_insensitive_passthrough(failures)
@@ -617,6 +1073,13 @@ def main() -> int:
     test_non_file_scheme_html_passthrough(failures)
     test_mailto_html_passthrough(failures)
     test_local_non_html_file_passthrough(failures)
+    test_multibyte_filename_argument_does_not_crash_default_bash(failures)
+    test_multibyte_filename_argument_does_not_crash_alternate_bash_builds(failures)
+    test_top_level_statement_line_heuristics(failures)
+    test_pattern_removal_regex_detects_positional_parameters(failures)
+    test_wrapper_forces_c_locale_before_arg_processing(failures)
+    test_system_open_observes_original_locale(failures)
+    test_cmux_cli_observes_original_locale(failures)
     test_unicode_whitelist_matches_punycode_url(failures)
     test_punycode_whitelist_matches_unicode_url(failures)
 

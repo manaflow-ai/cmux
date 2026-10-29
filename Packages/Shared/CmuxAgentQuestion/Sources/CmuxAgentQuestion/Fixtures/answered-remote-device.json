@@ -1,0 +1,57 @@
+{
+  "id": "perm_toolu_single",
+  "source": {
+    "harness": "claude",
+    "session": "sess_claude_1",
+    "permission": "perm_toolu_single",
+    "agentName": "Claude Code",
+    "answerOption": "allow_once",
+    "rejectOption": "reject_once",
+    "toolCall": "toolu_single"
+  },
+  "items": [
+    {
+      "id": "q0",
+      "header": "Auth method",
+      "prompt": "Which auth method should the API use?",
+      "options": [
+        {
+          "id": "OAuth 2.0",
+          "label": "OAuth 2.0",
+          "detail": "Delegated sign-in through the identity provider; best for third-party clients."
+        },
+        {
+          "id": "API keys",
+          "label": "API keys",
+          "detail": "One static key per integration. Simple, but keys must be rotated by hand."
+        },
+        {
+          "id": "Passkeys",
+          "label": "Passkeys",
+          "detail": "WebAuthn credentials bound to the device. No shared secret on the server."
+        }
+      ],
+      "multiSelect": false,
+      "allowsOther": true
+    }
+  ],
+  "state": {
+    "kind": "answered",
+    "answer": {
+      "selections": {
+        "q0": {
+          "optionIDs": [
+            "OAuth 2.0"
+          ]
+        }
+      },
+      "respondent": {
+        "participant": "user_local",
+        "displayName": "Lawrence",
+        "device": "Lawrence's iPhone",
+        "isRemote": true
+      },
+      "answeredAtMs": 1791331260000
+    }
+  }
+}
