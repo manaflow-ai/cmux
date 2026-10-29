@@ -1065,21 +1065,34 @@ fn rows_with(auth: &Auth) -> Option<Result<Vec<Value>, String>> {
         Ok(credential) => credential?,
         Err(message) => return Some(Err(message)),
     };
-    let rows = platform_origin(auth.platform.as_deref(), &env).and_then(|origin| {
-        let platform = Platform::new(origin, credential, LIST_TIMEOUT).map_err(|f| f.message)?;
-        let entries = platform.credentials().map_err(|e| e.failure("the machine list").message)?;
-        let now = now_ms();
-        Ok(entries.iter().filter_map(joined).map(|machine| machine.row(now)).collect())
-    });
-    Some(rows)
+    Some(rows_signed_in(auth.platform.as_deref(), credential))
 }
 
-/// `cmux device list`'s joined rows, with its `--platform` and `--cloud-token-file`.
-pub(crate) fn rows_for_devices(
-    platform: Option<String>,
+fn rows_signed_in(platform: Option<&str>, credential: String) -> Result<Vec<Value>, String> {
+    let env = |key: &str| std::env::var(key).ok();
+    let origin = platform_origin(platform, &env)?;
+    let platform = Platform::new(origin, credential, LIST_TIMEOUT).map_err(|f| f.message)?;
+    let entries = platform.credentials().map_err(|e| e.failure("the machine list").message)?;
+    let now = now_ms();
+    Ok(entries.iter().filter_map(joined).map(|machine| machine.row(now)).collect())
+}
+
+/// The cmux credential `cmux device …` signs in with: `--cloud-token-stdin`, else
+/// `--cloud-token-file`, else `CMUX_CLOUD_ACCESS_TOKEN`; `None` when none is given.
+pub(crate) fn device_credential(
     token_file: Option<PathBuf>,
+    token_stdin: bool,
+) -> Result<Option<String>, String> {
+    let auth = Auth { platform: None, token_file, token_stdin };
+    read_credential(&auth, &|key: &str| std::env::var(key).ok(), &mut std::io::stdin().lock())
+}
+
+/// `cmux device list`'s joined rows, signed in with `credential` (`None`: no rows, no note).
+pub(crate) fn rows_for_devices(
+    platform: Option<&str>,
+    credential: Option<String>,
 ) -> Option<Result<Vec<Value>, String>> {
-    rows_with(&Auth { platform, token_file, token_stdin: false })
+    credential.map(|credential| rows_signed_in(platform, credential))
 }
 
 /// The daemon's `machine.list` result with the joined machines added. Fails

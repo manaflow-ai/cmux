@@ -72,7 +72,9 @@ pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
 #[cfg(unix)]
 mod machine_join;
 #[cfg(unix)]
-pub(crate) use machine_join::rows_for_devices as joined_machine_rows;
+pub(crate) use machine_join::{
+    device_credential as joined_machine_credential, rows_for_devices as joined_machine_rows,
+};
 mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;
