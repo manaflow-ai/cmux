@@ -124,7 +124,7 @@ fn create_key_if_absent(path: &Path, bytes: &[u8; 32]) -> Result<()> {
         Ok(())
     })();
     let _ = std::fs::remove_file(&temporary);
-    result.map_err(Into::into)
+    result
 }
 
 #[cfg(test)]
