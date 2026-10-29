@@ -66,6 +66,8 @@ import Testing
         #expect(unknown.isEmpty, "agent policy names unknown keys: \(unknown.sorted())")
         #expect(SettingsSchema.agentSettableKeys.contains("appearance.backgroundOpacity"))
         #expect(SettingsSchema.agentSettableKeys.contains("appearance.backgroundBlur"))
+        #expect(SettingsSchema.agentSettableKeys.contains("appearance.displayBackgrounds"))
+        #expect(SettingsSchema.agentSettableKeys.contains("appearance.displayBackgroundRotations"))
     }
 
     /// The checked-in schema is the descriptor registry consumed by the
