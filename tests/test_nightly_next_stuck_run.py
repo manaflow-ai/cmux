@@ -49,7 +49,7 @@ jq = args[args.index("--jq") + 1] if "--jq" in args else "."
 
 
 def out(value):
-    result = subprocess.run(["jq", "-r", jq], input=json.dumps(value), capture_output=True, text=True)
+    result = subprocess.run(["jq", "-rc", jq], input=json.dumps(value), capture_output=True, text=True)
     sys.stdout.write(result.stdout)
     sys.exit(result.returncode)
 
@@ -86,7 +86,9 @@ if "/workflows/nightly.yml/runs?" in path:
     size = int(os.environ.get("PAGE", "2"))
     for start in range(0, max(len(chosen), 1), size):  # --paginate: --jq applies to each page
         page = {"workflow_runs": chosen[start:start + size]}
-        result = subprocess.run(["jq", "-r", jq], input=json.dumps(page), capture_output=True, text=True)
+        if os.environ.get("RUNS_AS_OBJECT"):  # a malformed page: workflow_runs an object
+            page = {"workflow_runs": {str(run["id"]): run for run in chosen[start:start + size]}}
+        result = subprocess.run(["jq", "-rc", jq], input=json.dumps(page), capture_output=True, text=True)
         sys.stdout.write(result.stdout)
         if result.returncode:  # gh --jq fails on a jq error, as the real one does
             sys.exit(result.returncode)
@@ -102,6 +104,8 @@ if rest == ["jobs"]:
     counter.write_text(str(reads + 1))
     later = env("JOBS_LATER", "{}")
     jobs = later[run_id] if reads >= 1 and run_id in later else env("JOBS", "{}").get(run_id, [])
+    if os.environ.get("JOBS_AS_OBJECT"):  # a malformed page: jobs an object, not a list
+        out({"jobs": {str(i): job for i, job in enumerate(jobs)}})
     out({"jobs": jobs})
 if rest[:1] == ["attempts"]:
     out({"jobs": []})
@@ -275,6 +279,15 @@ class StuckRun(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.writes(calls), [], case)
                 self.assertIn("could not be read; left alone", result.stdout)
+
+    def test_a_page_whose_list_is_an_object_cancels_nothing(self):
+        # jq's `.jobs[]` and `.workflow_runs[]` iterate an object's values too: a page whose list is an
+        # object must fail the read, not pass its values on as runs or jobs (review of db7f0edd).
+        for env in (dict(JOBS_AS_OBJECT="1"), dict(RUNS_AS_OBJECT="1")):
+            with self.subTest(env=env):
+                result, calls = self.run_script({7: [STUCK_DECIDE]}, next_runs=[run(7)], **env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.writes(calls), [])
 
     def test_a_finished_job_with_no_labels_is_a_normal_shape(self):
         # A skipped job comes back with labels []: the run is still judged, and cancelled when stuck.

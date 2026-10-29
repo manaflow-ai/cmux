@@ -77,13 +77,14 @@ promote='select((.display_title // "") | startswith("Promote nightly-next to"))'
 # A run's line, built only from fields of the right JSON type: jq would render a null as the word
 # "null", which a pattern on the text cannot tell from a real value. Any other shape is a jq error,
 # which fails the listing and cancels nothing.
+each_run='if (.workflow_runs | type) == "array" then .workflow_runs[] else error("not a list") end'
 typed_run='if (.id | type) == "number" and (.event | type) == "string" and (.head_sha | type) == "string" and (.run_attempt | type) == "number" and (.status | type) == "string" then . else error("a run of an unexpected shape") end'
 : >"$scratch/runs"
 for status in queued in_progress; do
   if ! gh api --paginate "repos/$repo/actions/workflows/nightly.yml/runs?branch=nightly-next&status=$status&per_page=100" \
-         --jq ".workflow_runs[] | $typed_run | \"\\(.id) \\(.event) \\(.head_sha) \\(.run_attempt)\"" >>"$scratch/runs" \
+         --jq "$each_run | $typed_run | \"\\(.id) \\(.event) \\(.head_sha) \\(.run_attempt)\"" >>"$scratch/runs" \
      || ! gh api --paginate "repos/$repo/actions/workflows/nightly.yml/runs?branch=main&event=workflow_dispatch&status=$status&per_page=100" \
-         --jq ".workflow_runs[] | $typed_run | $promote | \"\\(.id) promote \\(.head_sha) \\(.run_attempt)\"" >>"$scratch/runs"; then
+         --jq "$each_run | $typed_run | $promote | \"\\(.id) promote \\(.head_sha) \\(.run_attempt)\"" >>"$scratch/runs"; then
     warn "the unfinished nightly runs could not be listed; no run is cancelled this tick"
     exit 0
   fi
@@ -130,7 +131,8 @@ stuck() {
     --jq 'if type == "array" then length else error("not a list") end')" || return 1
   [[ "$deployments" =~ ^[0-9]+$ ]] || return 1
   [[ "$deployments" == 0 ]] || return 0
-  gh api --paginate "repos/$repo/actions/runs/$1/jobs?filter=latest&per_page=100" --jq '.jobs[]' >"$scratch/jobs" || return 1
+  gh api --paginate "repos/$repo/actions/runs/$1/jobs?filter=latest&per_page=100" \
+    --jq 'if (.jobs | type) == "array" then .jobs[] else error("not a list") end' >"$scratch/jobs" || return 1
   local job
   job="$(jq -rs --argjson now "$(date -u +%s)" --argjson minutes "$stuck_minutes" "$stuck_filter" "$scratch/jobs")" || return 1
   [[ -z "$job" ]] || printf '%s\t%s\n' "${state#* }" "$job"

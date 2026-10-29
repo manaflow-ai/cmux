@@ -48,7 +48,7 @@ fi
 # conclusion, attempt.
 # A run, only when every field this reads has its JSON type (a null renders as the word "null",
 # which no pattern on the text can tell apart); anything else is a jq error, and nothing is sent.
-typed_run='.workflow_runs[] | if (.id | type) == "number" and (.event | type) == "string" and (.status | type) == "string" and (.run_attempt | type) == "number" and ((.conclusion | type) == "string" or .conclusion == null) then . else error("a run of an unexpected shape") end'
+typed_run='if (.workflow_runs | type) == "array" then .workflow_runs[] else error("not a list") end | if (.id | type) == "number" and (.event | type) == "string" and (.status | type) == "string" and (.run_attempt | type) == "number" and ((.conclusion | type) == "string" or .conclusion == null) then . else error("a run of an unexpected shape") end'
 tip_runs() {
   gh api --paginate "repos/$repo/actions/workflows/nightly.yml/runs?branch=nightly-next&head_sha=$tip&per_page=100" \
     --jq "$typed_run"' | select(.event == "push" or .event == "workflow_dispatch") | "\(.id) \(.status) \(.conclusion // "-") \(.run_attempt)"' \
@@ -78,16 +78,16 @@ if [[ "$conclusion" != cancelled ]]; then
   exit 0
 fi
 if (( attempt >= max_attempts )); then
-  # Out of attempts: a fresh run of the tip. Read the tip's runs again right before the dispatch,
-  # so a replacement that started meanwhile is never doubled.
-  if ! again="$(set -o pipefail; tip_runs)" || [[ "$(head -n1 <<<"$again")" != "$id completed cancelled $attempt" ]]; then
-    echo "nightly-next tip ${tip:0:12}: its runs changed since they were read; not dispatched"
+  # Out of attempts: a fresh run of the tip. The last read before the dispatch
+  # (nightly_next_tip_owed.sh): nightly-next still at the tip, no run of it unfinished in any
+  # state, and this run still its newest, so a replacement is never doubled.
+  rc=0
+  why="$(bash "$(dirname "$0")/nightly_next_tip_owed.sh" "$repo" "$tip" "$id" "$attempt")" || rc=$?
+  if (( rc == 1 )); then
+    echo "nightly-next tip ${tip:0:12}: $why; not dispatched"
     exit 0
-  fi
-  # The dispatch builds whatever nightly-next points at then: send it only while that is still the
-  # tip whose runs were read, so the decision is about the commit that builds.
-  if ! now_tip="$(next_head)" || [[ "$now_tip" != "$tip" ]]; then
-    echo "nightly-next tip ${tip:0:12}: nightly-next moved (or could not be read) since it was read; not dispatched, the next tick decides for the new tip"
+  elif (( rc != 0 )); then
+    echo "::warning title=nightly-next tick::the tip ${tip:0:12} is owed a run, but $why; nothing dispatched this tick, the next tick tries again"
     exit 0
   fi
   GH_BUDGET_WAIT_ATTEMPTS=1 gh workflow run nightly.yml -R "$repo" --ref nightly-next

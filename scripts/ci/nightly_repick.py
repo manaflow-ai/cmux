@@ -5,8 +5,9 @@
 
 NIGHTLY_YML is nightly.yml at the run's head; JOBS_JSONL is the attempt's jobs, one JSON object a line
 (`gh api --paginate .../attempts/N/jobs --jq '.jobs[]'`), the jobs it kept from earlier attempts
-included. Prints the job id, or nothing, and why on stderr. Always exits 0 once its arguments read:
-the caller (scripts/ci/nightly_next_rerun.sh) then re-runs the attempt's failed jobs instead.
+included. Prints the job id, or nothing, and why on stderr, and exits 0: a decision (nothing means the
+caller, scripts/ci/nightly_next_rerun.sh, re-runs the attempt's failed jobs instead). A workflow that
+cannot be read or parsed is no decision: it exits non-zero, and the caller sends nothing.
 The safety rule is owned_pool_rescue.repick_job()'s, so the tick and the owned-pool rescue decide alike.
 
 The picker is not a fixed job name: it is read from the workflow. UNSERVED_NAMES lists the jobs of the
@@ -36,16 +37,17 @@ NEEDS_OUTPUTS = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs\.[A-Za-z0-9_-]+(?!
 
 
 def workflow_jobs(workflow: str) -> dict[str, Mapping]:
+    """The workflow's jobs by key. Raises ValueError when the file is not a workflow with jobs."""
     document = owned_pool_sources._load(workflow)
-    return {str(key): job for key, job in (document.get("jobs") or {}).items() if isinstance(job, Mapping)}
+    jobs = document.get("jobs")
+    if not isinstance(jobs, Mapping) or not jobs:
+        raise ValueError("not a workflow with jobs")
+    return {str(key): job for key, job in jobs.items() if isinstance(job, Mapping)}
 
 
 def pickers_of(workflow: str, names: list[str]) -> tuple[list[str], str]:
     """(the workflow jobs whose outputs the runs-on of any named job reads, in workflow order; why)."""
-    try:
-        spec = workflow_jobs(workflow)
-    except Exception as error:  # noqa: BLE001 - an unreadable file keeps the re-run of failed jobs
-        return [], f"the workflow file could not be read ({type(error).__name__})"
+    spec = workflow_jobs(workflow)  # raises on an unreadable file: no decision, the caller sends nothing
     found: list[str] = []
     for key, job in spec.items():
         pattern = owned_pool_rescue._job_name_pattern(key, job)

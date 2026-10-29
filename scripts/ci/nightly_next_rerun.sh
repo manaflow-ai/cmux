@@ -6,8 +6,8 @@
 # Callers: nightly_next_cancelled_tip.sh (the tip's push run) and nightly_next_stuck_run.sh (a
 # dispatch on nightly-next it cancelled). Needs gh (GH_TOKEN with actions: write) and python3.
 #
-# Nothing is re-run unless, right before the write, the run is still finished cancelled on the
-# attempt that was read and nightly-next still points at HEAD_SHA.
+# Nothing is re-run unless every read succeeds with the shape it expects, and, right before the
+# write, nightly_next_tip_owed.sh finds the tip still owed (see it).
 #
 # A re-run of failed jobs keeps the runner picker's outputs from the earlier attempt, so
 # the jobs that take their runner from that pick take its Blacksmith label again (nightly.yml takes
@@ -21,7 +21,7 @@
 # when scripts/ci/nightly_repick.py (owned_pool_rescue.repick_job(), the rescue's own rule) finds it
 # safe: every failed job needs the picker, and a finished job it would build again uploads only with
 # `overwrite: true`. A whole re-run is never sent: it would repeat jobs whose fixed-name uploads then
-# fail. Otherwise, or if a read fails, the failed jobs are re-run: GitHub creates them again, and
+# fail. Otherwise the failed jobs are re-run (a read that fails sends nothing): GitHub creates them again, and
 # each evaluates its runs-on against the current runner variables. A job whose runs-on is a literal
 # label goes back to that label; moving it is the runner set's failover, not this script's.
 set -euo pipefail
@@ -32,45 +32,48 @@ attempt="${3:?}"
 head_sha="${4:?}"
 what="${5:-run $id}"
 
-# Jobs of that attempt that ended with no runner: name<TAB>labels.
-unserved_filter='select((.conclusion == "cancelled" or .conclusion == "failure") and ((.runner_name // "") == "")) | "\(.name)\t\((.labels // []) | join(","))"'
+# Jobs of that attempt that ended with no runner: name<TAB>labels. Each page's jobs must be an array
+# of jobs with a string name and conclusion-or-null and a list of string labels; anything else is a jq
+# error. Every read below is fail-closed: a read that fails or comes back malformed sends no write at
+# all (not even the re-run of failed jobs), and the tip stays owed, so the next tick tries again.
+jobs_filter='if (.jobs | type) == "array" then .jobs[] else error("not a list") end | if (.name | type) == "string" and (.id | type) == "number" and (.status | type) == "string" and ((.conclusion | type) == "string" or .conclusion == null) and (.labels | type) == "array" and all(.labels[]; type == "string") then . else error("a job of an unexpected shape") end'
+unserved_filter='select((.conclusion == "cancelled" or .conclusion == "failure") and ((.runner_name // "") == "")) | "\(.name)\t\(.labels | join(","))"'
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
-unserved=""
-if gh api --paginate "repos/$repo/actions/runs/$id/attempts/$attempt/jobs?per_page=100" --jq '.jobs[]' >"$scratch/jobs"; then
-  unserved="$(jq -r "$unserved_filter" "$scratch/jobs")" || unserved=""
-else
-  echo "$what: could not read attempt $attempt's jobs; re-running its failed jobs"
-fi
+held() { echo "$what: $*; nothing re-run this tick, the next tick tries again"; exit 0; }
+gh api --paginate "repos/$repo/actions/runs/$id/attempts/$attempt/jobs?per_page=100" --jq "$jobs_filter" >"$scratch/jobs" \
+  || held "attempt $attempt's jobs could not be read"
+[[ -s "$scratch/jobs" ]] || held "attempt $attempt has no jobs to read"
+unserved="$(jq -r "$unserved_filter" "$scratch/jobs")" || held "attempt $attempt's jobs could not be parsed"
 # The picker job to re-run, when nightly.yml at the run's head says that is useful and safe.
+# nightly_repick.py answers a job id, or nothing with why (a decision: the failed jobs are re-run);
+# an unreadable workflow or a failing script is no decision, and sends nothing.
 picker=""
 if [[ -n "$unserved" ]]; then
   cut -f1 <<<"$unserved" >"$scratch/unserved"
-  if gh api "repos/$repo/contents/.github/workflows/nightly.yml?ref=$head_sha" --jq .content | base64 -d >"$scratch/nightly.yml"; then
-    picker="$(python3 "$(dirname "$0")/nightly_repick.py" "$scratch/nightly.yml" "$scratch/jobs" "$scratch/unserved" 2>"$scratch/why")" || picker=""
-    [[ "$picker" =~ ^[0-9]+$ ]] || picker=""
-  else
-    echo "nightly.yml at the run's head could not be read" >"$scratch/why"
-  fi
+  gh api "repos/$repo/contents/.github/workflows/nightly.yml?ref=$head_sha" \
+    --jq 'if (.content | type) == "string" then .content else error("no content") end' >"$scratch/nightly.b64" \
+    || held "nightly.yml at ${head_sha:0:12} could not be read"
+  base64 -d "$scratch/nightly.b64" >"$scratch/nightly.yml" 2>/dev/null && [[ -s "$scratch/nightly.yml" ]] \
+    || held "nightly.yml at ${head_sha:0:12} could not be decoded"
+  picker="$(python3 "$(dirname "$0")/nightly_repick.py" "$scratch/nightly.yml" "$scratch/jobs" "$scratch/unserved" 2>"$scratch/why")" \
+    || held "the picker check failed ($(head -n1 "$scratch/why" 2>/dev/null))"
+  [[ -z "$picker" || "$picker" =~ ^[0-9]+$ ]] || held "the picker check answered '$picker'"
 fi
 
-# The reads above may have waited out a rate limit, and a rescue may have re-run the run
-# meanwhile: re-read it right before the re-run, and send the re-run with no wrapper
-# retries (gh_budget_wait.sh), so a stale decision is never sent. A refused re-run fails
-# this step; the next tick decides again from fresh state.
-now="$(gh api "repos/$repo/actions/runs/$id" --jq 'if (.status | type) == "string" and (.run_attempt | type) == "number" and ((.conclusion | type) == "string" or .conclusion == null) then "\(.status) \(.conclusion // "-") \(.run_attempt)" else error("a run of an unexpected shape") end')"
-if [[ "$now" != "completed cancelled $attempt" ]]; then
-  echo "$what changed to '$now' since it was read; not re-run"
+# The last read before the write (nightly_next_tip_owed.sh): nightly-next still points at the run's
+# head, no other run of it is unfinished in any state, and the run is still its newest, finished
+# cancelled on the attempt read. The reads above may have waited out a rate limit, and meanwhile
+# a rescue, another tick or a person may have moved things. The re-run goes out with no wrapper
+# retries (gh_budget_wait.sh), so a stale decision is never sent. A refused re-run fails this
+# step; the next tick decides again from fresh state.
+rc=0
+why="$(bash "$(dirname "$0")/nightly_next_tip_owed.sh" "$repo" "$head_sha" "$id" "$attempt")" || rc=$?
+if (( rc == 1 )); then
+  echo "$what: $why; not re-run"
   exit 0
-fi
-# Only the tip is built again: nightly-next may have moved during the reads above (or a rate-limit
-# wait), and a re-run of the old commit would waste a whole nightly. Read the branch (refs API; the
-# tick's checkout has no credentials for git) right before the write; an unreadable branch sends
-# nothing.
-if ! now_tip="$(gh api "repos/$repo/git/ref/heads/nightly-next" --jq 'if (.object.sha | type) == "string" then .object.sha else error("not a commit") end')" \
-   || [[ "$now_tip" != "$head_sha" ]]; then
-  echo "$what: nightly-next is no longer at ${head_sha:0:12} (or could not be read); not re-run, the tip builds"
-  exit 0
+elif (( rc != 0 )); then
+  held "$why"
 fi
 if [[ -n "$unserved" ]]; then
   first="$(head -n1 <<<"$unserved")"

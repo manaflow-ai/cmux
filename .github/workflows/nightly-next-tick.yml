@@ -103,6 +103,7 @@ jobs:
             scripts/ci/nightly_next_rerun.sh
             scripts/ci/nightly_next_rolling.py
             scripts/ci/nightly_next_stuck_run.sh
+            scripts/ci/nightly_next_tip_owed.sh
             scripts/ci/nightly_repick.py
             scripts/ci/owned_pool_rescue.py
             scripts/ci/owned_pool_sources.py
