@@ -264,6 +264,24 @@ class MergeTests(TempRepoCase):
         self.assertEqual(git(self.repo, "rev-parse", "HEAD"), head)
         self.assertIn("already contains feat-cmux-next's tip", "\n".join(lines))
 
+    def test_a_feat_cmux_next_merge_never_reports_mains_guards_passed(self) -> None:
+        # Review of #27543: the tip of a base with no CI fast guards verdict must read as "missing", or the guard
+        # report says "main's CI fast guards passed on that commit" about a feat-cmux-next commit.
+        git(self.remote, "checkout", "-q", "-b", "feat-cmux-next")
+        feat = commit(self.remote, "feat work", {"feat.txt": "feat\n"})
+        git(self.remote, "checkout", "-q", "main")
+        seen = []
+        with mock.patch.object(merge_main.merge_main_resolver, "merge_and_resolve",
+                               lambda *a, **k: mock.Mock(status="merged", head_after=feat, resolved=[], blocking=[])), \
+                mock.patch.object(merge_main, "run_guards", lambda *a, **k: mock.Mock(failures=[], introduced=False,
+                                                                                         complete=True)), \
+                mock.patch.object(merge_main, "classify", lambda *a, **k: None), \
+                mock.patch.object(merge_main, "guard_report", lambda run, base, verdict: seen.append(verdict) or []):
+            opts = merge_main.Options(repo=self.repo, remote="origin", base="feat-cmux-next")
+            self.assertEqual(merge_main.merge_main(opts, source=lambda shas: {}, guard_command=["true"],
+                                                   output=lambda line: None), 0)
+        self.assertEqual(seen, ["missing"])
+
     def test_the_default_base_stays_main(self) -> None:
         self.assertEqual(merge_main.Options(repo=self.repo).base, "main")
         seen = []

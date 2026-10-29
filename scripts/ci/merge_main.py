@@ -55,8 +55,8 @@ import last_green_base  # noqa: E402
 
 CMUX_REMOTE_RE = re.compile(r"github\.com[:/]manaflow-ai/cmux(?:\.git)?/?$")
 BASE_BRANCH = "main"
-# The branches whose pushes run ci-fast-guards.yml (its `on: push: branches`): the only bases with a
-# green-commit verdict. A merge from any other base takes its tip.
+# The branches whose pushes run ci-fast-guards.yml (its `on: push: branches`): the only bases with a CI
+# fast guards verdict. A merge from any other base takes its tip.
 GREEN_PICK_BRANCHES = frozenset({"main"})
 
 
@@ -362,7 +362,10 @@ def finish_merge(options: Options, repo: Path, branch: str, remote: str, base_br
         output("merge-main: nothing merged. Wait for a green main commit, or pass --tip to merge the red tip"
                " (its failures will show on this branch).")
         return 1
-    base_verdict = "success" if base == selection.chosen else dict(selection.skipped).get(base, "missing")
+    # A base outside GREEN_PICK_BRANCHES merges its tip with no CI fast guards verdict at all ("missing"), never a
+    # "success" the guard report would read as "main's guards passed on that commit".
+    base_verdict = ("missing" if base_branch not in GREEN_PICK_BRANCHES
+                    else "success" if base == selection.chosen else dict(selection.skipped).get(base, "missing"))
     if options.tip and base != selection.chosen:
         output(f"merge-main: merging main's tip {base[:11]} ({base_verdict}) as asked with --tip")
     if options.dry_run:
