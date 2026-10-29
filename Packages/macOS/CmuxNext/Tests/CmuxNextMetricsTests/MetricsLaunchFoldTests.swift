@@ -39,8 +39,11 @@ struct MetricsLaunchFoldTests {
         try write(Launch(id: "launch-current", version: "1.3", samples: [9]), to: current)
     }
 
+    /// By its real path: macOS lists `/var/folders/...` (a symlink) as `/private/var/folders/...`, and the
+    /// fold's errors carry the URLs it listed, so a file the test names compares equal to the one it reports.
     private static func temporaryFolder() -> URL {
-        FileManager.default.temporaryDirectory.appending(path: "metrics-fold-\(UUID().uuidString)", directoryHint: .isDirectory)
+        FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
+            .appending(path: "metrics-fold-\(UUID().uuidString)", directoryHint: .isDirectory)
     }
 
     private func write(_ launch: Launch, to file: URL) throws {
