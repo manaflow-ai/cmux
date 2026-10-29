@@ -124,12 +124,13 @@ pub(super) fn fallback_not_started(e: &RpcError, from: &str, to: &str, why: &str
         e.message
     );
     let note = json!({"profile": to, "error": why});
-    match out.data.as_mut().and_then(Value::as_object_mut) {
-        Some(data) => {
+    match &mut out.data {
+        Some(Value::Object(data)) => {
             data.insert("fallback".into(), note);
         }
-        None if out.data.is_none() => out.data = Some(json!({"fallback": note})),
-        None => {}
+        None => out.data = Some(json!({"fallback": note})),
+        // Data that is no object stays as it was; the message says it.
+        Some(_) => {}
     }
     out
 }
