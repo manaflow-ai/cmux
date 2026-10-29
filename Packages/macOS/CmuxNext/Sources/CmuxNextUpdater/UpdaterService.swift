@@ -164,6 +164,12 @@ public final class UpdaterService {
     /// The install click replaced a stale staged build (``StagedUpdateRefresh/beforeInstall(updater:install:)``):
     /// the click carries over to the newer build's check and download (``carryInstallClick(_:)``).
     @ObservationIgnored var installAfterSwap = false
+    /// Why the newest build downloads in place of a stale or pulled one, or nil (``followNewestFetch(_:previous:)``).
+    var newestFetch: NewestFetch?
+    /// Pulled staged builds already dropped once (``followPulled()``).
+    @ObservationIgnored var droppedPulled: Set<String> = []
+    /// The running build's pull started its fetch of the newest build (once per launch).
+    @ObservationIgnored var runningPulledHandled = false
     /// Replaces the install click's disk preflight (``installPreflightFailure()``) in tests.
     @ObservationIgnored var preflightOverride: (() -> UpdateInstallPreflight.Failure?)?
     /// The cancel returns whether an installer was held and is now cancelled.
@@ -340,6 +346,7 @@ public final class UpdaterService {
         refreshUpdateSnooze()
         tipCheck.refresh(self)
         refreshReleasePush()
+        pulledWatch.onRefresh = { [weak self] in self?.followPulled() }
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
