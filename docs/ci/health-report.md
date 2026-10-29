@@ -72,11 +72,11 @@ them wait. When p90 climbs while minutes-per-job stay flat, no build regressed
 - **Same job failing across ≥3 unrelated heads.** Grouping by head SHA is what
   makes this a main signal rather than one author's problem. One PR failing the
   same job ten times is not here; the same job failing on heads that share
-  nothing is. A pull request's failure counts only at its current head (the
-  head the run's own pull request link names, else the newest head that
-  repository and branch's pull request runs in the window show): a red at a commit the
-  pull request has since replaced, such as a stale CLA policy guard event, says
-  nothing about it.
+  nothing is. A pull request's failure counts only at its current head: the
+  head GitHub's `pull_requests` link on its runs names, matched by pull request
+  number, never by branch name. A red at a commit the pull request has since
+  replaced, such as a stale CLA policy guard event, says nothing about it. A
+  run with no pull request link (a fork's) is never treated as superseded.
 - **Workflows ≥90% skipped** (with at least 20 runs in the window). A shim that
   decides it had nothing to do is cheap per run and expensive per day: it still
   queues, still writes a check, and still fills every list of runs anybody

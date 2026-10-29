@@ -247,13 +247,10 @@ class JobRow:
     branch: str
     event: str
     fork: bool
-    # The repository the head branch lives in ("" when the run does not say): with the branch, it names
-    # one pull request's head, so a fork's `main` is never this repository's.
-    head_repo: str = ""
-    # The head its pull request has now, from the run's own `pull_requests` link ("" when the run lists none:
-    # a fork's run, a pull_request_target run, a closed pull request). GitHub fills it at read time, so an old
-    # run of a pull request pushed since names the newer head, whatever its branch is called now.
-    pr_head: str = ""
+    # The pull requests into this repository the run belongs to, by number, from its `pull_requests` link
+    # (empty for a fork's run, whose link GitHub leaves empty, and for a deleted head repository). A pull
+    # request's identity is its number, never its branch name: a branch can be renamed or shared by forks.
+    prs: tuple[int, ...] = ()
 
 
 def never_got_a_runner(job: Mapping[str, Any]) -> bool:
@@ -266,16 +263,17 @@ def never_got_a_runner(job: Mapping[str, Any]) -> bool:
     return job.get("runner_id") == 0 and not job.get("runner_name") and not job.get("steps")
 
 
-def pr_head_of(run: Mapping[str, Any], repo: str) -> str:
-    """The current head of the run's pull request into this repository, from `pull_requests`, or ""."""
+def pull_links(run: Mapping[str, Any], repo: str | None = None) -> list[Mapping[str, Any]]:
+    """The run's `pull_requests` entries that have a number (and, given `repo`, whose base is that repository)."""
+    links = []
     for pull in run.get("pull_requests") or ():
-        base = ((pull.get("base") or {}).get("repo") or {}).get("name") or ""
-        if base and base.lower() != repo.rsplit("/", 1)[-1].lower():
+        if not isinstance(pull, Mapping) or not isinstance(pull.get("number"), int):
             continue
-        sha = str(((pull.get("head") or {}).get("sha")) or "")
-        if sha:
-            return sha
-    return ""
+        base = ((pull.get("base") or {}).get("repo") or {}).get("name") or ""
+        if repo and base and base.lower() != repo.rsplit("/", 1)[-1].lower():
+            continue
+        links.append(pull)
+    return links
 
 
 def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: str) -> list[JobRow]:
@@ -318,8 +316,7 @@ def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: st
                 branch=str(run.get("head_branch") or ""),
                 event=str(run.get("event") or ""),
                 fork=fork,
-                head_repo=str(((run.get("head_repository") or {}).get("full_name")) or ""),
-                pr_head=pr_head_of(run, repo),
+                prs=tuple(pull["number"] for pull in pull_links(run, repo)),
             )
         )
     return rows
@@ -479,54 +476,48 @@ class RepeatedFailure:
     branches: tuple[str, ...]
 
 
-def pull_request_heads(runs: Iterable[Mapping[str, Any]]) -> dict[tuple[str, str], str]:
-    """Each pull request branch's current head, as the window's runs show it.
+def pull_request_heads(runs: Iterable[Mapping[str, Any]], repo: str | None = None) -> dict[int, str]:
+    """Each pull request's current head, by pull request number, from the window's runs.
 
-    Keyed by (head repository, head branch); the value is the head_sha of the
-    branch's newest pull request run (by creation, then id). A push creates its
-    runs, queued ones included, the moment it lands, so the newest run names the
-    head the pull request has now; a re-run keeps its run's creation time and
-    never makes an older head look current. A run that names no head repository
-    (a deleted fork) has no pull request identity to share, so it names no head.
+    GitHub fills a run's `pull_requests[].head.sha` with the pull request's head
+    when the run is read, on old runs too (on manaflow-ai/cmux 2026-10-28, runs
+    for a superseded head listed the pull request's newer head), so it names the
+    head the pull request has now. A link with no head sha falls back to the
+    head_sha of that pull request's newest run (by creation, then id). Runs with
+    no link (a fork's, a deleted head repository's) name no head: a branch name
+    is never an identity.
     """
-    newest: dict[tuple[str, str], tuple[tuple[str, int], str]] = {}
+    linked: dict[int, str] = {}
+    newest: dict[int, tuple[tuple[str, int], str]] = {}
     for run in runs:
         if run.get("event") not in PULL_REQUEST_EVENTS:
             continue
-        branch, sha = str(run.get("head_branch") or ""), str(run.get("head_sha") or "")
-        repo = str(((run.get("head_repository") or {}).get("full_name")) or "").lower()
-        if not branch or not sha or not repo:
-            continue
-        key = (repo, branch)
         stamp = (str(run.get("created_at") or ""), int(run.get("id") or 0))
-        if key not in newest or stamp > newest[key][0]:
-            newest[key] = (stamp, sha)
-    return {key: sha for key, (_, sha) in newest.items()}
+        sha = str(run.get("head_sha") or "")
+        for pull in pull_links(run, repo):
+            number = pull["number"]
+            head = str(((pull.get("head") or {}).get("sha")) or "")
+            if head:
+                linked[number] = head
+            if sha and (number not in newest or stamp > newest[number][0]):
+                newest[number] = (stamp, sha)
+    return {**{number: sha for number, (_, sha) in newest.items()}, **linked}
 
 
-def superseded(row: JobRow, heads: Mapping[tuple[str, str], str]) -> bool:
+def superseded(row: JobRow, heads: Mapping[int, str]) -> bool:
     """A pull request job whose head is no longer that pull request's head.
 
     Its red says nothing about the pull request as it is (2026-10-28: 22 CLA
     policy guard "identity mismatch" reds were stale events for heads already
     replaced, and every one of those pull requests was green at its head).
     Push and schedule runs are never superseded here: a base branch failing on
-    commit after commit is the main-broken signal itself. Neither is a job whose
-    head repository is unknown: two such runs on one branch name need not be one
-    pull request, so neither can supersede the other. A run whose `pull_requests`
-    link names its pull request's head is judged by that, so a renamed branch
-    cannot hide an old head; the (repository, branch) heads cover the runs with
-    no link (pull_request_target runs, forks).
+    commit after commit is the main-broken signal itself. A job is matched to
+    its pull request by number only; one with no pull request link (a fork's
+    run, a deleted head repository's) is never superseded.
     """
     if row.event not in PULL_REQUEST_EVENTS:
         return False
-    if row.pr_head:
-        # The pull request itself says where its head is now: no branch name involved.
-        return row.pr_head != row.head_sha
-    if not row.head_repo:
-        return False
-    head = heads.get((row.head_repo.lower(), row.branch))
-    return head is not None and head != row.head_sha
+    return any(number in heads and heads[number] != row.head_sha for number in row.prs)
 
 
 def repeated_job_failures(

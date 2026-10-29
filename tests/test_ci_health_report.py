@@ -248,101 +248,105 @@ class WastePatternTests(unittest.TestCase):
         one_head = [row for row in self.rows if row.head_sha == "bbb2bbb2bbb2"] * 5
         self.assertEqual(report.repeated_job_failures(one_head), [])
 
+    @staticmethod
+    def linked(run, number, head):
+        """The run as GitHub lists it for pull request `number`, whose head is `head` now."""
+        return dict(run, pull_requests=[{"number": number, "head": {"sha": head}, "base": {"repo": {"name": "cmux"}}}])
+
+    def failing(self, run, name="lint", conclusion="failure"):
+        job = {"name": name, "labels": [LINUX], "status": "completed", "conclusion": conclusion,
+               "created_at": "2026-09-22T10:00:00Z", "started_at": "2026-09-22T10:00:10Z",
+               "completed_at": "2026-09-22T10:01:00Z"}
+        return report.job_rows(run, [job], REPO)
+
     def test_a_failure_at_a_superseded_pull_request_head_is_not_counted(self):
-        # feature-c and feature-d were each pushed again: their failures are at heads the pull
-        # requests no longer have, so only feature-b's failure (still its head) is left.
-        newer = [
-            dict(run, id=run["id"] + 100, head_sha=run["head_sha"][::-1], conclusion="success",
-                 created_at="2026-09-22T17:50:00Z")
-            for run in self.fixture["runs"] if run["head_branch"] in ("feature-c", "feature-d")
-        ]
-        runs = self.fixture["runs"] + newer
-        self.assertEqual(report.repeated_job_failures(self.rows, runs=runs), [])
-        self.assertEqual(report.repeated_job_failures(self.rows, min_heads=1, runs=runs)[0].heads, 1)
+        # feature-c and feature-d were each pushed again: their failures are at heads the pull requests no
+        # longer have, so only feature-b's failure (still its head) is left.
+        heads = {"feature-b": "bbb2bbb2bbb2", "feature-c": "c-newer", "feature-d": "d-newer"}
+        numbers = {"feature-b": 2, "feature-c": 3, "feature-d": 4}
+        runs = [self.linked(run, numbers[run["head_branch"]], heads[run["head_branch"]])
+                if run["head_branch"] in heads else run for run in self.fixture["runs"]]
+        rows = rows_from(dict(self.fixture, runs=runs))
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs), [])
+        self.assertEqual(report.repeated_job_failures(rows, min_heads=1, runs=runs)[0].heads, 1)
 
     def test_a_failure_still_at_each_pull_requests_head_counts(self):
-        repeated = report.repeated_job_failures(self.rows, runs=self.fixture["runs"])
+        numbers = {"feature-b": 2, "feature-c": 3, "feature-d": 4}
+        runs = [self.linked(run, numbers[run["head_branch"]], run["head_sha"])
+                if run["head_branch"] in numbers else run for run in self.fixture["runs"]]
+        rows = rows_from(dict(self.fixture, runs=runs))
+        repeated = report.repeated_job_failures(rows, runs=runs)
         self.assertEqual([(item.job, item.heads) for item in repeated], [("macOS / app-host tests", 3)])
 
     def test_a_stale_pull_request_target_event_is_not_counted(self):
-        # The CLA policy guard shape: a pull_request_target run for a head already replaced
-        # fails ("identity mismatch") while the newer head's run passes.
-        base = self.fixture["runs"][2]
+        # The CLA policy guard shape: a pull_request_target run for a head already replaced fails
+        # ("identity mismatch") while the newer head's run passes.
+        base = dict(self.fixture["runs"][2], event="pull_request_target", path=".github/workflows/cla-policy-guard.yml")
         runs, rows = [], []
-        for n, branch in enumerate(("pr-1", "pr-2", "pr-3")):
-            stale = dict(base, id=5000 + n, event="pull_request_target", head_branch=branch,
-                         head_sha=f"old{n}", path=".github/workflows/cla-policy-guard.yml",
-                         created_at="2026-09-22T16:00:00Z", conclusion="failure")
-            fresh = dict(stale, id=6000 + n, head_sha=f"new{n}", created_at="2026-09-22T16:01:00Z",
-                         conclusion="success")
+        for n in range(3):
+            stale = self.linked(dict(base, id=5000 + n, head_branch=f"pr-{n}", head_sha=f"old{n}",
+                                     created_at="2026-09-22T16:00:00Z", conclusion="failure"), 10 + n, f"new{n}")
+            fresh = dict(stale, id=6000 + n, head_sha=f"new{n}", created_at="2026-09-22T16:01:00Z", conclusion="success")
             runs += [stale, fresh]
-            job = {"name": "CLA policy guard", "labels": [LINUX], "status": "completed",
-                   "created_at": "2026-09-22T16:00:00Z", "started_at": "2026-09-22T16:00:10Z",
-                   "completed_at": "2026-09-22T16:00:40Z"}
-            rows += report.job_rows(stale, [dict(job, conclusion="failure")], REPO)
-            rows += report.job_rows(fresh, [dict(job, conclusion="success")], REPO)
+            rows += self.failing(stale, "CLA policy guard") + self.failing(fresh, "CLA policy guard", "success")
         self.assertEqual(report.repeated_job_failures(rows, runs=runs), [])
         # Without the runs (no head to compare with), every failure still counts, as before.
         self.assertEqual(report.repeated_job_failures(rows)[0].heads, 3)
 
+    def test_a_renamed_branch_cannot_hide_a_superseded_head(self):
+        base = self.fixture["runs"][2]
+        runs, rows = [], []
+        for n in range(3):
+            old = self.linked(dict(base, id=9000 + n, head_branch=f"old-name-{n}", head_sha=f"before{n}",
+                                   created_at="2026-09-22T10:00:00Z"), 100 + n, f"renamed{n}")
+            new = dict(old, id=9100 + n, head_branch=f"new-name-{n}", head_sha=f"renamed{n}",
+                       created_at="2026-09-22T11:00:00Z", conclusion="success")
+            runs += [old, new]
+            rows += self.failing(old) + self.failing(new, conclusion="success")
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs), [])
+        at_head = [row for run in runs if run["id"] >= 9100 for row in self.failing(run)]
+        self.assertEqual(report.repeated_job_failures(at_head, runs=runs)[0].heads, 3)
+
     def test_runs_with_an_unknown_head_repository_never_supersede_each_other(self):
-        # Two deleted forks' pull requests on the same branch name: no shared identity, so the older
-        # failure is not hidden as stale by the newer one.
+        # Two deleted forks' pull requests on the same branch name: no link, so no shared identity, and the
+        # older failure is not hidden as stale by the newer one.
         base = self.fixture["runs"][2]
         runs, rows = [], []
         for n in range(3):
             older = dict(base, id=8000 + n, head_branch="patch-1", head_sha=f"gone-a{n}", head_repository=None,
-                         created_at=f"2026-09-22T1{n}:00:00Z", conclusion="failure")
+                         pull_requests=[], created_at=f"2026-09-22T1{n}:00:00Z", conclusion="failure")
             newer = dict(older, id=8100 + n, head_sha=f"gone-b{n}", created_at=f"2026-09-22T1{n}:30:00Z")
             runs += [older, newer]
-            job = {"name": "lint", "labels": [LINUX], "status": "completed", "conclusion": "failure",
-                   "created_at": "2026-09-22T10:00:00Z", "started_at": "2026-09-22T10:00:10Z",
-                   "completed_at": "2026-09-22T10:01:00Z"}
-            rows += report.job_rows(older, [job], REPO) + report.job_rows(newer, [job], REPO)
+            rows += self.failing(older) + self.failing(newer)
         self.assertEqual(report.pull_request_heads(runs), {})
         self.assertEqual(report.repeated_job_failures(rows, runs=runs)[0].heads, 6)
 
-    def test_a_renamed_branch_cannot_hide_a_superseded_head(self):
-        # The pull request's own link names its head now; the old run's branch name no longer matches the
-        # newer run's, so the branch key alone would keep the old failures.
+    def test_a_fork_pull_requests_runs_are_never_superseded(self):
+        # GitHub lists no pull request on a fork's run; a same-named branch of ours with a link must not
+        # supersede it.
+        fork = dict(self.fixture["runs"][-1], conclusion="failure")  # outsider/cmux, contributor-fix
+        ours = self.linked(dict(self.fixture["runs"][2], id=7100, head_branch="contributor-fix", head_sha="ours"),
+                           50, "ours")
+        runs = [dict(fork, id=7000 + n, head_sha=f"fork{n}") for n in range(3)] + [ours]
+        rows = [row for run in runs[:3] for row in self.failing(run)]
+        self.assertEqual(report.pull_request_heads(runs), {50: "ours"})
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs)[0].heads, 3)
+
+    def test_the_links_head_wins_over_the_newest_run(self):
+        # An old head's run created later (a re-dispatch) does not decide: the link names the head now.
         base = self.fixture["runs"][2]
-        runs, rows = [], []
-        job = {"name": "lint", "labels": [LINUX], "status": "completed", "conclusion": "failure",
-               "created_at": "2026-09-22T10:00:00Z", "started_at": "2026-09-22T10:00:10Z",
-               "completed_at": "2026-09-22T10:01:00Z"}
-        for n in range(3):
-            link = [{"number": 100 + n, "head": {"sha": f"renamed{n}"}, "base": {"repo": {"name": "cmux"}}}]
-            old = dict(base, id=9000 + n, head_branch=f"old-name-{n}", head_sha=f"before{n}", pull_requests=link,
-                       created_at="2026-09-22T10:00:00Z", conclusion="failure")
-            new = dict(old, id=9100 + n, head_branch=f"new-name-{n}", head_sha=f"renamed{n}",
-                       created_at="2026-09-22T11:00:00Z", conclusion="success")
-            runs += [old, new]
-            rows += report.job_rows(old, [job], REPO) + report.job_rows(new, [dict(job, conclusion="success")], REPO)
-        self.assertEqual(report.repeated_job_failures(rows, runs=runs), [])
-        # A failure at the head its link names still counts.
-        at_head = [r for run in runs if run["id"] >= 9100
-                   for r in report.job_rows(dict(run, conclusion="failure"), [job], REPO)]
-        self.assertEqual(report.repeated_job_failures(at_head, runs=runs)[0].heads, 3)
+        old = self.linked(dict(base, id=1, head_sha="old", created_at="2026-09-22T12:00:00Z"), 9, "new")
+        new = self.linked(dict(base, id=2, head_sha="new", created_at="2026-09-22T11:00:00Z"), 9, "new")
+        self.assertEqual(report.pull_request_heads([old, new]), {9: "new"})
+        unlinked = dict(old, pull_requests=[{"number": 9}])
+        self.assertEqual(report.pull_request_heads([unlinked, dict(new, pull_requests=[{"number": 9}])]), {9: "old"})
 
     def test_base_branch_failures_across_commits_still_count(self):
         base = self.fixture["runs"][5]
         runs = [dict(base, id=7000 + n, head_sha=f"main{n}", created_at=f"2026-09-22T1{n}:00:00Z",
                      conclusion="failure") for n in range(3)]
-        job = {"name": "build", "labels": [LINUX], "status": "completed", "conclusion": "failure",
-               "created_at": "2026-09-22T10:00:00Z", "started_at": "2026-09-22T10:00:10Z",
-               "completed_at": "2026-09-22T10:05:00Z"}
-        rows = [row for run in runs for row in report.job_rows(run, [job], REPO)]
+        rows = [row for run in runs for row in self.failing(run, "build")]
         self.assertEqual(report.repeated_job_failures(rows, runs=runs)[0].heads, 3)
-
-    def test_a_forks_branch_is_not_this_repositorys_branch_of_the_same_name(self):
-        heads = report.pull_request_heads([
-            {"event": "pull_request", "head_branch": "main", "head_sha": "fork1", "id": 1,
-             "created_at": "2026-09-22T16:00:00Z", "head_repository": {"full_name": "outsider/cmux"}},
-            {"event": "pull_request", "head_branch": "main", "head_sha": "ours1", "id": 2,
-             "created_at": "2026-09-22T17:00:00Z", "head_repository": {"full_name": REPO}},
-        ])
-        self.assertEqual(heads[("outsider/cmux", "main")], "fork1")
-        self.assertEqual(heads[(REPO.lower(), "main")], "ours1")
 
     def test_a_workflow_whose_runs_are_all_skipped_is_surfaced(self):
         skipped = report.mostly_skipped_workflows(self.fixture["runs"], min_runs=5)
