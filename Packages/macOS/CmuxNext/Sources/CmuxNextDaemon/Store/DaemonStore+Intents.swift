@@ -94,7 +94,6 @@ extension DaemonStore {
     /// Reported after the overlay is back (`withOverlayLifted`).
     private func settleIntent(_ transaction: ClientTransactionID, _ settlement: IntentSettlement) {
         guard let removed = intentLog.remove(transaction) else { return }
-        intentSettlements.append((settlement, removed.kind, removed.cause))
         // A refused create held a guessed tab that was another create's: guess it again.
         if settlement == .rejected, !removed.createdConfirmed, let surface = removed.createdSurface {
             ProvisionalTab.reguess(surface, in: self)
@@ -115,9 +114,7 @@ extension DaemonStore {
         liftOverlay()
         sidebarNeedsRecompute = flagged
         let result = body()
-        for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) }) {
-            intentSettlements.append((.applied, intent.kind, intent.cause))
-        }
+        _ = intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, in: self) })
         releaseSettledProvisionalPanes()
         releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
@@ -130,13 +127,6 @@ extension DaemonStore {
         checkOverlayConservation(confirmed: confirmedTabs)
         recordMirror()
         workspaceListMayHaveChanged()
-        // Observers see the visible state with the other intents on it.
-        let settled = intentSettlements
-        intentSettlements.removeAll()
-        // The totals change with the highest cause of the intents that left (StoreCauses).
-        if let cause = settled.lazy.map({ $0.cause }).max() {
-            causes.with(cause) { intentTotals = intentTotals.adding(settled.lazy.map { ($0.settlement, $0.intent) }) }
-        }
         CancelledCreation.requestCloses(in: self)
         resumeIdleWaits()
         return result

@@ -1,9 +1,6 @@
 // swift-tools-version: 6.2
 
 import PackageDescription
-#if os(Linux)
-import Foundation
-#endif
 
 // Umbrella package for the cmux-next app (plans/cmux-next/shell.md).
 // The Xcode target `cmux-next` compiles only App/main.swift and links the
@@ -12,7 +9,7 @@ import Foundation
 //
 // Dependency direction (no cycles, no upward imports):
 //   CmuxNextApp -> every feature module
-//   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable); Oracle (the layout facet)
+//   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
 //   CmuxNextBrowserCore -> Compat, Wakeups, CmuxSafeConcurrency (the browser's engine-neutral values and protocols; Browser re-exports it)
 //   CmuxNextFavicons -> CmuxNextBrowser, CmuxNextTabs (public read-only favicon leaf)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Tabs, Sidebar -> CmuxNextIcons; Palette -> Design, Actions
@@ -60,9 +57,9 @@ import Foundation
 //   CmuxNextInputCore -> Compat, swift-atomics (input latency: event kinds, stages, open-slot table, closed-slot
 //     ring, buckets; no AppKit; plans/cmux-next/chrome-parity/p04-input.md section 3; Compat's Atomic for
 //     the counters, swift-atomics for the table's packed UnsafeAtomic storage, which Compat's Atomic cannot lay out)
-//   CmuxNextOracle -> system frameworks only (the refactor oracle's facet providers, the one immutable list the
-//     composition root builds and the snapshot capture; Control serves it as debug.oracle.snapshot;
-//     every source is under DEBUG || CMUX_BENCH_HOOKS, so Release builds an empty module; p15-oracle.md section 3A)
+//   CmuxNextOracle -> system frameworks only (debug.oracle.snapshot's overlays facet, the one immutable list the
+//     composition root builds and the snapshot capture; every source is under DEBUG || CMUX_BENCH_HOOKS, so
+//     Release builds an empty module)
 //   CmuxNextInput -> InputCore, Signposts, Wakeups (the one input tap: typed subscriptions by class, phase and window;
 //     globalObserve; p04-input.md section 3 (A); PointerFrameConsumer.post(NSEvent) into Wakeups, (C);
 //     InputLatencyTracker, Chrome's EventLatency over CommitBoundary and PresentationClock, the input.latency signpost,
@@ -1059,10 +1056,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Browser tabs (the App's browser tab domain, moved out leaf-first): the engine a new tab
         // gets (BrowserEngineResolver) and where it goes (BrowserTabRoute). Pure; the App composes it.
-        // CmuxNextOracle: the tabs facet's values read through BrowserTab (DEV and bench only).
         .target(
             name: "CmuxNextBrowserTabs",
-            dependencies: ["CmuxNextBrowser", "CmuxNextDaemon", "CmuxNextSettings", "CmuxNextOracle"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextDaemon", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1377,14 +1373,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextServerHelper"],
             swiftSettings: daemonSwiftSettings
         ),
-        // The oracle's config suite, app side: dumps the effective config of
-        // every tests/oracle/corpus/config file; cmux-config's oracle_effective example dumps the
-        // daemon side. An executable, not a test target; the app does not link it.
-        .executableTarget(
-            name: "OracleConfigDump",
-            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
-            swiftSettings: daemonSwiftSettings
-        ),
         .target(
             name: "CmuxNextResources",
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign"],
@@ -1472,8 +1460,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // TerminalAttachDriver runs CmuxNextInputModel's TerminalAttachMachine.
                 "CmuxNextInputModel",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
-                // OracleLayoutFacet (DEBUG || CMUX_BENCH_HOOKS): the layout facet from LayoutModel values.
-                "CmuxNextOracle",
                 "CmuxNextTrace",
                 "CmuxNextWakeups",
                 // OnceContinuation.
@@ -1864,11 +1850,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
-        // The refactor oracle's facet providers and snapshot capture (p15-oracle.md section 3A): the
-        // App builds the one provider list (OracleHost) and Control serves it as debug.oracle.snapshot in
-        // DEV and bench builds. Pure values: no AppKit, no control socket, so headless services can too.
-        // Every source is under DEBUG || CMUX_BENCH_HOOKS (p15-oracle.md section 4 rule 3): Release builds it empty.
-        // CmuxNextCompat: the ax facet reads the string tables with the checked file calls.
+        // `debug.oracle.snapshot`'s facet list and capture (only the overlays facet stays, for the Chromium Host
+        // find rows): the App builds the one provider list (OracleHost) and Control serves it in DEV and bench
+        // builds. Every source is under DEBUG || CMUX_BENCH_HOOKS: Release builds it empty.
         .target(
             name: "CmuxNextOracle",
             dependencies: ["CmuxNextCompat"],
@@ -2488,34 +2472,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
     ] + [appFFI]
 
-/// Linux SwiftPM copies an `.xcstrings` catalog into the bundle as JSON that Foundation cannot read.
-/// In the Linux mode (`CMUX_SWIFTPM_TARGET_LINUX=1`, plans/cmux-next/chrome-parity/p15-oracle.md H),
-/// a target with a catalog takes the tables scripts/cmux-next/linux/compile-xcstrings.py compiled
-/// from it, linked into its folder as `LinuxStringTables/<lang>.lproj/<table>.strings`; without
-/// them the build stops on that missing folder. macOS compiles the catalogs itself.
-func addLinuxStringTables(to targets: [Target]) {
-#if os(Linux)
-    let files = FileManager.default
-    for target in targets {
-        let parent: String
-        switch target.type {
-        case .regular, .executable: parent = "Sources"
-        case .test: parent = "Tests"
-        default: continue
-        }
-        let folder = Context.packageDirectory + "/" + (target.path ?? parent + "/" + target.name)
-        let hasCatalog = files.enumerator(atPath: folder)?.contains { ($0 as? String)?.hasSuffix(".xcstrings") == true }
-        if hasCatalog == true {
-            target.resources = (target.resources ?? []) + [.process("LinuxStringTables")]
-        }
-    }
-#endif
-}
-
-if Context.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
-    addLinuxStringTables(to: packageTargets)
-}
-
 let package = Package(
     name: "CmuxNext",
     defaultLocalization: "en",
@@ -2569,238 +2525,3 @@ let package = Package(
     ],
     targets: packageTargets,
 )
-
-#if os(Linux)
-// The Linux mode (plans/cmux-next/chrome-parity/p15-oracle.md section H): only the Linux tier scripts
-// (scripts/cmux-next/linux/) set CMUX_SWIFTPM_TARGET_LINUX. A build for an Apple platform, here or on a
-// Linux host, never sets it, so the Apple manifest above, its dump-package and Package.resolved are the
-// same with or without this block. The mode keeps the tier's targets and only the packages they use.
-// The tier is a literal in this file, never a file read: SwiftPM's manifest cache is keyed on this text.
-import Foundation
-
-if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
-    /// The Linux tier as scripts/cmux-next/linux/linux-tier.py renders it from linux-tier.json.
-    struct LinuxTier {
-        struct FFI {
-            let replaces: String
-            let target: String
-            let library: String
-            let libraryDirectory: String
-        }
-
-        struct Generated {
-            let targets: [String]
-            let testTargets: [String]
-            let products: [String]
-            let pathDependencies: [String]
-            let remoteDependencies: [String]
-            let linuxDependencies: [String: [String]]
-        }
-
-        let ffi: FFI
-        let generated: Generated
-
-        var zlibTarget: String { "CZlib" }
-        var cryptoPackage: String { "swift-crypto" }
-
-        /// SwiftPM's identity of a package location: its last path component without `.git`, lowercased.
-        func identity(_ location: String) -> String {
-            let last = location.split(separator: "/").last.map(String.init) ?? location
-            return (last.hasSuffix(".git") ? String(last.dropLast(4)) : last).lowercased()
-        }
-
-        /// The Linux-only targets the tier lists: the FFI module map in place of the xcframework, and zlib.
-        func linuxTargets(packageDirectory: String) -> [Target] {
-            var targets: [Target] = []
-            if generated.targets.contains(ffi.target) {
-                targets.append(Target.target(
-                    name: ffi.target,
-                    path: "Sources/" + ffi.target,
-                    publicHeadersPath: ".",
-                    linkerSettings: [
-                        .unsafeFlags(["-L", packageDirectory + "/" + ffi.libraryDirectory]),
-                        .linkedLibrary(ffi.library),
-                    ]
-                ))
-            }
-            if generated.targets.contains(zlibTarget) {
-                targets.append(Target.systemLibrary(name: zlibTarget, path: "Sources/" + zlibTarget))
-            }
-            return targets
-        }
-
-        /// A dependency as the Linux mode keeps it: the FFI target in place of the xcframework, nil for a
-        /// target outside the tier or a product of a package the tier does not use.
-        func linuxDependency(_ dependency: Target.Dependency, kept: Set<String>, packages: Set<String>) -> Target.Dependency? {
-            switch dependency {
-            case .targetItem(let name, let condition), .byNameItem(let name, let condition):
-                if name == ffi.replaces {
-                    return kept.contains(ffi.target) ? .target(name: ffi.target, condition: condition) : nil
-                }
-                return kept.contains(name) ? dependency : nil
-            case .productItem(_, let package, _, _):
-                return packages.contains(identity(package ?? "")) ? dependency : nil
-            @unknown default:
-                return dependency
-            }
-        }
-
-        /// The stand-ins a target's imports need on Linux (linux-tier.py reads them from its sources).
-        func standIns(of target: String) -> [Target.Dependency] {
-            (generated.linuxDependencies[target] ?? []).map { name in
-                name == zlibTarget ? .target(name: name) : .product(name: name, package: cryptoPackage)
-            }
-        }
-
-        func apply(to package: Package, crypto: Package.Dependency, packageDirectory: String) {
-            let kept = Set(generated.targets + generated.testTargets)
-            let packages = Set(generated.pathDependencies.map(identity) + generated.remoteDependencies)
-            var targets = package.targets.filter { kept.contains($0.name) }
-            for target in targets {
-                target.dependencies = target.dependencies.compactMap {
-                    linuxDependency($0, kept: kept, packages: packages)
-                } + standIns(of: target.name)
-            }
-            targets += linuxTargets(packageDirectory: packageDirectory)
-            package.targets = targets
-            package.products = package.products.filter { generated.products.contains($0.name) }
-            package.dependencies = package.dependencies.filter { dependency in
-                switch dependency.kind {
-                case .fileSystem(_, let path): packages.contains(identity(path))
-                case .sourceControl(_, let location, _): packages.contains(identity(location))
-                default: false
-                }
-            }
-            if generated.remoteDependencies.contains(cryptoPackage) {
-                package.dependencies.append(crypto)
-            }
-        }
-    }
-
-    // BEGIN linux-tier.py: generated from linux-tier.json by scripts/cmux-next/linux/linux-tier.py; do not edit.
-    let linuxTier = LinuxTier(
-        ffi: LinuxTier.FFI(
-            replaces: "CCmuxAppFFI",
-            target: "CCmuxAppFFILinux",
-            library: "cmux_app_ffi",
-            libraryDirectory: ".build-linux/ffi/lib",
-        ),
-        generated: LinuxTier.Generated(
-            targets: [
-                "CmuxNextCompat",
-                "CmuxNextTrace",
-                "CmuxNextMetrics",
-                "CmuxNextFeatures",
-                "CmuxNextSignposts",
-                "CmuxNextWakeups",
-                "CmuxNextWakeupsTestSupport",
-                "CmuxNextTestSupport",
-                "CmuxNextProcessEnvironment",
-                "CCmuxAppFFILinux",
-                "CmuxNextActions",
-                "CmuxNextDaemon",
-                "CmuxNextFocus",
-                "CmuxNextTerminalGeometry",
-                "CmuxNextCopyMode",
-                "CmuxNextTerminalFind",
-                "CmuxNextHostPressure",
-                "CmuxNextDesignTokens",
-                "CmuxNextErrorJournal",
-                "CmuxNextHangReports",
-                "CmuxNextFiles",
-                "CmuxNextBrowserImport",
-                "CmuxNextImportSuggestions",
-                "CmuxNextChromiumRuntime",
-                "CmuxNextDevices",
-                "CmuxNextVSCodeServer",
-                "CmuxNextRemoteFetch",
-                "CmuxNextBrowserCore",
-                "CmuxNextAppearance",
-                "CmuxNextBridge",
-                "CmuxNextWorkspaceNaming",
-                "CmuxNextCloud",
-                "CmuxNextCodeRouter",
-                "CmuxNextRemote",
-                "CmuxNextMobile",
-                "CmuxNextSettings",
-                "CmuxNextControl",
-                "CmuxNextHibernation",
-                "CmuxNextWorkspaceRepair",
-                "CmuxNextKeepAwake",
-                "CmuxNextRemoteLocalhost",
-                "CmuxNextServerHelper",
-                "CmuxNextCLIInstall",
-                "CmuxNextOracle",
-                "OracleConfigDump",
-                "CmuxNextInputModel",
-                "CZlib",
-            ],
-            testTargets: [
-                "CmuxNextActionsTests",
-                "CmuxNextBrowserImportTests",
-                "CmuxNextChromiumRuntimeTests",
-                "CmuxNextCodeRouterTests",
-                "CmuxNextCompatTests",
-                "CmuxNextDevicesTests",
-                "CmuxNextErrorJournalTests",
-                "CmuxNextFeaturesTests",
-                "CmuxNextFilesTests",
-                "CmuxNextHibernationTests",
-                "CmuxNextHostPressureTests",
-                "CmuxNextImportSuggestionsTests",
-                "CmuxNextKeepAwakeTests",
-                "CmuxNextMetricsTests",
-                "CmuxNextMobileTests",
-                "CmuxNextOracleTests",
-                "CmuxNextTraceTests",
-                "CmuxNextVSCodeServerTests",
-                "CmuxNextWorkspaceRepairTests",
-            ],
-            products: [],
-            pathDependencies: [
-                "Packages/Shared/CMUXAuthCore",
-                "Packages/Shared/CMUXMobileCore",
-                "Packages/Shared/CmuxAgentBrands",
-                "Packages/Shared/CmuxAuthRuntime",
-                "Packages/Shared/CmuxFuzzSupport",
-                "Packages/Shared/CmuxInstallAuthCore",
-                "Packages/Shared/CmuxIrxTransport",
-                "Packages/Shared/CmuxSafeConcurrency",
-                "Packages/Shared/CmuxTheme",
-                "Packages/Shared/CmuxThreading",
-                "Packages/iOS/CmuxMobileRPC",
-                "Packages/iOS/CmuxMobileSSH",
-            ],
-            remoteDependencies: ["swift-atomics", "swift-crypto"],
-            linuxDependencies: [
-                "CmuxNextBrowserCore": ["Crypto"],
-                "CmuxNextBrowserImport": ["CZlib"],
-                "CmuxNextBrowserImportTests": ["CZlib"],
-                "CmuxNextChromiumRuntime": ["Crypto"],
-                "CmuxNextChromiumRuntimeTests": ["Crypto"],
-                "CmuxNextCloud": ["Crypto"],
-                "CmuxNextCodeRouter": ["Crypto"],
-                "CmuxNextDaemon": ["CZlib", "Crypto"],
-                "CmuxNextDesignTokens": ["Crypto"],
-                "CmuxNextDevices": ["Crypto"],
-                "CmuxNextDevicesTests": ["Crypto"],
-                "CmuxNextFeaturesTests": ["Crypto"],
-                "CmuxNextHangReports": ["Crypto"],
-                "CmuxNextMobile": ["Crypto"],
-                "CmuxNextOracle": ["Crypto"],
-                "CmuxNextRemote": ["Crypto"],
-                "CmuxNextRemoteFetch": ["CZlib"],
-                "CmuxNextRemoteLocalhost": ["Crypto"],
-                "CmuxNextSettings": ["Crypto"],
-            ],
-        ),
-    )
-    // END linux-tier.py
-
-    linuxTier.apply(
-        to: package,
-        crypto: .package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"),
-        packageDirectory: Context.packageDirectory
-    )
-}
-#endif

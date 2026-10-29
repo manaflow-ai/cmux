@@ -225,8 +225,6 @@ mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
 mod metrics_file;
-#[cfg(any(debug_assertions, feature = "oracle"))]
-mod oracle;
 mod pinned_columns;
 mod power_source;
 mod sqlite_trim;
@@ -574,13 +572,6 @@ pub struct Mux {
     /// The history search index (`history-search-v1`), installed by the
     /// binary with its feeds; absent otherwise.
     history_search: OnceLock<crate::history_search::HistorySearch>,
-    /// The refactor switch arms `oracle-state` reports, frozen at first read.
-    #[cfg(any(debug_assertions, feature = "oracle"))]
-    oracle_switches: OnceLock<crate::oracle_state::SwitchArms>,
-    /// Holders of this session that ended since this owner started
-    /// (`oracle-state` `childExits.holder`, invariant I17).
-    #[cfg(any(debug_assertions, feature = "oracle"))]
-    oracle_holder_exits: AtomicU64,
     #[cfg(test)]
     client_resize_before_apply: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]

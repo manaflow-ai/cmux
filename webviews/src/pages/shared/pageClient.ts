@@ -8,7 +8,6 @@
 
 import { holdPaintForClaim } from "./paintGate";
 import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
-import { serveOracleState } from "../../protocol/oracle-state";
 import { watchPageEdits } from "./pageEdits";
 
 export interface PageError extends Error {
@@ -526,8 +525,6 @@ export function createPageClient(fallback?: () => PageClient): PageClient | null
     const client = new BridgePageClient(handler);
     // The page's right-click menus are the app's native menus (ui/nativeMenu.ts).
     installNativeMenu((request) => client.call(NATIVE_MENU_OP, request));
-    // The refactor oracle's page state, in developer builds only (protocol/oracle-state.ts).
-    serveOracleState(client);
     // Edits and form input keep the hidden page from being discarded, for every page with no page
     // code (pageEdits.ts).
     if (typeof document !== "undefined") watchPageEdits(document, window, pageKeepAliveFor(client));

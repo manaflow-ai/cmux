@@ -9,9 +9,7 @@
 # imports do not change. Published by app-ffi-release.yml and
 # pinned in Packages/macOS/CmuxNext/Package.swift.
 #
-# Usage: build-app-ffi.sh [--linux | --exports]
-#   --linux    The same library and module maps for the Linux SwiftPM tier,
-#              built from the pinned source sha: see lib/app-ffi-linux.sh.
+# Usage: build-app-ffi.sh [--exports]
 #   --exports  Print the C ABI symbols the library keeps global (from this
 #              checkout's headers) and build nothing.
 # Environment:
@@ -21,13 +19,11 @@ set -euo pipefail
 REPAIR_URL="https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
 trap 'echo "error: app FFI build failed; see $REPAIR_URL" >&2' ERR
 
-linux=0
 exports_only=0
 case "${1:-}" in
   "") ;;
-  --linux) linux=1 ;;
   --exports) exports_only=1 ;;
-  *) echo "usage: $0 [--linux | --exports]" >&2; exit 2 ;;
+  *) echo "usage: $0 [--exports]" >&2; exit 2 ;;
 esac
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -71,12 +67,6 @@ c_abi_symbols() {
 
 if ((exports_only)); then
   c_abi_symbols
-  exit 0
-fi
-
-if ((linux)); then
-  # shellcheck source-path=SCRIPTDIR source=lib/app-ffi-linux.sh
-  source "$repo_root/scripts/cmux-next/lib/app-ffi-linux.sh"
   exit 0
 fi
 
