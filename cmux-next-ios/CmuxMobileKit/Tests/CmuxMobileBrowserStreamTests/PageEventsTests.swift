@@ -221,6 +221,27 @@ import Testing
         #expect(model.dialog == nil)
     }
 
+    /// The page crashed or its session closed (`rb.state` crashed / closed, `rb.closed`): the
+    /// open dialog, `<select>` and context menu go with it, unanswered, as the Mac's viewer
+    /// closes them (cmux-remote-browser `Client::session`). A live or paused page keeps them.
+    @Test(arguments: [#"{"t":"rb.state","state":"crashed"}"#, #"{"t":"rb.state","state":"closed"}"#,
+                      #"{"t":"rb.closed","reason":"viewer_closed"}"#])
+    func aPageThatCrashedOrClosedTakesItsDialogAndMenusWithIt(_ end: String) async throws {
+        let (model, stream, sink) = try await model()
+        model.requestContextMenu(x: 1, y: 1) { _ in }
+        await host(sink, Self.linkMenu)
+        await host(sink, Self.select.replacingOccurrences(of: #""token":5"#, with: #""token":6"#))
+        await host(sink, #"{"t":"rb.dialog.show","token":1,"dialog":{"kind":"alert","origin":"","message":"x","default_text":null,"is_reload":false}}"#)
+        await host(sink, #"{"t":"rb.state","state":"paused"}"#)
+        #expect(model.dialog?.token == 1 && model.selectMenu?.token == 6 && model.contextMenu?.token == 3)
+        await host(sink, end)
+        #expect(model.dialog == nil && model.selectMenu == nil && model.contextMenu == nil)
+        model.answerDialog(1, accept: true)
+        model.choose(.indices([0]), in: 6)
+        model.choose(.command(50100), in: 3)
+        #expect(sent(stream, "rb.dialog.result").isEmpty && sent(stream, "rb.menu.result").isEmpty)
+    }
+
     // MARK: Hard Reload
 
     @Test func hardReloadSkipsTheCache() async throws {
