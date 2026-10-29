@@ -209,3 +209,91 @@ fn blocking_cascade_a_clients_control_sequence_ends_before_its_serve_loop_return
     host.parser_commands.send(ParserCommand::Drain).unwrap();
     parser.join().unwrap();
 }
+
+/// A PTY master whose program never reads its input: its descriptor is one
+/// end of a socket pair whose other end nobody reads, so a write blocks once
+/// the socket buffer is full, as a PTY's does once its input queue is.
+struct UnreadMaster {
+    stream: UnixStream,
+    size: Mutex<PtySize>,
+}
+
+impl MasterPty for UnreadMaster {
+    fn resize(&self, size: PtySize) -> anyhow::Result<()> {
+        *self.size.lock().unwrap() = size;
+        Ok(())
+    }
+
+    fn get_size(&self) -> anyhow::Result<PtySize> {
+        Ok(*self.size.lock().unwrap())
+    }
+
+    fn try_clone_reader(&self) -> anyhow::Result<Box<dyn Read + Send>> {
+        Ok(Box::new(std::io::empty()))
+    }
+
+    fn take_writer(&self) -> anyhow::Result<Box<dyn Write + Send>> {
+        Ok(Box::new(self.stream.try_clone()?))
+    }
+
+    fn process_group_leader(&self) -> Option<libc::pid_t> {
+        None
+    }
+
+    fn as_raw_fd(&self) -> Option<RawFd> {
+        Some(std::os::fd::AsRawFd::as_raw_fd(&self.stream))
+    }
+
+    fn tty_name(&self) -> Option<PathBuf> {
+        None
+    }
+}
+
+/// A client's input write to a program that never reads its input blocks,
+/// and then the client disconnects. The client's end must end that write
+/// (its owner cancels it, no timer), so its serve loop returns and no
+/// thread of the client is left. On the base the frame ran on
+/// client-input, which stayed blocked in the write forever with no one to
+/// end it; with the control thread joined, the serve loop never returned.
+#[test]
+fn blocking_cascade_a_disconnect_ends_a_blocked_input_write_and_the_serve_loop() {
+    let host = exited_host_fixture();
+    let (pty, _never_read) = UnixStream::pair().unwrap();
+    let master =
+        UnreadMaster { stream: pty, size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)) };
+    *host.writer.lock().unwrap() = master.take_writer().unwrap();
+    *host.master.lock().unwrap() = Box::new(master);
+    let (server_stream, mut client_stream) = UnixStream::pair().unwrap();
+    client_stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let server = {
+        let host = host.clone();
+        thread::spawn(move || serve_client(host, server_stream))
+    };
+    let hello = snapshot_boundary_client_hello(&host, false).unwrap();
+    write_frame(&mut client_stream, &hello).unwrap();
+    for label in ["host hello", "snapshot", "colors"] {
+        read_required_frame(&mut client_stream, label).unwrap();
+    }
+    // Far more than any socket buffer: the write blocks part way.
+    write_frame(&mut client_stream, &Frame::new(MessageKind::Input, vec![b'x'; 8 << 20])).unwrap();
+    // The write is under way once the host's writer is held for it.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while host.writer.try_lock().is_ok() {
+        assert!(Instant::now() < deadline, "the input write never started");
+        thread::sleep(Duration::from_millis(5));
+    }
+    let _ = client_stream.shutdown(std::net::Shutdown::Both);
+    drop(client_stream);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !server.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(5));
+    }
+    let returned = server.is_finished();
+    let left = ["terminal-host-client-input", "terminal-host-client-control"]
+        .into_iter()
+        .filter(|name| !declared(name).is_empty())
+        .collect::<Vec<_>>();
+    assert!(returned, "the serve loop did not return after its client disconnected");
+    assert!(left.is_empty(), "threads of the disconnected client are left: {left:?}");
+    let _ = server.join();
+}
