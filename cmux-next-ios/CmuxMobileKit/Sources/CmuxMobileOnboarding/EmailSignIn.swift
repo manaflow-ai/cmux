@@ -2,6 +2,7 @@
 import CmuxMobileAuth
 import CmuxMobileDesign
 import SwiftUI
+import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
@@ -72,8 +73,12 @@ struct EmailSignInSheet: View {
             .navigationDestination(for: String.self) { address in
                 EmailCodeStep(auth: auth, email: address) { path.removeAll() }
             }
-            .defaultFocus($emailFocused, true)
-            .onAppear { emailFocused = true }
+            .background {
+                EmailSheetAppearance {
+                    if path.isEmpty { emailFocused = true }
+                }
+            }
+            .onDisappear { emailFocused = false }
             #if DEBUG
             .onChange(of: DemoDirector.shared.serial) {
                 switch DemoDirector.shared.command {
@@ -112,6 +117,33 @@ struct EmailSignInSheet: View {
                 self.error = CmuxMobileAuthModel.message(for: error)
                 theme.haptics.error()
             }
+        }
+    }
+}
+
+/// SwiftUI's onAppear can run before the sheet accepts first responder.
+/// UIKit calls viewDidAppear after presentation (and after returning from Code),
+/// so focus follows the actual transition without a timer or retry loop.
+private struct EmailSheetAppearance: UIViewControllerRepresentable {
+    var onAppear: () -> Void
+
+    func makeUIViewController(context: Context) -> Controller {
+        let controller = Controller()
+        controller.onAppear = onAppear
+        controller.view.isUserInteractionEnabled = false
+        return controller
+    }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.onAppear = onAppear
+    }
+
+    final class Controller: UIViewController {
+        var onAppear: (() -> Void)?
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            onAppear?()
         }
     }
 }
