@@ -419,6 +419,17 @@ def reopen_parens(bodies: list[str], new: list[str]) -> None:
                 new[j] = lead + "(" + new[j][len(lead):]
 
 
+def keep_indent(bodies: list[str], new: list[str]) -> None:
+    """A changed line keeps the indentation it had: a cut that spans a line break takes the next line's leading
+    blanks with it, and a continuation line of a Markdown list item that lost its indent ends the item (rustdoc
+    and clippy's doc_lazy_continuation read it as a new paragraph)."""
+    for k, (old, body) in enumerate(zip(bodies, new)):
+        if body == old or not body.strip():
+            continue
+        lead = re.match(r"[ \t]*", old).group(0)
+        new[k] = lead + body.lstrip(" \t")
+
+
 def _drop(text: str, a: int, b: int) -> tuple[int, int, str]:
     """The edit that removes the comment TEXT[A:B]: its line when the line holds nothing else, else the comment and
     the space before it."""
@@ -475,6 +486,7 @@ def rewrite(path: str, text: str) -> tuple[str, list[int]]:
             new = rewrite_text("\n".join(bodies)).split("\n")
             pull_up_punctuation(bodies, new)
             reopen_parens(bodies, new)
+            keep_indent(bodies, new)
             kept = []
             for k, (head, old, body) in enumerate(zip(heads, bodies, new)):
                 if body != old and not body.strip() and old.strip() and 0 < k < len(new) - 1:
@@ -495,6 +507,7 @@ def rewrite(path: str, text: str) -> tuple[str, list[int]]:
         assert len(new) == len(bodies), path
         pull_up_punctuation(bodies, new)
         reopen_parens(bodies, new)
+        keep_indent(bodies, new)
         for (a, b, kind), head, old, body in zip(group, heads, bodies, new):
             if body == old:
                 continue

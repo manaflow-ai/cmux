@@ -767,12 +767,26 @@ def _render_metadata(ir: SdkIR, document: Mapping[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+# The modules that hold serde wire enums. Each enum mirrors one JSON union of
+# the protocol and is decoded once per message, so clippy's
+# large_enum_variant (it asks to box the big variant) would only change the
+# public SDK types; the generated modules allow it, as cmux-cloud-wire's do.
+_WIRE_ENUM_ALLOW = (
+    "// Serde wire enums mirror the protocol's JSON unions; boxing a large\n"
+    "// variant would only change the public types.\n"
+    "#[allow(clippy::large_enum_variant)]\n"
+)
+
+
 def _render_mod(ir: SdkIR) -> str:
     return (
         _header(ir)
+        + _WIRE_ENUM_ALLOW
         + "mod commands;\n"
+        + _WIRE_ENUM_ALLOW
         + "mod events;\n"
         + "mod metadata;\n"
+        + _WIRE_ENUM_ALLOW
         + "mod types;\n\n"
         + "pub use commands::*;\n"
         + "pub use events::*;\n"

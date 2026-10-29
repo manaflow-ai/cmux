@@ -39,7 +39,7 @@ public import Foundation
 ///   Chromium (`pagesSpare`, the `pagesSpareWindow` feature), the warm start's spare step also
 ///   makes the pages profile (`CEFEngine.beginPagesProfile`), and the step after the default
 ///   profile's spare comes up builds the pages spare, so a cmux page's key joins a live window too.
-///  One spare per kind; each take asks for the next. When pages leave Chromium
+///   One spare per kind; each take asks for the next. When pages leave Chromium
 ///   (`pagesSpareChanged`), the untaken pages spare closes.
 /// - A step that comes while a menu tracks waits for the menu to close, and is posted again then.
 /// - Spare windows follow memory pressure through one memory consumer (``SpareMemoryConsumer``,
