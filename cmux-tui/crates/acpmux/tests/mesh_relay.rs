@@ -590,6 +590,14 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     );
     let to = fake.with(|s| s.sent.last().unwrap().to.clone());
     assert_eq!((to.host.as_deref(), to.name.as_deref()), (Some("fs-peer-1"), Some("dep-land")));
+
+    // A supersede key cannot cross the hub: the send is refused, not sent without it.
+    let posted = fake.with(|s| s.sent.len());
+    let mut keyed = send_queue("dep-land", "prompt-0004");
+    keyed["request"]["_meta"]["acpmux"]["supersede"] = json!("status");
+    let keyed = sender.call("_acpmux/send_queue", keyed).await;
+    assert_eq!(keyed.pointer("/error/data/reason"), Some(&json!("mesh.no_supersede")), "{keyed}");
+    assert_eq!(fake.with(|s| s.sent.len()), posted, "a keyed send reached the hub");
     relay.stop().await;
 }
 

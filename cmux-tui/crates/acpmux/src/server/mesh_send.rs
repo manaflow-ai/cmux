@@ -59,6 +59,14 @@ pub(super) async fn send(
     }
     let mux = request.pointer("/_meta/acpmux");
     let field = |k: &str| mux.and_then(|m| m.get(k));
+    // The hub's message carries no supersede key, so the target could not replace the earlier
+    // prompt: refused, never dropped (a send that says it replaced nothing it was asked to).
+    if field("supersede").is_some_and(|k| !k.is_null()) {
+        return Err(RpcError::invalid_params(format!(
+            "{target:?} is no session here or on a peer, and the mesh relay cannot carry --supersede: send it without one"
+        ))
+        .with_data(json!({"reason": "mesh.no_supersede", "session": target})));
+    }
     let prompt_id = field("promptId")
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
