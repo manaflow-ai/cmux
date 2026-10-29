@@ -286,6 +286,10 @@ class Resolver:
             self._cache.move_to_end(key)
             return hit[1]
 
+    def _current(self, generation):
+        stamp, servers = self._source()
+        return generation == (stamp, tuple(servers))
+
     def resolve(self, query, tcp=False):
         key = question_key(query)
         if key is None:
@@ -303,12 +307,14 @@ class Resolver:
             timeout = min(UPSTREAM_TIMEOUT, remaining)
             reply = bounded(self._exchange, timeout, server, query, timeout, tcp)
             if usable(reply) and answers(reply, query):
+                if not self._current(generation):
+                    return failure(query)
                 if reply[2] & 0x02 == 0:
                     self._cached(generation, key, reply)
                 return reply
         stale = self._cached(generation, key)
         if stale is not None:
-            return with_id(stale, query)
+            return with_id(stale, query) if self._current(generation) else failure(query)
         # The provider exports resolver IPs, but no guest-readable name set.
         # Conservatively preserve every possible TLS route on a cold miss.
         if self._steering():
@@ -322,6 +328,9 @@ class Resolver:
             # Never NXDOMAIN: public resolvers do not know the names only the
             # platform answers, and an outage must not look like a missing name.
             if found(reply) and answers(reply, query):
+                # A TLS rule may have arrived while this public lookup ran.
+                if self._steering() or not self._current(generation):
+                    return failure(query)
                 return with_id(reply, query)
         return failure(query)
 
