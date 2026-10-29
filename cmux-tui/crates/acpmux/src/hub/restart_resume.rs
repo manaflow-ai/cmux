@@ -79,6 +79,7 @@ impl Hub {
         let mut started = false;
         let mut control_ended = false;
         let mut floor_cancelled = false;
+        let mut stopped = false;
         let kinds = [
             "turn_started",
             "user_message",
@@ -86,6 +87,7 @@ impl Hub {
             "remote_control_ended",
             "remote_control_restored",
             "remote_floor_cancel",
+            "turn_stop_requested",
         ];
         let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
             let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
@@ -103,6 +105,7 @@ impl Hub {
                 "remote_control_ended" if started => control_ended = true,
                 "remote_control_restored" if started => control_ended = false,
                 "remote_floor_cancel" if started && is_turn => floor_cancelled = true,
+                "turn_stop_requested" if is_turn => stopped = true,
                 "user_message" if is_turn => {
                     let named = e.msg.get("images").and_then(Value::as_array);
                     let shown = named.map_or(0, Vec::len);
@@ -116,6 +119,9 @@ impl Hub {
             }
             true
         });
+        if stopped {
+            return None;
+        }
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
         let (root, done) = split_attempt(&prompt_id);
         let attempt = done + 1;

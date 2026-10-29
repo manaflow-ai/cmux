@@ -1,4 +1,19 @@
 //! A scheduled retry survives restart at its original deadline, under the cut turn's rules.
+//!
+//! Durable state machine (records before the newest turn's boundary never decide its retry):
+//! | Last durable write / crash point | Recovery |
+//! | --- | --- |
+//! | `turn_started`, no result | Adopt the host or queue the restart continuation elsewhere. |
+//! | transient `turn_result`, no decision | Persist a schedule due at result time + configured delay. |
+//! | `auto_resume_scheduled` | Re-arm that exact attempt and deadline, never compute a new deadline. |
+//! | retry `user_message`, no `turn_started` | Admission never happened; re-arm the same prompt id. |
+//! | retry `turn_started` / `turn_result` | Newest turn owns recovery; never resend the old attempt. |
+//! | `turn_stop_requested` / stopped / skipped / settled / exhausted | Terminal for the cut turn. |
+//! | `auto_resume_restored` | Notification only; the schedule was already durable before this write. |
+//!
+//! Stop writes its turn-scoped boundary under the same lock as scheduling, before cancelling
+//! the agent. A blocked Web retry writes a terminal skip before returning. Neither can be
+//! resurrected by restoring Web control, re-importing the chat, or a second daemon restart.
 use super::*;
 
 impl Hub {
@@ -46,14 +61,9 @@ impl Hub {
         {
             return;
         }
-        let configured_attempts = self
-            .config
-            .try_read()
-            .ok()
-            .and_then(|cfg| cfg.auto_resume_delays_ms.as_ref().map(Vec::len))
-            .unwrap_or(MAX_ATTEMPTS);
         let (mut retry, mut from) = (None::<RetrySummary>, None::<String>);
         let mut has_retry_marker = false;
+        let mut turn_stopped = false;
         let (mut control, mut trust_gate) = (Control::Web, true);
         let (mut ended, mut floor_cancelled) = (false, false);
         let kinds = [
@@ -68,6 +78,7 @@ impl Hub {
             "auto_resume_skipped",
             "auto_resume_settled",
             "auto_resume_exhausted",
+            "turn_stop_requested",
         ];
         let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
             let is_cut = e.msg["turnId"].as_str() == Some(turn_id.as_str());
@@ -97,9 +108,15 @@ impl Hub {
                     has_retry_marker = true;
                     retry = serde_json::from_value(e.msg).ok();
                 }
-                // Stop records have no turn id; the turn_started reset above makes this
-                // apply only to a stop after the current failed turn began.
-                "auto_resume_stopped" => {
+                // Old stop records had no id; the turn boundary reset scopes those. New
+                // records explicitly name the cut turn, including a Stop before failure.
+                "auto_resume_stopped" if is_cut || e.msg["turnId"].is_null() => {
+                    turn_stopped |= is_cut;
+                    has_retry_marker = true;
+                    retry = None
+                }
+                "turn_stop_requested" if is_cut => {
+                    turn_stopped = true;
                     has_retry_marker = true;
                     retry = None
                 }
@@ -113,23 +130,70 @@ impl Hub {
             }
             true
         });
+        if scanned.is_err() {
+            return;
+        }
+        // Stop may race the small gap between in-memory admission and turn_started.
+        // Explicitly scoped cancellation remains terminal even if its record came first.
+        if turn_stopped {
+            has_retry_marker = true;
+            retry = None;
+        }
+        // Refresh the durable last-turn summary before every skip/configuration decision.
+        let mut summary = serde_json::Map::new();
+        for key in super::super::views::LAST_TURN_KEYS {
+            if let Some(value) = last.msg.get(key) {
+                summary.insert(key.to_owned(), value.clone());
+            }
+        }
+        summary.insert("endedAt".into(), json!(last.at));
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn =
+            Some(Value::Object(summary));
+
+        // Never substitute default retries for a config currently being changed. Wait for
+        // the writer off this synchronous path, then reclaim restoration for this instance.
+        let delays = match self.config.try_read() {
+            Ok(config) => {
+                config.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())
+            }
+            Err(_) => {
+                let (hub, session) = (self.clone(), session.clone());
+                tokio::spawn(async move {
+                    drop(hub.config.read().await);
+                    session.auto_resume_restored.store(false, std::sync::atomic::Ordering::SeqCst);
+                    hub.restore_auto_resume(&session);
+                });
+                return;
+            }
+        };
+        if delays.is_empty() && (retry.is_some() || !has_retry_marker) {
+            self.append(
+                session,
+                "mux",
+                "auto_resume_settled",
+                json!({"turnId": turn_id, "promptId": last.msg["promptId"], "why": "off"}),
+            );
+            return;
+        }
         // `turn_result` is durable before the asynchronous scheduler runs. If restart cuts
         // that small window, synthesize its first retry now instead of losing the transient
         // failure forever.
         if retry.is_none()
-            && configured_attempts > 0
             && !has_retry_marker
             && last.msg["status"] == "failed"
             && let Some(reason) = super::super::turn_errors::resume_cause(&error, &error)
                 .and_then(RetryReason::from_cause)
         {
             let (root, done) = split_attempt(last.msg["promptId"].as_str().unwrap_or_default());
-            if done < MAX_ATTEMPTS {
+            if !root.is_empty()
+                && let Some(&delay) = delays.get(done)
+            {
+                let delay = staggered(delay, &session.id);
                 let recovered = RetrySummary {
                     attempt: (done + 1) as u64,
-                    of: configured_attempts as u64,
+                    of: delays.len() as u64,
                     reason,
-                    next_at: crate::hub::now_ms(),
+                    next_at: last.at.saturating_add(delay),
                     prompt_id: root.to_owned(),
                     turn_id: turn_id.to_owned(),
                 };
@@ -143,24 +207,15 @@ impl Hub {
                     serde_json::to_value(&recovered).unwrap_or_else(|_| json!({})),
                 );
                 retry = Some(recovered);
+            } else if !root.is_empty() {
+                self.append(session, "mux", "auto_resume_exhausted", json!({
+                    "promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()
+                }));
             }
         }
-        // Refresh the durable last-turn summary before any retry/configuration decision.
-        let mut summary = serde_json::Map::new();
-        for key in super::super::views::LAST_TURN_KEYS {
-            if let Some(value) = last.msg.get(key) {
-                summary.insert(key.to_owned(), value.clone());
-            }
-        }
-        summary.insert("endedAt".into(), json!(last.at));
-        session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn =
-            Some(Value::Object(summary));
 
         let Some(retry) = retry.filter(|r| {
-            scanned.is_ok()
-                && r.attempt > 0
-                && r.attempt <= MAX_ATTEMPTS as u64
-                && !r.prompt_id.is_empty()
+            r.attempt > 0 && r.attempt <= MAX_ATTEMPTS as u64 && !r.prompt_id.is_empty()
         }) else {
             return;
         };
@@ -260,6 +315,253 @@ mod tests {
             "turnId": "later-turn", "promptId": "later-prompt", "attempt": 1, "of": 4,
             "reason": "transport", "nextAt": crate::hub::now_ms() + 60000}),
         );
+    }
+
+    async fn restart(hub: &Hub, session: &Session) -> (Arc<Hub>, Arc<Session>) {
+        let cfg = hub.config.read().await.clone();
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        // Deliberately stale session.json: the journal must restore both lastTurn and retry.
+        let mut meta = session.meta();
+        meta.last_turn = None;
+        store.save(&meta).unwrap();
+        for record in hub.events(&session.id, 0, 1000).unwrap() {
+            store.append(&session.id, &record).unwrap();
+        }
+        let restored = Hub::new(cfg, store);
+        restored.begin_startup(false);
+        let session = restored.resolve(&session.id).unwrap();
+        (restored, session)
+    }
+
+    fn failed_window(hub: &Hub, session: &Session, prompt: &str) -> u64 {
+        hub.append(
+            session,
+            "mux",
+            "turn_started",
+            json!({
+                "turnId": "cut", "promptId": prompt, "control": "local", "trustGate": false
+            }),
+        );
+        hub.append_unknown_outcome(session, json!({
+            "turnId": "cut", "promptId": prompt, "status": "failed", "errorText": "stream disconnected"
+        }));
+        hub.events(&session.id, 0, 1000).unwrap().last().unwrap().at
+    }
+
+    #[tokio::test]
+    async fn retry_restore_crash_points_keep_the_same_attempt_and_deadline() {
+        // One row per crash boundary: the original result, scheduled wait, first retry
+        // message, terminal Stop, started retry, and completed retry. Only admission of
+        // the retry may consume the attempt; merely logging its user_message cannot.
+        for point in
+            ["result", "schedule", "message", "stop", "unscheduled_stop", "started", "completed"]
+        {
+            let (hub, session) = idle_chat();
+            hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+            let ended_at = failed_window(&hub, &session, "original");
+            let next_at = ended_at + staggered(60_000, &session.id);
+            if !["result", "unscheduled_stop"].contains(&point) {
+                hub.append(
+                    &session,
+                    "mux",
+                    "auto_resume_scheduled",
+                    json!({
+                        "turnId": "cut", "promptId": "original", "attempt": 1, "of": 1,
+                        "reason": "transport", "nextAt": next_at
+                    }),
+                );
+            }
+            if ["message", "started", "completed"].contains(&point) {
+                hub.append(
+                    &session,
+                    "in",
+                    "user_message",
+                    json!({
+                        "turnId": "retry", "promptId": "original~resume-1", "text": "continue"
+                    }),
+                );
+            }
+            if ["started", "completed"].contains(&point) {
+                hub.append(
+                    &session,
+                    "mux",
+                    "turn_started",
+                    json!({
+                        "turnId": "retry", "promptId": "original~resume-1", "control": "local"
+                    }),
+                );
+            }
+            if point == "completed" {
+                hub.append_unknown_outcome(
+                    &session,
+                    json!({
+                        "turnId": "retry", "promptId": "original~resume-1", "status": "completed"
+                    }),
+                );
+            }
+            if ["stop", "unscheduled_stop"].contains(&point) {
+                hub.stop_auto_resume(&session);
+            }
+            let (restored, session) = restart(&hub, &session).await;
+            restored.restore_auto_resume(&session);
+            let expected = ["result", "schedule", "message"].contains(&point);
+            let retry = restored.session_summary(&session)["retry"].clone();
+            assert_eq!(retry.is_object(), expected, "crash after {point}: {retry}");
+            if expected {
+                assert_eq!(retry["nextAt"], next_at, "crash after {point}");
+                assert_eq!(retry["of"], 1);
+                let (again, session) = restart(&restored, &session).await;
+                again.restore_auto_resume(&session);
+                assert_eq!(
+                    again.session_summary(&session)["retry"],
+                    retry,
+                    "second restart after {point}"
+                );
+                assert_eq!(
+                    again
+                        .events(&session.id, 0, 1000)
+                        .unwrap()
+                        .iter()
+                        .filter(|e| e.kind == "auto_resume_scheduled" && e.msg["turnId"] == "cut")
+                        .count(),
+                    1
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_restore_synthesis_honors_configured_attempts_and_disabled_retries() {
+        for (delays, prompt, expected_attempt) in [
+            (vec![], "original", None),
+            (vec![10_000], "original~resume-1", None),
+            (vec![10_000, 60_000], "original~resume-1", Some(2)),
+        ] {
+            let (hub, session) = idle_chat();
+            hub.config.write().await.auto_resume_delays_ms = Some(delays.clone());
+            let ended_at = failed_window(&hub, &session, prompt);
+            session.meta.lock().unwrap().last_turn = None;
+            hub.restore_auto_resume(&session);
+            let row = hub.session_summary(&session);
+            assert_eq!(row["lastTurn"]["turnId"], "cut");
+            match expected_attempt {
+                Some(attempt) => {
+                    assert_eq!(row["retry"]["attempt"], attempt);
+                    assert_eq!(row["retry"]["of"], delays.len());
+                    assert_eq!(
+                        row["retry"]["nextAt"],
+                        ended_at + staggered(delays[attempt - 1], &session.id)
+                    );
+                }
+                None => {
+                    assert_eq!(row["retry"], Value::Null);
+                    assert!(!hub.events(&session.id, 0, 1000).unwrap().iter().any(|e| matches!(
+                        e.kind.as_str(),
+                        "auto_resume_scheduled" | "auto_resume_restored"
+                    )));
+                    // Enabling or extending retries later must not revive an already settled turn.
+                    hub.config.write().await.auto_resume_delays_ms =
+                        Some(DEFAULT_DELAYS_MS.to_vec());
+                    let (again, session) = restart(&hub, &session).await;
+                    again.restore_auto_resume(&session);
+                    assert!(again.session_summary(&session)["retry"].is_null());
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_restore_stop_before_failure_is_durable_without_retry_events() {
+        for point in ["admitted", "started", "ending"] {
+            let (hub, session) = idle_chat();
+            hub.start_turn(
+                &session,
+                None,
+                false,
+                false,
+                TurnInfo::prompted("test", "hello", "cut", "original", Control::Local),
+            )
+            .unwrap();
+            if point != "admitted" {
+                hub.append(
+                    &session,
+                    "mux",
+                    "turn_started",
+                    json!({
+                        "turnId": "cut", "promptId": "original", "control": "local"
+                    }),
+                );
+            }
+            if point == "ending" {
+                hub.take_turn(&session, "cut");
+            }
+            hub.stop_auto_resume(&session);
+            if point == "admitted" {
+                hub.append(
+                    &session,
+                    "mux",
+                    "turn_started",
+                    json!({
+                        "turnId": "cut", "promptId": "original", "control": "local"
+                    }),
+                );
+            }
+            // The same Stop also forbids the open-turn restart continuation.
+            assert!(hub.log_restart_continuation(&session, "cut").is_none());
+            if point != "ending" {
+                hub.take_turn(&session, "cut");
+            }
+            hub.append_unknown_outcome(&session, json!({
+                "turnId": "cut", "promptId": "original", "status": "failed", "errorText": "stream disconnected"
+            }));
+            hub.schedule_auto_resume(
+                &session,
+                "cut",
+                Some(CutTurn {
+                    from: None,
+                    prompt_id: "original",
+                    turn_id: "cut",
+                    control: Control::Local,
+                    trust_gate: false,
+                    error: "stream disconnected",
+                }),
+            );
+            let (again, session) = restart(&hub, &session).await;
+            again.restore_auto_resume(&session);
+            assert!(again.session_summary(&session)["retry"].is_null());
+            assert!(
+                !again
+                    .events(&session.id, 0, 1000)
+                    .unwrap()
+                    .iter()
+                    .any(|e| e.kind.starts_with("auto_resume")),
+                "ordinary Stop emitted retry events"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_restore_blocked_web_turn_keeps_its_summary_and_terminal_skip() {
+        for block in ["remote_control_ended", "remote_floor_cancel"] {
+            let (hub, session) = idle_chat();
+            failed_retry(&hub, &session);
+            hub.append(
+                &session,
+                "mux",
+                "turn_control",
+                json!({"turnId": "later-turn", "control": "web"}),
+            );
+            hub.append(&session, "mux", block, json!({"turnId": "later-turn"}));
+            session.meta.lock().unwrap().last_turn = None;
+            hub.restore_auto_resume(&session);
+            let row = hub.session_summary(&session);
+            assert_eq!(row["lastTurn"]["turnId"], "later-turn");
+            assert!(row["retry"].is_null());
+            hub.append(&session, "mux", "remote_control_restored", json!({}));
+            let (again, session) = restart(&hub, &session).await;
+            again.restore_auto_resume(&session);
+            assert!(again.session_summary(&session)["retry"].is_null());
+        }
     }
 
     #[tokio::test]

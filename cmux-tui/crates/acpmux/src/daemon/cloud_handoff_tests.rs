@@ -143,6 +143,20 @@ fn records_map_to_steps() {
     for kind in ["auto_resume_settled", "auto_resume_exhausted", "auto_resume_skipped"] {
         assert_eq!(step_of(kind, &json!({"turnId": "t1"})), Some(Step::NoRetry), "{kind}");
     }
+    assert_eq!(
+        step_of(
+            "auto_resume_skipped",
+            &json!({"promptId": "handoff-9-a", "skipped": "remote_control_ended"})
+        ),
+        Some(Step::NoRetryFor {
+            turn: 9,
+            why: "Automatic retry skipped (remote_control_ended).".into()
+        })
+    );
+    assert_eq!(
+        step_of("auto_resume_settled", &json!({"promptId": "handoff-9-a", "why": "off"})),
+        Some(Step::NoRetryFor { turn: 9, why: "Automatic retry settled (off).".into() })
+    );
     assert_eq!(step_of("agent_message_chunk", &json!({})), None);
 }
 
@@ -201,15 +215,37 @@ async fn a_turn_reports_running_needs_you_running_and_done() {
 async fn a_restored_retry_rehydrates_quiet_tracking_for_terminal_skip() {
     let (mut r, fake) = reporter();
     fake.answer([ok(9, "failed")]);
-    r.step(
-        S,
-        Step::RetryRestored { turn: 9, why: "The connection was interrupted.".into() },
-    )
-    .await;
+    r.step(S, Step::RetryRestored { turn: 9, why: "The connection was interrupted.".into() }).await;
     assert!(r.holds(S, Some(9)));
     r.step(S, Step::NoRetry).await;
     assert_eq!(fake.take(), [s(9, "failed", Some("The connection was interrupted."))]);
     assert!(!r.holds(S, Some(9)));
+}
+
+#[tokio::test]
+async fn a_retry_skip_after_reporter_restart_closes_a_quiet_handoff() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "failed")]);
+    r.step(
+        S,
+        Step::NoRetryFor { turn: 9, why: "Automatic retry skipped (remote_control_ended).".into() },
+    )
+    .await;
+    assert_eq!(
+        fake.take(),
+        [s(9, "failed", Some("Automatic retry skipped (remote_control_ended)."))]
+    );
+}
+
+#[tokio::test]
+async fn a_terminal_retry_event_for_another_turn_does_not_close_current_tracking() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(9, "running")]);
+    r.step(S, began(9)).await;
+    r.step(S, cut_off(9)).await;
+    r.step(S, Step::NoRetryFor { turn: 10, why: "Automatic retry settled (off).".into() }).await;
+    assert!(r.holds(S, Some(9)));
+    assert_eq!(fake.take(), [s(9, "running", None)]);
 }
 
 /// Each turn reports on the turn its prompt names, never one learned from an earlier answer.

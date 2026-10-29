@@ -431,7 +431,10 @@ impl Hub {
                 && super::turn_errors::resume_cause(error, error).is_some()
         });
         if deciding {
-            let msg = json!({"turnId": turn_id, "why": why});
+            let mut msg = json!({"turnId": turn_id, "why": why});
+            if let Some(prompt_id) = last.as_ref().and_then(|t| t["promptId"].as_str()) {
+                msg["promptId"] = json!(prompt_id);
+            }
             self.append_retry(session, "auto_resume_settled", msg);
         }
     }
@@ -458,13 +461,15 @@ impl Hub {
             pending.as_ref(),
             Some(Mark::Waiting { retry: Some(_), .. } | Mark::Firing(_))
         );
-        let mut journal_scheduled = false;
+        let mut journal_retry = None;
+        let mut journal_prompt = None;
         let boundaries = [
             b"auto_resume_scheduled".as_slice(),
             b"auto_resume_stopped",
             b"auto_resume_skipped",
             b"auto_resume_settled",
             b"auto_resume_exhausted",
+            b"turn_stop_requested",
             b"turn_started",
             b"turn_result",
         ];
@@ -474,19 +479,50 @@ impl Hub {
             u64::MAX,
             &|_, kind| !boundaries.contains(&kind),
             &mut |e: EventRecord| {
-                journal_scheduled = e.kind == "auto_resume_scheduled";
+                // A crash can leave the failed result durable before its schedule. Stop
+                // must suppress that unscheduled recovery too, even before startup loads it.
+                let retryable_result = e.kind == "turn_result"
+                    && e.msg["status"] == "failed"
+                    && e.msg["errorText"].as_str().is_some_and(|error| {
+                        super::turn_errors::resume_cause(error, error).is_some()
+                    });
+                if e.kind == "auto_resume_scheduled" || retryable_result {
+                    journal_retry = e.msg["turnId"].as_str().map(str::to_owned);
+                    journal_prompt = e.msg["promptId"].as_str().map(str::to_owned);
+                }
                 false
             },
         );
         let active_turn = session.turn().map(|turn| turn.turn_id);
-        let had_scheduled_retry = waiting_mark || journal_scheduled || active_turn.is_some();
+        let stopping_turn = active_turn.clone().or_else(|| match pending.as_ref() {
+            Some(Mark::Ending(t) | Mark::Stopped(t)) => Some(t.clone()),
+            Some(Mark::Waiting { turn, retry: None, .. }) => Some(turn.clone()),
+            _ => None,
+        });
         if session.status() != SessionStatus::Closed
             && !session.replaced.load(std::sync::atomic::Ordering::SeqCst)
-            && had_scheduled_retry
         {
-            let marker =
-                active_turn.map_or_else(|| json!({}), |turn_id| json!({"turnId": turn_id}));
-            self.append(session, "mux", "auto_resume_stopped", marker);
+            if let Some(turn_id) = stopping_turn {
+                // Ordinary Stop has no retry state or retry watcher update. Its durable
+                // turn-scoped boundary still forbids recovery if the turn later fails,
+                // or if restart interrupts it before a result was written.
+                self.append(session, "mux", "turn_stop_requested", json!({"turnId": turn_id}));
+            } else if waiting_mark || journal_retry.is_some() {
+                let turn_id = match pending.as_ref() {
+                    Some(Mark::Waiting { turn, .. } | Mark::Firing(turn)) => Some(turn.clone()),
+                    _ => journal_retry,
+                };
+                let prompt_id = match pending.as_ref() {
+                    Some(Mark::Waiting { retry: Some(retry), .. }) => Some(retry.prompt_id.clone()),
+                    _ => journal_prompt,
+                };
+                self.append(
+                    session,
+                    "mux",
+                    "auto_resume_stopped",
+                    json!({"turnId": turn_id, "promptId": prompt_id}),
+                );
+            }
         }
         let settles = settled_by_stop(pending.as_ref());
         let (ending, fired) = match pending.as_ref() {
