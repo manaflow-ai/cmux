@@ -61,6 +61,7 @@ class FakeApp:
         self.daemon, self.clock, self.reap_after = daemon, clock, reap_after
         self.runs, self.dialogs, self.ended = [], [], {}
         self.pasted = ""  # what pbcopy put on the pasteboard
+        self.quit_origin, self.quit_refused = None, False
 
     def rpc(self, method, params=None, timeout=60):
         params = params or {}
@@ -87,6 +88,10 @@ class FakeApp:
         self.runs.append(action)
         if action == "closeTab":
             self.ended[1000 + 1] = self.clock.now + self.reap_after  # the close terminal's shell
+        elif action == "quitKeepSessions":
+            self.quit_origin = params.get("origin")
+            if self.quit_refused:
+                return {"error": {"code": "refused", "message": "a quit is already asking"}}
         elif action == "closeOtherTabsInPane":
             return {"error": {"code": "refused", "message": "No other tabs to close"}}
         elif action == "history.reopen" and self.ended:
@@ -162,6 +167,73 @@ class PasteTests(unittest.TestCase):
         data = dogfood.paste_payload()
         self.assertEqual(len(data.encode()), dogfood.PASTE_BYTES)
         self.assertTrue(data.endswith("\n"), "bytes after the last newline wait in a canonical tty")
+
+
+class LaunchTests(unittest.TestCase):
+    def test_the_host_model_goes_to_the_app_under_its_cmux_next_knob(self):
+        # The app unsets an inherited CMUX_TUI_TERMINAL_HOST_MODEL (LaunchIdentity.inheritedKeys): every fleet
+        # "holder" run measured hosts ("holder_processes": 0, holder-kill "no holder process").
+        env = dogfood.launch_env("holder", "/state")
+        self.assertEqual(env.get("CMUX_NEXT_TUI_TERMINAL_HOST_MODEL"), "holder")
+        self.assertNotIn("CMUX_TUI_TERMINAL_HOST_MODEL", env)
+
+    def relaunch(self, refused=False, new_daemon=False, exits=True, dropped=False, status=0):
+        run, records = make()
+        app = run.app
+        app.quit_refused = refused
+        if dropped:  # the app quit before it answered: the socket closed (bench_launch.rpc_at)
+            rpc = app.rpc
+            app.rpc = lambda m, p=None, timeout=60: ({"error": "Expecting value", "unreachable": True}
+                                                     if (p or {}).get("action") == "quitKeepSessions" else rpc(m, p, timeout))
+
+        state = {"running": not exits}
+
+        def wait(seconds):  # subprocess.Popen.wait: times out while the app runs, else its exit status
+            if state["running"]:
+                raise TimeoutError("the app ran on")
+            return status
+
+        def terminate():
+            state["running"] = False
+        app.process = types.SimpleNamespace(wait=wait, terminate=terminate)
+        run.daemon.pid = 7
+        launches = []
+
+        def launch(fresh=True):
+            launches.append(fresh)
+            run.app = app  # the relaunched app answers on the same fake socket
+            if new_daemon:
+                run.daemon.pid = 8
+        run.launch = launch
+        run.relaunch([])
+        return run, app, launches, next(r for r in records if r["step"] == "quit-relaunch")
+
+    def test_relaunch_quits_keeping_sessions_and_relaunches_on_them(self):
+        # Fleet: `debug.quit {}` only reports, the app ran on, and the relaunch stopped at tag-in-use.
+        run, app, launches, step = self.relaunch()
+        self.assertIn(dogfood.QUIT_KEEPING_SESSIONS, app.runs)
+        self.assertEqual(app.quit_origin, "script")
+        self.assertEqual(launches, [False], "the relaunch moved the saved session aside")
+        self.assertTrue(step["ok"], step)
+
+    def test_a_refused_quit_or_a_new_daemon_fails_the_relaunch(self):
+        _, _, _, step = self.relaunch(refused=True)
+        self.assertFalse(step["ok"], "a refused quit passed")
+        self.assertIsNotNone(step["quit_reply"])
+        _, _, _, step = self.relaunch(new_daemon=True)
+        self.assertFalse(step["ok"], "a relaunch on a new daemon (sessions not kept) passed")
+        _, _, _, step = self.relaunch(exits=False)
+        self.assertFalse(step["ok"], "an app that never quit (terminated by the script) passed")
+
+    def test_an_app_that_crashes_while_it_quits_fails_the_relaunch(self):
+        # A crash drops the reply too (no refusal), and the daemon runs on: only the exit status tells.
+        _, _, _, step = self.relaunch(dropped=True, status=-11)
+        self.assertFalse(step["ok"], "a crash (SIGSEGV) while quitting passed")
+        self.assertEqual(step["quit_status"], -11)
+
+    def test_a_quit_that_closes_the_socket_before_its_reply_is_no_refusal(self):
+        _, _, _, step = self.relaunch(dropped=True)
+        self.assertTrue(step["ok"], step)
 
 
 if __name__ == "__main__":
