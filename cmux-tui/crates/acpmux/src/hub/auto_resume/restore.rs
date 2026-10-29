@@ -62,6 +62,7 @@ impl Hub {
             "remote_control_restored",
             "remote_floor_cancel",
             "auto_resume_scheduled",
+            "auto_resume_stopped",
             "auto_resume_skipped",
             "auto_resume_settled",
             "auto_resume_exhausted",
@@ -89,6 +90,7 @@ impl Hub {
                     // daemon_restart records are queued continuations, not waiting retries.
                     retry = serde_json::from_value(e.msg).ok();
                 }
+                "auto_resume_stopped" => retry = None,
                 "auto_resume_skipped" | "auto_resume_settled" | "auto_resume_exhausted"
                     if is_cut =>
                 {
@@ -137,12 +139,6 @@ impl Hub {
         summary.insert("endedAt".into(), json!(last.at));
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).last_turn =
             Some(Value::Object(summary));
-        // Stop need not wait for lazy log loading. If it arrived before this mark could be
-        // restored, persist its decision now; later restarts must respect that Stop too.
-        if session.cancels.load(std::sync::atomic::Ordering::SeqCst) != 0 {
-            self.settled_unretried(session, &turn_id, "stopped");
-            return;
-        }
         let wake = Arc::new(Notify::new());
         pending.insert(
             session.id.clone(),
@@ -181,5 +177,94 @@ impl Hub {
             };
             hub.auto_resume(&session, cut, retry.attempt as usize).await;
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn idle_chat() -> (Arc<Hub>, Arc<Session>) {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let meta = json!({"schema": crate::store::META_SCHEMA, "id": "retry-cancel",
+            "name": "retry-cancel", "harness": "claude", "cwd": "/tmp", "status": "idle",
+            "createdAt": 1, "updatedAt": 2});
+        store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        let hub = Hub::new(cfg, store);
+        // Restored tasks wait here: these tests inspect recovery, never start an agent.
+        hub.begin_startup(false);
+        let session = hub.resolve("retry-cancel").unwrap();
+        (hub, session)
+    }
+
+    fn failed_retry(hub: &Hub, session: &Session) {
+        hub.append(
+            session,
+            "mux",
+            "turn_started",
+            json!({"turnId": "later-turn",
+            "promptId": "later-prompt", "control": "local", "trustGate": false}),
+        );
+        let result = json!({"turnId": "later-turn", "promptId": "later-prompt",
+            "status": "failed", "errorText": "stream disconnected"});
+        hub.append_unknown_outcome(session, result);
+        hub.append(
+            session,
+            "mux",
+            "auto_resume_scheduled",
+            json!({
+            "turnId": "later-turn", "promptId": "later-prompt", "attempt": 1, "of": 4,
+            "reason": "transport", "nextAt": crate::hub::now_ms() + 60000}),
+        );
+    }
+
+    #[tokio::test]
+    async fn retry_restore_does_not_apply_an_earlier_idle_cancel_to_a_later_failed_turn() {
+        let (hub, session) = idle_chat();
+        // No child is expected, but cancel still records the person's Stop.
+        let _ = hub.cancel(&session).await;
+        assert_eq!(session.cancels.load(std::sync::atomic::Ordering::SeqCst), 1);
+        failed_retry(&hub, &session);
+        hub.restore_auto_resume(&session);
+        let row = hub.session_summary(&session);
+        assert_eq!(row["retry"]["turnId"], "later-turn", "{row}");
+        assert_eq!(row["retry"]["promptId"], "later-prompt", "{row}");
+        assert!(
+            hub.events(&session.id, 0, 100)
+                .unwrap()
+                .iter()
+                .any(|e| e.kind == "auto_resume_restored")
+        );
+    }
+
+    #[tokio::test]
+    async fn retry_restore_preserves_a_cancel_after_scheduling_before_the_mark_is_restored() {
+        let (hub, session) = idle_chat();
+        failed_retry(&hub, &session);
+        let _ = hub.cancel(&session).await;
+        hub.restore_auto_resume(&session);
+        assert_eq!(hub.session_summary(&session)["retry"], Value::Null);
+        // Recreate the hub from the same durable store: the cancellation is not just an
+        // in-memory counter, and it stays terminal on a later restart too.
+        let cfg = hub.config.read().await.clone();
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        store.save(&session.meta()).unwrap();
+        for record in hub.events(&session.id, 0, 100).unwrap() {
+            store.append(&session.id, &record).unwrap();
+        }
+        let restored = Hub::new(cfg, store);
+        restored.begin_startup(false);
+        let session = restored.resolve(&session.id).unwrap();
+        restored.restore_auto_resume(&session);
+        assert_eq!(restored.session_summary(&session)["retry"], Value::Null);
+        assert!(
+            !restored
+                .events(&session.id, 0, 100)
+                .unwrap()
+                .iter()
+                .any(|e| e.kind == "auto_resume_restored")
+        );
     }
 }
