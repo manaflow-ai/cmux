@@ -9,7 +9,7 @@ import { registerPicker } from "./pickerOpeners";
 /// location menu decides its side once, when it opens, by the shared rule (`useOpenSide`): above
 /// unless the menu's full height does not fit there and below has more room. It keeps that side
 /// while open (a filter shrinking the folder list never moves it, cx-ncc.53) and fits the room.
-export function useLocationPopover(menuHeight = LOCATION_MENU_HEIGHT) {
+export function useLocationPopover() {
   const control = useRef<HTMLSpanElement>(null);
   const anchor = useMemo<UiVirtualAnchor>(
     () => ({
@@ -20,7 +20,7 @@ export function useLocationPopover(menuHeight = LOCATION_MENU_HEIGHT) {
     }),
     [],
   );
-  return { control, anchor, ...useOpenSide(control, "top", menuHeight) };
+  return { control, anchor, ...useOpenSide(control, "top", LOCATION_MENU_HEIGHT) };
 }
 
 /// A location menu at its tallest: the folder list's cap (composerLocation.css), a field or
