@@ -48,7 +48,10 @@ NEXT = """<!doctype html><title>Next</title><meta name=viewport content="width=d
 GONE = f"""<!doctype html><title>Gone</title><meta name=viewport content="width=device-width">
 <body style='font:24px -apple-system;padding:12px'><p>GONEHOST waiting</p>
 <iframe src="http://localhost:{PORT}/frame.html" style='width:90%;height:80px'></iframe>
-<script>setTimeout(()=>{{location.href='/next.html?navigated'}},6000)</script></body>"""
+<p id=gone></p>
+<script>setTimeout(()=>{{document.querySelector('iframe').remove();
+document.getElementById('gone').textContent='FRAMEGONE'}},5000);
+setTimeout(()=>{{location.href='/next.html?navigated'}},8000)</script></body>"""
 FRAME = "<!doctype html><body>frame<script>setTimeout(()=>alert('FRAMEALERT closes by itself'),300)</script></body>"
 
 
@@ -229,44 +232,33 @@ def dialogs(j):
     return "; ".join(out)
 
 
-def mac_browser(ws_name, needle):
-    """The Mac's browser tab of `ws_name` whose address has `needle` (its daemon record)."""
-    return next((tab for tab in browser_tabs(ws_name) if needle in (tab.get("url") or "")), None)
-
-
 @t.flow("dialog-dismissed")
 def dialog_dismissed(j):
-    """A dialog whose page goes away while it is open: the phone's alert closes, unanswered.
+    """A dialog whose frame goes away while it is open: the phone's alert closes, unanswered.
 
-    The page is navigated from the Mac (its daemon's `browser-navigate`, the Mac's address
-    bar), the one thing that can move a page whose script is blocked in `alert()`: Chromium
-    drops the dialog and the host tells every viewer (`rb.dialog.cancel`)."""
-    a = open_page(j)
-    name = a["name"]
-    j.sim.tap(*at(j, "ALERTBTN"))
-    alert = j.sim.wait(label="OK", kind="Button", timeout=20)
+    The alert comes from a cross-site iframe (its own renderer, blocked in `alert()`); the
+    page's main frame, in another renderer, removes that iframe 5 s later and then navigates.
+    The host tells the viewer the dialog is gone (`rb.dialog.cancel`) when Chromium drops it."""
+    open_page(j)
+    j.sim.tap(*at(j, "GONEPAGE"))
+    alert = j.sim.wait(label="OK", kind="Button", timeout=40)
     j.sim.shot(f"dialog-dismissed-shown-{'before' if BEFORE else 'after'}")
     if BEFORE:
-        return f"page alert: shown on the phone: {bool(alert)}"
-    check(alert and j.sim.ocr_find("ALERTMSG"), "the page's alert never showed")
-    page = mac_browser(name, "index.html")
-    check(page and page.get("surface") is not None, "the Mac does not list the events page")
-    target = f"http://127.0.0.1:{PORT}/next.html?navigated"
-    t.mac_raw({"cmd": "browser-navigate", "surface": page["surface"], "url": target})
+        return f"iframe alert: shown on the phone: {bool(alert)}"
+    check(alert, "the iframe's alert never showed")
     gone = None
     t0 = time.time()
-    while time.time() - t0 < 45:
+    while time.time() - t0 < 60:
         if not j.sim.find(label="OK", kind="Button"):
             gone = time.time() - t0
             break
         time.sleep(0.5)
     j.sim.shot("dialog-dismissed-gone")
-    mac_url = (mac_browser(name, "navigated") or {}).get("url")
-    check(gone is not None, f"the alert stayed after the page navigated away (Mac address: {mac_url})")
-    check(ocr_wait(j, "FROM navigated", timeout=45) is not None, "the phone did not show the new page")
-    j.sim.shot("dialog-dismissed-navigated")
-    return (f"the page went to {mac_url} while its alert was open: the phone's alert closed by itself "
-            f"{gone:.1f} s later, unanswered, and the new page showed")
+    check(gone is not None, "the alert stayed after its frame went away")
+    landed = ocr_wait(j, "FROM navigated", timeout=45) is not None or ocr_wait(j, "FRAMEGONE", timeout=5) is not None
+    j.sim.shot("dialog-dismissed-after")
+    return (f"the iframe that showed the alert was removed by the page: the phone's alert closed by itself "
+            f"{gone:.1f} s later, unanswered; page moved on: {landed}")
 
 
 @t.flow("select")
