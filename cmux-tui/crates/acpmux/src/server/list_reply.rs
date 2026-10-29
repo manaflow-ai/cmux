@@ -81,9 +81,35 @@ fn busy(wait: std::time::Duration) -> RpcError {
         .with_data(json!({"reason": "list.paced", "retryable": true, "retryAfterMs": ms}))
 }
 
+fn with_tools(params: &Value) -> Result<bool, RpcError> {
+    match params.get("withTools") {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(value)) => Ok(*value),
+        Some(_) => Err(RpcError::invalid_params("withTools must be a boolean")),
+    }
+}
+
 /// `_acpmux/sessions`: the whole list shared, or a page or filter cut from it.
 pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
+    if with_tools(params)? {
+        return reply(hub, conn, params.get("limit").and_then(Value::as_u64), |list| {
+            let full = list.full_whole(hub);
+            let mut result: Value = serde_json::from_str(&full).unwrap_or_default();
+            if !whole(params) {
+                let rows = result
+                    .get_mut("sessions")
+                    .map(Value::take)
+                    .unwrap_or_default()
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                result = crate::hub::session_pages::session_list_reply(rows, params)?;
+            }
+            Ok(Arc::new(if raw { result.to_string() } else { masked(result) }))
+        })
+        .await;
+    }
     if !whole(params) {
         return reply(hub, conn, params.get("limit").and_then(Value::as_u64), |list| {
             let page = list.page(params)?;
@@ -109,6 +135,8 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
 pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     crate::hub::session_pages::refuse_watch_filters(params)?;
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+    let tools = with_tools(params)?;
+    conn.watch_tools.store(on && tools, Ordering::SeqCst);
     conn.watch_all.store(on, Ordering::SeqCst);
     sessions(hub, conn, params).await
 }
@@ -118,7 +146,9 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn) -> Result<Value, RpcError> 
     let raw = conn.raw_text;
     reply(hub, conn, None, |list| {
         Ok(list.made(if raw { "acp" } else { "acp masked" }, |list| {
-            let sessions: Vec<Value> = list.values().iter().map(acp_row).collect();
+            let full: Value = serde_json::from_str(&list.full_whole(hub)).unwrap_or_default();
+            let sessions: Vec<Value> =
+                full["sessions"].as_array().into_iter().flatten().map(acp_row).collect();
             let result = json!({"sessions": sessions});
             if raw { result.to_string() } else { masked(result) }
         }))

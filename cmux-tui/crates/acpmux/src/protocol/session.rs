@@ -24,6 +24,21 @@ pub struct SessionSummary {
     /// `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
     /// a peer's session also `unreachable`.
     pub status: String,
+    /// Effective liveness: `stuck` after three classified harness failures, else `status`.
+    #[serde(default)]
+    #[schemars(default)]
+    pub state: String,
+    #[serde(default)]
+    #[schemars(default)]
+    pub stuck_reason: Option<crate::session_liveness::StuckReason>,
+    /// Unix milliseconds when the third failure established stuck. Omitted for peers.
+    #[serde(default)]
+    #[schemars(default)]
+    pub stuck_since: Option<u64>,
+    /// Last classified error, redacted and bounded. Omitted for peers.
+    #[serde(default)]
+    #[schemars(default)]
+    pub stuck_error: Option<String>,
     pub agent_session_id: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,
@@ -142,10 +157,12 @@ pub struct SessionSummary {
     pub attached: u64,
     /// Some attached client shows the chat.
     pub shown: bool,
-    /// The chat's tools (`hub/tools.rs`).
-    pub tools: Vec<ToolSummary>,
-    /// `_acpmux/set_tools` can change them.
-    pub tools_mutable: bool,
+    /// The chat's tools (`hub/tools.rs`), present on per-session reads and attachments.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<ToolSummary>>,
+    /// `_acpmux/set_tools` can change them; omitted from census rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools_mutable: Option<bool>,
     /// The MCP servers the harness says it loaded, from its own report (Claude
     /// Code's system/init); null when it reports none (every ACP harness).
     pub mcp_servers: Option<Vec<McpServerSummary>>,
@@ -532,6 +549,9 @@ pub enum RetryKind {
 #[serde(rename_all = "camelCase")]
 #[schemars(deny_unknown_fields)]
 pub struct SessionsParams {
+    /// Include tool inventories explicitly; default census rows omit them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub with_tools: Option<bool>,
     /// Page size, at least 1. Without it the reply is the whole list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1))]

@@ -75,9 +75,10 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
         let targets: [ActionTargetKind] = [.column, .pane]
         return [
             row("column.focusLeft", String(localized: "action.column.focusLeft", defaultValue: "Focus Column Left", table: "LayoutActions", bundle: .module),
-                .pane, "arrow.left.to.line", cli: "column focus-left", keywords: ["column", "navigate"], targets: targets),
+                // "move", "go", "switch": a search for Move Column Left also lists Focus Column Left.
+                .pane, "arrow.left.to.line", cli: "column focus-left", keywords: ["column", "navigate", "move", "go", "switch"], targets: targets),
             row("column.focusRight", String(localized: "action.column.focusRight", defaultValue: "Focus Column Right", table: "LayoutActions", bundle: .module),
-                .pane, "arrow.right.to.line", cli: "column focus-right", keywords: ["column", "navigate"], targets: targets),
+                .pane, "arrow.right.to.line", cli: "column focus-right", keywords: ["column", "navigate", "move", "go", "switch"], targets: targets),
             row("column.moveLeft", String(localized: "action.column.moveLeft", defaultValue: "Move Column Left", table: "LayoutActions", bundle: .module),
                 .pane, "arrow.left.square", cli: "column move-left", keywords: ["column", "reorder"], targets: targets),
             row("column.moveRight", String(localized: "action.column.moveRight", defaultValue: "Move Column Right", table: "LayoutActions", bundle: .module),

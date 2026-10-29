@@ -30,6 +30,10 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxStatus(result)
     }
 
+    @concurrent static func chatPeers(socketPath: String) async throws -> [AgentChatPeer] {
+        AgentChatPeer.read(try await call(socketPath: socketPath, method: "_acpmux/status", deadline: .seconds(2)))
+    }
+
     /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
     /// (nil when the answer is not a plan this build reads).
     @concurrent static func chatOpen(socketPath: String, key: String, cwd: String? = nil,
@@ -46,6 +50,17 @@ nonisolated enum AcpmuxStatusClient {
                                            deadline: Duration = .seconds(2)) async throws -> [AgentPanePastTurn] {
         let result = try await call(socketPath: socketPath, method: "_acpmux/chat_transcript", params: ["key": key], deadline: deadline)
         return AgentPanePastTurn.turns(result: result)
+    }
+
+    /// `_acpmux/chat_fork {harness, agentSessionId, cwd}`: the fork's session id. The daemon starts
+    /// the harness's ACP agent for it, so the deadline covers an agent's start.
+    @concurrent static func chatFork(socketPath: String, harness: String, agentSessionId: String, cwd: String?,
+                                     deadline: Duration = .seconds(45)) async throws -> String {
+        var params: [String: any Sendable] = ["harness": harness, "agentSessionId": agentSessionId]
+        if let cwd { params["cwd"] = cwd }
+        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_fork", params: params, deadline: deadline)
+        guard let forked = result["agentSessionId"] as? String, !forked.isEmpty else { throw Failure.rpc("_acpmux/chat_fork returned no agentSessionId") }
+        return forked
     }
 
     /// `_acpmux/shutdown` to the daemon of `home`: it stops; agents under agent hosts keep

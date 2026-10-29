@@ -228,6 +228,12 @@ impl Daemon {
                         "harness": harness, "cwd": work.to_str().unwrap()}))
     }
 
+    fn start_chat_with_model(&self, surface: u64, harness: &str, model: &str) -> Value {
+        let work = self.dir.join("work");
+        self.rpc(json!({"id": 8, "cmd": "agent-session-start", "surface": surface,
+                        "harness": harness, "model": model, "cwd": work.to_str().unwrap()}))
+    }
+
     /// One call on this machine's acpmux unix socket (the local owner).
     fn acpmux_call(&self, method: &str, params: Value) -> Value {
         let stream = UnixStream::connect(self.dir.join("acpmux/acpmux.sock")).unwrap();
@@ -607,6 +613,22 @@ fn agent_session_start_sends_the_tab_workspace_to_acpmux() {
     assert_eq!(acpmux["workspaceId"], json!(key), "{new}");
     assert_eq!(acpmux.get("env"), None, "{new}");
     assert_eq!(acpmux["policy"], "ask", "{new}");
+    let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
+}
+
+/// The optional model chosen by `cmux agent new-chat --model` reaches the remote
+/// machine's first `session/new`, while the daemon still validates the folder and
+/// keeps the model behind its additive capability.
+#[test]
+fn agent_session_start_relays_the_requested_model() {
+    let daemon = Daemon::start_with("model", None, None);
+    let new_sessions = fake_acpmux(daemon.dir.join("acpmux/acpmux.sock"));
+    let surface = daemon.own_agent_tab();
+    let started = daemon.start_chat_with_model(surface, "fake", "model-x");
+    assert_eq!(started["ok"], true, "{started}");
+    let new = new_sessions.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(new["_meta"]["acpmux"]["model"], "model-x", "{new}");
+    assert!(new["cwd"].as_str().unwrap().ends_with("/work"), "{new}");
     let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
 }
 
