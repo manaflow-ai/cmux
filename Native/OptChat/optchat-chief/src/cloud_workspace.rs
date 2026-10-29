@@ -353,11 +353,13 @@ impl CloudWorkspaces {
         let base_key = format!("optchat-cloud-machine-{name}");
         if let Some(machine) = existing {
             let mut state = self.state.lock().expect("state");
-            state.creating.remove(&name);
             // A listed machine is a finished create: a later create of the
             // name (once this one is deleted or renamed) is a new action,
             // never a replay of this one.
-            let attempt = *state.attempts.entry(base_key.clone()).or_default();
+            let attempt = match state.creating.remove(&name) {
+                Some(r) => r.attempt,
+                None => *state.attempts.entry(base_key.clone()).or_default(),
+            };
             state.advance(&base_key, attempt);
             drop(state);
             let target = machine["target"].as_str().unwrap_or_default();
@@ -383,8 +385,10 @@ impl CloudWorkspaces {
                     if let Some(create) = creates.iter().find(|c| named(c, "name")) {
                         if create["status"] == "failed" {
                             // That create is over: a later one is a new action.
-                            state.creating.remove(&name);
-                            let attempt = *state.attempts.entry(base_key.clone()).or_default();
+                            let attempt = match state.creating.remove(&name) {
+                                Some(r) => r.attempt,
+                                None => *state.attempts.entry(base_key.clone()).or_default(),
+                            };
                             state.advance(&base_key, attempt);
                             let reason = create["reason"].as_str().unwrap_or("no reason given");
                             return Err(format!(
