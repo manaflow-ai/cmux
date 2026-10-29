@@ -13,6 +13,24 @@ struct AgentPaneTabRowToolsTests {
         #expect(tools?.first?.menu.first?.checked == true)
     }
 
+    @Test func decodesAbsentOptionalBadgeAndRole() {
+        let raw: [String: Any] = [
+            "id": "review", "symbol": "checkmark", "label": "Review", "enabled": true, "toggled": false,
+            "menu": [["id": "open", "label": "Open", "enabled": true]],
+        ]
+        let tools = AgentPaneTabRowTools.list([raw])
+        #expect(tools?.first?.badge == nil)
+        #expect(tools?.first?.menu.first?.role == nil)
+    }
+
+    @Test func rejectsPresentInvalidRole() {
+        let raw: [String: Any] = [
+            "id": "review", "symbol": "checkmark", "label": "Review", "enabled": true, "toggled": false,
+            "menu": [["id": "open", "label": "Open", "enabled": true, "role": "invalid"]],
+        ]
+        #expect(AgentPaneTabRowTools.list([raw]) == nil)
+    }
+
     @Test func rejectsOutOfBoundsListsAndText() {
         let tooMany = (0...AgentPaneTabRowTools.maximumTools).map { _ in
             ["id": "x", "symbol": "x", "label": "x", "enabled": true, "toggled": false] as [String: Any]

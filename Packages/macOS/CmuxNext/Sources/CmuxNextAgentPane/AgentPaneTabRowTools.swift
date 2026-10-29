@@ -24,8 +24,14 @@ nonisolated enum AgentPaneTabRowTools {
               let id = text(object["id"]), let symbol = text(object["symbol"]), let label = text(object["label"]),
               object["enabled"] is Bool, object["toggled"] is Bool,
               let enabled = object["enabled"] as? Bool, let toggled = object["toggled"] as? Bool,
-              let badge = optionalText(object["badge"]),
               let menu = menu(object["menu"], depth: 0) else { return nil }
+        let badge: String?
+        if let rawBadge = object["badge"], !(rawBadge is NSNull) {
+            guard let parsed = optionalText(rawBadge) else { return nil }
+            badge = parsed
+        } else {
+            badge = nil
+        }
         return PaneTabRowTool(id: id, symbol: symbol, label: label, enabled: enabled, toggled: toggled,
                               badge: badge, menu: menu)
     }
@@ -40,8 +46,21 @@ nonisolated enum AgentPaneTabRowTools {
     private nonisolated static func item(_ raw: Any, depth: Int) -> PaneTabRowMenuItem? {
         guard let object = raw as? [String: Any], let id = text(object["id"]), let label = text(object["label"]),
               object["enabled"] is Bool, let enabled = object["enabled"] as? Bool,
-              let checked = optionalBool(object["checked"]), let role = optionalRole(object["role"]),
               let children = menu(object["children"], depth: depth + 1) else { return nil }
+        let checked: Bool?
+        if let rawChecked = object["checked"], !(rawChecked is NSNull) {
+            guard let parsed = optionalBool(rawChecked) else { return nil }
+            checked = parsed
+        } else {
+            checked = nil
+        }
+        let role: String?
+        if let rawRole = object["role"], !(rawRole is NSNull) {
+            guard let parsed = optionalRole(rawRole) else { return nil }
+            role = parsed
+        } else {
+            role = nil
+        }
         return PaneTabRowMenuItem(id: id, label: label, enabled: enabled, checked: checked, role: role, children: children)
     }
 
