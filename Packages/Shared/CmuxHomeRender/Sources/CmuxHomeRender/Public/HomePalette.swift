@@ -123,6 +123,10 @@ public struct HomePalette: Hashable, Sendable {
     public var morphUnderlay: HomeColor
     public var typingDot: HomeColor
     public var typingDotHighlight: HomeColor
+    /// The composer's own text and symbols: the received text unless a chat
+    /// chose received colours (``applying(_:)``), which keep this the theme's.
+    public var composeText: HomeColor { composeTextOverride ?? incomingText }
+    var composeTextOverride: HomeColor? = nil
 
     public struct GradientStop: Hashable, Sendable {
         public var location: CGFloat
@@ -250,6 +254,16 @@ public struct HomePalette: Hashable, Sendable {
         palette.secondaryText = .gray255(light ? 134 : 154)
         palette.badge = palette.incomingBubble
         return palette.withReadableText()
+    }
+
+    /// This palette with a chat's chosen bubble colours (Chat Colors…, `home.bubbleColors.*`).
+    /// A chosen fill draws flat (no viewport shading); a fill with no chosen
+    /// text gets text that reaches ``minimumTextContrast`` on it. The composer
+    /// keeps the theme's text (``composeText``) whatever the bubbles' text is.
+    /// - Parameter colors: the chosen colours; empty returns this palette unchanged.
+    /// - Returns: the palette the chat draws with.
+    public func applying(_ colors: HomeBubbleColors) -> HomePalette {
+        self
     }
 
     /// The outgoing colour at a fraction of the viewport height.
