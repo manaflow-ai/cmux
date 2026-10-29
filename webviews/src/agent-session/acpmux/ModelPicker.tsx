@@ -112,8 +112,9 @@ function quickSections(
   entry: HarnessChoice | undefined,
   model: string | undefined,
   usable: (choice: ModelChoice) => boolean = () => true,
+  lang?: string,
 ): { shown: ModelChoice[]; more: ModelChoice[] } {
-  const { latest, older } = sectionsFor(entry);
+  const { latest, older } = sectionsFor(entry, lang);
   const all = groupChoices([...latest, ...older], model).filter(usable);
   return relevantModelSections(all, entry?.top);
 }
@@ -193,9 +194,10 @@ export function pickerFaceHarness(catalog: ModelPickerProps["catalog"]): string 
 function searchModels(
   entries: readonly HarnessChoice[],
   query: ParsedQuery,
+  lang?: string,
 ): { model: ModelChoice; entry: HarnessChoice }[] {
   return entries.flatMap((entry) =>
-    choicesFor(entry)
+    choicesFor(entry, lang)
       .filter((model) => fitsQuery(model, entry.name, query))
       .map((model) => ({ model, entry })),
   );
@@ -543,7 +545,7 @@ export function ModelPicker(props: ModelPickerProps) {
       const searchable = harnesses.filter(
         (entry) => entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined,
       );
-      for (const { model, entry } of searchModels(searchable, parsed)) owner.set(model, entry);
+      for (const { model, entry } of searchModels(searchable, parsed, lang)) owner.set(model, entry);
     } else if (starredView) {
       for (const entry of harnesses)
         if (!entry.folder && loginFor(entry) === undefined)
@@ -566,7 +568,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const olderCount =
     searching || starredView || (selected && loginFor(selected) !== undefined)
       ? 0
-      : shownSections(selected, runsHere).older.length;
+      : shownSections(selected, runsHere, lang).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
@@ -693,7 +695,7 @@ export function ModelPicker(props: ModelPickerProps) {
     setActive(
       Math.max(
         0,
-        shownSections(current, current?.ids.includes(harness ?? "") ? props.model : undefined).latest.findIndex(
+        shownSections(current, current?.ids.includes(harness ?? "") ? props.model : undefined, lang).latest.findIndex(
           (model) => model.id === props.model,
         ),
       ),
@@ -701,7 +703,7 @@ export function ModelPicker(props: ModelPickerProps) {
     setOpen(true);
     if (open) search.current?.focus();
     else trigger.current?.focus();
-  }, [current, harness, open, props.model, railHarnesses]);
+  }, [current, harness, lang, open, props.model, railHarnesses]);
   const showRef = useRef(show);
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
@@ -819,7 +821,7 @@ export function ModelPicker(props: ModelPickerProps) {
         entry.folder?.state !== "needs-enable" &&
         loginFor(entry) === undefined,
     );
-    const found = searchModels(searchable, typed);
+    const found = searchModels(searchable, typed, lang);
     // A model several providers serve is one match, in the place of its best-ranked provider's row.
     const groupOf = new Map<ModelChoice, ModelChoice>();
     for (const entry of new Set(found.map((match) => match.entry))) {
@@ -869,7 +871,7 @@ export function ModelPicker(props: ModelPickerProps) {
       .filter((entry) => loginFor(entry) === undefined)
       .flatMap((entry) =>
         groupChoices(
-          choicesFor(entry).filter((model) => favorites.has(model.id)),
+          choicesFor(entry, lang).filter((model) => favorites.has(model.id)),
           entry.ids.includes(harness ?? "") ? props.model : undefined,
         ).map((model) => row(entry, model)),
       );
@@ -878,7 +880,7 @@ export function ModelPicker(props: ModelPickerProps) {
       const signedOutHere = loginFor(entry) !== undefined;
       const { shown, more } = signedOutHere
         ? { shown: [], more: [] }
-        : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined);
+        : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined, undefined, lang);
       list.push({
         id: entry.id,
         name: entry.name,
@@ -920,6 +922,7 @@ export function ModelPicker(props: ModelPickerProps) {
     favorites,
     starredText,
     harness,
+    lang,
     props.model,
     t,
     onLogIn,
@@ -1221,7 +1224,7 @@ export function ModelPicker(props: ModelPickerProps) {
               // This harness's top models, the running one among them; a signed-out harness lists none.
               models:
                 current && loginFor(current) === undefined
-                  ? quickSections(current, props.model, (model) => !model.unavailable).shown.map((model) =>
+                  ? quickSections(current, props.model, (model) => !model.unavailable, lang).shown.map((model) =>
                       quickRow("", model),
                     )
                   : [],
