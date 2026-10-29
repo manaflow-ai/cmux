@@ -4231,6 +4231,18 @@ export class AcpmuxDirectClient {
           this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== rowId);
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
+        // A result can be replayed after the next turn has already started. Once the daemon gives
+        // both turns stable identities, an older result is transcript history only: it must not
+        // close the new turn, clear its asks, or settle its compaction.
+        const resultTurnId =
+          event.kind === "turn_result" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+        if (
+          event.kind === "turn_result" &&
+          resultTurnId !== undefined &&
+          this.runningTurnId !== undefined &&
+          resultTurnId !== this.runningTurnId
+        )
+          return;
         this.turnOpen = false;
         this.silentTurn = false;
         this.turnTokens = undefined;
@@ -4250,22 +4262,23 @@ export class AcpmuxDirectClient {
         this.rows.delete("typing");
         const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
         const status = String(msg.status ?? "completed");
+        const summaryId = `summary-${resultTurnId ?? event.seq}`;
         // A turn a prompt sent now cancelled goes on under that prompt; one that ended first did not.
         // Whatever ended it (acpmux's cancel, or the agent's end_turn), but not a failure, which shows.
         const continued = event.kind === "turn_result" && status !== "failed" && this.interrupting !== undefined;
         if (continued) {
-          this.continuations.set(this.interrupting!, `summary-${event.seq}`);
+          this.continuations.set(this.interrupting!, summaryId);
           this.awaiting = this.interrupting;
         }
         if (event.kind === "turn_result") this.interrupting = undefined;
-        const turnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
+        const turnId = resultTurnId;
         if (event.kind === "turn_result" && turnId) {
           this.endedTurns.add(turnId);
           if (this.runningTurnId === turnId) this.runningTurnId = undefined;
         }
         if (event.kind === "turn_result")
-          this.rows.set(`summary-${turnId ?? event.seq}`, {
-            id: `summary-${turnId ?? event.seq}`,
+          this.rows.set(summaryId, {
+            id: summaryId,
             version: 1,
             at: event.at,
             kind: "turnSummary",

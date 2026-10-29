@@ -296,6 +296,41 @@ test("a compacting forced Stop is one notice and exposes Continue after the matc
   const summaries = turnView(rows(), new Set(), { now: START + 30_000 }).filter((row) => row.kind === "turnSummary");
   expect(summaries).toHaveLength(1);
   expect(summaries[0]?.resumable).toBe(true);
+
+  // A newer turn may already be compacting when a journal replay of the old forced result lands.
+  // The old result must not settle or close that newer turn.
+  daemon.push(
+    record(
+      [
+        ["mux", "user_message", { text: "new turn", promptId: "prompt-2", turnId: "turn-2" }],
+        ["mux", "turn_started", { turnId: "turn-2", turnSeq: 3, promptId: "prompt-2" }],
+        ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ],
+      6,
+    ),
+  );
+  const compactions = () => rows().filter((row) => row.kind === "compaction");
+  expect(compactions().at(-1)?.compaction?.state).toBe("running");
+  daemon.push(record([["mux", "turn_result", forced]], 9));
+  expect(compactions().at(-1)?.compaction?.state).toBe("running");
+  client.close();
+});
+
+test("an interrupted continuation drops its turn-id summary when its queued prompt is withdrawn", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "first", promptId: "prompt-1", turnId: "turn-1" }],
+      ["mux", "turn_started", { turnId: "turn-1", promptId: "prompt-1" }],
+      ["mux", "queued", { text: "follow up", promptId: "prompt-2" }],
+      ["mux", "queue_order", { promptId: "prompt-2", next: true, order: ["prompt-2"] }],
+      ["mux", "turn_result", { status: "cancelled", turnId: "turn-1" }],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  const summary = () => rows().find((row) => row.id === "summary-turn-1");
+  expect(summary()?.continued).toBe(true);
+  daemon.push(record([["mux", "queue_removed", { promptId: "prompt-2" }]], 6));
+  expect(summary()?.continued).toBeUndefined();
   client.close();
 });
 
