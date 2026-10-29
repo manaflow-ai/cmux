@@ -162,6 +162,8 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
     // Reconnect a Claude Code chat's MCP server (`hub/tools.rs`).
     Capability { id: "mcp-reconnect-v1", wire: &[method::MUX_MCP_RECONNECT] },
+    // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
+    Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.

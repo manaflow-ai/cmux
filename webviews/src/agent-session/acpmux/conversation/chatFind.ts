@@ -299,20 +299,39 @@ export function paintFindHighlights(
   const all: Range[] = [];
   let current: Range | undefined;
   for (const row of root.querySelectorAll<HTMLElement>("[data-row-id]")) {
-    const ranges: Range[] = [];
+    // Alternate presentations share one indexed value. Prefer Markdown only when its light-DOM
+    // ranges cover every Raw occurrence of this query. Otherwise use Raw for the whole value:
+    // mixing copies by ordinal would misidentify a hidden URL preceding a visible occurrence.
+    const alternatives = new Map<string, { primary: number; fallback: number }>();
+    for (const fallback of row.querySelectorAll<HTMLElement>("[data-find-fallback]")) {
+      alternatives.set(fallback.dataset.findFallback!, { primary: 0, fallback: 0 });
+    }
+    const candidates: { range: Range; pair?: string; kind?: "primary" | "fallback" }[] = [];
     const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
       acceptNode: (node) =>
         node.parentElement?.closest("[data-find-skip]") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
     });
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const presentation = node.parentElement?.closest<HTMLElement>("[data-find-primary], [data-find-fallback]");
+      const pair = presentation?.dataset.findPrimary ?? presentation?.dataset.findFallback;
+      const kind = presentation?.hasAttribute("data-find-primary") ? "primary" : "fallback";
+      const counts = pair === undefined ? undefined : alternatives.get(pair);
       const text = node.textContent?.toLocaleLowerCase() ?? "";
       for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length)) {
         const range = document.createRange();
         range.setStart(node, at);
         range.setEnd(node, at + needle.length);
-        ranges.push(range);
+        if (counts) counts[kind]++;
+        candidates.push({ range, pair, kind });
       }
     }
+    const ranges = candidates
+      .filter(({ pair, kind }) => {
+        const counts = pair === undefined ? undefined : alternatives.get(pair);
+        if (!counts) return true;
+        return kind === (counts.primary === counts.fallback ? "primary" : "fallback");
+      })
+      .map(({ range }) => range);
     all.push(...ranges);
     // The row that draws the match (an edit and its edited-files card share an id).
     if (active && row.dataset.rowId === active.rowId && (row.dataset.rowCard === "true") === active.card) {

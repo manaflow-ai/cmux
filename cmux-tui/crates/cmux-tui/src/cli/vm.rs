@@ -37,9 +37,8 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
         "new" | "create" => "create",
         "ls" | "list" => "list",
         "rm" | "delete" => "delete",
-        "get" | "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "snapshot" => {
-            verb.as_str()
-        }
+        "get" | "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "snapshot"
+        | "client-session" => verb.as_str(),
         "workspace" => {
             return Err(UsageError::new(
                 "a VM opens as a workspace through the app: run `cmux cloud new-workspace`",

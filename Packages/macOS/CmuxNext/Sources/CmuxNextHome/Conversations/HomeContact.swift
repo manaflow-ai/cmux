@@ -89,6 +89,9 @@ public enum HomeComposeOutcome: Hashable, Sendable {
     case invalidAddress(String)
     /// The owner is offline: nothing was sent.
     case offline
+    /// Sent, but cmux Cloud did not answer (`HomeSendState`): the store may
+    /// still resend it, so this never says nothing was sent.
+    case cloudUnreachable
     /// Refused for another reason, shown as is.
     case refused(String)
 }

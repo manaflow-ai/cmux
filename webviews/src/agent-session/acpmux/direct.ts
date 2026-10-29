@@ -1,4 +1,6 @@
+import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { isRetryContinuation } from "./subagents/retryState";
+import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
 import { answeredBy, participant, promptAuthor, type Participant } from "./multiplayer/participants";
 import type {
@@ -75,7 +77,7 @@ import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptSurfaceMeta } from "./surfaces/promptSurface";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, fullAccessTicket, rememberFullAccess, startModeChanged } from "./startMode";
-import { highestMode } from "./harnessModes";
+import { harnessModeName, highestMode } from "./harnessModes";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
 import { pasteRanges } from "./conversation/promptCollapse";
@@ -85,8 +87,14 @@ import { taskGoal } from "./goal";
 import { shownPresence } from "./multiplayer/LivePresence";
 import { PresenceClient } from "./multiplayer/presenceClient";
 import { recordedConversationEvents } from "./conversation/exportEvents";
-import { markPullRequestActivityVersion, pullRequestRowKey } from "./summary/transcriptPullRequests";
+import {
+  markPullRequestActivityVersion,
+  markPullRequestCommandVersion,
+  markTranscriptSummaryVersion,
+  pullRequestRowKey,
+} from "./summary/transcriptPullRequests";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
+import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -820,7 +828,7 @@ export function mergeToolItem(
     text: String(title ?? previous?.text ?? callId),
     tool: {
       id: callId,
-      title: String(update.title ?? before?.title ?? callId),
+      title: String(update.title ?? update.name ?? before?.title ?? callId),
       kind,
       status,
       inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
@@ -983,6 +991,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// reuse this reference so the pane's derived rows stay memoized.
   private snapshot: AcpmuxRow[] | undefined;
   private pullRequestActivityVersion = Symbol();
+  private pullRequestCommandVersion = Symbol();
+  private transcriptSummaryVersion = {};
 
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
   /// plain fields: a turn's totals change with what was folded before it, not its version), so what
@@ -1006,12 +1016,16 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (changed) this.snapshot = undefined;
   }
 
-  override set(id: string, row: AcpmuxRow): this {
+  // Producers identify stream progress from the event, even when its row retains settled tools.
+  override set(id: string, row: AcpmuxRow, summaryChanged = !row.streaming): this {
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;
     if (!unchanged && pullRequestRowKey(previous) !== pullRequestRowKey(row))
       this.pullRequestActivityVersion = Symbol();
+    if (!unchanged && row.kind === "activity" && pullRequestRowKey(previous) !== pullRequestRowKey(row))
+      this.pullRequestCommandVersion = Symbol();
+    if (!unchanged && (!known || summaryChanged)) this.transcriptSummaryVersion = {};
     if (!unchanged) this.snapshot = undefined;
     if (!known) {
       if (this.current !== undefined) {
@@ -1045,6 +1059,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     }
     this.ordered = undefined;
     this.pullRequestActivityVersion = Symbol();
+    this.pullRequestCommandVersion = Symbol();
+    this.transcriptSummaryVersion = {};
   }
 
   /// Whether the row at `index` of the kept order sorts by its event alone, so a change of its
@@ -1071,6 +1087,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     // Every text delta drops the typing row, which is usually gone already.
     if (!this.has(id)) return false;
     this.pullRequestActivityVersion = Symbol();
+    this.pullRequestCommandVersion = Symbol();
+    this.transcriptSummaryVersion = {};
     this.ordered = undefined;
     this.snapshot = undefined;
     this.order.delete(id);
@@ -1080,6 +1098,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   override clear(): void {
     this.pullRequestActivityVersion = Symbol();
+    this.pullRequestCommandVersion = Symbol();
+    this.transcriptSummaryVersion = {};
     this.ordered = undefined;
     this.snapshot = undefined;
     this.order.clear();
@@ -1100,6 +1120,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// rebuild replayed happened before them.
   placeLocalLast(): void {
     this.pullRequestActivityVersion = Symbol();
+    this.pullRequestCommandVersion = Symbol();
+    this.transcriptSummaryVersion = {};
     this.ordered = undefined;
     this.snapshot = undefined;
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
@@ -1117,6 +1139,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (!this.snapshot) {
       this.snapshot = this.ordered.slice();
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
+      markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
+      markTranscriptSummaryVersion(this.snapshot, this.transcriptSummaryVersion);
     }
     return this.snapshot;
   }
@@ -1352,6 +1376,7 @@ export class AcpmuxDirectClient {
   private handoffSupported = false;
   /// The `_acpmux/*` methods acpmux's `initialize` lists (`_meta.acpmux.extensions`).
   private extensions: readonly string[] = [];
+  private features = new Set<string>();
   /// acpmux calls this connection local (`_meta.acpmux.origin: "local"`). Without that, a
   /// WebSocket connection is remote-origin to acpmux, which never pools for it.
   private localOrigin = false;
@@ -1616,6 +1641,7 @@ export class AcpmuxDirectClient {
 
   private async open(): Promise<void> {
     if (this.opening || this.closed) return;
+    this.features.clear();
     this.opening = true;
     // A reconnect owns the attach of the copy on screen from its start: a row that says its machine
     // is back meanwhile waits for it (`copyBack`), never a second attach over the same copy.
@@ -1692,6 +1718,10 @@ export class AcpmuxDirectClient {
         clientCapabilities: {},
       });
       this.canFork = servesOperation(initialized, FORK_OP);
+      const features = initialized?._meta?.acpmux?.features;
+      this.features = new Set(
+        Array.isArray(features) ? features.filter((value): value is string => typeof value === "string") : [],
+      );
       const capabilities = initialized?._meta?.acpmux?.capabilities;
       this.capabilities = Array.isArray(capabilities) ? new Set(capabilities.map(String)) : undefined;
       const extensions = initialized?._meta?.acpmux?.extensions;
@@ -3813,9 +3843,10 @@ export class AcpmuxDirectClient {
     });
   }
 
-  /// An ask a chat in Full access answered unasked (acpmux hub/permissions.rs `full_access_allow`:
-  /// Claude Code's own guards in bypassPermissions, and any plain tool ask) leaves the receipt line
-  /// a card would, "Approved: rm -rf … (Full access)", so what ran unasked can be seen afterwards.
+  /// An ask a chat in its highest mode answered unasked (acpmux hub/permissions.rs
+  /// `full_access_allow`: Claude Code's own guards in bypassPermissions, and any plain tool ask)
+  /// leaves the receipt line a card would, using that harness's native mode label, so what ran
+  /// unasked can be seen afterwards.
   private recordFullAccess(event: EventRecord, msg: any): void {
     const permission = permissionFromMessage({ ...msg, sessionId: event.sessionId }, this.selectedSessionId ?? "");
     if (!permission) return;
@@ -3823,16 +3854,17 @@ export class AcpmuxDirectClient {
     // Drawn already (a resync replays the live records after its rebuild drew them).
     if (this.rows.has(rowId)) return;
     this.closeSegment();
+    const mode = harnessModeName(this.summary?.family, this.summary?.harness, msg.fullAccess);
     this.rows.set(rowId, {
       id: rowId,
       version: 1,
       at: event.at,
       kind: PERMISSION_RECORD,
       permission,
-      decision: { kind: "fullAccess" },
+      decision: { kind: "fullAccess", mode },
       text: translate(DECISION_TEXT.fullAccess, {
         action: permission.title?.trim() || translate("permission.required"),
-        option: "",
+        mode,
       }),
     });
   }
@@ -3872,7 +3904,16 @@ export class AcpmuxDirectClient {
         this.endAssistantSegment();
         this.streamingActivity = undefined;
       }
-      this.rows.set(row.id, row);
+      const previous = this.rows.get(row.id)?.subagents;
+      const changed =
+        row.subagents?.length !== previous?.length ||
+        row.subagents?.some(
+          (agent, index) =>
+            agent.id !== previous?.[index]?.id ||
+            agent.state !== previous?.[index]?.state ||
+            agent.name !== previous?.[index]?.name,
+        );
+      this.rows.set(row.id, row, changed ?? false);
     }
   }
 
@@ -4291,6 +4332,12 @@ export class AcpmuxDirectClient {
       this.subagents.closeBatch();
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
       if (messageId && this.supersededMessageIds.has(messageId)) return;
+      if (messageId && this.streamingAssistantMessageId && messageId !== this.streamingAssistantMessageId) {
+        const prior = this.streamingAssistant ? this.rows.get(this.streamingAssistant) : undefined;
+        if (prior) this.rows.set(prior.id, { ...prior, version: prior.version + 1, streaming: false });
+        this.streamingAssistant = undefined;
+        this.streamingAssistantMessageId = undefined;
+      }
       const sameMessage = Boolean(
         this.streamingAssistant &&
         (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId),
@@ -4328,6 +4375,7 @@ export class AcpmuxDirectClient {
         kind: "activity",
         toolCount: existing?.toolCount ?? 0,
         items: appendThought(existing?.items ?? [], text, event.at),
+        streaming: true,
       });
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
@@ -4351,16 +4399,23 @@ export class AcpmuxDirectClient {
         mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at),
         itemIndex < 0 || items[itemIndex].tool?.status === "pending",
       );
+      const priorTool = itemIndex >= 0 ? items[itemIndex].tool : undefined;
+      // Streaming output alone leaves the summary unchanged; metadata is visible immediately.
+      const summaryChanged = (
+        ["title", "description", "command", "inputSummary", "kind", "status", "exitCode", "startedAt"] as const
+      ).some((key) => priorTool?.[key] !== item.tool?.[key]);
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
-      this.rows.set(id, {
+      const row: AcpmuxRow = {
         id,
         version: (existing?.version ?? 0) + 1,
         at: existing?.at ?? event.at,
         kind: "activity",
         toolCount: items.filter((entry) => entry.kind === "tool").length,
         items,
-      });
+        streaming: item.tool?.status !== "completed" && item.tool?.status !== "failed",
+      };
+      this.rows.set(id, row, itemIndex < 0 || !row.streaming || summaryChanged);
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "background_task_update") {
@@ -4466,7 +4521,7 @@ export class AcpmuxDirectClient {
       ...(ended ? { endedAt: at } : {}),
     };
     items[index] = { ...item, tool: { ...tool, background } };
-    this.rows.set(row.id, { ...row, version: row.version + 1, items });
+    this.rows.set(row.id, { ...row, version: row.version + 1, items }, true);
     return true;
   }
 
@@ -4784,6 +4839,14 @@ export class AcpmuxDirectClient {
   /** A new chat starting (`create`): a Send meanwhile waits for it and goes to the new chat, not to
    *  the session still on screen (a harness pick), and a Send with no session joins it. */
   private creating?: Promise<string | undefined>;
+  /// Opens a chat's Cloud hand-off turn before a prompt that starts one (cloudHandoffTurn.ts); set
+  /// by the page only for a chat on a Cloud machine whose app opens them.
+  handoffTurn?: (sessionId: string) => Promise<number | undefined>;
+  /// The hand-off turn each chat asks the app for now (sendNow), with the selection it was asked in.
+  private handoffAsks = new Map<string, { generation: number; ask: Promise<number | undefined> }>();
+  /// The newest hand-off turn each chat sent a prompt under: the store may still say it is `starting`
+  /// (the machine's reports go on their own time), and another prompt never names it.
+  private handoffTurnsSent = new Map<string, number>();
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
@@ -4901,6 +4964,44 @@ export class AcpmuxDirectClient {
     const sessionId = shown ?? (await this.ensureSession());
     // No chat took it: the sender gets the prompt back (a started chat's composer let go of it).
     if (!sessionId) throw new Error(translate("error.notOpen"));
+    // A chat on a Cloud machine: a prompt that starts a turn names the hand-off turn the app opened
+    // for it (cloudHandoffTurn.ts), so the machine reports that turn. Not a steer or a prompt behind
+    // a running turn or the queue (it starts no turn of its own), and never a prompt that already
+    // names one: a Retry keeps its id, so a copy acpmux took runs once.
+    // One ask per chat at a time: a send while an ask is out goes behind that prompt (it starts no
+    // turn of its own) and under its own id, once the ask ends. Either await lets the selection move:
+    // a prompt whose chat is no longer the one shown goes back to its sender, never drawn in the
+    // other chat. An ask from before the chat was shown again belongs to such a prompt: a send now
+    // asks again, and the app names the turn that ask opened (a turn not run yet is named again).
+    // A Retry keeps the id its prompt first went with, named or not: acpmux may hold that copy.
+    /// The turn this prompt claimed (`handoffTurnsSent`) and the claim before it.
+    let claim: { turn: number; before: number | undefined } | undefined;
+    if (this.handoffTurn && !steer && !namesHandoffTurn(promptId) && !this.retriedPrompts.has(promptId)) {
+      const generation = this.selectionGeneration;
+      let named: number | undefined;
+      const asking = this.handoffAsks.get(sessionId);
+      if (asking?.generation === generation) await asking.ask;
+      else if (!(shown === sessionId && (this.turnOpen || this.queue.length > 0))) {
+        const entry = { generation, ask: this.handoffTurn(sessionId) };
+        this.handoffAsks.set(sessionId, entry);
+        let turn: number | undefined;
+        try {
+          turn = await entry.ask;
+        } finally {
+          if (this.handoffAsks.get(sessionId) === entry) this.handoffAsks.delete(sessionId);
+        }
+        // A turn this page already sent a prompt under is that prompt's, even while the store has not
+        // heard it run yet; a turn the app opened after the wait ran out is named (nothing ran under it).
+        if (turn !== undefined && turn > (this.handoffTurnsSent.get(sessionId) ?? 0)) named = turn;
+      }
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId)
+        throw new Error(translate("error.notOpen"));
+      if (named !== undefined) {
+        claim = { turn: named, before: this.handoffTurnsSent.get(sessionId) };
+        this.handoffTurnsSent.set(sessionId, named);
+        promptId = handoffPromptId(named, promptId);
+      }
+    }
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
     const supportsAudio = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions);
     const sendAttachments = supportsAudio
@@ -5119,6 +5220,12 @@ export class AcpmuxDirectClient {
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       this.routeTrustRefusal(error);
       if (held) {
+        // Refused before acpmux took it, back in the composer: it never ran, so its turn is free for
+        // the next Send (an ambiguous failure keeps the claim: acpmux may run it).
+        if (claim && refused && !taken && this.handoffTurnsSent.get(sessionId) === claim.turn) {
+          if (claim.before === undefined) this.handoffTurnsSent.delete(sessionId);
+          else this.handoffTurnsSent.set(sessionId, claim.before);
+        }
         this.rows.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
@@ -5703,6 +5810,12 @@ export class AcpmuxDirectClient {
   /// This Mac's acpmux forum rules (`_acpmux/forum/rules`, hq#2570): the current rule per key.
   async forumRules(): Promise<unknown> {
     return this.request("_acpmux/forum/rules", {});
+  }
+  /// Auth for this exact chat or a prospective New Tab target; the daemon owns freshness and
+  /// returns unknown when no current credential evidence exists. Never use cached harness health.
+  async sessionAuth(query: SessionAuthQuery, refresh = false): Promise<unknown> {
+    if (!this.features.has("sessionAuth")) return UNKNOWN_AUTH;
+    return this.request("_acpmux/session/auth", { ...query, ...(refresh ? { refresh: true } : {}) });
   }
   /// The routes acpmux has (`_acpmux/route/list`) with `sessionId`'s active one: the composer's
   /// Account menu. Each route says whether it `serves` the session's harness family.
@@ -7065,11 +7178,16 @@ function catalogEntry(harness: any): AcpmuxSnapshot["catalog"][number] {
           : String(harness.name),
     ),
     models: (harness.models ?? []).map((model: any) => catalogModel(model)),
+    ...(typeof harness.kind === "string" ? { kind: harness.kind } : {}),
     ...(typeof harness.family === "string" && harness.family ? { family: harness.family } : {}),
     ...(typeof harness.icon === "string" && harness.icon ? { icon: harness.icon } : {}),
     ...(iconSpec ? { iconSpec } : {}),
-    // A terminal harness (Muse Code) runs in a terminal tab, never as a chat: no picker lists it.
-    ...(harness.kind === "terminal" ? { pickable: false } : {}),
+    // Terminals and model routers are not chat harness choices. A real launcher can still have
+    // a cmux-prefixed ID: only the declared kind determines whether it belongs in the picker.
+    // acpmux's `pickerHidden`: the cmux model router profile, Claude's automatic fallback.
+    ...(harness.kind === "terminal" || isModelRouterKind(harness.kind) || harness.pickerHidden === true
+      ? { pickable: false }
+      : {}),
     ...(harnessStart(harness.start) ? { start: harnessStart(harness.start) } : {}),
     ...(typeof harness.auth?.login === "string" && harness.auth.login.trim()
       ? { auth: { login: harness.auth.login.trim() } }

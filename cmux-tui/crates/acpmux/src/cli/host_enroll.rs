@@ -37,6 +37,9 @@ pub(crate) struct Plan {
     pub remote_binary: String,
     /// Run `peer-back` (`--reverse`); off by default, it is reported `skip`.
     pub reverse: bool,
+    /// `host enroll` (Add Machine): this Mac lends the machine its GitHub login
+    /// (`github_broker.rs`). `host doctor` never changes what a peer is lent.
+    pub lends_github: bool,
 }
 
 impl Plan {
@@ -55,6 +58,7 @@ impl Plan {
             harnesses,
             remote_binary,
             reverse,
+            lends_github: true,
         }
     }
 }
@@ -111,7 +115,7 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         let result = match gate(step, &done) {
             Some(skip) => skip,
             None => match step {
-                Step::Peer => host_peering::peer(&client, &t, fix).await,
+                Step::Peer => host_peering::peer(&client, &t, fix, plan.lends_github).await,
                 Step::PeerBack if !plan.reverse => peer_back_off(),
                 Step::PeerBack => host_peering::peer_back(&t, fix).await,
                 Step::Approvals => {
