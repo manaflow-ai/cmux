@@ -17,6 +17,7 @@ use acpmux::mesh::{
     Ack, AckState, ControlHook, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub,
     Mode, OutMessage, Receipt, RefuseControl, Sender, SessionRow, Target,
 };
+use acpmux::mesh_http::MeshControlFrom;
 use acpmux::rpc::Message;
 use acpmux::server::mesh_relay::{MeshControlHook, MeshRelay, RelayOptions, relay_connection};
 use acpmux::server::{Origin, serve_connection_with};
@@ -508,9 +509,47 @@ async fn mesh_control_dispatches_through_peer_requests_and_refuses_unknown_sessi
         body: r#"{"version":1}"#.into(),
         ..message("control-resume-1", "", Kind::Control)
     };
-    let ack = MeshControlHook.control(&hub, &message).await.expect("control is acknowledged");
+    let hook = MeshControlHook {
+        allowed: vec![MeshControlFrom { daemon_id: "inst_a".into(), ops: vec![] }],
+    };
+    let ack = hook.control(&hub, &message).await.expect("control is acknowledged");
     assert_eq!(ack.state, AckState::Refused);
     assert!(ack.detail.as_deref().is_some_and(|detail| detail.contains("no session")), "{ack:?}");
+}
+
+#[tokio::test]
+async fn mesh_control_requires_owner_allowlist_and_stamped_daemon_id() {
+    let hub = hub();
+    let allowed = MeshControlHook {
+        allowed: vec![MeshControlFrom { daemon_id: "inst_a".into(), ops: vec!["resume".into()] }],
+    };
+    let base = |op: &str, sender: Option<&str>| InMessage {
+        message_id: format!("control-{op}"),
+        kind: Kind::Control,
+        op: Some(op.into()),
+        mode: Mode::Now,
+        to: Target { session_id: Some("missing-session".into()), ..Target::default() },
+        from: Sender {
+            daemon_id: sender.map(str::to_owned),
+            // These are claims and must never make an unlisted sender acceptable.
+            name: Some("inst_a".into()),
+            host: Some("owner-host".into()),
+            ..Sender::default()
+        },
+        body: r#"{"version":1}"#.into(),
+        attempt: 1,
+    };
+
+    let ack = allowed.control(&hub, &base("resume", Some("inst_a"))).await.unwrap();
+    assert!(ack.detail.as_deref().is_some_and(|detail| detail.contains("no session")), "{ack:?}");
+    for (op, sender) in [("resume", None), ("resume", Some("other")), ("stop", Some("inst_a"))] {
+        let ack = allowed.control(&hub, &base(op, sender)).await.unwrap();
+        assert_eq!(ack.state, AckState::Refused);
+        assert_eq!(ack.detail.as_deref(), Some("mesh.control_not_allowed"));
+    }
+    let default = MeshControlHook { allowed: vec![] };
+    let ack = default.control(&hub, &base("resume", Some("inst_a"))).await.unwrap();
+    assert_eq!(ack.detail.as_deref(), Some("mesh.control_not_allowed"));
 }
 
 #[tokio::test]

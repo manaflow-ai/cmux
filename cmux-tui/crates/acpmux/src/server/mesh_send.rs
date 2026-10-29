@@ -86,6 +86,7 @@ pub(super) async fn send(
             ..Sender::default()
         },
         kind: Kind::Prompt,
+        op: None,
         body: texts.join("\n\n"),
         mode: if field("steer") == Some(&json!(true)) { Mode::Now } else { Mode::TurnEnd },
         idempotency_key: idempotency_key(&prompt_id),

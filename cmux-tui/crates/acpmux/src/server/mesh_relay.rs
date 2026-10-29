@@ -31,6 +31,7 @@ use super::*;
 use crate::mesh::{
     Ack, AckState, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode,
 };
+use crate::mesh_http::MeshControlFrom;
 use std::collections::HashSet;
 use std::sync::Weak;
 use std::time::{Duration, Instant};
@@ -182,7 +183,7 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     // The origin only (no user, password or query is accepted in the URL).
     let shown = config.shown();
     tracing::info!("mesh relay: on, through {shown}");
-    let control = Arc::new(MeshControlHook);
+    let control = Arc::new(MeshControlHook { allowed: config.control_from });
     Some(MeshRelay::start(hub, client, control, RelayOptions::default()))
 }
 
@@ -384,10 +385,14 @@ pub fn relay_connection(hub: &Arc<Hub>) -> (mpsc::Sender<String>, mpsc::Receiver
     (in_tx, out_rx)
 }
 
-/// Runs a hub control message through the same authenticated peer-origin request path as a
-/// connected daemon. The relay hub only selected this daemon; it does not grant ownership, and
-/// the request handlers below still apply their normal peer-origin and owner checks.
-pub struct MeshControlHook;
+/// Runs an owner-allowlisted hub control message through the same authenticated peer-origin
+/// request path as a connected daemon. The relay hub only selected this daemon; it does not grant
+/// ownership, and the request handlers below still apply their normal peer-origin and owner checks.
+pub struct MeshControlHook {
+    /// Owner-configured grants. The hub's sender claims are not authority; only its stamped
+    /// daemon id may match one of these entries.
+    pub allowed: Vec<MeshControlFrom>,
+}
 
 impl ControlHook for MeshControlHook {
     fn control<'a>(
@@ -395,14 +400,24 @@ impl ControlHook for MeshControlHook {
         hub: &'a Arc<Hub>,
         message: &'a InMessage,
     ) -> futures::future::BoxFuture<'a, Option<Ack>> {
-        Box::pin(async move { run_control(hub, message).await })
+        Box::pin(async move { run_control(hub, &self.allowed, message).await })
     }
 }
 
-async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
+async fn run_control(
+    hub: &Arc<Hub>,
+    allowed: &[MeshControlFrom],
+    message: &InMessage,
+) -> Option<Ack> {
     let Some(op) = message.op.as_deref() else {
         return Some(Ack::refused("control message has no operation"));
     };
+    let Some(daemon_id) = message.from.daemon_id.as_deref().filter(|id| !id.is_empty()) else {
+        return Some(Ack::refused("mesh.control_not_allowed"));
+    };
+    if !allowed.iter().any(|entry| entry.allows(daemon_id, op)) {
+        return Some(Ack::refused("mesh.control_not_allowed"));
+    }
     let body: serde_json::Value = match serde_json::from_str(&message.body) {
         Ok(body) => body,
         Err(e) => return Some(Ack::refused(format!("invalid control body: {e}"))),
@@ -426,12 +441,6 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         };
         params["sessionId"] = serde_json::Value::String(id.to_owned());
     }
-    let method = match op {
-        "start" => crate::rpc::method::SESSION_NEW,
-        "resume" => crate::rpc::method::SESSION_RESUME,
-        "stop" => crate::rpc::method::SESSION_CANCEL,
-        _ => unreachable!(),
-    };
     let (tx, mut rx) = relay_connection(hub);
     let initialized = rpc_call(
         &tx,
@@ -448,8 +457,56 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
     if let Err(e) = initialized {
         return Some(Ack::refused(format!("control initialize failed: {e}")));
     }
-    match rpc_call(&tx, &mut rx, 2, method, params).await {
-        Ok(_) => Some(Ack::delivered(&message.message_id, None)),
+    let result = match op {
+        "start" => rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_NEW, params).await,
+        "stop" => rpc_call(&tx, &mut rx, 2, crate::rpc::method::SESSION_CLOSE, params).await,
+        // `session/resume` replays history for a newly attached ACP client. The CLI's
+        // `session resume` operation instead releases a held queue item, so use the same
+        // queue-edit path here.
+        "resume" => {
+            let info = match rpc_call(&tx, &mut rx, 2, crate::rpc::method::MUX_INFO, params).await {
+                Ok(info) => info,
+                Err(e) => {
+                    return Some(Ack {
+                        state: AckState::Refused,
+                        prompt_id: Some(message.message_id.clone()),
+                        detail: Some(e),
+                    });
+                }
+            };
+            let held = info["queue"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|entry| entry["held"] == true)
+                .and_then(|entry| entry["promptId"].as_str())
+                .map(str::to_owned);
+            match held {
+                Some(prompt_id) => {
+                    rpc_call(
+                        &tx,
+                        &mut rx,
+                        3,
+                        crate::rpc::method::MUX_QUEUE_EDIT,
+                        serde_json::json!({
+                            "sessionId": message.to.session_id.clone(),
+                            "promptId": prompt_id,
+                            "op": "resume"
+                        }),
+                    )
+                    .await
+                }
+                None => Ok(serde_json::json!({"resumed": false})),
+            }
+        }
+        _ => unreachable!(),
+    };
+    match result {
+        Ok(result) => {
+            let detail =
+                result.get("sessionId").and_then(serde_json::Value::as_str).map(str::to_owned);
+            Some(Ack::delivered(&message.message_id, detail))
+        }
         Err(e) => Some(Ack {
             state: AckState::Refused,
             prompt_id: Some(message.message_id.clone()),
@@ -465,11 +522,12 @@ async fn rpc_call(
     method: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     tx.send(crate::rpc::Message::request(id, method, params).to_line())
         .await
         .map_err(|_| "control connection closed".to_owned())?;
     loop {
-        let line = tokio::time::timeout(Duration::from_secs(60), rx.recv())
+        let line = tokio::time::timeout_at(deadline, rx.recv())
             .await
             .map_err(|_| "control request timed out".to_owned())?
             .ok_or_else(|| "control connection closed".to_owned())?;

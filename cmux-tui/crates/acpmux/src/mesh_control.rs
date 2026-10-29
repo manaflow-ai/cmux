@@ -166,6 +166,7 @@ impl ControlRelay for MeshControlRelay {
             to: request.to.clone().into(),
             from: self.sender.clone(),
             kind: crate::mesh::Kind::Control,
+            op: Some(request.op.to_owned()),
             body: request.body.clone(),
             mode: crate::mesh::Mode::Now,
             idempotency_key: request.idempotency_key.clone(),
