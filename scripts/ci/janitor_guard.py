@@ -130,7 +130,11 @@ def entries_in(documents: Iterable[Mapping[str, Any] | None], key: str) -> list[
             continue
         entries = document.get(key)
         if isinstance(entries, list):
-            return [dict(entry) for entry in entries if isinstance(entry, Mapping)]
+            # Every entry is kept: one that is not an object is wrapped so it still takes room, is still carried, and
+            # is named under MALFORMED_KEY (OwedStore.malformed()).
+            return [dict(entry) if isinstance(entry, Mapping) else {"malformed": entry} for entry in entries]
+        if key in document:  # present but not a list: unknown, never empty
+            marked = True
     return None if marked else []
 
 

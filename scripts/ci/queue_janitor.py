@@ -1778,10 +1778,10 @@ def plan_lost_reruns(
         run_id = entry.get("run_id") if isinstance(entry, Mapping) else None
         if not isinstance(run_id, int) or isinstance(run_id, bool):
             # Never dropped by time or shape: kept, and named in the snapshot (janitor_guard.malformed()).
-            decisions.append(LostRerun(entry if isinstance(entry, Mapping) else {"entry": entry}, "keep",
+            decisions.append(LostRerun(entry if isinstance(entry, Mapping) else {"malformed": entry}, "keep",
                                        "malformed entry; kept for a person"))
             continue
-        cancelled = parse_time(str(entry.get("cancelled_at") or ""))
+        cancelled = parse_time(entry.get("cancelled_at") if isinstance(entry.get("cancelled_at"), str) else None)
         if cancelled is not None and now - cancelled > LOST_RERUN_ALARM:
             print(f"::warning title=Owed re-run::run {run_id} has been owed a re-run since {entry.get('cancelled_at')}; "
                   "it is kept until its outcome is confirmed")
@@ -1789,9 +1789,13 @@ def plan_lost_reruns(
         if not run:
             decisions.append(LostRerun(entry, "keep", "run not readable this sweep"))
             continue
-        attempt = int(run.get("run_attempt") or 0)
-        if attempt != int(entry.get("attempt") or 0):
-            decisions.append(LostRerun(entry, "drop", f"already re-run (now attempt {attempt})", run))
+        attempt, owed = run.get("run_attempt"), entry.get("attempt")
+        if not isinstance(attempt, int) or isinstance(attempt, bool) or not isinstance(owed, int) \
+                or isinstance(owed, bool) or attempt < owed:
+            decisions.append(LostRerun(entry, "keep", f"attempt reads {attempt!r} against the owed {owed!r}; kept", run))
+            continue
+        if attempt > owed:
+            decisions.append(LostRerun(entry, "drop", f"re-run seen (now attempt {attempt})", run))
             continue
         if run.get("status") != "completed":
             decisions.append(LostRerun(entry, "keep", f"cancel not settled ({run.get('status')})", run))
@@ -1802,8 +1806,12 @@ def plan_lost_reruns(
         if run.get("conclusion") != "cancelled":
             decisions.append(LostRerun(entry, "drop", f"finished {run.get('conclusion')}", run))
             continue
+        # From here the run sits cancelled at the owed attempt. Besides a later attempt or another conclusion, the
+        # only outcomes that clear it are ones this sweep read: its pull request read closed, moved or opted out, or
+        # a newer run read at its head. Then nobody reads the run, so nothing is lost by not re-running it. An unread
+        # lookup (no pull request listing, no branch head, no runs at its head) keeps it.
         if run.get("head_sha") != entry.get("head_sha"):
-            decisions.append(LostRerun(entry, "drop", "head changed", run))
+            decisions.append(LostRerun(entry, "keep", "its head reads differently; kept for a person", run))
             continue
         branch = str(entry.get("branch") or "")
         if branch not in prs_by_branch:
@@ -2512,13 +2520,23 @@ def cancel_superseded(github: "GitHub", decisions: Sequence[SupersededDecision],
             continue
         try:
             current = github.run(run_id)
+            jobs = complete_jobs(github.jobs(run_id))
+            after = github.run(run_id)  # once more after its jobs: a re-run between the reads changes its attempt
         except RuntimeError as error:  # recorded in READS by GitHub.request(): it stops the rest of phase 2
             failures += 1
             out.append(SupersededDecision(run, "keep", f"recheck failed: {error}"))
             continue
         if (current.get("status") not in IN_FLIGHT_RUN_STATUSES or current.get("run_attempt") != run.get("run_attempt")
-                or current.get("head_sha") != run.get("head_sha")):
+                or current.get("head_sha") != run.get("head_sha")
+                or (after.get("run_attempt"), after.get("status")) != (current.get("run_attempt"), current.get("status"))):
             out.append(SupersededDecision(run, "keep", "on recheck: it finished, moved or was re-run"))
+            continue
+        # The never-cancel-a-started-build rule, read again right before the cancel: a build, sign or publish job of
+        # this attempt that started after phase 1 keeps the run.
+        mine = attempt_jobs(current, jobs) if jobs is not None else None
+        started = "its jobs could not be read" if mine is None else build_started(mine)
+        if started:
+            out.append(SupersededDecision(run, "keep", f"on recheck, it has started: {started}"))
             continue
         try:
             github.cancel(run_id)
@@ -2930,12 +2948,18 @@ class GitHub:
         """One API call, and the one path every read of the sweep takes. A read that fails (after its retries, a
         rate limit included; a 404 is an answer, not a failure) is recorded in janitor_guard.READS, which holds
         every cancel for the rest of the sweep."""
+        read = method == "GET" or path == "/graphql"
         try:
             return self._request_retrying(method, path, body, app_only=app_only)
         except RuntimeError as error:
-            if (method == "GET" or path == "/graphql") and "(404)" not in str(error):
+            if read and "(404)" not in str(error):
                 READS.failed(f"{method} {path.split('?')[0]}", error)
             raise
+        except (ValueError, UnicodeDecodeError) as error:  # an answer that is not JSON: unread, never a crash
+            if read:
+                READS.failed(f"{method} {path.split('?')[0]} (unreadable answer)", error)
+            raise RuntimeError(f"{method} {path.split('?')[0]} answered something that is not JSON ({error})") \
+                from error
 
     def _request_retrying(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
         """A read (GET, or a GraphQL query) that meets a 5xx or a dropped connection is made again after each
@@ -3147,9 +3171,14 @@ class GitHub:
         self.kinds["GET /actions/artifacts/{id}/zip"] = self.kinds.get("GET /actions/artifacts/{id}/zip", 0) + 1
         try:
             return PoolClient(self._token, self.repo).download(artifact)
-        except OSError as error:  # urllib's HTTPError and URLError
+        except (OSError, RuntimeError, ValueError) as error:  # urllib's HTTPError and URLError, a missing redirect
             READS.failed("an artifact download", error)
             raise RuntimeError(f"artifact download failed ({error})") from error
+
+    def get(self, path: str) -> Any:
+        """pr_runner_pool.GitHub's get() through this client's request(), so owned_warm_state.py's reads are
+        recorded in READS like every other."""
+        return self.request("GET", f"/repos/{self.repo}{path}")
 
 
 def previous_lost_reruns(github: GitHub, key: str = LOST_RERUNS_KEY) -> list[dict[str, Any]]:
@@ -3203,12 +3232,14 @@ def hold_orphans(decisions: Sequence["OrphanDecision"], why_held: str | None) ->
 def rerun_lost(github: GitHub, decisions: Sequence[LostRerun]) -> tuple[list[dict[str, Any]], dict[int, str], int]:
     """POST rerun-failed-jobs for each `rerun` decision. Returns (entries still pending, results, failures).
 
-    A re-run GitHub refused stays pending: if it took after all, the next
-    sweep sees the new attempt and drops it, so it can never run twice. A
+    Every entry stays pending until a later sweep reads its run on a later attempt (or finished on its own): a
+    re-run asked, or refused, is never taken as one seen, and the next sweep's read decides. A
     pull request's CI re-run also starts ci-ui-tests.yml for its new attempt
     (GitHub.request_ui_tests()).
     """
-    pending = [dict(decision.entry) for decision in decisions if decision.action == "keep"]
+    # Every entry but one whose run was read on a later attempt (or finished on its own) stays: a re-run asked is
+    # not a re-run seen, so it is struck by the next sweep that reads the new attempt.
+    pending = [dict(decision.entry) for decision in decisions if decision.action != "drop"]
     results: dict[int, str] = {}
     failures = 0
     for decision in decisions:
@@ -3221,10 +3252,10 @@ def rerun_lost(github: GitHub, decisions: Sequence[LostRerun]) -> tuple[list[dic
         except Exception as error:  # noqa: BLE001 one failed re-run never drops the other entries
             failures += 1
             results[run_id] = f"failed: {error!r}"
-            pending.append(dict(decision.entry))
             continue
         # The attempt the re-run began: a read right after it may still show the old one.
-        github.request_ui_tests(decision.run or {"id": run_id}, int(decision.entry.get("attempt") or 1) + 1)
+        attempt = decision.entry.get("attempt")
+        github.request_ui_tests(decision.run or {"id": run_id}, (attempt if isinstance(attempt, int) else 1) + 1)
     return pending, results, failures
 
 
@@ -3493,7 +3524,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         # picker then routes admission by the root label as before.
         if os.environ.get("OWNED_WARM", "").strip() == "1":
             try:
-                snapshot["warm"] = owned_warm_state.sweep(PoolClient(token, args.repo), jobs_by_run, now)
+                # Through this sweep's own client: its reads go through GitHub.request() and its downloads through
+                # GitHub.download(), so a failure is recorded in READS and holds phase 2.
+                snapshot["warm"] = owned_warm_state.sweep(github, jobs_by_run, now)
             except Exception as error:  # noqa: BLE001 a routing hint never fails the sweep
                 print(f"queue-janitor: owned warm state: {error}", file=sys.stderr)
         args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")

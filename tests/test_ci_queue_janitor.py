@@ -2605,7 +2605,8 @@ class LostAssignmentSweepTests(unittest.TestCase):
             code, text = self.sweep(fake, temp)
             self.assertEqual(code, 0)
             self.assertEqual(fake.posts(), [[str(stuck["id"]), "rerun-failed-jobs"]])
-            self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+            # A re-run asked is not one seen: kept until a sweep reads attempt 2.
+            self.assertEqual([e["run_id"] for e in fake.snapshots[-1]["lost_reruns"]], [stuck["id"]])
             self.assertIn("re-ran", text)
             self.assertEqual(fake.runs[stuck["id"]]["run_attempt"], 2)
 
@@ -2647,7 +2648,8 @@ class LostAssignmentSweepTests(unittest.TestCase):
                                                 ["ci-ui-tests.yml", "dispatches"]])
                 self.assertEqual(fake.bodies[-1][2], {"ref": "main", "inputs": {"run_id": str(stuck["id"]),
                                                                                "run_attempt": "2"}})
-                self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+                # Kept until a sweep reads attempt 2.
+                self.assertEqual([e["run_id"] for e in fake.snapshots[-1]["lost_reruns"]], [stuck["id"]])
 
     def test_a_pr_head_that_moved_before_the_re_run_gets_none(self):
         stuck, other, jobs = lost_world(age=85, event="pull_request", branch="feature")
@@ -2696,7 +2698,7 @@ class LostAssignmentSweepTests(unittest.TestCase):
                              0, "both"),
             "rerun_failed": (lambda fake: setattr(fake, "rerun_failed",
                                                   mock.Mock(side_effect=http.client.IncompleteRead(b""))), 1, "both"),
-            "ui_tests": (lambda fake: None, 0, "fresh"),
+            "ui_tests": (lambda fake: None, 0, "both"),  # the re-run took, but is kept until attempt 2 is read
         }
         for name, (break_it, expected_code, kept) in cases.items():
             with self.subTest(failing=name):
@@ -3012,7 +3014,7 @@ class UnclaimedLegSweepTests(unittest.TestCase):
             code, text = self.sweep(fake, temp)
             self.assertEqual(fake.posts(), [[str(run["id"]), "rerun-failed-jobs"]])
             self.assertEqual(fake.runs[run["id"]]["run_attempt"], 2)
-            self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+            self.assertEqual([e["run_id"] for e in fake.snapshots[-1]["lost_reruns"]], [run["id"]])
 
             # Attempt 2 is the bot's: never re-run again here.
             fake.runs[run["id"]].update(status="queued")
@@ -3249,7 +3251,12 @@ class BlacksmithLegTests(unittest.TestCase):
         self.assertEqual(fake.posts(), [[str(run["id"]), "rerun-failed-jobs"]])
         self.assertEqual(len(fake.app_only_posts), 1)
         self.assertEqual(fake.runs[run["id"]]["triggering_actor"], {"login": "cmux-bot[bot]"})
+        # A re-run asked is not one seen: the entry stays until a sweep reads attempt 2 (cmux#27114 review, 0891217).
+        self.assertEqual([e["run_id"] for e in fake.snapshots[-1]["lost_reruns"]], [run["id"]])
+        with tempfile.TemporaryDirectory() as temp, mock.patch.dict("os.environ", {"PR_POOL_OWNED": "1"}):
+            LostAssignmentSweepTests.sweep(self, fake, temp)
         self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+        self.assertEqual(len(fake.app_only_posts), 1)
 
     def test_a_bots_attempt_category_e_leaves_is_judged_by_category_f(self):
         run, jobs = self.world(age=40, attempt=2, actor="github-actions[bot]")
@@ -3680,6 +3687,88 @@ class TwoPhaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             LostAssignmentSweepTests.sweep(self, fake, temp)
         self.assertIn([str(stuck["id"]), "cancel"], fake.posts())
+
+
+class ReviewSixTests(unittest.TestCase):
+    """cmux#27114 review (0891217), one test per finding."""
+
+    def setUp(self):
+        janitor.READS.reset()
+        self.addCleanup(janitor.READS.reset)
+
+    def test_1_a_build_that_starts_after_phase_one_is_never_cancelled(self):
+        old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
+        jobs = {old["id"]: gate_jobs(70), tip["id"]: building_jobs(20)}
+        fake = FakeGitHub({r["id"]: dict(r) for r in (old, tip)}, jobs)
+        fake.branches = {"nightly-next": tip["head_sha"]}
+        candidates = janitor.superseded_candidates([old, tip], jobs)
+        planned, _ = janitor.skip_superseded_delivery(fake, candidates, [old, tip], jobs, {}, dry_run=False, now=NOW,
+                                                      hold=janitor.READS.hold, execute=False)
+        self.assertEqual({d.run["id"]: d.action for d in planned}[old["id"]], "cancel")
+        # Between phase 1 and the cancel, the old run's build job starts.
+        fake.job_map[old["id"]] = gate_jobs(70, build={"status": "in_progress", "runner_name": "mini-1"})
+        done, _ = janitor.cancel_superseded(fake, planned, hold=janitor.READS.hold)
+        decision = {d.run["id"]: d for d in done}[old["id"]]
+        self.assertEqual(decision.action, "keep")
+        self.assertIn("started", decision.note)
+        self.assertEqual(fake.posts(), [])
+
+    def test_2_owned_warm_reads_go_through_the_read_log(self):
+        fake = FakeGitHub({})
+        with mock.patch.object(FakeGitHub, "_request_retrying", side_effect=RuntimeError("GET artifacts failed (502)")), \
+                redirect_stderr(io.StringIO()), self.assertRaises(RuntimeError):
+            janitor.owned_warm_state.sweep(fake, {}, NOW, log=lambda _: None)
+        self.assertIn("artifacts", janitor.READS.hold())
+        source = (Path(janitor.__file__)).read_text(encoding="utf-8")
+        self.assertIn("owned_warm_state.sweep(github, jobs_by_run, now)", source)
+        self.assertNotIn("owned_warm_state.sweep(PoolClient", source)
+
+    def test_3_only_a_later_attempt_counts_as_re_run(self):
+        base = make_run(branch="feature", sha="aaa", status="completed")
+        base["conclusion"] = "cancelled"
+        for attempt in (None, 0, "2", True):
+            run = dict(base, run_attempt=attempt)
+            decisions = janitor.plan_lost_reruns([{**pending_entry(base), "attempt": 2}], {run["id"]: run},
+                                                 {"feature": [make_pr(5)]}, now=NOW, head_runs={run["id"]: []})
+            self.assertEqual(decisions[0].action, "keep", attempt)
+        older = dict(base, run_attempt=1)
+        decisions = janitor.plan_lost_reruns([{**pending_entry(base), "attempt": 2}], {older["id"]: older},
+                                             {"feature": [make_pr(5)]}, now=NOW, head_runs={older["id"]: []})
+        self.assertEqual(decisions[0].action, "keep")
+        later = dict(base, run_attempt=3, status="queued", conclusion=None)
+        decisions = janitor.plan_lost_reruns([{**pending_entry(base), "attempt": 2}], {later["id"]: later},
+                                             {"feature": [make_pr(5)]}, now=NOW, head_runs={later["id"]: []})
+        self.assertEqual(decisions[0].action, "drop")
+
+    def test_4_a_successful_re_run_post_keeps_the_entry_until_the_attempt_is_read(self):
+        run = make_run(branch="feature", sha="aaa", status="completed")
+        run["conclusion"] = "cancelled"
+        fake = FakeGitHub({run["id"]: dict(run)})
+        decision = janitor.LostRerun(pending_entry(run), "rerun", "x", run)
+        pending, results, failures = janitor.rerun_lost(fake, [decision])
+        self.assertEqual(([e["run_id"] for e in pending], failures), ([run["id"]], 0))
+        self.assertIn("re-ran", results[run["id"]])
+
+    def test_5_malformed_entries_are_kept_and_reported_never_dropped_or_crashing(self):
+        key = janitor.LOST_RERUNS_KEY
+        entries = janitor.janitor_guard.entries_in([{key: ["junk", 7, {"run_id": None}, {"run_id": 3}]}], key)
+        self.assertEqual(len(entries), 4)
+        self.assertIsNone(janitor.janitor_guard.entries_in([{key: "not a list"}], key))
+        decisions = janitor.plan_lost_reruns(entries + [{"run_id": 4, "cancelled_at": 12, "attempt": "x"}], {},
+                                             {}, now=NOW, head_runs={})
+        self.assertEqual([d.action for d in decisions], ["keep"] * 5)
+        store = janitor.janitor_guard.OwedStore({key: entries, janitor.dead_labels.OBLIGATIONS_KEY: []})
+        snapshot = {}
+        store.stamp(snapshot)
+        self.assertEqual(len(snapshot[janitor.janitor_guard.MALFORMED_KEY]), 3)
+        self.assertEqual(len(snapshot[key]), 4)
+
+    def test_6_an_answer_that_is_not_json_is_a_failed_read(self):
+        fake = FakeGitHub({})
+        with mock.patch.object(FakeGitHub, "_request_retrying", side_effect=json.JSONDecodeError("x", "<html>", 0)), \
+                redirect_stderr(io.StringIO()), self.assertRaises(RuntimeError):
+            fake.run(1)
+        self.assertIn("unreadable answer", janitor.READS.hold())
 
 
 if __name__ == "__main__":
