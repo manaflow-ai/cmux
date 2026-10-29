@@ -117,8 +117,8 @@ struct SidebarWorkspaceTabHierarchyTests {
                 let workspaceX = Self.listX(list, workspace, workspace.titleFrame.minX)
                 let tabX = Self.listX(list, tab, tabTitle.frame.minX)
                 let expectedInset = text == "browser"
-                    ? Metrics.space6 + SidebarStyle.labelCellPadding + SidebarStyle.tabIconSize + Metrics.space2
-                    : Metrics.space6
+                    ? CGFloat(16) + SidebarStyle.labelCellPadding + SidebarStyle.tabIconSize + Metrics.space2
+                    : CGFloat(16)
                 #expect(abs((tabX - workspaceX) - expectedInset) < 0.5,
                         "\(c.testDescription): tab \(tab.key) anchor is \(tabX - workspaceX)pt, expected \(expectedInset)pt")
                 #expect(tabTitle.font?.pointSize ?? 0 < workspace.title.font.pointSize,
@@ -152,7 +152,14 @@ struct SidebarWorkspaceTabHierarchyTests {
         let groupedTab = try Self.tabRow(list, Self.grouped, TabID("grouped-tab"))
         let groupedRow = try Self.sidebarRow(list, .workspace(Self.grouped))
         let groupedTitle = try Self.tabTitle(groupedTab, "browser")
+        func expectExactAnchor() {
+            let parentX = Self.listX(list, grouped, grouped.titleFrame.minX)
+            let childX = Self.listX(list, groupedTab, groupedTitle.frame.minX)
+            let expected = CGFloat(16) + SidebarStyle.labelCellPadding + SidebarStyle.tabIconSize + Metrics.space2
+            #expect(abs((childX - parentX) - expected) < 0.5, "changed parent lost its exact child anchor")
+        }
         list.layoutSubtreeIfNeeded()
+        expectExactAnchor()
         let beforeIcon = Self.listX(list, groupedTab, groupedTitle.frame.minX)
 
         var iconlessContent = groupedRow.content ?? WorkspaceRowContent()
@@ -163,6 +170,7 @@ struct SidebarWorkspaceTabHierarchyTests {
         iconlessWorkspace.icon = nil
         grouped.configure(iconlessWorkspace, row: iconlessRow)
         list.layoutSubtreeIfNeeded()
+        expectExactAnchor()
         let iconless = Self.listX(list, groupedTab, groupedTitle.frame.minX)
         #expect(iconless < beforeIcon, "tab anchor did not follow a parent icon removal")
 
@@ -174,21 +182,56 @@ struct SidebarWorkspaceTabHierarchyTests {
         restoredWorkspace.icon = .emoji("🧭")
         grouped.configure(restoredWorkspace, row: restoredRow)
         list.layoutSubtreeIfNeeded()
+        expectExactAnchor()
         let afterIcon = Self.listX(list, groupedTab, groupedTitle.frame.minX)
         #expect(afterIcon > iconless, "tab anchor did not follow a parent icon change")
 
         let parentKey: SidebarRowKey = .workspace(Self.grouped)
-        let parent = list.rowViews.removeValue(forKey: parentKey)
+        _ = list.rowViews.removeValue(forKey: parentKey)
+        grouped.removeFromSuperview()
         groupedTab.needsLayout = true
         groupedTab.layoutSubtreeIfNeeded()
         let lateParent = Self.listX(list, groupedTab, groupedTitle.frame.minX)
-        list.rowViews[parentKey] = parent
-        parent?.needsLayout = true
+        #expect(abs(lateParent - afterIcon) < 0.5, "virtualized parent lost its icon-aware anchor")
+
+        // Reuse a parent view with a different title column. The child stays unchanged, so the
+        // arriving parent must invalidate it even if its previous cached title frame was equal.
+        grouped.prepareForReuse(key: parentKey)
+        grouped.configure(iconlessWorkspace, row: iconlessRow)
+        list.addSubview(grouped)
+        list.rowViews[parentKey] = grouped
+        grouped.needsLayout = true
         list.layoutSubtreeIfNeeded()
+        expectExactAnchor()
         let afterLateParent = Self.listX(list, groupedTab, groupedTitle.frame.minX)
-        #expect(abs(afterLateParent - lateParent) < 0.5,
-                "tab anchor changed after parent realization: late=\(lateParent), after=\(afterLateParent)")
-        #expect(lateParent > iconless, "late parent realization fell back to the leading column")
+        #expect(abs(afterLateParent - iconless) < 0.5,
+                "reused parent did not replace the virtualized anchor")
+    }
+
+    @Test(arguments: SidebarAgentMarkVariant.allCases)
+    func virtualizedTitleColumnMatchesLeadingMarks(_ variant: SidebarAgentMarkVariant) throws {
+        TunableStore.shared.register(SidebarTunables.all)
+        let key = SidebarTunables.agentMark.key
+        let before = SidebarTunables.agentMark.value
+        defer {
+            TunableStore.shared.set(key, before.tunableValue)
+            SidebarTunablesWatch.shared.changed()
+        }
+        try #require(TunableStore.shared.set(key, variant.tunableValue) == variant.tunableValue)
+        SidebarTunablesWatch.shared.changed()
+        let (list, window) = try Self.list(width: 260)
+        defer { window.close() }
+        let parent = try Self.workspaceRow(list, Self.grouped)
+        var workspace = try #require(parent.lastConfiguration?.0)
+        workspace.agentIcon = .symbol("terminal")
+        var row = try Self.sidebarRow(list, .workspace(Self.grouped))
+        var content = row.content ?? WorkspaceRowContent()
+        content.machine = SidebarMachineMark(SidebarMachine(id: .local, name: "Machine", kind: .local))
+        row.content = content
+        parent.configure(workspace, row: row)
+        parent.layoutSubtreeIfNeeded()
+        #expect(abs(WorkspaceRowView.titleColumn(workspace: workspace, row: row) - parent.titleFrame.minX) < 0.5,
+                "virtualized title column omitted a leading mark")
     }
 
     @Test

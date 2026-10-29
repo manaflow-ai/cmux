@@ -46,6 +46,21 @@ enum SidebarStyle {
         if swatch { return leading + iconSide + Metrics.space3 + Metrics.space1 }
         return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
     }
+    /// Workspace title geometry shared by realized rows and virtualized parents of tab rows.
+    static func workspaceTitleX(icon: WorkspaceIcon?, treeDepth: Int) -> CGFloat {
+        let side: CGFloat
+        let swatch: Bool
+        switch icon {
+        case nil: side = 0; swatch = false
+        case .swatch: side = dotSize + Metrics.space1; swatch = true
+        case .symbol, .emoji, .favicon: side = iconBox; swatch = false
+        }
+        let leading = horizontalInset + CGFloat(treeDepth) * treeIndent
+        return titleTextX(leading: leading, iconSide: side, swatch: swatch) - WorkspaceRowView.labelInset
+    }
+    static func titleXAfterLeadingMark(_ x: CGFloat) -> CGFloat {
+        x + WorkspaceRowView.labelInset + indicatorSize + Metrics.space1
+    }
     /// The one text column after a leading glyph in a row whose first ink starts at `leading`: Home's and every
     /// band row's label, a pinned row's title (after its pin), a workspace row's title after its icon. Lawrence
     /// 2026-10-28: "home and pinned are not aligned".

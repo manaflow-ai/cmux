@@ -293,9 +293,7 @@ final class WorkspaceRowView: SidebarRowView {
         activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
         agentMarkVariant = content.agentMark
-        let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
-            : ws.agentIcon.flatMap { agentIconImage($0) }
-                ?? ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
+        let markImage = Self.agentMarkImage(ws, variant: agentMarkVariant, placeholder: isShowingPlaceholder)
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(badgesLead ? .none : ws.unread)
@@ -312,10 +310,7 @@ final class WorkspaceRowView: SidebarRowView {
         let machineSize = CGFloat.iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)
         if machine != previousMachine || machineSize != machineMarkSize || (machine != nil && machineMark.image == nil) {
             machineMarkSize = machineSize
-            machineMark.image = machine.map { mark in
-                if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: machineSize) }
-                return mark.symbol.map { NSImage.icon(symbol: $0, size: machineSize) } ?? NSImage.icon(mark.kindIcon, size: machineSize)
-            }
+            machineMark.image = machine.map { Self.machineMarkImage($0, side: machineSize) }
         }
         machineMark.isHidden = machineMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio

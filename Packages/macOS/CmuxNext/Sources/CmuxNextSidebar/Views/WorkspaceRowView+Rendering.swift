@@ -210,15 +210,14 @@ extension WorkspaceRowView {
         }
 
         // Without an icon the title starts at the leading inset; with one, after it (`titleTextX`).
-        let swatch: Bool = if case .swatch? = iconKind { true } else { false }
-        var textX = SidebarStyle.titleTextX(leading: leading, iconSide: side, swatch: swatch) - Self.labelInset
+        var textX = SidebarStyle.workspaceTitleX(icon: iconKind, treeDepth: treeDepth)
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
-            textX = agentMark.frame.maxX + Metrics.space1
+            textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
         if !machineMark.isHidden {
             machineMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
-            textX = machineMark.frame.maxX + Metrics.space1
+            textX = SidebarStyle.titleXAfterLeadingMark(textX)
         }
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive
@@ -262,9 +261,8 @@ extension WorkspaceRowView {
             if case let .workspace(workspaceID) = key,
                let list = sequence(first: superview, next: { $0?.superview })
                    .compactMap({ $0 as? SidebarListView }).first {
-                for (key, view) in list.rowViews {
-                    guard case let .tab(parentID, _) = key, parentID == workspaceID else { continue }
-                    view.needsLayout = true
+                for tab in lastConfiguration?.0.tabs ?? [] {
+                    list.rowViews[.tab(workspaceID, tab.id)]?.needsLayout = true
                 }
             }
         }

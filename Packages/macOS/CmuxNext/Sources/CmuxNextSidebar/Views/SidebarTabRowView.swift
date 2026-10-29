@@ -144,19 +144,9 @@ final class SidebarTabRowView: SidebarRowView {
             parent.layoutSubtreeIfNeeded()
             return convert(parent.titleFrame, from: parent).minX
         }
-        guard let row = list.displayed.rows.first(where: { $0.key == .workspace(workspaceID) }) else {
-            return SidebarStyle.titleLeading
-        }
-        let content = row.content ?? WorkspaceRowContent()
-        let leading = SidebarStyle.horizontalInset + CGFloat(content.treeDepth) * SidebarStyle.treeIndent
-        let side: CGFloat
-        let swatch: Bool
-        switch content.icon {
-        case nil: side = 0; swatch = false
-        case .swatch: side = SidebarStyle.dotSize + Metrics.space1; swatch = true
-        case .symbol, .emoji, .favicon: side = SidebarStyle.iconBox; swatch = false
-        }
-        let localTitleX = SidebarStyle.titleTextX(leading: leading, iconSide: side, swatch: swatch) - WorkspaceRowView.labelInset
+        guard let row = list.displayed.row(for: .workspace(workspaceID)),
+              let workspace = list.workspaces[workspaceID] else { return SidebarStyle.titleLeading }
+        let localTitleX = WorkspaceRowView.titleColumn(workspace: workspace, row: row)
         return convert(NSPoint(x: list.frame(for: row).minX + localTitleX, y: 0), from: list).x
     }
 
@@ -174,7 +164,7 @@ final class SidebarTabRowView: SidebarRowView {
                   let list = sequence(first: superview, next: { $0?.superview }).compactMap({ $0 as? SidebarListView }).first else {
                 return SidebarStyle.titleLeading
             }
-            return parentTitleX(in: list, workspaceID: workspaceID)
+            return self.parentTitleX(in: list, workspaceID: workspaceID)
         }()
         // Keep the label cell's internal padding in the well so a no-icon tab still lands exactly
         // at the child inset.
