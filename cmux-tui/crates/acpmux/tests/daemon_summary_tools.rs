@@ -84,14 +84,14 @@ fn seed(home: &Path) {
                     _ => "plugin",
                 };
                 let name = format!("{}-{}-{n}", names[n % names.len()], kind);
-                let enabled = random % 11 != 0;
+                let enabled = !random.is_multiple_of(11);
                 let mut row = json!({"id": format!("{kind}:{name}"), "name": name,
                 "kind": kind, "source": if kind == "cmux" { "cmux" } else { "claude" },
                 "enabled": enabled, "canToggle": kind == "mcp"});
                 if kind == "mcp" {
                     row["status"] = json!(if !enabled {
                         "disabled"
-                    } else if random % 13 == 0 {
+                    } else if random.is_multiple_of(13) {
                         "needs-auth"
                     } else {
                         "connected"
