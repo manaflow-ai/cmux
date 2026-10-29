@@ -103,6 +103,16 @@ import Testing
         #expect(noRelay == .connectionFailed)
     }
 
+    @Test func failureBannersKeepMacIdentityForDismissal() {
+        let first = LiveCoordinator.waitingBanner(
+            macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: 2, wasConnected: false,
+            relayAvailable: true, identity: "mac-1")
+        let second = LiveCoordinator.waitingBanner(
+            macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: 2, wasConnected: false,
+            relayAvailable: true, identity: "mac-2")
+        #expect(first != second)
+    }
+
     @Test func anOfflineMacIsOfflineEitherWay() {
         for wasConnected in [false, true] {
             let banner = LiveCoordinator.waitingBanner(

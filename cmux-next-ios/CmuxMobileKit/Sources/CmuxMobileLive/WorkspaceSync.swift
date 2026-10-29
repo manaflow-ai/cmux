@@ -61,7 +61,11 @@ public final class WorkspaceSync {
         client = nil
         connectionSerial += 1
         activity = [:]
-        guard let channel else { return }
+        guard let channel else {
+            lastError = nil
+            identity = nil
+            return
+        }
         await bind(Self.prepare(channel, deviceID: deviceID, deviceName: deviceName), macID: macID, cached: cached)
     }
 

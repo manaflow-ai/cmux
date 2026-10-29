@@ -133,6 +133,8 @@ extension LiveCoordinator {
         session.servedLink = nil
         session.pairingGate = nil
         session.acpmux.approver = nil
+        session.chatsError = nil
+        session.daemonError = nil
         // Pairing belongs to one link (review M1): a banner for another Mac, or a
         // stale "waiting" that holds back the workspaces deadline, never carries over.
         setPairing(.idle, for: session)
@@ -907,7 +909,7 @@ extension LiveCoordinator {
         case .idle:
             banner = nil
         case .macOffline:
-            banner = .macOffline(name)
+            banner = .macOffline(name, identity: session.macID)
         case .connected:
             if everConnected, banner != nil, banner != .connected {
                 banner = .connected
@@ -923,18 +925,18 @@ extension LiveCoordinator {
         case .connecting(_, let attempt):
             // Blips heal silently: the reconnecting banner waits 1.5 s.
             if attempt == 1, !everConnected {
-                banner = .connecting(to: name)
+                banner = .connecting(to: name, identity: session.macID)
             } else if banner == nil || banner == .connected {
                 bannerTask = Task { [weak self, clock] in
                     do { try await clock.sleep(for: .milliseconds(1500)) } catch { return }
-                    self?.banner = .reconnecting(to: name)
+                    self?.banner = .reconnecting(to: name, identity: session.macID)
                 }
             }
         case .waiting(let transport, let attempt, let reason, _):
             banner = Self.waitingBanner(
                 macName: name, transport: transport, reason: reason, attempt: attempt,
                 wasConnected: session.link.target.map { connectedMacIDs.contains($0.macID) } ?? false,
-                relayAvailable: relayAvailable)
+                relayAvailable: relayAvailable, identity: session.macID)
         }
     }
 
@@ -950,10 +952,14 @@ extension LiveCoordinator {
     /// transport and relay details stay in Settings diagnostics.
     nonisolated static func waitingBanner(macName: String, transport _: CmuxMobileTransport.TransportKind, reason: String,
                                           attempt: Int, wasConnected: Bool,
-                                          relayAvailable _: Bool?) -> ConnectionBannerState {
-        if reason == LinkController.reason(LinkError(code: "offline", message: "")) { return .macOffline(macName) }
-        if wasConnected, attempt <= reconnectingAttempts { return .reconnecting(to: macName) }
-        return .connectionFailed
+                                          relayAvailable _: Bool?, identity: String? = nil) -> ConnectionBannerState {
+        if reason == LinkController.reason(LinkError(code: "offline", message: "")) {
+            return .macOffline(macName, identity: identity)
+        }
+        if wasConnected, attempt <= reconnectingAttempts {
+            return .reconnecting(to: macName, identity: identity)
+        }
+        return .connectionFailed.identified(identity)
     }
 }
 

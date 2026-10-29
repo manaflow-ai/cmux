@@ -410,10 +410,10 @@ final class ShellModel {
         if store.isOffline { return .offline }
         // Pairing (verify/phone-approvals.md): the Mac asks the user the first time.
         switch live?.pairingState {
-        case .waiting(let mac)?: return .waitingForPairing(on: mac)
-        case .waitingAfterNewKeys(let mac)?: return .waitingForPairingAfterNewKeys(on: mac)
-        case .denied(let mac)?: return .failed("\(mac) did not allow this iPhone")
-        case .failed(let reason)?: return .failed("Pairing failed: \(reason)")
+        case .waiting(let mac)?: return .waitingForPairing(on: mac, identity: live?.focusedMacID)
+        case .waitingAfterNewKeys(let mac)?: return .waitingForPairingAfterNewKeys(on: mac, identity: live?.focusedMacID)
+        case .denied(let mac)?: return .failed("\(mac) did not allow this iPhone", identity: live?.focusedMacID)
+        case .failed(let reason)?: return .failed("Pairing failed: \(reason)", identity: live?.focusedMacID)
         default: return live?.banner
         }
     }

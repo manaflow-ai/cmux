@@ -95,6 +95,7 @@ public final class AcpmuxHub {
         connection = nil
         isReady = false
         fullAccess = false
+        lastError = nil
         for entry in sources.values { entry.source?.linkDown() }
         guard let channel else { return }
         let connection = AcpmuxConnection(channel: channel)

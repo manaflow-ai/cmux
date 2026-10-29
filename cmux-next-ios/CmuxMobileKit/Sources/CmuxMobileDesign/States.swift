@@ -207,26 +207,36 @@ public struct ConnectionBannerState: Sendable, Hashable {
     /// Stable identity so two Macs with the same state still refresh the banner.
     public var identity: String? = nil
 
-    public static func reconnecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: mac) }
+    public static func reconnecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
     public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", offersRetry: true)
-    public static func macOffline(_ mac: String) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: mac) }
+    public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: identity ?? mac) }
     public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
-    public static func connecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: mac) }
+    public static func connecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
     public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", offersRetry: true)
     /// An application failure distinct from connection state.
-    public static func failed(_ text: String) -> Self { Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text) }
+    public static func failed(_ text: String, identity: String? = nil) -> Self {
+        Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text, identity: identity)
+    }
+
+    /// Gives a banner a stable owner without changing its copy. The owner keeps
+    /// dismissal scoped to the Mac that produced the banner.
+    public func identified(_ identity: String?) -> Self {
+        var copy = self
+        copy.identity = identity
+        return copy
+    }
     /// The Mac asks "Allow … to connect?" for this phone
     /// (verify/phone-approvals.md): a notification, a Dock bounce and
     /// Settings → Mobile on a Mac with #20491, only a cmux dialog on an older
     /// one. "Look for cmux" is true for both.
-    public static func waitingForPairing(on mac: String) -> Self {
+    public static func waitingForPairing(on mac: String, identity: String? = nil) -> Self {
         Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone on \(mac)"),
-             detail: String(localized: "Look for cmux on your Mac"))
+             detail: String(localized: "Look for cmux on your Mac"), identity: identity ?? mac)
     }
     /// The same after the phone replaced an unreadable stored key.
-    public static func waitingForPairingAfterNewKeys(on mac: String) -> Self {
+    public static func waitingForPairingAfterNewKeys(on mac: String, identity: String? = nil) -> Self {
         Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone again on \(mac)"),
-             detail: String(localized: "Its keys were reset. Look for cmux on your Mac"))
+             detail: String(localized: "Its keys were reset. Look for cmux on your Mac"), identity: identity ?? mac)
     }
 }
 
