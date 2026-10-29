@@ -164,6 +164,13 @@ mod tests {
         assert_eq!(claim(&dir, 1_000, None, false).unwrap_err(), Refused::Busy);
         drop(held);
         eprintln!("busy fixture {}", dir.display());
+        #[cfg(target_os = "linux")]
+        if let Ok(metadata) = std::fs::metadata(dir.join(LOCK)) {
+            use std::os::unix::fs::MetadataExt;
+            let inode = metadata.ino().to_string();
+            let locks = std::fs::read_to_string("/proc/locks").unwrap_or_default();
+            eprintln!("busy fixture inode {inode}, locks: {}", locks.lines().filter(|line| line.contains(&inode)).collect::<Vec<_>>().join(" | "));
+        }
         assert!(claim(&dir, 1_000, None, false).is_ok(), "the lock goes with the claim");
     }
 
