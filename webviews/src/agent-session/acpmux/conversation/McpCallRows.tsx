@@ -3,7 +3,7 @@
 // pretty-printed (mcpCalls.ts). Nothing of a call's JSON is drawn until it is opened; opening and
 // closing play the transcript's fold (fold.ts).
 import { useFindReveal } from "./chatFind";
-import { useContext, useId, useMemo, useState } from "react";
+import { type ReactNode, useContext, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
@@ -137,6 +137,30 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
   );
 }
 
+/// Pair a Raw string argument with its rendered presentation. Find uses the rendered copy only
+/// when it can highlight every indexed occurrence; hidden URLs and shadow-root code use Raw.
+/// Keys, other arguments and the response remain searchable.
+function requestPresentation(request: string, alternatives: Readonly<Record<string, string>>): ReactNode {
+  if (!Object.keys(alternatives).length) return request;
+  const parts: ReactNode[] = [];
+  let from = 0;
+  for (const match of request.matchAll(/^  ("(?:\\.|[^"\\])*"): ("(?:\\.|[^"\\])*")/gm)) {
+    const primary = alternatives[JSON.parse(match[1]!)];
+    if (!primary) continue;
+    const start = match.index + 2 + match[1]!.length + 2;
+    parts.push(request.slice(from, start));
+    parts.push(
+      <span key={start} data-find-fallback={primary}>
+        {match[2]}
+      </span>,
+    );
+    from = start + match[2]!.length;
+  }
+  if (!from) return request;
+  parts.push(request.slice(from));
+  return parts;
+}
+
 /// The opened call: its request, then its response (only its end while long), each as a tight
 /// block; a block with nothing in it is left out. A sub-session card's Raw shows the same.
 export function McpCallDetails({
@@ -146,6 +170,7 @@ export function McpCallDetails({
   output,
   strip,
   reveal,
+  requestFindAlternatives = {},
 }: {
   id: string;
   call: McpCall;
@@ -154,6 +179,8 @@ export function McpCallDetails({
   /// Whether the call's strip shows its envelope's images, which its response then leaves out.
   strip: boolean;
   reveal: number;
+  /// Maps string arguments to their rendered data-find-primary identity.
+  requestFindAlternatives?: Readonly<Record<string, string>>;
 }) {
   const t = useT();
   const request = useMemo(() => prettyValue(call.args), [call]);
@@ -168,13 +195,17 @@ export function McpCallDetails({
       </code>
       {request && (
         <div className="cv-mcp-call__part">
-          <div className="cv-mcp-call__head">{t("tools.mcp.request")}</div>
-          <pre className="cv-mcp-call__body selectable">{request}</pre>
+          <div className="cv-mcp-call__head" data-find-skip>
+            {t("tools.mcp.request")}
+          </div>
+          <pre className="cv-mcp-call__body selectable">{requestPresentation(request, requestFindAlternatives)}</pre>
         </div>
       )}
       {response.text && (
         <div className="cv-mcp-call__part">
-          <div className="cv-mcp-call__head">{t("tools.mcp.response")}</div>
+          <div className="cv-mcp-call__head" data-find-skip>
+            {t("tools.mcp.response")}
+          </div>
           <pre className="cv-mcp-call__body selectable">
             {response.cut && (
               <span className="cv-output-cut" aria-hidden="true">

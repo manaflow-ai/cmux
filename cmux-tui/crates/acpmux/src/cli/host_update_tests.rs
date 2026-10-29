@@ -765,7 +765,10 @@ fn without_systemd_the_detached_daemon_is_updated_checked_and_rolled_back() {
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
     assert_eq!(peer.daemon(), NEW);
     let calls = peer.take_calls();
-    assert!(calls.contains(&"acpmux daemon shutdown --keep-agents".to_owned()), "{calls:?}");
+    assert!(
+        calls.contains(&"acpmux daemon shutdown --keep-agents --restart".to_owned()),
+        "{calls:?}"
+    );
     assert!(calls.contains(&"acpmux --json daemon start".to_owned()), "{calls:?}");
     // A newer binary whose daemon never answers: back to NEW, detached.
     peer.offer("b2c3d4e5f 2026-10-22", None);
