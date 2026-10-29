@@ -594,6 +594,10 @@ This branch implements steps 1 to 3, step 4 except the BlockingDetector sink (VS
   causes are fixed rings, so `noteAction` allocates nothing in an unarmed bench build. The pass runs inside the
   turn meter's `debugCheck` span (`debug.main_budget` `turn_ms.debug_check_total`), so it is neither render nor
   unattributed time.
+- **A rule names its prove-or-remove rows** (`row: "pNN-NN"` or `rows: [...]`, a literal in the declaration):
+  the generated prove-or-remove table (gen-table.py `declared_rows`) reads invariant ids only from the
+  declarations; `debug.invariants {rules: true}` lists them. G1 names p11-11 (child-page geometry per window);
+  the input rules (computed ids), DP1, H1, VS2 and LO11 name none yet: no row clearly owns their mechanism.
 - **The probe is injected, not global.** A global probe sink is a stateful static (the arch ratchet's
   `stateful_singletons` row). `InvariantProbe(registry:)` is a value the composition root hands to each producer
   (`DaemonStore.invariants` through `MachineRegistry.invariants`, `HoverCardCoordinator.invariants`,

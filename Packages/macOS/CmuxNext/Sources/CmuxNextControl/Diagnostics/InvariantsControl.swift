@@ -118,6 +118,7 @@ public struct InvariantsControl: Sendable {
     private static func ruleJSON(_ rule: InvariantRule, stats: InvariantRuleStats?) -> JSONValue {
         .object([
             "id": .string(rule.id.rawValue),
+            "rows": .array(rule.rows.map(JSONValue.string)),
             "statement": .string(rule.statement),
             "owner": .string(rule.owner),
             "points": .array(rule.points.names.map(JSONValue.string)),

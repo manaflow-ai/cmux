@@ -249,6 +249,16 @@ struct InvariantRegistryTests {
         #expect(violation?.trigger.actions.map(\.id) == ["pane.split"])
     }
 
+    @Test func aRuleNamesTheProveOrRemoveRowsItGuards() {
+        let one = InvariantRule(id: "LG9", row: "p03-07", statement: "x", owner: "Tests", reads: [.grid], points: .afterTurn,
+                                cost: .cheap, read: { (_: InvariantPass) -> [Int]? in nil }, check: { (_: [Int]) in [] })
+        let two = InvariantRule.liveness(id: "LG8", rows: ["p03-07", "p03-08"], statement: "x", owner: "Tests", reads: [.grid],
+                                         limit: .seconds(1)) { _ in [] }
+        #expect(one.rows == ["p03-07"])
+        #expect(two.rows == ["p03-07", "p03-08"])
+        #expect(InvariantTestWorld().stripRule().rows.isEmpty)
+    }
+
     @Test func anUnarmedRegistryStillListsWhatACallSiteCheckCaught() {
         let clock = InvariantTestClock()
         let registry = clock.registry(mode: .off)

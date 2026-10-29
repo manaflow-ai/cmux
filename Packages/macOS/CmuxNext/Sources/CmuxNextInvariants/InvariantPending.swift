@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-/// One subject a liveness rule waits on (``InvariantRule/liveness(id:statement:owner:reads:limit:cost:interim:pending:)``):
+/// One subject a liveness rule waits on (``InvariantRule/liveness(id:row:rows:statement:owner:reads:limit:cost:interim:pending:)``):
 /// still pending at its rule's limit after `since`, it is a violation. The rule only reports; it never changes state.
 public struct InvariantPending: Hashable, Sendable {
     public let subject: InvariantSubject

@@ -18,6 +18,9 @@ import Foundation
 @MainActor
 public struct InvariantRule {
     public let id: InvariantID
+    /// The prove-or-remove rows (`pNN-NN`, handoff/prove-or-remove-table.md) whose mechanism this rule guards. The
+    /// generated table reads them from the declaration's own `row:` or `rows:` literal; the app only lists them.
+    public let rows: [String]
     /// The rule in one sentence, as the catalog states it.
     public let statement: String
     public let owner: String
@@ -46,18 +49,18 @@ public struct InvariantRule {
     }
 
     /// A state rule, checked at `points` (`.afterAction`, `.afterTurn`; a `.harness` rule is
-    /// ``harness(id:statement:owner:cost:parity:interim:read:check:)``).
+    /// ``harness(id:row:rows:statement:owner:cost:parity:interim:read:check:)``).
     /// `read` may narrow its scope: a read that asks `pass.dirty(key)` checks only those subjects, and
     /// `pass.skip(subject)` leaves one unchecked now; a signature clears only when a run checked its subject.
     public init<State: Encodable & Equatable & Sendable>(
-        id: InvariantID, statement: String, owner: String,
+        id: InvariantID, row: String? = nil, rows: [String] = [], statement: String, owner: String,
         reads: Set<InvariantKey>, points: InvariantCheckPoints, cost: InvariantCost,
         parity: Bool = true, interim: String? = nil,
         read: @escaping @MainActor (InvariantPass) -> State?,
         check: @escaping @MainActor (State) -> [InvariantFinding]
     ) {
-        self.init(id: id, statement: statement, owner: owner, reads: reads, points: points, cost: cost, parity: parity,
-                  interim: interim, body: .state({ pass in
+        self.init(id: id, rows: Self.rows(row, rows), statement: statement, owner: owner, reads: reads, points: points,
+                  cost: cost, parity: parity, interim: interim, body: .state({ pass in
                       guard let state = read(pass) else { return nil }
                       return Evaluation(findings: check(state), state: { InvariantRule.encode(state) })
                   }))
@@ -68,32 +71,34 @@ public struct InvariantRule {
     /// key in `reads` is touched or an action ran, and once more at the earliest limit (one deadline for all
     /// liveness rules), so no input need come.
     public static func liveness(
-        id: InvariantID, statement: String, owner: String, reads: Set<InvariantKey>, limit: Duration,
+        id: InvariantID, row: String? = nil, rows: [String] = [], statement: String, owner: String, reads: Set<InvariantKey>, limit: Duration,
         cost: InvariantCost = .cheap, interim: String? = nil,
         pending: @escaping @MainActor (InvariantPass) -> [InvariantPending]
     ) -> InvariantRule {
-        InvariantRule(id: id, statement: statement, owner: owner, reads: reads, points: [.afterAction, .afterTurn],
-                      cost: cost, parity: false, interim: interim, body: .liveness(limit: limit, pending: pending))
+        InvariantRule(id: id, rows: Self.rows(row, rows), statement: statement, owner: owner, reads: reads,
+                      points: [.afterAction, .afterTurn], cost: cost, parity: false, interim: interim,
+                      body: .liveness(limit: limit, pending: pending))
     }
 
     /// A harness rule (section 3.5): an IPC or census read, run only from `debug.invariants {check: true, ipc: true}`
     /// and never inside a turn. `read` may await another process; `check` stays pure.
     public static func harness<State: Encodable & Equatable & Sendable>(
-        id: InvariantID, statement: String, owner: String, cost: InvariantCost,
+        id: InvariantID, row: String? = nil, rows: [String] = [], statement: String, owner: String, cost: InvariantCost,
         parity: Bool = true, interim: String? = nil,
         read: @escaping @MainActor (InvariantPass) async -> State?,
         check: @escaping @MainActor (State) -> [InvariantFinding]
     ) -> InvariantRule {
-        InvariantRule(id: id, statement: statement, owner: owner, reads: [], points: .harness, cost: cost, parity: parity,
-                      interim: interim, body: .harness({ pass in
+        InvariantRule(id: id, rows: Self.rows(row, rows), statement: statement, owner: owner, reads: [], points: .harness,
+                      cost: cost, parity: parity, interim: interim, body: .harness({ pass in
                           guard let state = await read(pass) else { return nil }
                           return Evaluation(findings: check(state), state: { InvariantRule.encode(state) })
                       }))
     }
 
-    private init(id: InvariantID, statement: String, owner: String, reads: Set<InvariantKey>,
+    private init(id: InvariantID, rows: [String], statement: String, owner: String, reads: Set<InvariantKey>,
                  points: InvariantCheckPoints, cost: InvariantCost, parity: Bool, interim: String?, body: Body) {
         self.id = id
+        self.rows = rows
         self.statement = statement
         self.owner = owner
         self.reads = reads
@@ -102,6 +107,11 @@ public struct InvariantRule {
         self.parity = parity
         self.interim = interim
         self.body = body
+    }
+
+    /// `row` and `rows` as one list, `row` first.
+    private static func rows(_ row: String?, _ rows: [String]) -> [String] {
+        (row.map { [$0] } ?? []) + rows
     }
 
     /// Whether the rule is a liveness rule.
