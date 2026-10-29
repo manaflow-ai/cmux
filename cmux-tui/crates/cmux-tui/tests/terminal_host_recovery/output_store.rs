@@ -101,6 +101,33 @@ fn journal_output_rows(state: &Path) -> i64 {
 
 /// Every registry table with its row count and largest rowid, so a failure
 /// names the tables an idle daemon wrote (a WITHOUT ROWID table reports 0).
+/// The kind and producer of each journal row after `sequence`, so a failure
+/// names what an idle daemon journaled.
+fn journal_rows_after(state: &Path, sequence: i64) -> Vec<String> {
+    let connection = rusqlite::Connection::open_with_flags(
+        registry_path(state),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    connection
+        .prepare(
+            "SELECT kind, producer_json, subjects_json FROM session_journal
+             WHERE sequence > ?1 ORDER BY sequence",
+        )
+        .unwrap()
+        .query_map([sequence], |row| {
+            Ok(format!(
+                "{} producer={} subjects={}",
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?
+            ))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+}
+
 fn registry_table_rows(state: &Path) -> Vec<(String, i64, i64)> {
     let connection = rusqlite::Connection::open_with_flags(
         registry_path(state),
@@ -187,6 +214,9 @@ fn idle_terminals_write_nothing(mode: &str) {
         .map(|(path, len, _)| format!("{} ({len} bytes)", path.display()))
         .collect::<Vec<_>>();
     // Read after `after`: this read-only connection may touch the -shm file.
+    let journal_before =
+        rows_before.iter().find(|(name, _, _)| name == "session_journal").map_or(0, |row| row.2);
+    let journal_written = journal_rows_after(&harness.state, journal_before);
     let rows_changed = registry_table_rows(&harness.state)
         .into_iter()
         .filter(|row| !rows_before.contains(row))
@@ -198,7 +228,8 @@ fn idle_terminals_write_nothing(mode: &str) {
     assert!(
         changed.is_empty(),
         "idle redrawing terminals changed files in {mode} mode: {changed:#?}; \
-         registry tables written in the window: {rows_changed:#?}"
+         registry tables written in the window: {rows_changed:#?}; journal rows: \
+         {journal_written:#?}"
     );
     assert_eq!(journal_output_rows(&harness.state), 0, "the journal holds terminal output");
     if mode == "memory" {
