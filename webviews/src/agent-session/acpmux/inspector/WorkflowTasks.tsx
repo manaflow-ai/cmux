@@ -21,7 +21,7 @@ import "../summary/workflowDots.css";
 
 const ROW_ICON = rowIconSize(12);
 
-const isRunning = (workflow: WorkflowSummary) => workflow.state === "running";
+export const isRunning = (workflow: WorkflowSummary) => workflow.state === "running";
 
 export type WorkflowAgentRowVariant = "compact" | "detail" | "grid";
 
@@ -83,7 +83,7 @@ export function WorkflowTasks({
 }
 
 /// "1 running · 2 queued · 3 done": each count that is not zero.
-function countLine(t: Translate, counts: Tally): string[] {
+export function countLine(t: Translate, counts: Tally): string[] {
   return [
     counts.running > 0 && t("summary.subagents.running", { n: counts.running }),
     counts.queued > 0 && t("workflow.queued", { n: counts.queued }),
@@ -92,8 +92,27 @@ function countLine(t: Translate, counts: Tally): string[] {
   ].filter((part): part is string => typeof part === "string");
 }
 
-const tokensLabel = (t: Translate, tokens: number) =>
+export const tokensLabel = (t: Translate, tokens: number) =>
   t("subagents.tokens", { n: tokens, tokens: compactTokens(tokens) });
+
+/// How long a workflow has run: its own count once known, else since it started.
+export const workflowElapsed = (workflow: WorkflowSummary, now: number): number | undefined =>
+  workflow.elapsedMs ?? (workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : undefined);
+
+/// A workflow's line under its name. Running: what its agents do now. Finished: that it was a
+/// workflow, how it ended and its size.
+export function workflowMeta(t: Translate, workflow: WorkflowSummary): string[] {
+  const counts = tally(workflow.agents);
+  const tokens = workflow.tokens !== undefined ? [tokensLabel(t, workflow.tokens)] : [];
+  return isRunning(workflow)
+    ? [...countLine(t, counts), ...tokens]
+    : [
+        t("workflow.kind"),
+        workflow.state === "completed" ? t("bgTask.state.completed") : stateWord(t, workflow.state),
+        t("subagents.pill", { n: counts.total }),
+        ...tokens,
+      ];
+}
 
 function WorkflowTask({
   workflow,
@@ -112,19 +131,8 @@ function WorkflowTask({
 }) {
   const t = useT();
   const running = isRunning(workflow);
-  const counts = tally(workflow.agents);
-  const elapsed =
-    workflow.elapsedMs ?? (workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : undefined);
-  const tokens = workflow.tokens !== undefined ? [tokensLabel(t, workflow.tokens)] : [];
-  // Running: what its agents do now. Finished: that it was a workflow, how it ended and its size.
-  const meta = running
-    ? [...countLine(t, counts), ...tokens]
-    : [
-        t("workflow.kind"),
-        workflow.state === "completed" ? t("bgTask.state.completed") : stateWord(t, workflow.state),
-        t("subagents.pill", { n: counts.total }),
-        ...tokens,
-      ];
+  const elapsed = workflowElapsed(workflow, now);
+  const meta = workflowMeta(t, workflow);
   const next = running ? upNext(workflow) : [];
   // A running workflow lists the phases its agents started; the rest are Up next.
   const listed = running ? workflow.phases.filter((phase) => !next.includes(phase)) : workflow.phases;
@@ -166,12 +174,20 @@ function WorkflowTask({
   );
 }
 
-function stateWord(t: Translate, state: WorkflowSummary["state"]): string {
+export function stateWord(t: Translate, state: WorkflowSummary["state"]): string {
   if (state === "failed") return t("subagents.state.failed");
   if (state === "cancelled") return t("subagents.state.cancelled");
   if (state === "paused") return t("goal.paused");
   return t("inspector.unknown");
 }
+
+/// What a phase's row says beside its name: its agents' counts while the workflow runs, else
+/// "done/total".
+export const phaseLabel = (t: Translate, counts: Tally, running: boolean): string =>
+  running ? countLine(t, counts).join(" · ") : counts.total > 0 ? `${counts.done}/${counts.total}` : "";
+
+/// A running workflow's phase that has agents running opens on its own, so live work is in view.
+export const phaseOpensAlone = (running: boolean, counts: Tally): boolean => running && counts.running > 0;
 
 function WorkflowPhaseRow({
   workflow,
@@ -193,9 +209,8 @@ function WorkflowPhaseRow({
   const t = useT();
   const agents = phaseAgents(workflow, phase);
   const counts = tally(agents);
-  // A running workflow's phase that has agents running opens on its own, so live work is in view.
-  const [open, setOpen] = useState(running && counts.running > 0);
-  const label = running ? countLine(t, counts).join(" · ") : counts.total > 0 ? `${counts.done}/${counts.total}` : "";
+  const [open, setOpen] = useState(phaseOpensAlone(running, counts));
+  const label = phaseLabel(t, counts, running);
   return (
     <li className="acpmux-workflow-phase" data-state={phase.state}>
       <button type="button" className="acpmux-workflow-phase__head" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -227,6 +242,22 @@ function WorkflowPhaseRow({
   );
 }
 
+/// "Opus 5.5 · high" as a workflow agent's row names its model, or nothing.
+export function workflowAgentModel(t: Translate, agent: WorkflowAgent): string | undefined {
+  const model = agent.model ? modelName(agent.model) : undefined;
+  const modelEffort = [model, agent.effort].filter((value): value is string => Boolean(value)).join(" · ");
+  return modelEffort ? t("workflow.model", { model: modelEffort }) : undefined;
+}
+
+/// How long a workflow agent ran (or runs); none while it is queued.
+export function workflowAgentTime(agent: WorkflowAgent, now: number): string | undefined {
+  const queued = agent.state === "waiting" || agent.state === "pending";
+  const elapsed =
+    agent.elapsedMs ??
+    (agent.state === "running" && agent.startedAt !== undefined ? Math.max(0, now - agent.startedAt) : undefined);
+  return queued ? undefined : elapsed !== undefined ? formatDuration(elapsed) : undefined;
+}
+
 /// A live workflow agent's state, model, elapsed time and latest action/message. Rows open through
 /// the workflow bridge when one is supplied; without it they remain inert.
 export function WorkflowAgentRow({
@@ -247,16 +278,10 @@ export function WorkflowAgentRow({
   variant?: WorkflowAgentRowVariant;
 }) {
   const t = useT();
-  const queued = agent.state === "waiting" || agent.state === "pending";
-  const elapsed =
-    agent.elapsedMs ??
-    (agent.state === "running" && agent.startedAt !== undefined ? Math.max(0, now - agent.startedAt) : undefined);
   const state = agentStateWord(t, agent.state);
-  const model = agent.model ? modelName(agent.model) : undefined;
-  const modelEffort = [model, agent.effort].filter((value): value is string => Boolean(value)).join(" · ");
-  const modelLabel = modelEffort ? t("workflow.model", { model: modelEffort }) : undefined;
+  const modelLabel = workflowAgentModel(t, agent);
   const message = agent.lastMessage ?? agent.doing;
-  const time = queued ? undefined : elapsed !== undefined ? formatDuration(elapsed) : undefined;
+  const time = workflowAgentTime(agent, now);
   const accessibleLabel = [agent.name, modelLabel, message, state, time].filter(Boolean).join(", ");
   // Workflow agent ids name Claude's workflow transcript, not a folded subagent node. Until the
   // workflow bridge is supplied, keep this row inert rather than sending the wrong id to the
@@ -308,7 +333,7 @@ export function WorkflowAgentRow({
   );
 }
 
-function agentStateWord(t: Translate, state: WorkflowAgent["state"]): string {
+export function agentStateWord(t: Translate, state: WorkflowAgent["state"]): string {
   if (state === "running") return t("subagents.state.running");
   if (state === "completed") return t("subagents.state.completed");
   if (state === "failed") return t("subagents.state.failed");

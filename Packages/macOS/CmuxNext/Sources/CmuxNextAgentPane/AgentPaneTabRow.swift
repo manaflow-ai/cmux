@@ -16,6 +16,9 @@ import CmuxNextSettings
     public var onChange: (() -> Void)?
     /// The row last pushed to the page, nil before the first.
     private(set) var offered: (height: CGFloat, trailingInset: CGFloat)?
+    /// The row's native parts a Chromium page leaves uncovered, in the page's coordinates
+    /// (``AgentPaneView/applyNativeRects()`` adds Session Info's panel).
+    var holes: [CGRect] = []
 
     /// The page reported its tools' width.
     func report(width: CGFloat) {
@@ -66,7 +69,8 @@ import CmuxNextSettings
             let top = view.isFlipped ? view.bounds.minY : view.bounds.maxY - height
             let holes = shares ? nativeHoles(width: view.bounds.width, height: height, trailingInset: max(0, trailingInset),
                                              tools: row.sharedWidth(zoom: zoom) ?? 0) : []
-            page.nativeRects = holes.map { page.convert($0.offsetBy(dx: view.bounds.minX, dy: top), from: view) }
+            row.holes = holes.map { page.convert($0.offsetBy(dx: view.bounds.minX, dy: top), from: view) }
+            view.applyNativeRects()
         }
         guard row.offered.map({ $0 != next }) ?? (next.height > 0) else { return }
         row.offered = next

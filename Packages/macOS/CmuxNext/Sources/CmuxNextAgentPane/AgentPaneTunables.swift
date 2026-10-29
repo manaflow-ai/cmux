@@ -168,6 +168,14 @@ public nonisolated struct AgentPaneTunables {
         help: "A header toggle opens Session Info at the right of the chat: its environment, context, pull requests, subagents, background tasks and outputs.",
         default: false, code: "AgentPaneTunables.inspector")
 
+    /// Session Info drawn by the App over the agent pane instead of by the page (Leo, 2026-10-29:
+    /// "plus we're gonna be doing that part natively in swift anyways?"). Off keeps the page's own
+    /// panel, for comparing the two.
+    public static let nativeSessionInfo = Tunable<Bool>.toggle(
+        "agent.sessionInfo.native", PageTunables.section, "Session Info drawn natively",
+        help: "The App draws Session Info over the agent pane; off, the chat page draws it.",
+        default: true, code: "AgentPaneTunables.nativeSessionInfo")
+
     /// Leo 2026-10-15: "Terminal: maybe not a toggle. Clicking the terminal button adds another
     /// terminal on the right each time." On, the chat header's Terminal opens a split on every
     /// click (`AgentChatSplitToggles.open`) instead of toggling the one it opened.
@@ -475,6 +483,7 @@ public nonisolated struct AgentPaneTunables {
             updatePeersAutomatically.descriptor,
             restartUnresponsiveAcpmux.descriptor,
             sessionStatus.descriptor,
+            nativeSessionInfo.descriptor,
             sidebarPreviewVariant.descriptor,
             scrollerFade.descriptor,
             sideSessions.descriptor,

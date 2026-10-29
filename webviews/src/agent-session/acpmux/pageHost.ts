@@ -15,6 +15,7 @@ import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
+import { runNativeSessionInfoAction, setNativeSessionInfoHost } from "./inspector/native/host";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
 import { setSessionStatus } from "./sessionStatus";
@@ -135,6 +136,10 @@ export function applyHostEvent(event: HostEvent): void {
       return setHeaderState(event.value);
     case "tabRow":
       return setTabRow(event.value);
+    case "sessionInfoHost":
+      return setNativeSessionInfoHost(event.value);
+    case "sessionInfoAction":
+      return runNativeSessionInfoAction(event.value);
     case "floatingState":
       return setFloatingState(event.value);
     case "dictation":

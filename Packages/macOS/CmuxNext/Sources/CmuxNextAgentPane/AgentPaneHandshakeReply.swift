@@ -7,7 +7,10 @@ import Foundation
 enum AgentPaneHandshakeReply {
     static func reply(to request: AgentPaneRequest, in model: AgentPaneModel) async -> [String: Any] {
         // A page that loaded again starts without the tab row: it is offered again.
-        if request == .ready { model.tabRow.pageLoaded() }
+        if request == .ready {
+            model.tabRow.pageLoaded()
+            model.sessionInfo.pageLoaded()
+        }
         model.setCheckpointAvailable(false)
         do {
             var handshake = request == .ready

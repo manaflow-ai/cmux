@@ -32,6 +32,25 @@ export const COMMAND_STATE: Record<BackgroundCommand["state"], StringKey> = {
   lost: "chatInspector.tasks.lost",
 };
 
+/// Why a command's row opens nothing, or undefined when a click opens something: the terminal on this
+/// Mac (else the call, when the host refuses), the call elsewhere; with neither, the row is not a
+/// button and its tooltip says why.
+export function commandClosed(
+  toolCallId: string | undefined,
+  {
+    local,
+    calls,
+    onShowCall,
+  }: { local: boolean; calls?: ReadonlySet<string>; onShowCall?: (toolCallId: string) => boolean },
+): StringKey | undefined {
+  const shows = !!toolCallId && !!onShowCall && (calls?.has(toolCallId) ?? false);
+  return !toolCallId
+    ? "chatInspector.tasks.noTerminal.noCall"
+    : local || shows
+      ? undefined
+      : "chatInspector.tasks.noTerminal.remote";
+}
+
 export function TasksSection({
   commands,
   scheduled = [],
@@ -62,14 +81,7 @@ export function TasksSection({
   const { arrived, played } = useArrivals(commands.map(arrivalKey));
   const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
     const toolCallId = command.toolCallId;
-    // What a click opens: the terminal on this Mac (else the call, when the host refuses), the call
-    // elsewhere; with neither, the row is not a button and its tooltip says why.
-    const shows = !!toolCallId && !!onShowCall && (calls?.has(toolCallId) ?? false);
-    const why: StringKey | undefined = !toolCallId
-      ? "chatInspector.tasks.noTerminal.noCall"
-      : local || shows
-        ? undefined
-        : "chatInspector.tasks.noTerminal.remote";
+    const why = commandClosed(toolCallId, { local, calls, onShowCall });
     return (
       // Keyed by the call that started it: when the registry lists a command only the transcript
       // knew, its id turns into the registry's, and a key by id remounted the row (Leo: "why does

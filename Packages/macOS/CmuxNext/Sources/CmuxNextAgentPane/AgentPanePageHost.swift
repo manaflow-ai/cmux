@@ -41,6 +41,7 @@ enum AgentPanePageHost {
         events.append(.toolCards(view.model.toolCards))
         events.append(.computerUsePreview(view.model.computerUsePreview))
         events.append(view.model.tabRow.event)
+        events.append(.sessionInfoHost(view.drawsSessionInfo))
         if !view.customization.isEmpty { events += AgentPageEvent.customization(view.customization) }
         return events
     }

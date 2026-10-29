@@ -163,6 +163,9 @@ extension AgentPaneModel {
             if let diffTurn = header.diffTurn { diffTurn(folder, turn, toggle) }
             else if toggle { header.toggle(Self.diffAction, folder) } else { header.run(Self.diffAction, folder) }
             return AgentPaneReply.success(["ran": true])
+        case .sessionInfo(let info):
+            sessionInfo.update(info)
+            return AgentPaneReply.success()
         case .tabRowTools(let width):
             tabRow.report(width: CGFloat(width)) // used only while chrome.tabs.rowTools is on and the pane offered the row
             return AgentPaneReply.success()
