@@ -612,6 +612,16 @@ test("the search reads an effort word as the full picker does, and Enter lands t
   expect(sent).toContainEqual({ method: "effort", value: "high" });
 });
 
+// Review of #27303: a started chat's menu has no harness rail, so its empty search never says to
+// browse by harness.
+test("a started chat's empty search says what to do without naming a harness list", async () => {
+  await mount({ routes: [] }, { turnCount: 1 });
+  await open();
+  await typeIn("zzzz");
+  await settle();
+  expect(menu()!.querySelector(".acpmux-quick-note")?.textContent).toBe("No models match “zzzz”. Try part of a name.");
+});
+
 test("a started chat's search field filters its own models in place, without opening the full picker", async () => {
   await mount({ routes: [] }, { turnCount: 1 });
   await open();

@@ -300,6 +300,13 @@
 }
 .acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle > span { opacity: 0; }
 .acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle::after { opacity: 1; }
+/* A note (an empty search says what to do) wraps and grows past one row; it is never cut off. */
+.ui-menu-item.acpmux-quick-item.acpmux-quick-note {
+  height: auto;
+  min-height: var(--ui-row-height);
+  padding-block: var(--ds-space-1);
+  white-space: normal;
+}
 .acpmux-quick-note.ui-menu-item[data-disabled] {
   opacity: 1;
   color: var(--agent-muted);

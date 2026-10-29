@@ -38682,6 +38682,138 @@
         }
       }
     },
+    "picker.noMatchesForQuery": {
+      "comment": "Agent pane: a started chat's model menu's empty search, which has no harness list ({query} is what the person typed)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد نماذج تطابق “{query}”. جرّب جزءًا من الاسم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan model ne odgovara “{query}”. Probajte dio naziva."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen modeller matcher “{query}”. Prøv en del af et navn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine Modelle passen zu “{query}”. Versuche einen Teil des Namens."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No models match “{query}”. Try part of a name."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ningún modelo coincide con “{query}”. Prueba con parte del nombre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun modèle ne correspond à “{query}”. Essayez une partie du nom."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun modello corrisponde a “{query}”. Prova con parte del nome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{query}” に一致するモデルはありません。名前の一部で試してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានម៉ូដែលត្រូវនឹង “{query}” ទេ។ សាកផ្នែកមួយនៃឈ្មោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{query}”와 일치하는 모델이 없습니다. 이름의 일부로 검색해 보세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen modeller samsvarer med “{query}”. Prøv en del av et navn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żaden model nie pasuje do “{query}”. Spróbuj części nazwy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum modelo corresponde a “{query}”. Tente parte do nome."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет моделей, подходящих под “{query}”. Попробуйте часть названия."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีโมเดลที่ตรงกับ “{query}” ลองใช้ส่วนหนึ่งของชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“{query}” ile eşleşen model yok. Adın bir kısmını deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає моделей, що відповідають “{query}”. Спробуйте частину назви."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có mô hình nào khớp “{query}”. Thử một phần tên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有与“{query}”匹配的模型。试试名称的一部分。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有與「{query}」相符的模型。試試名稱的一部分。"
+          }
+        }
+      }
+    },
     "picker.noModels": {
       "comment": "Agent pane: the model picker when the agent has reported no models",
       "extractionState": "manual",

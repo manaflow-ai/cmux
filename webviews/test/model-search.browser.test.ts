@@ -73,6 +73,10 @@ await requireBrowserLane("model-search.browser.test.ts", async () => {
         })),
         rows,
         note: menu.querySelector(".acpmux-quick-note")?.textContent ?? "",
+        noteCut: (() => {
+          const note = menu.querySelector<HTMLElement>(".acpmux-quick-note");
+          return !!note && (note.scrollHeight > note.clientHeight + 1 || note.scrollWidth > note.clientWidth + 1);
+        })(),
       };
     });
 
@@ -119,8 +123,10 @@ await requireBrowserLane("model-search.browser.test.ts", async () => {
 
   test("a search that finds nothing says what to do, and keeps every harness on the rail", async () => {
     const page = await searched("sol 9.9");
-    const { note, tabs } = await read(page);
+    const { note, noteCut, tabs } = await read(page);
     expect(note).toBe("No models match “sol 9.9”. Try part of a name, or clear the search to browse by harness.");
+    // The note wraps and grows; it is never cut off (review of #27303).
+    expect(noteCut).toBe(false);
     expect(tabs.length).toBeGreaterThan(3);
     expect(tabs.some((tab) => tab.pressed)).toBe(false);
     await page.close();
