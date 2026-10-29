@@ -54,7 +54,10 @@ final class NativePopupSliderView: NSView {
         slider.action = #selector(valueChanged(_:))
         slider.commitValue = { [weak self] close in
             guard let self, slider.isEnabled else { return }
-            let finish = close ? (prepareCommit.map { $0() } ?? commit) : nil
+            let finish: (() -> Void)?
+            if !close { finish = nil }
+            else if let prepareCommit { finish = prepareCommit() }
+            else { finish = commit }
             publishValue()
             finish?()
         }
