@@ -3,7 +3,7 @@ public import CmuxNextDesign
 import CmuxNextWakeups
 
 /// Keeps destruction's main-actor hop in a small AppKit lifecycle seam.
-private final class DisplayBackdropDeinitAdapter {
+private final class DisplayBackdropDeinitAdapter: @unchecked Sendable {
     weak var owner: DisplayBackdropBinding?
 
     nonisolated func run() {
