@@ -1,6 +1,44 @@
 import type { GridLine, GridMetric, GridPoint, GridScene } from "./gridLines";
 
-const point = (selector: string, metric: GridMetric): GridPoint => ({ selector, metric });
+// Roles identify ink targets; selectors remain available while surfaces migrate.
+const selectorRoles: Record<string, string> = {
+  ":scope": "box",
+  ".acpmux-composer-box": "box",
+  ".acpmux-composer-plus .acpmux-picker-button svg": "plus",
+  ".acpmux-mic svg": "mic",
+  ".acpmux-send:not(.acpmux-steer-now) svg": "send",
+  ".acpmux-mode-text": "first-chip-text",
+  ".acpmux-context-ring svg": "ring",
+  ".ui-menu-check": "state",
+  ".acpmux-project-check": "state",
+  '[aria-checked="true"] svg': "state",
+  ".ui-menu-icon": "icon",
+  ".acpmux-menu-item > svg": "icon",
+  ".acpmux-menu-hint": "shortcut",
+  '[role="option"] .acpmux-icon': "icon",
+  ".ui-menu-shortcut, .ui-submenu-chevron": "shortcut",
+  ".cv-tool__icon": "icon",
+  ".cv-iconbtn svg": "icon",
+  ".acpmux-lineage__icon": "lead",
+  ".acpmux-running-tray__head .acpmux-lineage__icon": "lead",
+  ".acpmux-location-leading svg": "lead",
+  ".acpmux-location-picker:last-child svg": "trail",
+  ".acpmux-access-trigger svg": "lead",
+  ".acpmux-trust-ask-icon": "lead",
+  ".acpmux-queued-kind": "lead",
+  ".acpmux-permission-request-icon": "icon",
+  ".acpmux-permission-card-leading": "icon",
+  ".acpmux-chat-inspector-section__icon": "icon",
+  ".cv-tool__chevron": "chevron",
+  ".acpmux-running-tray__finished svg": "chevron",
+  ".acpmux-running-tray__status": "chevron",
+};
+const point = (selector: string, metric: GridMetric, role?: string): GridPoint => ({
+  selector,
+  metric,
+  role: selectorRoles[selector] ?? role ?? (metric === "text" || metric === "optical" ? "text" : undefined),
+  ...(selector === ".acpmux-composer-box" ? { scope: "document" as const } : {}),
+});
 const token = (name: string) => `var(--grid-${name})`;
 const value = (name: string, selector: string, metric: GridMetric, expected: string | GridPoint): GridLine => ({
   name,
@@ -27,6 +65,7 @@ const scene = (surface: string, entry: string, variant: string, root: string, li
   entry,
   variant,
   root,
+  rootRole: ["composer.box", "composer.foot", "stack.strip", "stack.trust"].includes(surface) ? surface : undefined,
   lines,
 });
 const plus = ".acpmux-composer-plus .acpmux-picker-button";
@@ -34,7 +73,7 @@ const plus = ".acpmux-composer-plus .acpmux-picker-button";
 const placeholder = ".acpmux-md-placeholder";
 const composer = (variant: string, text = placeholder, entry = "agent-pane.composer-row") => {
   const last = variant === "claude-auto" ? ".acpmux-mic" : ".acpmux-send:not(.acpmux-steer-now)";
-  return scene(`composer/${variant}`, entry, variant, ".acpmux-composer-box", [
+  return scene("composer.box", entry, variant, ".acpmux-composer-box", [
     left("edge: control inset", plus, "left", token("composer-inset")),
     left("lead", `${plus} svg`, "cx", token("composer-lead-center")),
     left("text", text, "text", token("composer-text")),
@@ -51,6 +90,13 @@ const composer = (variant: string, text = placeholder, entry = "agent-pane.compo
 const running = composer("grid-running");
 running.textIncludes = { selector: placeholder, text: "↵ steer · ⌘↵ queue" };
 
+const stackToken: Record<string, string> = {
+  "stack.strip": "strip",
+  "stack.trust": "trust-bar",
+  "stack.subagents": "tray",
+  "stack.tray": "tray",
+  "stack.queued": "queue",
+};
 const stack = (
   surface: string,
   entry: string,
@@ -61,10 +107,15 @@ const stack = (
   end: string,
 ) =>
   scene(surface, entry, variant, root, [
-    left("edge: control inset", lead, "left", `calc(${token(`${surface}-lead-center`)} - ${token("icon-box")} / 2)`),
-    left("lead", lead, "cx", token(`${surface}-lead-center`)),
-    left("text", text, "text", token(`${surface}-text`)),
-    trail(end, token(`${surface}-trail-center`)),
+    left(
+      "edge: control inset",
+      lead,
+      "left",
+      `calc(${token(`${stackToken[surface]}-lead-center`)} - ${token("icon-box")} / 2)`,
+    ),
+    left("lead", lead, "cx", token(`${stackToken[surface]}-lead-center`)),
+    left("text", text, "text", token(`${stackToken[surface]}-text`)),
+    trail(end, token(`${stackToken[surface]}-trail-center`)),
     value("row height", ":scope", "height", token("row")),
     mid(text, lead),
     value("mid: trail", end, "cy", point(lead, "cy")),
@@ -114,15 +165,9 @@ export const gridScenes: GridScene[] = [
   running,
   composer("grid-draft", ".acpmux-md p"),
   composer("attach-screenshot", placeholder, "agent-pane.composer"),
-  scene("quiet-row", "agent-pane.composer-row", "claude-auto", ".acpmux-composer", [
-    from(
-      "edge: gap",
-      ".acpmux-composer-foot",
-      "top",
-      point(".acpmux-composer-box", "bottom"),
-      token("composer-quiet-row-gap"),
-    ),
-    value("row height", ".acpmux-composer-foot", "height", token("composer-quiet-row-height")),
+  scene("composer.foot", "agent-pane.composer-row", "claude-auto", ".acpmux-composer-foot", [
+    from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
+    value("row height", ":scope", "height", token("composer-quiet-row-height")),
     from("text", ".acpmux-mode-text", "text", point(".acpmux-composer-box", "left"), token("composer-quiet-row-text")),
     from(
       "lead",
@@ -138,12 +183,12 @@ export const gridScenes: GridScene[] = [
       point(".acpmux-context-ring svg", "cx"),
       token("composer-trail-center"),
     ),
-    mid(".acpmux-mode-text", ".acpmux-composer-foot"),
-    mid(".acpmux-model-detail:not(.acpmux-fit-label)", ".acpmux-composer-foot"),
-    value("mid: ring", ".acpmux-context-ring svg", "cy", point(".acpmux-composer-foot", "cy")),
+    mid(".acpmux-mode-text", ":scope"),
+    mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
+    value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
   ]),
   stack(
-    "strip",
+    "stack.strip",
     "agent-pane.composer-strip",
     "project",
     ".acpmux-composer-strip",
@@ -152,7 +197,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-location-picker:last-child svg",
   ),
   stack(
-    "trust-bar",
+    "stack.trust",
     "agent-pane.trust-ask",
     "grid-ask",
     ".acpmux-trust-ask",
@@ -161,7 +206,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-trust-ask-action:last-child",
   ),
   stack(
-    "tray",
+    "stack.subagents",
     "agent-pane.subagent-tray",
     "one-running",
     ".acpmux-agent-line",
@@ -169,8 +214,38 @@ export const gridScenes: GridScene[] = [
     ".acpmux-summary-agent__name",
     ".acpmux-agent-line__stop-slot button",
   ),
+  ...["several-running", "grid-31"].map((variant) =>
+    stack(
+      "stack.subagents",
+      "agent-pane.subagent-tray",
+      variant,
+      ".acpmux-agent-line",
+      ".acpmux-lineage__icon",
+      ".acpmux-summary-agent__name",
+      ".acpmux-agent-line__stop-slot",
+    ),
+  ),
+  ...["many-folded", "grid-31"].map((variant) =>
+    stack(
+      "stack.tray",
+      "agent-pane.subagent-tray",
+      variant,
+      ".acpmux-running-tray__head",
+      ".acpmux-lineage__icon",
+      ".acpmux-running-tray__title",
+      ".acpmux-running-tray__status",
+    ),
+  ),
+  scene("stack.subagents", "agent-pane.subagent-tray", "grid-31", ".acpmux-running-tray", [
+    left("header: lead", ".acpmux-running-tray__head .acpmux-lineage__icon", "cx", token("tray-lead-center")),
+    left("header: text", ".acpmux-running-tray__title", "text", token("tray-text")),
+    mid(".acpmux-running-tray__title", ".acpmux-running-tray__head .acpmux-lineage__icon"),
+    left("footer: text", ".acpmux-running-tray__finished .acpmux-summary-text", "text", token("tray-text")),
+    trail(".acpmux-running-tray__finished svg", token("tray-trail-center")),
+    mid(".acpmux-running-tray__finished .acpmux-summary-text", ".acpmux-running-tray__finished svg"),
+  ]),
   stack(
-    "queue",
+    "stack.queued",
     "agent-pane.composer-row",
     "queued",
     ".acpmux-queued",
@@ -178,18 +253,34 @@ export const gridScenes: GridScene[] = [
     ".acpmux-queued-text",
     ".acpmux-queued-actions button:last-child",
   ),
-  menu("menus/context", "ui.context-menu", "open", ".ui-context-menu", false),
-  menu("menus/checkmarks", "ui.menu", "open", ".menu-gallery-popup", true),
-  menu("pickers/model", "agent-pane.composer-pickers", "model-menu", ".acpmux-quick-menu", true),
-  menu("pickers/account", "agent-pane.composer-pickers", "claude-direct-accounts", ".acpmux-quick-submenu", true),
-  scene("pickers/effort", "agent-pane.composer-pickers", "effort-menu", ".acpmux-quick-efforts", [
+  menu("menu.context", "ui.context-menu", "open", ".ui-context-menu", false),
+  menu("menu.mode", "agent-pane.composer-pickers", "permission-menu", ".acpmux-access-menu", true),
+  menu("menu.mode", "ui.menu", "open", ".menu-gallery-popup", true),
+  scene("menu.plus", "agent-pane.composer", "add-menu", ".acpmux-composer-plus .acpmux-menu", [
+    left("edge: highlight", ".acpmux-menu-item", "left", menuToken("highlight-inset")),
+    left("lead", ".acpmux-menu-item > svg", "left", menuToken("icon-x")),
+    left("text", ".acpmux-menu-label", "text", menuToken("text-x")),
+    trail(".acpmux-menu-hint", menuToken("trailing"), "right"),
+    mid(".acpmux-menu-label", ".acpmux-menu-item > svg"),
+  ]),
+  scene("menu.project", "agent-pane.project-chooser", "open-current", ".acpmux-project-menu", [
+    left("edge: highlight", '[role="option"]', "left", menuToken("highlight-inset")),
+    left("lead", '[role="option"] .acpmux-icon', "left", menuToken("state-icon-x")),
+    left("text", ".acpmux-menu-label", "text", menuToken("state-text-x")),
+    { ...left("state", ".acpmux-project-check", "cx", menuToken("state-x")), all: true },
+    trail(".acpmux-project-check", menuToken("trailing")),
+    mid(".acpmux-menu-label", '[role="option"] .acpmux-icon'),
+  ]),
+  menu("picker.model", "agent-pane.composer-pickers", "model-menu", ".acpmux-quick-menu", true),
+  menu("picker.account", "agent-pane.composer-pickers", "claude-direct-accounts", ".acpmux-quick-submenu", true),
+  scene("picker.effort", "agent-pane.composer-pickers", "effort-menu", ".acpmux-quick-efforts", [
     left("edge", ".acpmux-quick-effort-segment", "left", menuToken("highlight-inset")),
     left("lead: checked state", '[aria-checked="true"] svg', "cx", menuToken("state-x")),
     left("text", ".acpmux-quick-effort-segment", "text", menuToken("state-text-x")),
     trail(".acpmux-quick-effort-segment:last-child", menuToken("trailing")),
     mid(".acpmux-quick-effort-segment", ".acpmux-quick-effort-segment"),
   ]),
-  scene("transcript/tool", "agent-pane.tool-row-column", "column", ".cv-tool", [
+  scene("transcript.toolgroup", "agent-pane.tool-row-column", "column", ".cv-tool", [
     left(
       "edge/lead",
       ".cv-tool__icon",
@@ -198,17 +289,17 @@ export const gridScenes: GridScene[] = [
     ),
     value("icon box", ".cv-tool__icon", "width", token("transcript-icon-box")),
     left("text", ".cv-tool__text", "text", token("transcript-text-gap")),
-    trail(".cv-tool__chevron", token("transcript-action-trail-center")),
+    trail(".cv-tool__chevron", `calc(${token("transcript-icon-box")} - ${token("transcript-icon-box")})`, "right"),
     mid(".cv-tool__text", ".cv-tool__icon"),
   ]),
-  scene("transcript/actions", "agent-pane.reply-actions", "after-steer", ".cv-reply-actions", [
+  scene("transcript.actions", "agent-pane.reply-actions", "after-steer", ".cv-reply-actions", [
     trail(".cv-turn-time", token("transcript-action-trail-center")),
     value("action control", ".cv-iconbtn", "width", token("transcript-action-control")),
     ...centered(".cv-iconbtn svg", ".cv-iconbtn"),
     mid(".cv-turn-time", ".cv-iconbtn"),
   ]),
   card(
-    "cards/permission",
+    "transcript.cards",
     "agent-pane.permission-card",
     "grid-pending",
     ".acpmux-permission-card",
@@ -218,7 +309,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-permission-buttons button:last-child",
   ),
   card(
-    "cards/question",
+    "transcript.cards",
     "agent-pane.question-card",
     "pending-single",
     ".acpmux-question",
@@ -228,7 +319,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-question-submit",
   ),
   card(
-    "cards/summary",
+    "transcript.cards",
     "agent-pane.summary-card",
     "finished-open",
     ".acpmux-summary-card",
@@ -238,7 +329,7 @@ export const gridScenes: GridScene[] = [
     ".acpmux-summary-card__close",
   ),
   card(
-    "cards/session-info",
+    "transcript.cards",
     "agent-pane.chat-inspector",
     "layout-glance-open",
     ".acpmux-chat-inspector-section",
@@ -252,18 +343,20 @@ export const gridScenes: GridScene[] = [
 // These are omissions in the current component design, not selector fallbacks. All other
 // missing selectors fail fixture coverage so renames cannot produce a green warning run.
 const absentBySurface: Record<string, Record<string, string>> = {
-  "trust-bar": { ".acpmux-trust-ask-icon": "TrustAsk renders text and buttons without a leading mark." },
-  queue: { ".acpmux-queued-kind": "Ordinary queued prompts have no leading mark; only steering entries render kind." },
-  "menus/context": {
+  "stack.trust": { ".acpmux-trust-ask-icon": "TrustAsk renders text and buttons without a leading mark." },
+  "stack.queued": {
+    ".acpmux-queued-kind": "Ordinary queued prompts have no leading mark; only steering entries render kind.",
+  },
+  "menu.context": {
     ".ui-menu-icon": "The context-menu open fixture has text-only actions.",
     ".ui-menu-shortcut, .ui-submenu-chevron": "These context actions have neither shortcut nor submenu.",
   },
-  "pickers/effort": {
+  "picker.effort": {
     '[aria-checked="true"] svg': "Inline effort segments indicate selection without a checkmark glyph.",
   },
-  "cards/question": {
+  "transcript.cards": {
     ".acpmux-permission-card-leading": "QuestionCard has a text legend without a leading header icon.",
   },
-  "transcript/tool": { ".cv-tool__chevron": "Non-toggle tool rows have no trailing disclosure control." },
+  "transcript.toolgroup": { ".cv-tool__chevron": "Non-toggle tool rows have no trailing disclosure control." },
 };
 for (const item of gridScenes) item.absent = absentBySurface[item.surface];
