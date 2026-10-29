@@ -211,6 +211,25 @@ class DedicatedRefusal(unittest.TestCase):
         self.assertEqual(picker.read_admission(Fake(), DEDICATED)["run_id"], 2)
         self.assertFalse(any(path.startswith("/actions/runs/1/") for path in seen))
 
+    def test_the_reader_uses_job_time_across_run_creation_order(self) -> None:
+        # An older-created run can execute later through a full rerun or delayed dependencies.
+        for latest_setup, earlier_setup in (("failure", "success"), ("success", "failure")):
+            with self.subTest(latest_setup=latest_setup):
+                pages = {"/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=6":
+                             {"workflow_runs": [{"id": 2}, {"id": 1}]},
+                         "/actions/runs/2/jobs?filter=all&per_page=100&page=1":
+                             {"jobs": [admission_job(earlier_setup, 20, run_id=2)]},
+                         "/actions/runs/1/jobs?filter=all&per_page=100&page=1":
+                             {"jobs": [admission_job(latest_setup, 5, run_id=1)]}}
+
+                class Fake:
+                    def get(self, path):
+                        return pages[path]
+
+                latest = picker.read_admission(Fake(), DEDICATED)
+                self.assertEqual(latest["run_id"], 1)
+                self.assertEqual(bool(picker.refusal(DEDICATED, latest, NOW)), latest_setup == "failure")
+
     def run_pick(self, admission):
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp) / "out"
