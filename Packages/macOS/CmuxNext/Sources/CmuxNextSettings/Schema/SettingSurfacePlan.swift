@@ -82,13 +82,13 @@ extension SettingDescriptor {
         let agentSettable = SettingsSchema.agentSettable(self) == true
         return SettingSurfacePlan(
             palette: palette,
-            cli: SettingSurfaceAvailability(operations: Self.cliOperations, aliases: Self.resetAliases),
+            cli: SettingSurfaceAvailability(operations: SettingSurfacePlan.cliOperations, aliases: SettingSurfacePlan.resetAliases),
             mcp: SettingSurfaceAvailability(
                 operations: mcpRead + (agentSettable ? mcpWrite : []),
-                aliases: agentSettable ? Self.resetAliases : [],
+                aliases: agentSettable ? SettingSurfacePlan.resetAliases : [],
                 reason: agentSettable ? nil : "agent_settable_false"
             ),
-            socket: SettingSurfaceAvailability(operations: Self.cliOperations)
+            socket: SettingSurfaceAvailability(operations: SettingSurfacePlan.cliOperations)
         )
     }
 }
