@@ -148,8 +148,9 @@ impl Flags {
 /// surface, run too when this is `cmux-tui` (the app runs its bundled `cmux-tui device …`).
 fn cmux() -> anyhow::Result<Command> {
     let mut command = Command::new(self_exe()?);
-    // A join token never reaches a child (`cmux machine add`'s line sets it only for `sh`).
-    command.env_remove("CMUX_JOIN");
+    // Neither a join token nor the cmux credential reaches a child: the credential was read
+    // once (`JoinAuth`) and a revoke step gets it on its stdin.
+    command.env_remove("CMUX_JOIN").env_remove("CMUX_CLOUD_ACCESS_TOKEN");
     #[cfg(unix)]
     std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
     Ok(command)
