@@ -80,6 +80,7 @@
               "layout.focusFollowsMouse",
               "layout.scrollAreas",
               "layout.scrollModifier",
+              "layout.pagesHandleCommandScroll",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
@@ -6739,6 +6740,62 @@
       "title" : {
         "key" : "settings.layout.scrollModifier",
         "text" : "Scroll Columns and Rows With"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.pagesHandleCommandScroll.help",
+        "text" : "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.pagesHandleCommandScroll",
+      "keywords" : [
+        "scroll",
+        "command",
+        "zoom",
+        "figma",
+        "excalidraw",
+        "browser",
+        "web",
+        "page",
+        "columns",
+        "pan"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "pagesHandleCommandScroll"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.layout.pagesHandleCommandScroll.summary",
+        "text" : "Figma and Excalidraw keep Command + Scroll zoom"
+      },
+      "title" : {
+        "key" : "settings.layout.pagesHandleCommandScroll",
+        "text" : "Web Pages Get Command + Scroll First"
       },
       "validation" : "portable"
     },

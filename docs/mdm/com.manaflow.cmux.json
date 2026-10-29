@@ -2595,6 +2595,12 @@
       "title" : "New Terminals and Browsers",
       "type" : "string"
     },
+    "layout.pagesHandleCommandScroll" : {
+      "default" : true,
+      "description" : "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns.",
+      "title" : "Web Pages Get Command + Scroll First",
+      "type" : "boolean"
+    },
     "layout.paneBorder" : {
       "default" : "subtle",
       "description" : "layout.paneBorder",
