@@ -41,9 +41,15 @@ struct MetricsLaunchFoldTests {
 
     /// By its real path: macOS lists `/var/folders/...` (a symlink) as `/private/var/folders/...`, and the
     /// fold's errors carry the URLs it listed, so a file the test names compares equal to the one it reports.
+    /// `realpath(3)`, not `resolvingSymlinksInPath()`: Foundation strips `/private` off again (fleet run
+    /// a2ab5dc2 still compared `/private/var` with `/var`).
     private static func temporaryFolder() -> URL {
-        FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
-            .appending(path: "metrics-fold-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let temporary = FileManager.default.temporaryDirectory
+        let real = realpath(temporary.path, nil).map { pointer in
+            defer { free(pointer) }
+            return URL(fileURLWithPath: String(cString: pointer), isDirectory: true)
+        } ?? temporary
+        return real.appending(path: "metrics-fold-\(UUID().uuidString)", directoryHint: .isDirectory)
     }
 
     private func write(_ launch: Launch, to file: URL) throws {
