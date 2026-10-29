@@ -964,4 +964,4 @@ def prewarm_main(args, daemon: Daemon, scratch):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

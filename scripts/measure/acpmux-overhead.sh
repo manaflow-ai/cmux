@@ -220,6 +220,7 @@ e=\$?
 echo "BUILD-SECONDS \$(perl -MTime::HiRes=time -e 'printf "%.2f", time - \$ARGV[0]' "\$s")"
 echo "BUILD-EXIT \$e"
 rm -rf "\$t"
+exit "\$e"
 SH
   build_cmd="/bin/sh $(printf '%q' "$work/build-turn.sh")"
   turn() {
@@ -239,8 +240,10 @@ SH
         utility) wrap=(/usr/sbin/taskpolicy -c utility) ;;
         background) wrap=(/usr/sbin/taskpolicy -b) ;;
       esac
-      out="$(${wrap[@]+"${wrap[@]}"} /bin/sh -c "$build_cmd")"
+      rc=0
+      out="$(${wrap[@]+"${wrap[@]}"} /bin/sh -c "$build_cmd")" || rc=$?
       echo "ACPMUX-BUILD-RAW $cls run=$k $(echo "$out" | tr '\n' ' ')"
+      (( rc == 0 )) || { echo "ACPMUX-BUILD-RAW-FAIL $cls run=$k exit=$rc"; status=1; }
     done
   done
   echo "ACPMUX-OVERHEAD-LOAD end $(sysctl -n vm.loadavg)"
