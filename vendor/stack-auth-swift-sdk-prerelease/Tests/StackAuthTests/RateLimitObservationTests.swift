@@ -72,6 +72,74 @@ extension RateLimitRetryTests {
         await fixture.close()
     }
 
+    @Test(arguments: [200, 401, 429])
+    func lateRefreshCannotChangeAnotherStoresCooldown(status: Int) async {
+        let fixture = RefreshTransportFixture()
+        let session = await fixture.session()
+        let clock = RefreshTestClock()
+        let store = MemoryTokenStore()
+        let otherStore = MemoryTokenStore()
+        await store.setTokens(accessToken: nil, refreshToken: "session-a")
+        let client = APIClient(
+            baseUrl: "https://" + fixture.host, projectId: "fixture", publishableClientKey: "synthetic",
+            tokenStore: store, session: session, refreshClock: testClock(clock)
+        )
+        let refresh = Task { await client.getOrFetchLikelyValidTokens() }
+        await fixture.waitForRequest()
+        await client.setTokens(accessToken: nil, refreshToken: "session-b", tokenStoreOverride: otherStore)
+        await fixture.release(
+            status: status, token: RefreshLifecycleTests.fresh,
+            headers: status == 401 ? ["x-hexclave-known-error": "REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED"] : [:]
+        )
+
+        let result = await refresh.value
+        #expect(result.refreshToken == "session-a")
+        #expect(result.accessToken == (status == 200 ? RefreshLifecycleTests.fresh : nil))
+        #expect(await store.getStoredRefreshToken() == "session-a")
+        // A stale 429 must not delay store B's first refresh either.
+        await fixture.release(status: 200, token: RefreshLifecycleTests.fresh)
+        let otherResult = await client.getOrFetchLikelyValidTokens(tokenStoreOverride: otherStore)
+        #expect(otherResult.accessToken == RefreshLifecycleTests.fresh)
+        session.invalidateAndCancel()
+        await fixture.close()
+    }
+
+    @Test func alternatingRejectionsResetBackoffStreaksAndStillReportRecovery() async {
+        let recorder = RefreshSignalRecorder()
+        StackAuthRateLimitReporting.setObserver(recorder)
+        defer { StackAuthRateLimitReporting.setObserver(nil) }
+        let fixture = RefreshTransportFixture()
+        let session = await fixture.session()
+        let clock = RefreshTestClock()
+        let store = MemoryTokenStore()
+        await store.setTokens(accessToken: nil, refreshToken: "session")
+        let client = APIClient(
+            baseUrl: "https://" + fixture.host, projectId: "fixture", publishableClientKey: "synthetic",
+            tokenStore: store, session: session, refreshClock: testClock(clock)
+        )
+        for index in 0..<8 {
+            // Every response changes type, so each backoff must be at most 5 s.
+            clock.advance(by: .seconds(6))
+            let status = index.isMultiple(of: 2) ? 401 : 429
+            await fixture.release(
+                status: status, token: "unused",
+                headers: status == 401 ? ["x-hexclave-known-error": "INVALID_PUBLISHABLE_CLIENT_KEY"] : [:]
+            )
+            _ = await client.getOrFetchLikelyValidTokens()
+            #expect(await fixture.count == index + 1)
+            #expect(await store.getStoredRefreshToken() == "session")
+        }
+        clock.advance(by: .seconds(600))
+        await fixture.release(status: 200, token: RefreshLifecycleTests.fresh)
+        #expect(await client.getOrFetchLikelyValidTokens().accessToken == RefreshLifecycleTests.fresh)
+        let (observations, recoveries) = recorder.snapshot
+        #expect(observations.count == 4)
+        #expect(observations.allSatisfy { $0.refreshAttempt == 1 })
+        #expect(recoveries == 1)
+        session.invalidateAndCancel()
+        await fixture.close()
+    }
+
     private func testClock(_ clock: RefreshTestClock) -> TokenRefreshClock {
         TokenRefreshClock(now: {
             let parts = clock.now.offset.components

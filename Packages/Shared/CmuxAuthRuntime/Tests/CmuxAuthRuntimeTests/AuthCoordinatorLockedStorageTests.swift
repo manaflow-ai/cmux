@@ -14,6 +14,30 @@ actor LockedStorageAuthClient: AuthClient {
     private var tokenReadCount = 0
     private let currentUserError: (any Error)?
     private(set) var clearLocalSessionCallCount = 0
+    private var pauseRefreshReadAfter: Int?
+    private var pausedRefreshRead: CheckedContinuation<Void, Never>?
+    private var refreshReadPaused = false
+    private var refreshReadWaiters: [CheckedContinuation<Void, Never>] = []
+    private var interruptedReads = 0
+
+    func pauseRefreshRead(after count: Int) { pauseRefreshReadAfter = count }
+
+    func waitForPausedRefreshRead() async {
+        if refreshReadPaused { return }
+        await withCheckedContinuation { refreshReadWaiters.append($0) }
+    }
+
+    func resumeRefreshRead() {
+        pausedRefreshRead?.resume()
+        pausedRefreshRead = nil
+    }
+
+    func readStoredTokens() async -> (access: String?, refresh: String?, available: Bool) {
+        let interruptedBefore = interruptedReads
+        let access = await storedAccessToken()
+        let refresh = await refreshToken()
+        return (access, refresh, interruptedBefore == interruptedReads)
+    }
 
     init(
         access: String? = nil,
@@ -58,7 +82,17 @@ actor LockedStorageAuthClient: AuthClient {
     }
 
     func refreshToken() async -> String? {
-        tokenReadIsLocked() ? nil : refresh
+        if let pauseRefreshReadAfter, tokenReadCount >= pauseRefreshReadAfter {
+            self.pauseRefreshReadAfter = nil
+            interruptedReads += 1
+            refreshReadPaused = true
+            let waiters = refreshReadWaiters
+            refreshReadWaiters = []
+            for waiter in waiters { waiter.resume() }
+            await withCheckedContinuation { pausedRefreshRead = $0 }
+            return nil
+        }
+        return tokenReadIsLocked() ? nil : refresh
     }
 
     func forceRefreshAccessToken() async -> String? {
@@ -167,6 +201,29 @@ actor TokenStorageAvailabilityProbe {
             isTokenStorageAvailable: { await availability.isAvailable() }
         )
         return (coordinator, store)
+    }
+
+    @Test func concurrentAvailabilityConsumerCannotEraseFailedRefreshRead() async throws {
+        let cachedUser = CMUXAuthUser(id: "cached", primaryEmail: "cached@example.com", displayName: "Cached")
+        let client = LockedStorageAuthClient(
+            access: "access", refresh: "refresh", locked: false,
+            currentUserError: UserNotSignedInError()
+        )
+        await client.pauseRefreshRead(after: 2)
+        let availability = TokenStorageAvailabilityProbe(available: true)
+        let (coordinator, store) = try makeCoordinator(client: client, cachedUser: cachedUser, availability: availability)
+        coordinator.start()
+        await client.waitForPausedRefreshRead()
+        // The unrelated caller consumes the unavailable result, then storage unlocks.
+        await availability.setAvailable(false)
+        _ = await coordinator.accessToken()
+        await availability.setAvailable(true)
+        await client.resumeRefreshRead()
+        await coordinator.awaitBootstrapped()
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == cachedUser)
+        #expect(store.bool(forKey: "has_tokens"))
+        #expect(await client.clearLocalSessionCallCount == 0)
     }
 
     @Test func lockedLaunchPreservesCachedSessionAndRevalidatesAfterUnlock() async throws {
