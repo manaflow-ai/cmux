@@ -44,10 +44,14 @@ pub(crate) const MAX_INPUT_ROWS: u32 = 32;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShellMark {
     PromptStart,
-    /// `A` with `k=s`, `k=c` or `k=r`: a secondary (continuation, PS2) or
-    /// right prompt. It starts no prompt and ends no command; a secondary
-    /// prompt answers a line still owed one (`terminal_activity`).
+    /// `A` with `k=s` or `k=c`: a secondary prompt, either a later line of a
+    /// multi-line primary prompt (kitty marks them so) or a continuation
+    /// prompt (PS2). It starts no prompt and ends no command
+    /// (`terminal_activity` tells the two apart by the marks before it).
     SecondaryPromptStart,
+    /// `A` with `k=r`: a right prompt (zsh's RPROMPT), drawn after the
+    /// primary prompt's `B`. It answers no line and ends no command.
+    RightPromptStart,
     InputStart,
     CommandStart,
     CommandEnd {
@@ -65,10 +69,14 @@ impl ShellMark {
             // The prompt kind (FinalTerm `k=`): `s` secondary, `c`
             // continuation, `r` a right prompt (libghostty's PROMPT_RIGHT),
             // none of which starts a prompt; `i` (and none) is primary.
-            b"A" if fields.any(|field| matches!(field, b"k=s" | b"k=c" | b"k=r")) => {
-                Self::SecondaryPromptStart
+            b"A" => {
+                let kind = fields.find_map(|field| field.strip_prefix(b"k="));
+                match kind {
+                    Some(b"s" | b"c") => Self::SecondaryPromptStart,
+                    Some(b"r") => Self::RightPromptStart,
+                    _ => Self::PromptStart,
+                }
             }
-            b"A" => Self::PromptStart,
             b"B" => Self::InputStart,
             b"C" => Self::CommandStart,
             b"D" => {
@@ -129,7 +137,9 @@ impl CommandTracker {
             // A prompt without D (shells that skip it on ^C): the command
             // ended, exit status unknown.
             ShellMark::PromptStart => self.finish(None, now_ms),
-            ShellMark::SecondaryPromptStart | ShellMark::InputStart => None,
+            ShellMark::SecondaryPromptStart
+            | ShellMark::RightPromptStart
+            | ShellMark::InputStart => None,
             ShellMark::CommandStart => {
                 let command = screen.input_text().and_then(|text| clean_command(&text));
                 self.running =
@@ -210,11 +220,7 @@ mod shell_mark_tests {
         assert_eq!(ShellMark::parse(b"A;k=i"), Some(ShellMark::PromptStart));
         assert_eq!(ShellMark::parse(b"A;k=s"), Some(ShellMark::SecondaryPromptStart));
         assert_eq!(ShellMark::parse(b"A;aid=7;k=c"), Some(ShellMark::SecondaryPromptStart));
-        assert_eq!(
-            ShellMark::parse(b"A;k=r"),
-            Some(ShellMark::SecondaryPromptStart),
-            "a right prompt"
-        );
+        assert_eq!(ShellMark::parse(b"A;k=r"), Some(ShellMark::RightPromptStart), "a right prompt");
         assert_eq!(ShellMark::parse(b"P;k=s"), None);
         assert_eq!(
             ShellMark::parse(b"D;130"),
