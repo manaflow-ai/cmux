@@ -530,12 +530,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     zeroize::Zeroizing::new(value)
                 }
                 None => {
-                    let joined = !replace && crate::cli::cloud_join::credential_present()?;
+                    let joined = crate::cli::cloud_join::join_incomplete()?
+                        || (!replace && crate::cli::cloud_join::credential_present()?);
                     match crate::cli::join_input::read_stdin_line(joined)? {
                         Some(value) => value,
                         None => {
-                            crate::cli::cloud_join::already_joined(false, json_out)?;
-                            return Ok(());
+                            return crate::cli::cloud_join::join_with_token(
+                                hub, name, replace, json_out, None,
+                            )
+                            .await;
                         }
                     }
                 }
@@ -549,7 +552,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     )
                     .with_exit(2)
                 })?;
-                crate::cli::cloud_join::join_with_token(hub, name, replace, json_out, token).await
+                crate::cli::cloud_join::join_with_token(hub, name, replace, json_out, Some(token))
+                    .await
             } else if value.starts_with("cmxt1.") {
                 let ticket = crate::cli::pairing::join_ticket_text(&value)?;
                 let client = connect(true).await?;
