@@ -1763,6 +1763,8 @@ jobs:
             python3 -I scripts/cmux-next/tests/test_herdr_sync.py
             # The restore journey names a DEV build's socket and acpmux home by the app's rule.
             python3 -I scripts/cmux-next/tests/test_build_names.py
+            # Its view-report rows say what they saw (an unreadable report is not a missing grid).
+            python3 -I scripts/cmux-next/tests/test_rj_rows.py
             # The fleet sidebar benches emit receipts; this portable test keeps their validator deterministic.
             python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py
             bash scripts/cef/tests/test-embedder-step.test.sh

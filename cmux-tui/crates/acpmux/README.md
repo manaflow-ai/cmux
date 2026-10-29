@@ -33,6 +33,50 @@ PATH containing acpmux and the installed harness. `host doctor` checks
 `target/release` is not enough for that check. For SSH peering, harness login
 and remote project access, follow [Remote agents and cmux Cloud](../../../docs/remote-agents-and-cloud.md).
 
+## Labs: static userspace WireGuard
+
+`transport.wireguard` defaults to false. When enabled, acpmux carries its peer
+WebSocket streams over one userspace WireGuard UDP socket, using boringtun and
+smoltcp. It needs no root access, TUN device or system routes. The existing
+listener token, peer token, and permission rules still apply; a WireGuard key
+alone does not grant access to sessions or app-only operations.
+
+Configure each side in its private `config.json`, with different node keys and
+virtual addresses. The endpoint is the other machine's UDP address; `address`
+is its virtual service address, used only inside acpmux:
+
+```json
+{
+  "transport": {
+    "wireguard": true,
+    "wireguardStatic": {"listen": "0.0.0.0:51820", "address": "10.77.0.1:4100"}
+  },
+  "peers": {
+    "workstation": {
+      "url": "ssh://workstation",
+      "token": "<existing remote listener token>",
+      "peerToken": "<existing remote peer token>",
+      "wireguard": {
+        "publicKey": "<remote standard padded base64 public key>",
+        "endpoint": "203.0.113.2:51820",
+        "address": "10.77.0.2:4100"
+      }
+    }
+  }
+}
+```
+
+The key helper owns `~/.acpmux/node.wg.key`; status reports only `node.wgPublicKey`.
+Provision application credentials through the existing authorized path. The peer
+token changes when its daemon starts. Direct WireGuard is tried before the saved
+peer URL when a listener credential is configured; that URL remains the fallback.
+
+This first Labs version reads the Labs flag, interface and peer routes at daemon
+startup. Changes, including disabling the transport or removing an allowed key,
+require a daemon restart. Its WebSocket listener must bind loopback or a
+wildcard address, and each endpoint must resolve to the UDP listener's address
+family. Discovery, hole punching and relays are separate components.
+
 ## Quick start
 
 ```sh
@@ -175,6 +219,24 @@ The older flat spellings (`acpmux kill NAME`, `acpmux peer add …`, `acpmux sta
 work but are hidden from help.
 
 `--json` on any command prints the raw response.
+
+Session controls work across configured peers without a shell on the target host:
+
+```sh
+acpmux new --host worker -m codex -n review -d
+acpmux resolve worker/review
+acpmux session resume worker/review  # release held queued prompts
+acpmux retry worker/review           # retry its failed last turn
+acpmux session cancel worker/review  # cancel its running turn
+acpmux session stop worker/review    # stop its agent; keep the session
+```
+
+Use the stable `sessionId` from `resolve`, a unique name or prefix, or `HOST/NAME`.
+Resume, retry, cancel and stop refuse ambiguous matches, including a local and remote
+session with the same name, and list qualified IDs to select from. Once resolved, a control
+keeps the owning peer and session ID even if another host has a copy of that session.
+The target daemon decides which start policy and controls the caller may use; a peer link
+does not grant app-only permissions.
 
 ## Orchestrating agents from scripts
 
