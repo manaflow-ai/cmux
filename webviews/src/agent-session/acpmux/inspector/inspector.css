@@ -1048,6 +1048,7 @@ button.acpmux-chat-inspector-scope__parent:focus-visible {
   border-radius: var(--acpmux-inspector-card-radius);
 }
 .acpmux-chat-inspector-scope__glyph {
+  display: inline-flex;
   flex: none;
   margin-top: 2px;
   color: var(--agent-muted);
