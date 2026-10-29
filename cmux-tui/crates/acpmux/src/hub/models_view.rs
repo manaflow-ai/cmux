@@ -304,7 +304,7 @@ mod picker_models_tests {
     fn router_hub(discovered: bool) -> std::sync::Arc<Hub> {
         use crate::config::{Config, StoreMode};
         let mut found = BTreeMap::new();
-        crate::config::add_cmux_router(&mut found, &|_| Some("/usr/bin/claude".into()));
+        crate::config::add_cmux_router_with(&mut found, &|_| Some("/usr/bin/claude".into()), None);
         let claude = HarnessProfile {
             env: BTreeMap::new(),
             description: None,

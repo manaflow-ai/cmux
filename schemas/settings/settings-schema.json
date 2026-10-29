@@ -7147,7 +7147,7 @@
       },
       "help" : {
         "key" : "settings.workspaces.newPlacement.help",
-        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it."
+        "text" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it."
       },
       "kept_on_reset_all" : false,
       "key" : "workspaces.newPlacement",
