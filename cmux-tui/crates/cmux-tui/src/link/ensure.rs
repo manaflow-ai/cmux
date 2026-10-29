@@ -204,34 +204,25 @@ pub(super) fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
 
 /// Waits until a `serve` of `state` that is ending has exited, at most
 /// `budget`: false when one still holds its lock after `budget`. A `serve`
-/// holds `<state>/link.lock` from before its registration until it exits,
-/// and it removes its registration and socket before it exits, so a link
-/// that is ending has no registration (or a registration of a pid that is
-/// gone) and still holds the lock. Only then does this wait, for the lock
-/// itself (taken and released at once), not for a guessed time: `stop` must
-/// not answer before that link is gone, and a `serve` that `ensure` starts
-/// meanwhile cannot take the lock and exits ("the link did not start").
-/// A registration of a live pid is a running link this caller does not use
-/// (its socket folder is open to others, or it serves another state
-/// folder's socket); it is left alone, as before, with no wait.
+/// holds `<state>/link.lock` from before its registration until it exits.
+/// When it ends it first drops its listener (connects are refused), then
+/// removes its registration and socket, then exits, so an ending link of
+/// this state folder is one that no connect reaches and that still holds
+/// the lock, whether or not its registration is gone yet. Then this waits
+/// for the lock itself (taken and released at once), not for a guessed
+/// time: `stop` must not answer before that link is gone, and a `serve`
+/// that `ensure` starts meanwhile cannot take the lock and exits ("the link
+/// did not start"). The one registration it leaves alone, with no wait, is
+/// a live process's that this caller does not use ([`owns`] is false: its
+/// socket folder is open to others, or it serves another state folder's
+/// socket), which holds the lock for its whole life.
 fn ending_link_gone_within(state: &LinkState, budget: Duration) -> anyhow::Result<bool> {
-    if registration::read(&state.registration_dir()).is_some_and(|reg| pid_alive(reg.pid)) {
+    if registration::read(&state.registration_dir())
+        .is_some_and(|reg| registration::process_alive(reg.pid) && !owns(state, &reg.socket))
+    {
         return Ok(true);
     }
     Ok(lock_within(&state.dir().join("link.lock"), budget)?.is_some())
-}
-
-/// Whether process `pid` exists (signal 0; EPERM is a process of another user).
-fn pid_alive(pid: u32) -> bool {
-    let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
-    if pid <= 0 {
-        return false;
-    }
-    // SAFETY: signal 0 only checks that the process exists.
-    if unsafe { libc::kill(pid, 0) } == 0 {
-        return true;
-    }
-    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 /// The lock file at `path`, locked (exclusive) within `budget`; `None` when

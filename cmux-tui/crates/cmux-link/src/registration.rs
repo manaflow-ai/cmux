@@ -190,8 +190,9 @@ fn effective_uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
+/// Whether process `pid` exists (signal 0; EPERM is a process of another user).
 #[cfg(unix)]
-fn process_alive(pid: u32) -> bool {
+pub fn process_alive(pid: u32) -> bool {
     let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
     if pid <= 0 {
         return false;
