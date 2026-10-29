@@ -54,6 +54,7 @@ fn repository(name: &str) -> (PathBuf, PathBuf) {
     (root, main)
 }
 
+#[cfg(target_os = "linux")]
 fn many_squashed_worktrees(name: &str, count: usize) -> (PathBuf, PathBuf) {
     let (root, main) = repository(name);
     let mut branches = Vec::with_capacity(count);
@@ -147,6 +148,7 @@ fn clear_file(path: &Path) {
     std::fs::write(path, b"").unwrap();
 }
 
+#[cfg(target_os = "linux")]
 fn peak_rss_kb(path: &Path) -> Option<u64> {
     std::fs::read_to_string(path)
         .ok()?
@@ -155,6 +157,7 @@ fn peak_rss_kb(path: &Path) -> Option<u64> {
         .max()
 }
 
+#[cfg(target_os = "linux")]
 fn child_result(path: &Path) -> u128 {
     std::fs::read_to_string(path).unwrap().trim().parse().unwrap()
 }
@@ -264,9 +267,9 @@ fn finished_scan_child() {
 /// wraps only `merge-tree` with `/usr/bin/time -f %M`, recording peak RSS KB.
 #[test]
 #[ignore = "measurement harness; run explicitly on the hosted testbox"]
+#[cfg(target_os = "linux")]
 fn finished_scan_perf_harness() {
     let _environment = ENV_LOCK.lock().unwrap();
-    assert!(cfg!(target_os = "linux"), "peak RSS harness requires Linux GNU time");
     assert!(Path::new("/usr/bin/time").is_file(), "GNU time is unavailable");
     const WORKTREES: usize = 16;
     let (root, main) = many_squashed_worktrees("perf", WORKTREES);
