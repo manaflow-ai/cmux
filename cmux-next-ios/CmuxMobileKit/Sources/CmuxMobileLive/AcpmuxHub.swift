@@ -431,6 +431,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(id)]))
                     // The menu's check follows the pick (no record carries the model change).
                     if !self.knownModels.isEmpty { self.emit(.modelsAvailable(self.knownModels, current: id)) }
+                case .retryWithModel(let model, let text, let promptID):
+                    // As the Mac's Retry with another model: the move first; a refusal (acpmux's
+                    // own words, e.g. a Claude chat the Mac started) sends nothing.
+                    _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(model)]))
+                    if !self.knownModels.isEmpty { self.emit(.modelsAvailable(self.knownModels, current: model)) }
+                    self.send(.prompt(text: text, attachments: [], steer: false, promptID: promptID, resend: false))
                 case .setMode(let id):
                     _ = try await hub.request("session/set_mode", .object(["sessionId": session, "modeId": .string(id)]))
                 case .setConfigOption(let id, let value):
