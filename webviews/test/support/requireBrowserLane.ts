@@ -70,7 +70,9 @@ export async function probeEngineOrSkip(
   } catch (error) {
     if (browserLaneRequired(env))
       throw new Error(`${name}: ${engineName} did not launch (${why(error)}), and the browser lane is required here`);
-    report(`${name}: skipping, ${engineName} did not launch here (${why(error)}); run \`bunx playwright install ${engineName}\` if it is missing`);
+    report(
+      `${name}: skipping, ${engineName} did not launch here (${why(error)}); run \`bunx playwright install ${engineName}\` if it is missing`,
+    );
     skip(name);
     return false;
   }

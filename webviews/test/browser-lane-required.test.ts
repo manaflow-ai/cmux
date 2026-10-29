@@ -13,16 +13,21 @@ const failing = () => Promise.reject(timeout);
 
 /// Runs the probe with `launch` under `env`, recording what it reports and skips.
 async function probe(
-  env: Record<string, string>,
+  env: Record<string, string | undefined>,
   launch: (options: BrowserLaunchOptions) => Promise<{ close(): Promise<void> }>,
 ) {
   const reports: string[] = [];
   const skips: string[] = [];
-  const result = probeEngineOrSkip("thread minimap motion", "webkit", { launch }, {
-    env,
-    report: (line) => reports.push(line),
-    skip: (name) => skips.push(name),
-  });
+  const result = probeEngineOrSkip(
+    "thread minimap motion",
+    "webkit",
+    { launch },
+    {
+      env,
+      report: (line) => reports.push(line),
+      skip: (name) => skips.push(name),
+    },
+  );
   return { result, reports, skips };
 }
 
@@ -88,7 +93,9 @@ test("a browser that launches but does not close is closed again, and never make
         throw new Error("close failed");
       },
     }));
-    await expect(never.result).rejects.toThrow(/thread minimap motion: webkit launched but did not close \(Error: close failed\)/);
+    await expect(never.result).rejects.toThrow(
+      /thread minimap motion: webkit launched but did not close \(Error: close failed\)/,
+    );
     expect(tries).toBe(2);
     expect(never.skips).toEqual([]);
     expect(never.reports).toEqual([]);
@@ -97,13 +104,10 @@ test("a browser that launches but does not close is closed again, and never make
 
 test("the probe uses a bounded launch and closes the browser", async () => {
   const options: BrowserLaunchOptions[] = [];
-  const { result, reports, skips } = await probe(
-    { CI: "true", CMUX_BROWSER_TESTS: "1" },
-    async (launchOptions) => {
-      options.push(launchOptions);
-      return { close: async () => {} };
-    },
-  );
+  const { result, reports, skips } = await probe({ CI: "true", CMUX_BROWSER_TESTS: "1" }, async (launchOptions) => {
+    options.push(launchOptions);
+    return { close: async () => {} };
+  });
   expect(await result).toBe(true);
   expect(options).toEqual([{ headless: true, timeout: 30_000 }]);
   expect(skips).toEqual([]);
