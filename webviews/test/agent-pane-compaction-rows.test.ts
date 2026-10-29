@@ -585,6 +585,41 @@ for (const terminal of ["turn_end", "turn_result"])
     }
   });
 
+for (const action of ["stop", "send-now"])
+  test(`Stop before its late opener keeps the same turn identity (${action})`, async () => {
+    const daemon = fakeDaemon([]);
+    const { client, rows, working } = await connect(daemon);
+    try {
+      expect(working()).toBe(true);
+      await client.cancel();
+      daemon.push(
+        record([
+          ["mux", "user_message", { text: "late prompt", turnId: "turn-late" }],
+          ["mux", "turn_started", { turnId: "turn-late" }],
+        ]),
+      );
+      if (action === "stop") {
+        await client.cancel();
+        expect(daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel")).toHaveLength(1);
+      } else {
+        daemon.push(
+          record(
+            [
+              ["mux", "queued", { promptId: "p-now", text: "send now" }],
+              ["mux", "queue_order", { promptId: "p-now", next: true, order: ["p-now"] }],
+            ],
+            3,
+          ),
+        );
+      }
+      daemon.push(record([["mux", "turn_result", { status: "cancelled", turnId: "turn-late" }]], 5));
+      expect(rows().find((row) => row.id === "summary-turn-late")?.continued).toBeUndefined();
+      expect(working()).toBe(false);
+    } finally {
+      client.close();
+    }
+  });
+
 for (const mode of ["loadOlder", "lag"])
   for (const expired of [false, true])
     test(`historical turn starts preserve Stop ${expired ? "after" : "before"} the old grace during ${mode}`, async () => {
