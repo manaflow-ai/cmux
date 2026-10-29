@@ -550,34 +550,19 @@ class MainTests(unittest.TestCase):
         self.assertEqual(writer.writes, [("MACOS_RUNNER_PR", "blacksmith-6vcpu-macos-26"),
                                          ("CI_CLOUD_OVERFLOW_SAVED", None)])
 
-    def test_a_partial_result_moves_linux_off_the_stalled_size(self) -> None:
-        # Review at 437df955: 32 vCPU stalls, 16 vCPU starts, LINUX_RUNNER names 32 vCPU.
+    def test_a_partial_result_writes_nothing_but_health(self) -> None:
+        # Review at 437df955 and edbbce33: per-size moves belong to the RUNNER_POOLS reconciler, which
+        # reads CI_CLOUD_LABEL_HEALTH. The switch neither flips nor writes a record on a partial result.
         stalled = probe_job(6)
         started = {**probe_job(6, runner_name="bs-1", status="in_progress"),
                    "name": switch.probe_job_name(switch.PROBE_LABELS[1])}
         env = {"VAR_LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404", "VAR_MACOS_RUNNER_PR": "blacksmith-6vcpu-macos-26",
-               "VAR_CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404", "VAR_CMUX_CI_XCODE_APP_PR": PIN}
+               "VAR_CMUX_CI_XCODE_APP_PR": PIN}
         writer = FakeSwitch()
         code, out, _ = run_main(env, FakeActions([stalled, started]), writer)
-        self.assertEqual(code, 0)
+        self.assertEqual((code, writer.writes), (0, []))
         self.assertIn("outcome=partial", out)
-        self.assertEqual(writer.writes[0][0], "CI_CLOUD_OVERFLOW_SAVED")
-        saved = json.loads(writer.writes[0][1])
-        # Only the Linux variable on the stalled size; the macOS ones and the trusted runner stay.
-        self.assertEqual(saved["changed"], {"LINUX_RUNNER": {"before": "blacksmith-32vcpu-ubuntu-2404",
-                                                             "after": "blacksmith-16vcpu-ubuntu-2404"}})
-        self.assertEqual(writer.writes[1:], [("LINUX_RUNNER", "blacksmith-16vcpu-ubuntu-2404")])
-        # Once every size starts, it goes back to 32 vCPU and the record is deleted.
-        up = [{**started, "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS]
-        env2 = {**env, "VAR_LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
-                "VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(saved)}
-        writer = FakeSwitch()
-        run_main(env2, FakeActions(up), writer)
-        self.assertEqual(writer.writes, [("LINUX_RUNNER", "blacksmith-32vcpu-ubuntu-2404"),
-                                         ("CI_CLOUD_OVERFLOW_SAVED", None)])
-        # A variable not on a stalled size never moves.
-        self.assertEqual(switch.plan_partial(None, {"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"},
-                                             [switch.PROBE_LABELS[0]], [switch.PROBE_LABELS[1]]), (None, []))
+        self.assertEqual(writer.health[-1]["labels"][switch.PROBE_LABELS[0]], "stalled")
 
     def test_a_restore_goes_back_only_onto_a_size_that_started(self) -> None:
         # Review at 437df955: a legacy CI_TRUSTED_RUNNER record (before 4 vCPU, never probed).

@@ -1036,11 +1036,9 @@ evicted with nothing decided.
   whose value before is a label nobody probed (an older record's
   `blacksmith-4vcpu-ubuntu-2404`, or unset) stays where it is. A GitHub-hosted
   value before is never put back.
-- **Some start and some do not.** Overflow does not flip and a record is not
-  cleared. Only a Linux variable that names a stalled probed size moves, onto
-  a size that started, recorded like any failover so it goes back once every
-  size starts. Workflows that name a size literally (`fast-checks.yml`) move
-  with the `RUNNER_POOLS` reconciler, which reads the health below.
+- **Some start and some do not.** The switch changes nothing: overflow does
+  not flip and a record is not cleared. Moving work off one stalled size is
+  the `RUNNER_POOLS` reconciler's job, which reads the health below.
 
 Every deciding run that holds the switch token writes `CI_CLOUD_LABEL_HEALTH`:
 `{"checked", "run", "minutes", "labels": {label: "started" | "stalled"}}`. The

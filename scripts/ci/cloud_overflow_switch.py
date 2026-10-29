@@ -333,35 +333,6 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
     return restores
 
 
-def plan_partial(record: Mapping[str, Any] | None, current: Mapping[str, str | None],
-                 stalled: Iterable[str], started: Iterable[str]) -> tuple[dict[str, Any] | None, list[Resume]]:
-    """Some probed sizes started and some stalled: move each Linux variable on a stalled one to a started one.
-
-    Only variables that name a probed label move, and only onto a probed label
-    that started, recorded like any failover (the before kept, so turning
-    overflow back on puts it back once every size starts). The macOS variables
-    and everything else stay as they are. Workflows that name a size literally
-    are for the RUNNER_POOLS reconciler (scripts/ci/runner_pools.py), which
-    reads CI_CLOUD_LABEL_HEALTH.
-    """
-    stalled_set, live = set(stalled), [label for label in PROBE_LABELS if label in set(started)]
-    if not live:
-        return None, []
-    changed = dict((record or {}).get("changed") or {})
-    moves: list[Resume] = []
-    for name in LINUX_VARIABLES:
-        now = (current.get(name) or "").strip() or None
-        if now not in stalled_set:
-            continue
-        entry = changed.get(name)
-        before = entry.get("before") if isinstance(entry, Mapping) else now
-        changed[name] = {"before": before, "after": live[0]}
-        moves.append(Resume(name, live[0]))
-    if not moves:
-        return None, []
-    return {**(record or {}), "changed": dict(sorted(changed.items()))}, moves
-
-
 def plan_resume(record: Mapping[str, Any], current: Mapping[str, str | None],
                 started: Iterable[str] | None = None) -> list[Resume]:
     """What a stalled probe should retry after a partial failover write.
@@ -801,26 +772,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         log("::warning title=Cloud overflow switch::never saw every probe job decide; nothing decided")
     elif outcome == "partial":
         log(f"{stamp}: {', '.join(stalled)} waited {minutes} min with no runner while the other sizes started; "
-            f"overflow stays {'off' if record else 'on'}, and only Linux variables on a stalled size move")
-        partial_record, moves = plan_partial(record, current, stalled, started)
-        if partial_record is not None:
-            if not record:
-                partial_record = {"since": stamp, "probe": label, "reason": f"{', '.join(stalled)} queued "
-                                  f"{minutes} min with no runner; the other sizes started",
-                                  "run": f"https://github.com/{repo}/actions/runs/{run_id}", **partial_record}
-            if args.dry_run:
-                for item in moves:
-                    log(f"- {item.name}: would move to {item.value} (dry run)")
-            elif switch is None:
-                log("::error title=Cloud overflow switch::no switch token (GLAEDA_ROUTE_APP_ID); move by hand: "
-                    + "; ".join(f"{item.name} -> {item.value}" for item in moves))
-                code = 1
-            else:
-                # The record first, as for a full switch: a failure halfway still knows the way back.
-                switch.set_variable(RECORD_VARIABLE, json.dumps(partial_record, sort_keys=True))
-                for item in moves:
-                    switch.set_variable(item.name, item.value)
-                    log(f"- {item.name}: moved off the stalled size to {item.value}")
+            f"overflow stays {'off' if record else 'on'}; nothing changes (per-size routing reads "
+            f"{HEALTH_VARIABLE})")
     elif outcome == "started":
         log(f"{stamp}: every probe started ({label}); Blacksmith is serving")
         if record:
