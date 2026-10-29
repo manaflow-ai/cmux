@@ -9,6 +9,7 @@ use crate::peer_link::{
     Backoff, Link, LinkTimings, PeerState, SleepWatch, WAKE_PROBE, write_deadline,
 };
 use crate::rpc::{Message, RpcError, method};
+use cmux_json::JsonSet as _;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -1086,7 +1087,7 @@ impl Peer {
             let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}});
             // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
             if me.github_broker() {
-                hello["_meta"] = json!({"acpmux": {"githubBroker": true}});
+                hello.set("_meta", json!({"acpmux": {"githubBroker": true}}));
             }
             let init = me.link_request_on(method::INITIALIZE, hello, Some(link)).await?;
             let v = init

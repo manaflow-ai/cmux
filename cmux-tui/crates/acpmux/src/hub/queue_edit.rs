@@ -10,6 +10,7 @@
 
 use super::queue::PromptRun;
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::atomic::Ordering;
 
 /// How long Send now waits for the agent to stop its step for a steer.
@@ -159,7 +160,7 @@ fn checked_display_parts(parts: Option<&Value>, blocks: &[Value]) -> (Option<Val
     let valid: Vec<Value> = valid
         .into_iter()
         .map(|(index, mut part)| {
-            part["blockIndex"] = json!(index);
+            part.set("blockIndex", json!(index));
             part
         })
         .collect();
@@ -199,9 +200,9 @@ impl Hub {
         let editor = crate::author::editor(author.as_ref());
         let mut reply = json!({"sessionId": session.id, "op": op});
         if !prompt_id.is_empty() {
-            reply["promptId"] = json!(prompt_id);
+            reply.set("promptId", json!(prompt_id));
         }
-        reply["ok"] = match op {
+        let new_value = match op {
             "update" => {
                 let edit = Edit::parse(params)?;
                 let updated = self
@@ -221,12 +222,12 @@ impl Hub {
                         Some(sent) => Some(sent),
                         None => self.step_now(session, prompt_id, control, device, editor).await?,
                     };
-                reply["sent"] = json!(sent);
+                reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
             "interrupt" => {
                 let sent = self.interrupt_for_queued(session, prompt_id, editor).await?;
-                reply["sent"] = json!(sent);
+                reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
             "resume" => json!(self.resume_queue(session)),
@@ -236,6 +237,7 @@ impl Hub {
                 return Err(RpcError::invalid_params(e));
             }
         };
+        reply.set("ok", new_value);
         Ok(reply)
     }
 
@@ -291,6 +293,7 @@ impl Hub {
                     crate::author::of_provenance(Some(p)).is_some_and(|id| editor == Some(Some(id)))
                 }),
                 agent: None,
+                class: None,
                 supersede: None,
                 full_access_device: same_device(q.run.full_access_device.as_deref(), device),
                 message_id: None,
@@ -303,7 +306,7 @@ impl Hub {
         // Its images, kept and named as `queued` names them (`prompt_images.rs`).
         let images = super::prompt_images::keep(&run.blocks);
         if !images.is_empty() {
-            msg["images"] = Value::Array(images);
+            msg.set("images", Value::Array(images));
         }
         let inline_parts = super::prompt_images::inline_parts(
             &run.blocks,
@@ -311,10 +314,10 @@ impl Hub {
             run.display_parts.as_ref(),
         );
         if !inline_parts.is_empty() {
-            msg["inlineParts"] = Value::Array(inline_parts);
+            msg.set("inlineParts", Value::Array(inline_parts));
         }
         if let Some(display_parts) = &run.display_parts {
-            msg["displayParts"] = display_parts.clone();
+            msg.set("displayParts", display_parts.clone());
         }
         super::session::mark_pasted(&mut msg, &run.blocks);
         let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
@@ -385,6 +388,7 @@ impl Hub {
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
                     agent: q.run.agent.clone(),
+                    class: q.run.class,
                     supersede: q.run.supersede.clone(),
                     full_access_device: device,
                     message_id: q.run.message_id.clone(),

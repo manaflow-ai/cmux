@@ -534,6 +534,7 @@ fn queued_prompt(prompt_id: &str, provenance: Option<Value>) -> crate::hub::queu
         trust_gate: false,
         provenance,
         agent: None,
+        class: None,
         supersede: None,
         full_access_device: None,
         message_id: None,

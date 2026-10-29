@@ -565,6 +565,9 @@ export type ProcessBackgroundResult = {
   backgrounded: boolean;
 } & Record<string, unknown>;
 
+/** What another agent's message asks of the session it goes to. */
+export type PromptClass = ("block" | "question" | "result" | "fyi");
+
 /** `_acpmux/protocol` takes no params. */
 export type ProtocolParams = Record<string, never>;
 
@@ -601,6 +604,12 @@ export type QueuedPromptSummary = {
    * Kept across a restart and by their own edit.
    */
   author: (QueuedAuthor | null);
+  /**
+   * What another agent's message asks of this chat (`_meta.acpmux.class`, `prompt_class.rs`):
+   * `result` when it named none; null for the person's own prompt and from a peer on an older
+   * acpmux.
+   */
+  class: (PromptClass | null);
   client: string;
   /**
    * The sending agent's name when it is another agent's message, null for the person's: an

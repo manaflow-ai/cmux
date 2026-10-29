@@ -223,6 +223,8 @@ struct Held {
     provenance: Value,
     control: Control,
     trust_gate: bool,
+    /// Its class (`prompt_class.rs`), kept through the hold and a restart.
+    class: Option<crate::prompt_class::PromptClass>,
     /// Its place among the pair's held messages, both ways (`AgentPairs::order`).
     order: u64,
     /// Releases that failed before the receiver accepted it.
@@ -232,13 +234,17 @@ struct Held {
 impl Held {
     fn record(&self, from_name: &str) -> Value {
         let text = prompt_text(&self.blocks);
-        json!({
+        let mut record = json!({
             "from": self.from, "fromName": from_name, "to": self.to, "promptId": self.prompt_id,
             "text": short_text(message_body(&text), 200), "provenance": self.provenance,
             "prompt": self.blocks, "client": self.client, "steer": self.steer,
             "steerOnly": self.steer_only, "interrupt": self.interrupt,
             "control": self.control.as_str(), "trustGate": self.trust_gate, "order": self.order,
-        })
+        });
+        if let Some(class) = self.class {
+            record["class"] = json!(class);
+        }
+        record
     }
 
     fn from_record(to: &str, msg: &Value) -> Option<Self> {
@@ -256,6 +262,7 @@ impl Held {
             provenance: msg.get("provenance").filter(|p| p.is_object())?.clone(),
             control: Control::from_recorded(msg.get("control").and_then(Value::as_str)),
             trust_gate: b("trustGate"),
+            class: crate::prompt_class::recorded(msg),
             order: msg.get("order").and_then(Value::as_u64).unwrap_or(0),
             failures: 0,
         })
@@ -514,6 +521,7 @@ impl Hub {
             provenance: opts.provenance.clone().unwrap_or(Value::Null),
             control: opts.control,
             trust_gate: opts.trust_gate,
+            class: opts.class,
             order: 0,
             failures: 0,
         };
@@ -944,6 +952,7 @@ impl Hub {
                 steer_only: false,
                 interrupt: false,
                 provenance: Some(h.provenance.clone()),
+                class: h.class,
                 ..PromptOptions::default()
             };
             // Held provenance is durable state, so restore the original delivery id and (for a

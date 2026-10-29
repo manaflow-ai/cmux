@@ -214,6 +214,7 @@ impl Hub {
                     provenance: opts.provenance,
                     message_sender: opts.message_sender,
                     agent: opts.agent,
+                    class: opts.class,
                     // Queued under its key, so a later correction still replaces it.
                     supersede: opts.supersede,
                     display_parts: opts.display_parts,

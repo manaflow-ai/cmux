@@ -228,6 +228,12 @@ pub enum Command {
         /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
+        /// What your message asks of the receiver: block (you cannot go on until it acts),
+        /// question (you wait for its answer), result (work you finished; the default for an
+        /// agent's message) or fyi. A coordinator is woken by blocks and questions only; results
+        /// and FYIs wait for its next turn's inbox digest.
+        #[arg(long, value_name = "CLASS", value_parser = ["block", "question", "result", "fyi"])]
+        class: Option<String>,
         /// Send this file with the message (repeatable): an image reaches the agent and its
         /// transcript as an image, any other file as a link to its copy. Saved owner-only on the
         /// session's machine, a peer's too. Any size and number: large ones are uploaded first.
@@ -533,6 +539,10 @@ pub enum Command {
     Config {
         #[arg(long)]
         show_token: bool,
+        /// Set a daemon host-wide setting as KEY=VALUE (for example,
+        /// `session.memory_mb=6144` or `session.swap_mb=2048`).
+        #[arg(long, value_name = "KEY=VALUE")]
+        set: Option<String>,
     },
     #[command(hide = true)]
     DaemonRun {
@@ -984,6 +994,9 @@ pub enum DaemonCmd {
         /// Print the bearer tokens too (`--json` always has them).
         #[arg(long)]
         show_token: bool,
+        /// Set a host-wide session resource setting as KEY=VALUE.
+        #[arg(long, value_name = "KEY=VALUE")]
+        set: Option<String>,
     },
     /// Show configured harnesses with their family and defaults.
     Harnesses,
@@ -1189,7 +1202,7 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
-            DaemonCmd::Config { show_token } => Command::Config { show_token },
+            DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
             DaemonCmd::Retention(args) => Command::Retention(args),
@@ -1434,6 +1447,18 @@ mod help_contract_tests {
         assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
     }
 
+    /// `send --class`: the four classes only (`prompt_class.rs`).
+    #[test]
+    fn send_class_takes_one_of_the_four_classes() {
+        for class in crate::prompt_class::PromptClass::ALL {
+            let argv = ["acpmux", "send", "coord", "done", "--class", class.as_str()];
+            assert!(Cli::try_parse_from(argv).is_ok(), "{argv:?} did not parse");
+        }
+        assert!(
+            Cli::try_parse_from(["acpmux", "send", "coord", "x", "--class", "urgent"]).is_err()
+        );
+    }
+
     /// `host vm-host [NAME] [on|off]`: the state is on or off only.
     #[test]
     fn host_vm_host_takes_a_machine_and_on_or_off() {
@@ -1504,5 +1529,23 @@ mod help_contract_tests {
         let shapes = command_shapes();
         let words = ["acpmux", "host", "statuz"].into_iter().map(str::to_owned).collect::<Vec<_>>();
         assert!(documented_shape(&words, &shapes).is_none());
+    }
+}
+
+#[cfg(test)]
+mod config_set_tests {
+    use super::{Cli, Command};
+    use clap::Parser;
+
+    #[test]
+    fn config_set_accepts_session_resource_assignment() {
+        let cli =
+            Cli::try_parse_from(["acpmux", "config", "--set", "session.memory_mb=6144"]).unwrap();
+        match cli.command {
+            Some(Command::Config { set: Some(value), .. }) => {
+                assert_eq!(value, "session.memory_mb=6144")
+            }
+            _ => panic!("unexpected command"),
+        }
     }
 }
