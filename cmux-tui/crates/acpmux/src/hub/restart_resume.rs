@@ -269,7 +269,7 @@ fn bounded_text(value: &str) -> String {
 }
 
 /// Unlike the generic prose scanner, a decoded tool input has explicit assignment
-/// syntax. Redact a quoted assignment's entire shell word, including whitespace, escaped quotes
+/// syntax. Redact a sensitive assignment's entire shell word, including whitespace, escaped quotes
 /// and concatenated quoted/unquoted fragments. An unfinished quote consumes the rest
 /// of the bounded preview rather than exposing a partial credential.
 fn mask_input_assignments(text: &str) -> String {
@@ -286,9 +286,12 @@ fn mask_input_assignments(text: &str) -> String {
         }
         let mut end = assignment.end();
         let bytes = text.as_bytes();
-        // Leave unquoted prose/header handling to the existing scanner (for example
-        // Authorization: Bearer TOKEN needs the scheme and token scanned together).
-        if !matches!(bytes.get(end), Some(b'"' | b'\'')) {
+        // Shell assignments can begin unquoted and concatenate quoted segments, or
+        // escape spaces without any quotes. Only colon-delimited unquoted prose is
+        // left to the generic scanner: Authorization: Bearer TOKEN must retain its
+        // scheme so masking does not strip the context needed to recognize TOKEN.
+        let shell_assignment = assignment.as_str().contains('=');
+        if !shell_assignment && !matches!(bytes.get(end), Some(b'"' | b'\'')) {
             continue;
         }
         let mut quote = None;
@@ -877,6 +880,41 @@ mod tests {
         // A harmless quoted argument remains useful context.
         let plain = r#"echo "correct horse battery staple""#;
         assert_eq!(mask_input_assignments(plain), plain);
+    }
+
+    #[test]
+    fn restart_inputs_mask_concatenated_and_escaped_shell_assignments() {
+        for command in [
+            r#"PASSWORD=x"open sesame" ./deploy"#,
+            r#"PASSWORD=$'open sesame' ./deploy"#,
+            r#"PASSWORD=$"open sesame" ./deploy"#,
+            r#"PASSWORD=prefix'open '"sesame"suffix ./deploy"#,
+            r#"PASSWORD=x$'open '\"sesame\" ./deploy"#,
+            r#"PASSWORD=open\ sesame ./deploy"#,
+            r#"PASSWORD=open\ sesame' extra words' ./deploy"#,
+            r#"PASSWORD=$'open\' sesame' ./deploy"#,
+            r#"PASSWORD='open '\''sesame' ./deploy"#,
+            r#"PASSWORD="open "sesame\ again ./deploy"#,
+            r#"PASSWORD=x"open sesame" API_KEY=$'another secret' ./deploy"#,
+        ] {
+            let expected = if command.contains("API_KEY") {
+                "PASSWORD=[secret] API_KEY=[secret] ./deploy"
+            } else {
+                "PASSWORD=[secret] ./deploy"
+            };
+            assert_eq!(mask_input_assignments(command), expected, "{command}");
+            for (value, masked) in [
+                (json!(command), json!(expected)),
+                (json!({"command": command}), json!({"command": expected})),
+                (json!([command]), json!([expected])),
+            ] {
+                assert_eq!(
+                    input_prefix(&json!({"rawInput": value})).unwrap(),
+                    masked.to_string(),
+                    "{command}"
+                );
+            }
+        }
     }
 
     #[test]
