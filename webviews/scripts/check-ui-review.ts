@@ -118,7 +118,9 @@ function openingElement(element: ts.JsxElement | ts.JsxSelfClosingElement): ts.J
 
 function jsxAttribute(element: ts.JsxElement | ts.JsxSelfClosingElement, name: string): ts.JsxAttribute | undefined {
   const props = openingElement(element).attributes.properties;
-  return props.find((prop): prop is ts.JsxAttribute => ts.isJsxAttribute(prop) && prop.name.text === name);
+  return props.find(
+    (prop): prop is ts.JsxAttribute => ts.isJsxAttribute(prop) && ts.isIdentifier(prop.name) && prop.name.text === name,
+  );
 }
 
 function attributeText(element: ts.JsxElement | ts.JsxSelfClosingElement, name: string): string | undefined {
@@ -246,17 +248,59 @@ export function findNarration(file: string, source: string, translations = new M
   return findings;
 }
 
+function translatedCall(node: ts.Expression, translations: Map<string, string>): string | undefined {
+  if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return undefined;
+  if (!/^(?:t|translate|i18n)$/i.test(node.expression.text)) return undefined;
+  const key = node.arguments[0];
+  return key && (ts.isStringLiteral(key) || ts.isNoSubstitutionTemplateLiteral(key))
+    ? translations.get(key.text)
+    : undefined;
+}
+
+/**
+ * The copy an expression child renders. Only values JSX would print count: literals, t() calls, nested JSX and
+ * the branches of ?:, && and ||/??. A comparison operand (`kind === "agent"`) or another call's argument is not copy.
+ */
+function renderedCopy(node: ts.Expression, translations: Map<string, string>, chunks: string[]): void {
+  if (ts.isParenthesizedExpression(node)) renderedCopy(node.expression, translations, chunks);
+  else if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) chunks.push(node.text);
+  else if (ts.isTemplateExpression(node)) chunks.push(node.head.text);
+  else if (ts.isConditionalExpression(node)) {
+    renderedCopy(node.whenTrue, translations, chunks);
+    renderedCopy(node.whenFalse, translations, chunks);
+  } else if (ts.isBinaryExpression(node)) {
+    const operator = node.operatorToken.kind;
+    if (operator === ts.SyntaxKind.AmpersandAmpersandToken) renderedCopy(node.right, translations, chunks);
+    else if (operator === ts.SyntaxKind.BarBarToken || operator === ts.SyntaxKind.QuestionQuestionToken) {
+      renderedCopy(node.left, translations, chunks);
+      renderedCopy(node.right, translations, chunks);
+    }
+  } else if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node)) {
+    jsxChildrenCopy(node, translations, chunks);
+  } else {
+    const translated = translatedCall(node, translations);
+    if (translated) chunks.push(translated);
+  }
+}
+
+function jsxChildrenCopy(
+  node: ts.JsxElement | ts.JsxSelfClosingElement | ts.JsxFragment,
+  translations: Map<string, string>,
+  chunks: string[],
+): void {
+  if (ts.isJsxSelfClosingElement(node)) return;
+  for (const child of node.children) {
+    if (ts.isJsxText(child)) chunks.push(child.getText());
+    else if (ts.isJsxExpression(child) && child.expression) renderedCopy(child.expression, translations, chunks);
+    else if (ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child) || ts.isJsxFragment(child))
+      jsxChildrenCopy(child, translations, chunks);
+  }
+}
+
+/** The copy a node renders: its JSX children's text, never its attributes (type, className, name). */
 function visibleText(node: ts.Node, translations: Map<string, string>): string {
   const chunks: string[] = [];
-  const visit = (current: ts.Node) => {
-    if (ts.isJsxText(current)) chunks.push(current.getText());
-    else if (ts.isStringLiteral(current) || ts.isNoSubstitutionTemplateLiteral(current)) {
-      const copy = candidateCopy(current, translations);
-      if (copy) chunks.push(copy);
-    }
-    ts.forEachChild(current, visit);
-  };
-  visit(node);
+  if (ts.isExpression(node)) renderedCopy(node, translations, chunks);
   return normalizeCopy(chunks.join(" "));
 }
 

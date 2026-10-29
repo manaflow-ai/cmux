@@ -31,6 +31,17 @@ describe("cross-surface UI review lint", () => {
     expect(findRedundantOpenButtons(tsx, `<div><button>Open chat</button></div>`)).toHaveLength(0);
   });
 
+  test("reads a styled button's rendered label, not its attributes", () => {
+    const styled = `<div className="cv-row" onClick={open}><button type="button" className="cv-row__open">Open chat</button></div>`;
+    expect(findRedundantOpenButtons(tsx, styled)).toMatchObject([
+      { rule: "redundant-open", fingerprint: "Open chat", line: 1 },
+    ]);
+    const iconOnly = `<div onClick={open}><button type="button" aria-label="Open chat"><Icon name="arrow.right" /></button></div>`;
+    expect(findRedundantOpenButtons(tsx, iconOnly)).toMatchObject([{ fingerprint: "Open chat" }]);
+    const titled = `<div onClick={open}><button type="button" title="Open in new tab">Rename</button></div>`;
+    expect(findRedundantOpenButtons(tsx, titled)).toHaveLength(0);
+  });
+
   test("flags alignment spaces in inline copy, while normal spacing passes", () => {
     expect(findMultiSpace(tsx, "<span>Ran      2 commands</span>")).toHaveLength(1);
     expect(findMultiSpace(tsx, "<span>Ran 2 commands</span>")).toHaveLength(0);
@@ -43,8 +54,21 @@ describe("cross-surface UI review lint", () => {
       { rule: "repeated-leading-label", fingerprint: "subagent", line: 1 },
     ]);
     expect(
-      findRepeatedLeadingLabels(tsx, `<ul>{items.map((item) => <li><Icon name=\"agent.session\" /></li>)}</ul>`),
+      findRepeatedLeadingLabels(tsx, `<ul>{items.map((item) => <li><Icon name="agent.session" /></li>)}</ul>`),
     ).toHaveLength(0);
+  });
+
+  test("reads a styled mapped row's rendered label, not its attributes", () => {
+    const styled = `<ul>{items.map((item) => <li key={item.id} className="cv-row"><span className="cv-row__label">Subagent {item.name}</span></li>)}</ul>`;
+    expect(findRepeatedLeadingLabels(tsx, styled)).toMatchObject([
+      { rule: "repeated-leading-label", fingerprint: "subagent", line: 1 },
+    ]);
+    const titled = `<ul>{items.map((item) => <li className="agent-row" title="Agent details"><span>{item.name}</span></li>)}</ul>`;
+    expect(findRepeatedLeadingLabels(tsx, titled)).toHaveLength(0);
+    const compared = `<ul>{people.map((person) => <li className="lg-picker-row"><span>{person.name}</span>{person.kind === "agent" && <span>{t("agent.badge")}</span>}</li>)}</ul>`;
+    expect(findRepeatedLeadingLabels(tsx, compared, new Map([["agent.badge", "Bot"]]))).toHaveLength(0);
+    const branch = `<ul>{items.map((item) => <li className="cv-row">{item.done ? "Task done" : t("row.pending")}</li>)}</ul>`;
+    expect(findRepeatedLeadingLabels(tsx, branch)).toMatchObject([{ fingerprint: "task" }]);
   });
 
   test("flags mixed weights in one statically grouped row kind", () => {
@@ -58,12 +82,14 @@ describe("cross-surface UI review lint", () => {
   });
 
   test("requires the harness icon component for agent rows, but permits its fallback", () => {
-    const hardCoded = `<div className=\"cv-subagent\"><Icon name=\"agent.session\" /></div>`;
+    const hardCoded = `<div className="cv-subagent"><Icon name="agent.session" /></div>`;
     expect(findHardCodedAgentIcons(tsx, hardCoded)).toMatchObject([
       { rule: "hard-coded-agent-icon", fingerprint: "cv-subagent|agent.session", line: 1 },
     ]);
-    const harness = `<div className=\"cv-subagent\"><AgentMark agent={harness} fallback={<Icon name=\"agent.session\" />} /></div>`;
+    const harness = `<div className="cv-subagent"><AgentMark agent={harness} fallback={<Icon name="agent.session" />} /></div>`;
     expect(findHardCodedAgentIcons(tsx, harness)).toHaveLength(0);
+    const namespaced = `<div className="cv-subagent"><Icon ns:name="agent.session" /></div>`;
+    expect(findHardCodedAgentIcons(tsx, namespaced)).toHaveLength(0);
   });
 
   test("keeps every existing exception owned and explained", () => {
