@@ -11,6 +11,7 @@ struct ChiefOutboxView: View {
     var resized: () -> Void
     private let theme = CmuxMobileTheme.standard
     @State private var contentHeight: CGFloat = 0
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     var body: some View {
         if !session.outbox.isEmpty {
@@ -22,13 +23,15 @@ struct ChiefOutboxView: View {
                                 VStack(alignment: .leading) {
                                     if !message.text.isEmpty { Text(message.text) }
                                     if !message.images.isEmpty {
-                                        Label("\(message.images.count) photos", systemImage: "photo")
+                                        Label {
+                                            HStack { Text(String(localized: "mobile.chief.outbox.photos", defaultValue: "Photos", bundle: .module)); Text(message.images.count.formatted()) }
+                                        } icon: { Image(systemName: "photo") }
                                     }
                                 }
                                 .font(theme.type.body)
                                 .padding(theme.metrics.composerSideMargin)
                                 .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: theme.metrics.cardRadius))
-                                Text("Sends when connected")
+                                Text(String(localized: "mobile.chief.outbox.waiting", defaultValue: "Sends when connected", bundle: .module))
                                     .font(theme.type.meta)
                                     .foregroundStyle(theme.colors.label2)
                             }
@@ -38,15 +41,16 @@ struct ChiefOutboxView: View {
                     }
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
                 }
-                .frame(height: min(max(contentHeight, theme.metrics.settingsRowHeight), theme.metrics.composerMinHeight * 2))
+                .frame(height: min(max(contentHeight, theme.metrics.settingsRowHeight),
+                                   verticalSizeClass == .compact ? theme.metrics.settingsRowHeight : theme.metrics.composerMinHeight * 2))
                 .scrollBounceBehavior(.basedOnSize)
                 HStack {
                     if session.canRetryConnecting, session.barItem == nil {
-                        Button("Retry") { session.retryConnecting() }
+                        Button(String(localized: "mobile.chief.outbox.retry", defaultValue: "Retry", bundle: .module)) { session.retryConnecting() }
                             .disabled(session.isReconnecting)
                     }
                     Spacer()
-                    Button("Delete All", role: .destructive) { session.discardOutbox() }
+                    Button(String(localized: "mobile.chief.outbox.deleteAll", defaultValue: "Delete All", bundle: .module), role: .destructive) { session.discardOutbox() }
                 }
                 .font(theme.type.meta)
                 .frame(minHeight: theme.metrics.glassButton)

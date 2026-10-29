@@ -336,7 +336,7 @@ public struct ChiefSettingsView: View {
                     session.setSendsReadReceipts(on) { withAnimation { receipts = !on } }
                 }
         } footer: {
-            Text("These settings apply to this iPhone.")
+            Text(String(localized: "mobile.chief.notificationsFooter", defaultValue: "These settings apply to this iPhone.", bundle: .module))
         }
         .disabled(session.conversationID == nil)
         .listRowBackground(ChiefInfoGeometry.card)
@@ -397,7 +397,7 @@ public struct ChiefSettingsView: View {
     /// The raw errors behind the plain sentences (DEBUG builds only).
     private var diagnosticsSection: some View {
         Section {
-            DisclosureGroup("Diagnostics") {
+            DisclosureGroup(String(localized: "mobile.chief.diagnostics", defaultValue: "Diagnostics", bundle: .module)) {
                 LabeledContent("Engine read", value: session.engineError.map { String(describing: $0) } ?? "OK")
                 LabeledContent("Report", value: session.engineReportIsCurrent ? "Current" : (report == nil ? "None" : "Kept from earlier"))
                 if let failure = session.lastTurnFailure {
@@ -453,12 +453,12 @@ public struct ChiefSettingsView: View {
         // No answer from the Mac is not Chief refusing (the old copy blamed Chief for a dropped link).
         switch ChiefEngineProblem(error) {
         case .macUnreachable: return String(localized: "Your Mac didn't answer. Check that it's on and connected, then try again.")
-        case .chiefBusy: return String(localized: "Chief is busy. Try again.")
+        case .chiefBusy: return String(localized: "mobile.chief.busy", defaultValue: "Chief is busy. Try again.", bundle: .module)
         default: break
         }
         return switch action {
-        case .change: String(localized: "Couldn't save the change. Try again.")
-        case .stop: String(localized: "Couldn't stop Chief. Try again.")
+        case .change: String(localized: "mobile.chief.saveFailed", defaultValue: "Couldn't save the change. Try again.", bundle: .module)
+        case .stop: String(localized: "mobile.chief.stopFailed", defaultValue: "Couldn't stop Chief. Try again.", bundle: .module)
         }
     }
 

@@ -44,7 +44,7 @@ final class SettingsDeviceList {
             loadError = nil
         } catch is CancellationError {
         } catch {
-            loadError = "Couldn't load devices. Pull to retry."
+            loadError = String(localized: "mobile.devices.loadFailed", defaultValue: "Couldn't load devices. Pull to retry.", bundle: .module)
         }
     }
 
@@ -86,7 +86,7 @@ struct DevicesPage: View {
                     CmuxMobileGutterRow {
                         SettingsIcon("exclamationmark.triangle").accessibilityHidden(true)
                     } content: {
-                        Text("Connections outside this network may be unavailable.")
+                        Text(String(localized: "mobile.devices.networkUnavailable", defaultValue: "Connections outside this network may be unavailable.", bundle: .module))
                     }
                     .font(theme.type.meta)
                     .foregroundStyle(theme.colors.label2)
@@ -95,7 +95,7 @@ struct DevicesPage: View {
             }
             Section {
                 if macs.isEmpty {
-                    Text(loadedMacs == nil ? "Loading…" : "Sign in to cmux on your Mac to connect it.")
+                    Text(loadedMacs == nil ? "Loading…" : String(localized: "mobile.devices.empty", defaultValue: "Sign in to cmux on your Mac to connect it.", bundle: .module))
                         .font(theme.type.meta).foregroundStyle(theme.colors.label2)
                         .cmuxMobileTextColumn()
                 }
@@ -119,7 +119,7 @@ struct DevicesPage: View {
                 Text("Macs").cmuxMobileTextColumn()
             } footer: {
                 if directory != nil {
-                    Text("Removed Macs can return when you sign in again.").cmuxMobileTextColumn()
+                    Text(String(localized: "mobile.devices.macsFooter", defaultValue: "Removed Macs can return when you sign in again.", bundle: .module)).cmuxMobileTextColumn()
                 }
             }
             if directory != nil, !phones.isEmpty {
@@ -131,7 +131,7 @@ struct DevicesPage: View {
                 } header: {
                     Text("Phones").cmuxMobileTextColumn()
                 } footer: {
-                    Text(directory != nil ? "Remove this iPhone with the button below." : "Sign out to remove this iPhone.")
+                    Text(directory != nil ? String(localized: "mobile.devices.phonesFooter", defaultValue: "Remove this iPhone with the button below.", bundle: .module) : "Sign out to remove this iPhone.")
                         .cmuxMobileTextColumn()
                 }
             }
@@ -146,7 +146,7 @@ struct DevicesPage: View {
                     .disabled(removingPhone)
                     .accessibilityIdentifier("settings.removeThisPhone")
                 } footer: {
-                    Text("Removal resets Mac approval; signing out keeps it.")
+                    Text(String(localized: "mobile.devices.approvalFooter", defaultValue: "Removal resets Mac approval; signing out keeps it.", bundle: .module))
                         .cmuxMobileTextColumn()
                 }
             }
@@ -180,7 +180,7 @@ struct DevicesPage: View {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) { Task { await removeThisPhone() } }
         } message: {
-            Text("Your Macs must approve this iPhone again; you stay signed in.")
+            Text(String(localized: "mobile.devices.phoneRemoval", defaultValue: "Your Macs must approve this iPhone again; you stay signed in.", bundle: .module))
         }
         .alert("Couldn't remove", isPresented: Binding(get: { removalError != nil }, set: { if !$0 { removalError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -255,14 +255,14 @@ struct DevicesPage: View {
         guard device.kind == .mac else {
             // The account's device list is all this removes: a Mac keeps its approval of the
             // phone (its paired list) until it is removed there too.
-            return "Stops notifications until it signs in again. To revoke access, remove it in each Mac’s Settings → Mobile."
+            return String(localized: "mobile.devices.otherPhoneRemoval", defaultValue: "Stops notifications until it signs in again. To revoke access, remove it in each Mac’s Settings → Mobile.", bundle: .module)
         }
-        var parts = ["Removes this Mac from your devices and clears this iPhone’s saved workspaces."]
-        if connected { parts.append("Disconnects this iPhone.") }
+        var parts = [String(localized: "mobile.devices.macRemoval", defaultValue: "Removes this Mac from your devices and clears this iPhone’s saved workspaces.", bundle: .module)]
+        if connected { parts.append(String(localized: "mobile.devices.disconnect", defaultValue: "Disconnects this iPhone.", bundle: .module)) }
         if device.online == true {
             parts.append(MacRemovalCopy.online(honorsRemoval: honorsRemoval))
         } else {
-            parts.append("Re-enable Mobile or sign in again on that Mac.")
+            parts.append(String(localized: "mobile.devices.reconnect", defaultValue: "Re-enable Mobile or sign in again on that Mac.", bundle: .module))
         }
         return parts.joined(separator: " ")
     }

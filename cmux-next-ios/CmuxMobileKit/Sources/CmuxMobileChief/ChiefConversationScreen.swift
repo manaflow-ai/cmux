@@ -106,7 +106,7 @@ extension ConversationPresentationOptions {
         ConversationPresentationOptions(
             placeholder: String(localized: "Message Chief"),
             serviceTitle: "Chief",
-            serviceSubtitle: String(localized: "Runs your agents"),
+            serviceSubtitle: String(localized: "mobile.chief.serviceSubtitle", defaultValue: "Runs your agents", bundle: .module),
             // The header's trailing button is Invite to cmux (the share sheet).
             trailingSymbol: ChiefInvite.symbol
         )
@@ -255,8 +255,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         guard presentedViewController == nil else { return }
         let text = composerTextView?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let alert = UIAlertController(
-            title: String(localized: "Not sent"),
-            message: String(localized: "Your draft is saved here."),
+            title: String(localized: "mobile.chief.notSent", defaultValue: "Not sent", bundle: .module),
+            message: String(localized: "mobile.chief.draftKept", defaultValue: "Your draft is saved here.", bundle: .module),
             preferredStyle: .alert)
         if session.canRetryConnecting {
             alert.addAction(UIAlertAction(title: String(localized: "Try Again"), style: .default) { [weak self] _ in
@@ -329,7 +329,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         }
         let alert = UIAlertController(
             title: String(localized: "Sent to Cloud Chief"),
-            message: String(localized: "Continue in the Cloud Chief chat."),
+            message: String(localized: "mobile.chief.continueInCloud", defaultValue: "Continue in the Cloud Chief chat.", bundle: .module),
             preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .cancel))
         present(alert, animated: true)
