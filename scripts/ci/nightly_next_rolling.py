@@ -120,7 +120,10 @@ def oldest_after(api, repo: str, head: str, tip: str):
     None when nothing waits (tip equals or is behind head). UNKNOWN when the gap cannot be read or
     head is not an ancestor of tip (a train commit): `decide` treats that as an old landing."""
     try:
-        data = api(f"repos/{repo}/compare/{head}...{tip}")
+        # Paginated, one commit a page: page 1 is the oldest commit after head. Unpaginated, the
+        # API returns at most 250 commits ending at the newest, which misses the oldest landing
+        # of a larger gap.
+        data = api(f"repos/{repo}/compare/{head}...{tip}?per_page=1&page=1")
     except Exception as error:  # noqa: BLE001 - an unknown gap promotes
         print(f"::warning title=nightly-next rolling rule::could not compare {head[:12]}...{tip[:12]} ({error!r}); "
               "treating the oldest waiting landing as old")
@@ -131,7 +134,6 @@ def oldest_after(api, repo: str, head: str, tip: str):
     commits = data.get("commits") or []
     if status != "ahead" or not commits:
         return UNKNOWN
-    # The compare API lists commits oldest first (its first page holds the oldest 250).
     first = commits[0]
     try:
         return first["sha"], watch.parse_time(first["commit"]["committer"]["date"])

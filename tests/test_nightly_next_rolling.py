@@ -175,7 +175,7 @@ def compare(status: str, commits: list[tuple[str, float]], ahead_by: int | None 
 def api_for(compare_answer, ref=None, runs=None, jobs=None) -> Api:
     return Api({
         "/git/ref/heads/nightly-next": ref if ref is not None else {"ref": "refs/heads/nightly-next", "object": {"sha": HEAD, "type": "commit"}},
-        f"/compare/{HEAD}...{TIP}": compare_answer,
+        f"/compare/{HEAD}...{TIP}?per_page=1&page=1": compare_answer,
         "branch=nightly-next": {"total_count": 1, "workflow_runs": runs if runs is not None else [run(20, 12)]},
         "event=workflow_dispatch": {"total_count": 0, "workflow_runs": []},
         "/jobs?": {"total_count": 2, "jobs": jobs if jobs is not None else BUILDING},
@@ -191,21 +191,24 @@ class ApiReadTests(unittest.TestCase):
         go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
         self.assertFalse(go, reason)
         self.assertIn("repos/o/r/git/ref/heads/nightly-next", api.paths)
-        self.assertIn(f"repos/o/r/compare/{HEAD}...{TIP}", api.paths)
+        self.assertIn(f"repos/o/r/compare/{HEAD}...{TIP}?per_page=1&page=1", api.paths)
         self.assertNotIn("ls-remote", SCRIPT.read_text(encoding="utf-8"))
 
-    def test_the_oldest_waiting_commit_is_the_first_compare_lists(self):
-        api = api_for(compare("ahead", [(WAITING, 11), ("d" * 40, 2)]))
+    def test_the_oldest_waiting_commit_is_page_one_of_a_one_per_page_compare(self):
+        """Page 1 at per_page=1 is the oldest commit after nightly-next (the API's documented order)."""
+        api = api_for(compare("ahead", [(WAITING, 11)], ahead_by=2))
         go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
         self.assertTrue(go, reason)
         self.assertIn(WAITING[:12], reason)
 
-    def test_a_gap_past_any_shallow_history_is_still_read(self):
-        """nightly-next 400 commits behind: compare answers its oldest page, no checkout needed."""
-        api = api_for(compare("ahead", [(WAITING, 300)] + [(f"{i:040x}", 1) for i in range(249)], ahead_by=400))
+    def test_a_gap_past_250_commits_still_finds_its_oldest_landing(self):
+        """An unpaginated compare stops at 250 commits ending at the newest; page 1 of one per page
+        is the oldest whatever the gap, and no shallow checkout is involved."""
+        api = api_for(compare("ahead", [(WAITING, 300)], ahead_by=400))
         go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api)
         self.assertTrue(go, reason)
         self.assertIn("waited 300 min", reason)
+        self.assertTrue(all("/compare/" not in p or p.endswith("?per_page=1&page=1") for p in api.paths), api.paths)
 
     def test_a_tip_at_or_behind_nightly_next_waits_for_nothing(self):
         for status in ("identical", "behind"):
