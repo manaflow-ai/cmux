@@ -262,7 +262,18 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         self.assertIn("needs.smoke.outputs.verdict == 'cannot-run'", record["if"])
 
     def test_no_secrets_no_environment_and_only_the_rollbacks_permissions(self) -> None:
-        self.assertNotRegex(self.text, r"secrets\.")
+        # The one secret is the routing App's key, read on Linux by the pick's placement (a read-only
+        # token for the runner and queue reads), never by a pull request's run and never on the Mac
+        # that runs the published app.
+        mints = [step for step in self.jobs["pick"]["steps"] if "secrets." in json.dumps(step)]
+        self.assertEqual([step.get("id") for step in mints], ["route-token"])
+        self.assertIn("github.event_name != 'pull_request'", mints[0]["if"])
+        self.assertEqual({key: value for key, value in mints[0]["with"].items() if key.startswith("permission-")},
+                         {"permission-administration": "read", "permission-organization-self-hosted-runners": "read",
+                          "permission-actions": "read"})
+        for name, job in self.jobs.items():
+            if name != "pick":
+                self.assertNotIn("secrets.", json.dumps(job), name)
         allowed = {"actions": "write", "contents": "read", "issues": "write"}
         self.assertEqual(self.workflow.get("permissions"), {})
         for name, job in self.jobs.items():
@@ -284,6 +295,58 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         self.assertLess(runs_on.index("CI_SIDE_LANE_RUNNER"), runs_on.rindex("blacksmith-6vcpu-macos-26"))
         for label in re.findall(r"'(macos-[^']+)'", runs_on):
             self.assertIn(f"github.repository_owner != 'manaflow-ai' && '{label}'", runs_on)
+
+
+class InFlightTests(unittest.TestCase):
+    """One smoke per build: a tick skips a build whose smoke another run has queued or running."""
+
+    RUNS = [
+        {"id": 5, "status": "queued", "event": "schedule"},       # this tick
+        {"id": 4, "status": "queued", "event": "schedule"},       # smoke 200 waits for a Mac
+        {"id": 3, "status": "in_progress", "event": "pull_request"},
+        {"id": 2, "status": "completed", "event": "schedule"},
+    ]
+    JOBS = {
+        4: [{"name": "pick", "conclusion": "success"}, {"name": "smoke 200", "status": "queued", "conclusion": None}],
+        3: [{"name": "smoke 300", "status": "queued", "conclusion": None}],
+        2: [{"name": "smoke 100", "status": "completed", "conclusion": "success"}],
+        5: [{"name": "smoke 200", "status": "queued", "conclusion": None}],
+    }
+
+    def jobs_of(self, run: int) -> list[dict]:
+        return self.JOBS.get(run, [])
+
+    def test_a_queued_smoke_of_the_build_holds_it(self) -> None:
+        self.assertEqual(smoke.in_flight(self.RUNS, self.jobs_of, 200, own_run=5), 4)
+        self.assertEqual(smoke.in_flight(self.RUNS, self.jobs_of, "200", own_run=5), 4)
+
+    def test_its_own_run_a_completed_run_a_pull_request_and_another_build_hold_nothing(self) -> None:
+        self.assertIsNone(smoke.in_flight(self.RUNS[1:], self.jobs_of, 200, own_run=4))  # only itself has one
+        self.assertIsNone(smoke.in_flight(self.RUNS, self.jobs_of, 100, own_run=5))
+        self.assertIsNone(smoke.in_flight(self.RUNS, self.jobs_of, 300, own_run=5))
+        self.assertIsNone(smoke.in_flight(self.RUNS, self.jobs_of, 400, own_run=5))
+
+    def test_a_skipped_smoke_holds_nothing(self) -> None:
+        runs = [{"id": 7, "status": "in_progress", "event": "schedule"}]
+        skipped = {7: [{"name": "smoke 200", "status": "completed", "conclusion": "skipped"}]}
+        self.assertIsNone(smoke.in_flight(runs, lambda run: skipped[run], 200, own_run=8))
+
+    def test_a_smoke_done_while_its_run_still_records_holds_the_build(self) -> None:
+        # The verdict is cached by the run's record job after the smoke: until the run completes,
+        # a tick would not yet see the cache, so the build stays held.
+        runs = [{"id": 7, "status": "in_progress", "event": "schedule"}]
+        done = {7: [{"name": "smoke 200", "status": "completed", "conclusion": "success"}]}
+        self.assertEqual(smoke.in_flight(runs, lambda run: done[run], 200, own_run=8), 7)
+
+    def test_a_scheduled_tick_starts_no_second_smoke(self) -> None:
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        steps = {step.get("id"): step for step in jobs["pick"]["steps"]}
+        self.assertIn("nightly_next_launch_smoke.py in-flight", steps["in-flight"]["run"])
+        self.assertEqual(jobs["pick"]["outputs"]["in_flight"], "${{ steps.in-flight.outputs.in_flight }}")
+        self.assertIn("(github.event_name != 'schedule' || needs.pick.outputs.in_flight == '')", jobs["smoke"]["if"])
+        # The job name is what in_flight() matches.
+        self.assertEqual(jobs["smoke"]["name"], "smoke ${{ needs.pick.outputs.build }}")
+        self.assertEqual(smoke.smoke_job(200), "smoke 200")
 
 
 if __name__ == "__main__":
