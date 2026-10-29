@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4092804908401",
+  "notes": "notes/4092804908401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27479,
+      "title": "cmux-cua build test: the bundled build passes --features cmux-host-consent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27478,
+      "title": "fix(ci): recognize completed Swift known-issue suites",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27474,
+      "title": "ci(signing): the signing cap pages every listing to its end; a lagging total_count no longer fails every pick",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27393,
+      "title": "cmux-cua: gate computer use on machine-join consent (patch at the pin)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
