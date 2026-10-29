@@ -9,7 +9,8 @@ import WebKit
 /// smallest element that matches). Its center goes from page coordinates to the window, and a real mouse down and
 /// up go there as ``DebugNativeInput`` delivers them, so the pane's gesture monitor records the user's gesture,
 /// also in a window that was never activated. A chat shown in Chromium gets a trusted DevTools press instead,
-/// which the gesture monitor does not see. Never moves the user's pointer.
+/// after its native mouse down went through the pane's gesture monitor (``AgentPaneView/debugJudgeChromiumClick(x:y:)``),
+/// so it counts as the person's click there too. Never moves the user's pointer.
 @MainActor
 enum DebugAgentPaneClick {
     /// Whether the page has seen the click's mouse down, waiting up to `ms` for it.
@@ -41,6 +42,9 @@ enum DebugAgentPaneClick {
         // A chat in Chromium takes a trusted DevTools click: no AppKit click reaches its page in a window
         // that never activates (a capture slot).
         if view.debugShowsChromium {
+            // The pane's gesture monitor judges a real click before Chromium gets it; the DevTools press is
+            // the page's half only, so the monitor gets its native mouse down first.
+            view.debugJudgeChromiumClick(x: x, y: y)
             let pressed = await view.debugPress(x: x, y: y)
             let page = (try? await view.callPageScript(report)) as? String
             let pageObject = page.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }

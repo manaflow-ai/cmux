@@ -71,5 +71,46 @@ struct AgentPaneDebugClickPageHostTests {
         #expect(presses.map { $0.params["type"] as? String } == ["mousePressed", "mouseReleased"])
         #expect(presses.allSatisfy { $0.params["x"] as? Double == 308 && $0.params["y"] as? Double == 18 })
     }
+
+    /// A click on a Chromium chat counts as the person's click at the pane's gesture monitor, as a
+    /// real click there does: the DevTools press alone is never seen by the monitor, so a capture's
+    /// click then Return on a question card was refused with `transport.gesture_required`.
+    @Test func aDebugClickOnAChromiumChatRecordsThePersonsClick() async throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let hosting = FakeChromiumHosting()
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
+                                              chromium: hosting))
+        view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let paneWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                                  backing: .buffered, defer: false)
+        paneWindow.isReleasedWhenClosed = false
+        paneWindow.contentView = view
+        defer { view.close(); paneWindow.close() }
+        view.layoutSubtreeIfNeeded()
+        let deadline = Date().addingTimeInterval(5)
+        while !view.debugShowsChromium, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(view.debugShowsChromium)
+        // Chromium draws the page in a child window of the pane's window.
+        let chromiumView = try #require(view.chromiumPage?.contentView)
+        let childWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                                   backing: .buffered, defer: false)
+        childWindow.isReleasedWhenClosed = false
+        paneWindow.addChildWindow(childWindow, ordered: .above)
+        defer { childWindow.close() }
+        chromiumView.removeFromSuperview()
+        childWindow.contentView = chromiumView
+        chromiumView.frame = childWindow.contentView?.bounds ?? .zero
+        #expect(view.debugChromiumPageWindow === childWindow)
+
+        let gestures = view.model.transport.gestures
+        #expect(!gestures.isAvailable)
+        // Off the page: no gesture.
+        #expect(view.debugJudgeChromiumClick(x: 5000, y: 5000))
+        #expect(!gestures.isAvailable, "a click off the Chromium page counted")
+        // On the page: the person's click, fresh enough to answer a question.
+        #expect(view.debugJudgeChromiumClick(x: 20, y: 20))
+        #expect(gestures.hasFreshAnswerGesture, "a debug click on a Chromium chat recorded no click gesture")
+        #expect(AcpmuxPaneMethods.answerAllowed("_acpmux/permission_respond", gestures))
+    }
 }
 #endif
