@@ -152,6 +152,14 @@ extension PageWebView {
         onLoadFailed?()
     }
 
+    /// A main-frame load failed, in either engine (WebKit's `didFail`/`didFailProvisionalNavigation`, Chromium's load
+    /// error): the document will not come unless something loads it again. A load a newer one replaced, or one the
+    /// navigation policy stopped, is not a failure and does not call it. Kept by the page's load state.
+    public var onLoadFailed: (() -> Void)? {
+        get { loadState.onFailed }
+        set { loadState.onFailed = newValue }
+    }
+
     /// A load a newer navigation replaced (`NSURLErrorCancelled`), or one the navigation policy stopped (WebKit's "frame
     /// load interrupted", 102): the page goes on, so neither is a failure.
     nonisolated static func isBenignInterruption(_ error: any Error) -> Bool {

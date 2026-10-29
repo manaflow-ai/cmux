@@ -317,7 +317,7 @@ extension AgentTabStore {
     /// Stops tab `key`'s page and forgets its view state.
     func release(_ key: String) {
         // A New Tab page that goes before its field reported ready: the keys held for that field drop, never go on.
-        if let token = newTabPages[key]?.page.inputToken ?? views[key]?.model.newTab?.inputToken { onNewTabInputEnded?(token, .targetClosed) }
+        if let token = newTabPages[key]?.page.inputToken ?? views[key]?.model.newTab?.inputToken { newTabInput.ended?(token, .targetClosed) }
         createTabs?.released(key) // a chat closed (or refused) before its first paint: create.tab ends as closed
         if let view = views.removeValue(forKey: key) {
             // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a
@@ -409,4 +409,13 @@ final class AgentTabPending {
 /// A refusal to open an agent chat tab, with its localized reason.
 struct AgentTabRefusal: Error {
     let message: String
+}
+
+extension AgentTabStore {
+    /// `model`'s New Tab field readiness goes to its page's handler, and a field that will never be ready (its load
+    /// failed, it crashed past its reload budget) ends the key hold of its token (``NewTabInputHooks/ended``).
+    func wireNewTabInput(_ model: AgentPaneModel, provisional: String) {
+        model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
+        model.onNewTabInputFailed = { [weak self] token in self?.newTabInput.ended?(token, .targetFailed) }
+    }
 }

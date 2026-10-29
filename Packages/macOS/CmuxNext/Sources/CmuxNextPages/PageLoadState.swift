@@ -8,6 +8,8 @@ final class PageLoadState {
     private(set) var isLoading = true
     /// The page lifecycle that holds the page (``PageLifecycleTarget/reportsReasonChanges(to:)``).
     weak var lifecycle: PageLifecycle?
+    /// The page's host hears a main-frame load that failed (``PageWebView/onLoadFailed``).
+    var onFailed: (() -> Void)?
 
     /// `page`'s load started (`true`), or finished or failed (`false`).
     func set(loading: Bool, page: AnyObject) {

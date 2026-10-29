@@ -87,7 +87,7 @@ extension AgentTabStore {
         guard var made = firstPageNewTab?(cwd, nil) else { return nil }
         if let token {
             made.page.inputToken = token
-            onFirstPageToken?(token)
+            newTabInput.firstPageToken?(token)
         }
         return made
     }
@@ -158,9 +158,9 @@ extension AgentTabStore {
             handler.inputReady = { [weak input] key, token in input?.pageReady(token, key: key) }
             return (page, handler)
         }
-        tabs.onFirstPageToken = { [weak services] token in services?.keyRouter.newTabInputCoordinator.attachIncoming(token) }
+        tabs.newTabInput.firstPageToken = { [weak services] token in services?.keyRouter.newTabInputCoordinator.attachIncoming(token) }
         // One route for every opening's page (Cmd-T, Cmd-N, a split): the token names the hold.
-        tabs.onNewTabInputEnded = { [weak services] token, reason in services?.keyRouter.newTabInputCoordinator.pageFailed(token, reason) }
+        tabs.newTabInput.ended = { [weak services] token, reason in services?.keyRouter.newTabInputCoordinator.pageFailed(token, reason) }
         tabs.resolveLocalHost = { [weak services] in
             guard let services else { return nil }
             guard let id = try? services.cloud.localDeviceID() else { services.daemon.logger.error("agent tabs: no install id, new agent tabs are refused"); return nil }
