@@ -211,6 +211,12 @@ class QueueWaitTests(unittest.TestCase):
         self.assertEqual(self.stats[0].label, MAC)
 
 
+def link(number: int, head: str, repo: str = REPO) -> dict[str, Any]:
+    """A `pull_requests` entry as GitHub's run listing has it (base.repo names its repository by url)."""
+    url = f"https://api.github.com/repos/{repo}"
+    return {"number": number, "head": {"sha": head}, "base": {"repo": {"url": url, "name": repo.split("/")[1]}}}
+
+
 class WastePatternTests(unittest.TestCase):
     def setUp(self) -> None:
         self.fixture = load("window.json")
@@ -251,7 +257,7 @@ class WastePatternTests(unittest.TestCase):
     @staticmethod
     def linked(run, number, head):
         """The run as GitHub lists it for pull request `number`, whose head is `head` now."""
-        return dict(run, pull_requests=[{"number": number, "head": {"sha": head}, "base": {"repo": {"name": "cmux"}}}])
+        return dict(run, pull_requests=[link(number, head)])
 
     def failing(self, run, name="lint", conclusion="failure"):
         job = {"name": name, "labels": [LINUX], "status": "completed", "conclusion": conclusion,
@@ -267,15 +273,15 @@ class WastePatternTests(unittest.TestCase):
         runs = [self.linked(run, numbers[run["head_branch"]], heads[run["head_branch"]])
                 if run["head_branch"] in heads else run for run in self.fixture["runs"]]
         rows = rows_from(dict(self.fixture, runs=runs))
-        self.assertEqual(report.repeated_job_failures(rows, runs=runs), [])
-        self.assertEqual(report.repeated_job_failures(rows, min_heads=1, runs=runs)[0].heads, 1)
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO), [])
+        self.assertEqual(report.repeated_job_failures(rows, min_heads=1, runs=runs, repo=REPO)[0].heads, 1)
 
     def test_a_failure_still_at_each_pull_requests_head_counts(self):
         numbers = {"feature-b": 2, "feature-c": 3, "feature-d": 4}
         runs = [self.linked(run, numbers[run["head_branch"]], run["head_sha"])
                 if run["head_branch"] in numbers else run for run in self.fixture["runs"]]
         rows = rows_from(dict(self.fixture, runs=runs))
-        repeated = report.repeated_job_failures(rows, runs=runs)
+        repeated = report.repeated_job_failures(rows, runs=runs, repo=REPO)
         self.assertEqual([(item.job, item.heads) for item in repeated], [("macOS / app-host tests", 3)])
 
     def test_a_stale_pull_request_target_event_is_not_counted(self):
@@ -289,7 +295,7 @@ class WastePatternTests(unittest.TestCase):
             fresh = dict(stale, id=6000 + n, head_sha=f"new{n}", created_at="2026-09-22T16:01:00Z", conclusion="success")
             runs += [stale, fresh]
             rows += self.failing(stale, "CLA policy guard") + self.failing(fresh, "CLA policy guard", "success")
-        self.assertEqual(report.repeated_job_failures(rows, runs=runs), [])
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO), [])
         # Without the runs (no head to compare with), every failure still counts, as before.
         self.assertEqual(report.repeated_job_failures(rows)[0].heads, 3)
 
@@ -303,9 +309,9 @@ class WastePatternTests(unittest.TestCase):
                        created_at="2026-09-22T11:00:00Z", conclusion="success")
             runs += [old, new]
             rows += self.failing(old) + self.failing(new, conclusion="success")
-        self.assertEqual(report.repeated_job_failures(rows, runs=runs), [])
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO), [])
         at_head = [row for run in runs if run["id"] >= 9100 for row in self.failing(run)]
-        self.assertEqual(report.repeated_job_failures(at_head, runs=runs)[0].heads, 3)
+        self.assertEqual(report.repeated_job_failures(at_head, runs=runs, repo=REPO)[0].heads, 3)
 
     def test_runs_with_an_unknown_head_repository_never_supersede_each_other(self):
         # Two deleted forks' pull requests on the same branch name: no link, so no shared identity, and the
@@ -318,8 +324,8 @@ class WastePatternTests(unittest.TestCase):
             newer = dict(older, id=8100 + n, head_sha=f"gone-b{n}", created_at=f"2026-09-22T1{n}:30:00Z")
             runs += [older, newer]
             rows += self.failing(older) + self.failing(newer)
-        self.assertEqual(report.pull_request_heads(runs), {})
-        self.assertEqual(report.repeated_job_failures(rows, runs=runs)[0].heads, 6)
+        self.assertEqual(report.pull_request_heads(runs, REPO), {})
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 6)
 
     def test_a_fork_pull_requests_runs_are_never_superseded(self):
         # GitHub lists no pull request on a fork's run; a same-named branch of ours with a link must not
@@ -329,24 +335,56 @@ class WastePatternTests(unittest.TestCase):
                            50, "ours")
         runs = [dict(fork, id=7000 + n, head_sha=f"fork{n}") for n in range(3)] + [ours]
         rows = [row for run in runs[:3] for row in self.failing(run)]
-        self.assertEqual(report.pull_request_heads(runs), {50: "ours"})
-        self.assertEqual(report.repeated_job_failures(rows, runs=runs)[0].heads, 3)
+        self.assertEqual(report.pull_request_heads(runs, REPO), {50: "ours"})
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 3)
+
+    def test_a_run_two_pull_requests_share_is_kept_while_one_is_still_at_it(self):
+        # One commit, two pull requests (a stack's base and its top): #20 moved on, #21 did not. The failure is
+        # still #21's, so it counts; once both moved past it, it does not.
+        base = self.fixture["runs"][2]
+        runs, rows = [], []
+        for n in range(3):
+            run = dict(base, id=9500 + n, head_branch=f"stack-{n}", head_sha=f"shared{n}",
+                       pull_requests=[link(20 + 10 * n, f"moved{n}"), link(21 + 10 * n, f"shared{n}")])
+            runs.append(run)
+            rows += self.failing(run)
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 3)
+        moved = [dict(run, pull_requests=[link(p["number"], "elsewhere") for p in run["pull_requests"]]) for run in runs]
+        rows = [row for run in moved for row in self.failing(run)]
+        self.assertEqual(report.repeated_job_failures(rows, runs=moved, repo=REPO), [])
+
+    def test_a_same_numbered_pull_request_in_another_repository_names_no_head_here(self):
+        # #7 here is still at its head; #7 in a fork of the same name moved on. The fork's link must not
+        # supersede ours, in the head map or in the row.
+        base = self.fixture["runs"][2]
+        runs, rows = [], []
+        for n in range(3):
+            ours = dict(base, id=9600 + n, head_branch=f"b{n}", head_sha=f"here{n}", pull_requests=[link(7 + n, f"here{n}")])
+            theirs = dict(base, id=9700 + n, head_branch=f"b{n}", head_sha=f"there{n}",
+                          created_at="2026-09-22T17:59:00Z", pull_requests=[link(7 + n, f"there{n}", "outsider/cmux")])
+            runs += [ours, theirs]
+            rows += self.failing(ours)
+        self.assertEqual(report.pull_request_heads(runs, REPO), {7: "here0", 8: "here1", 9: "here2"})
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 3)
+        self.assertEqual(report.link_repo(link(1, "x", "Manaflow-AI/cmux")), "manaflow-ai/cmux")
+        self.assertEqual(report.link_repo({"base": {"repo": {"name": "cmux"}}}), "")
 
     def test_the_links_head_wins_over_the_newest_run(self):
         # An old head's run created later (a re-dispatch) does not decide: the link names the head now.
         base = self.fixture["runs"][2]
         old = self.linked(dict(base, id=1, head_sha="old", created_at="2026-09-22T12:00:00Z"), 9, "new")
         new = self.linked(dict(base, id=2, head_sha="new", created_at="2026-09-22T11:00:00Z"), 9, "new")
-        self.assertEqual(report.pull_request_heads([old, new]), {9: "new"})
-        unlinked = dict(old, pull_requests=[{"number": 9}])
-        self.assertEqual(report.pull_request_heads([unlinked, dict(new, pull_requests=[{"number": 9}])]), {9: "old"})
+        self.assertEqual(report.pull_request_heads([old, new], REPO), {9: "new"})
+        unlinked = dict(old, pull_requests=[dict(link(9, ""), head={})])
+        headless = dict(new, pull_requests=[dict(link(9, ""), head={})])
+        self.assertEqual(report.pull_request_heads([unlinked, headless], REPO), {9: "old"})
 
     def test_base_branch_failures_across_commits_still_count(self):
         base = self.fixture["runs"][5]
         runs = [dict(base, id=7000 + n, head_sha=f"main{n}", created_at=f"2026-09-22T1{n}:00:00Z",
                      conclusion="failure") for n in range(3)]
         rows = [row for run in runs for row in self.failing(run, "build")]
-        self.assertEqual(report.repeated_job_failures(rows, runs=runs)[0].heads, 3)
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs, repo=REPO)[0].heads, 3)
 
     def test_a_workflow_whose_runs_are_all_skipped_is_surfaced(self):
         skipped = report.mostly_skipped_workflows(self.fixture["runs"], min_runs=5)

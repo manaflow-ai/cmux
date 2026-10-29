@@ -76,7 +76,9 @@ them wait. When p90 climbs while minutes-per-job stay flat, no build regressed
   head GitHub's `pull_requests` link on its runs names, matched by pull request
   number, never by branch name. A red at a commit the pull request has since
   replaced, such as a stale CLA policy guard event, says nothing about it. A
-  run with no pull request link (a fork's) is never treated as superseded.
+  run with no pull request link (a fork's) is never treated as superseded, and
+  a run several pull requests share is superseded only once all of them moved
+  past it. Links count only for pull requests into this repository (owner/name).
 - **Workflows ≥90% skipped** (with at least 20 runs in the window). A shim that
   decides it had nothing to do is cheap per run and expensive per day: it still
   queues, still writes a check, and still fills every list of runs anybody

@@ -263,17 +263,25 @@ def never_got_a_runner(job: Mapping[str, Any]) -> bool:
     return job.get("runner_id") == 0 and not job.get("runner_name") and not job.get("steps")
 
 
-def pull_links(run: Mapping[str, Any], repo: str | None = None) -> list[Mapping[str, Any]]:
-    """The run's `pull_requests` entries that have a number (and, given `repo`, whose base is that repository)."""
-    links = []
-    for pull in run.get("pull_requests") or ():
-        if not isinstance(pull, Mapping) or not isinstance(pull.get("number"), int):
-            continue
-        base = ((pull.get("base") or {}).get("repo") or {}).get("name") or ""
-        if repo and base and base.lower() != repo.rsplit("/", 1)[-1].lower():
-            continue
-        links.append(pull)
-    return links
+def link_repo(pull: Mapping[str, Any]) -> str:
+    """The base repository a `pull_requests` entry belongs to, as lower-case owner/name ("" when unknown).
+
+    GitHub's run listing names it by `base.repo.url` (api.github.com/repos/OWNER/NAME); a fuller payload has
+    `full_name`. A bare `name` is not an identity: another owner's fork can share it."""
+    repo = (pull.get("base") or {}).get("repo") or {}
+    full = str(repo.get("full_name") or "")
+    if not full:
+        url = str(repo.get("url") or "")
+        if "/repos/" in url:
+            full = url.split("/repos/", 1)[1].strip("/")
+    return full.lower() if full.count("/") == 1 else ""
+
+
+def pull_links(run: Mapping[str, Any], repo: str) -> list[Mapping[str, Any]]:
+    """The run's `pull_requests` entries for pull requests into `repo` (full owner/name), with a number."""
+    return [pull for pull in run.get("pull_requests") or ()
+            if isinstance(pull, Mapping) and isinstance(pull.get("number"), int)
+            and link_repo(pull) == repo.lower()]
 
 
 def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: str) -> list[JobRow]:
@@ -476,7 +484,7 @@ class RepeatedFailure:
     branches: tuple[str, ...]
 
 
-def pull_request_heads(runs: Iterable[Mapping[str, Any]], repo: str | None = None) -> dict[int, str]:
+def pull_request_heads(runs: Iterable[Mapping[str, Any]], repo: str) -> dict[int, str]:
     """Each pull request's current head, by pull request number, from the window's runs.
 
     GitHub fills a run's `pull_requests[].head.sha` with the pull request's head
@@ -485,7 +493,9 @@ def pull_request_heads(runs: Iterable[Mapping[str, Any]], repo: str | None = Non
     head the pull request has now. A link with no head sha falls back to the
     head_sha of that pull request's newest run (by creation, then id). Runs with
     no link (a fork's, a deleted head repository's) name no head: a branch name
-    is never an identity.
+    is never an identity. Only links into `repo` (full owner/name) count, so a
+    pull request of the same number in another repository never names this one's
+    head.
     """
     linked: dict[int, str] = {}
     newest: dict[int, tuple[tuple[str, int], str]] = {}
@@ -512,18 +522,21 @@ def superseded(row: JobRow, heads: Mapping[int, str]) -> bool:
     replaced, and every one of those pull requests was green at its head).
     Push and schedule runs are never superseded here: a base branch failing on
     commit after commit is the main-broken signal itself. A job is matched to
-    its pull request by number only; one with no pull request link (a fork's
-    run, a deleted head repository's) is never superseded.
+    its pull requests by number only; one with no pull request link (a fork's
+    run, a deleted head repository's) is never superseded. A run that several
+    pull requests share is superseded only when every one of them is known and
+    has moved past it: it is still current for any that has not.
     """
-    if row.event not in PULL_REQUEST_EVENTS:
+    if row.event not in PULL_REQUEST_EVENTS or not row.prs:
         return False
-    return any(number in heads and heads[number] != row.head_sha for number in row.prs)
+    return all(number in heads and heads[number] != row.head_sha for number in row.prs)
 
 
 def repeated_job_failures(
     rows: Iterable[JobRow],
     min_heads: int = REPEATED_FAILURE_MIN_HEADS,
     runs: Iterable[Mapping[str, Any]] | None = None,
+    repo: str = "",
 ) -> list[RepeatedFailure]:
     """One job failing across unrelated heads: main is broken, not a PR.
 
@@ -531,11 +544,12 @@ def repeated_job_failures(
     the same job ten times is one author's problem; the same job failing on
     heads that share nothing is everybody's.
 
-    With `runs` (the window's runs), a pull request failure counts only at that
-    pull request's current head (`superseded`): one pull request pushed four
-    times is one head, not four.
+    With `runs` (the window's runs) and `repo` (the repository the rows were
+    read from, owner/name), a pull request failure counts only at that pull
+    request's current head (`superseded`): one pull request pushed four times is
+    one head, not four.
     """
-    current = pull_request_heads(runs) if runs is not None else {}
+    current = pull_request_heads(runs, repo) if runs is not None and repo else {}
     heads: dict[tuple[str, str], set[str]] = defaultdict(set)
     branches: dict[tuple[str, str], set[str]] = defaultdict(set)
     counts: dict[tuple[str, str], int] = defaultdict(int)
@@ -1137,7 +1151,7 @@ def render_report(
         lines.append("_None in the sample._")
     lines.append("")
 
-    repeated = repeated_job_failures(current.rows, runs=current.runs)
+    repeated = repeated_job_failures(current.rows, runs=current.runs, repo=repo)
     lines.append(f"**Same job failing across ≥{REPEATED_FAILURE_MIN_HEADS} unrelated heads (main-broken signal)**")
     lines.append("")
     lines.append("_A pull request's failure counts only at its current head._")
