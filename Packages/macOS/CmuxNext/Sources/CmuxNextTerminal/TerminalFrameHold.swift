@@ -53,10 +53,12 @@ final class TerminalFrameHold {
     /// The hold waits for its content to be queued on the lane (``contentQueued()``).
     private var awaitingContent = false
     /// The frame on screen when the target's content was parsed: a different one is drawn after it.
+    // Only the frame on screen at the parse is compared, never a frame from before the hold as well: Ghostty rotates
+    // a few IOSurfaces, so a second identity can come round again as the content frame and keep an idle pane's hold
+    // up with no new frame (review 2 of 44acb76a458). Unverified (review 1, finding 4): that a fresh surface presents
+    // no frame between `ghostty_surface_new` and its first pause; at worst that ends a hold one frame early, never
+    // keeps it. The content mark of the INTERIM note above removes both.
     private var frameAtParse: AnyObject?
-    /// The held surface's presented frame when the hold showed: a frame it presented before the hold (a fresh
-    /// surface's frame between its `ghostty_surface_new` and its first pause) is never its content either.
-    private var frameAtShow: AnyObject?
     /// Where the parsed content's refresh is posted.
     private let mainWork: MainWorkScheduler
     private let parsedOwner: MainTaskOwner
@@ -148,7 +150,6 @@ final class TerminalFrameHold {
         // surface's layer); under the banner, scroller and find bar over it.
         host.addSubview(view, positioned: .above, relativeTo: fresh)
         fresh.awaitsContent = true // it draws nothing until its target's content is parsed
-        frameAtShow = fresh.presentedFrame
         checkInvariant()
     }
 
@@ -186,7 +187,6 @@ final class TerminalFrameHold {
         presentedSeq = targetSeq
         parsedSeq = targetSeq
         frameAtParse = nil
-        frameAtShow = nil
         awaitingContent = false
         checkInvariant()
     }
@@ -198,7 +198,7 @@ final class TerminalFrameHold {
             return false
         }
         guard parsedSeq == targetSeq, presentedSeq < targetSeq else { return false }
-        guard let shown = surface.presentedFrame, shown !== frameAtParse, shown !== frameAtShow else { return surface.pause == nil }
+        guard let shown = surface.presentedFrame, shown !== frameAtParse else { return surface.pause == nil }
         presentedSeq = parsedSeq
         end()
         return false
