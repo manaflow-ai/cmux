@@ -80,7 +80,13 @@ await requireBrowserLane("markdown-reading-trigger.test.ts", async () => {
               await page.locator(".md-reading").waitFor({ state: "hidden" });
               expect(await trigger.getAttribute("aria-pressed")).toBe("false");
               await page.mouse.move(0, 700);
-              expect(await trigger.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(idle);
+              // Reduced Motion applies a 0.01ms transition globally. Finish the pointer-leave
+              // transition before comparing resting fills, rather than sampling its first tick.
+              const closed = await trigger.evaluate(async (el) => {
+                await Promise.all(el.getAnimations().map((animation) => animation.finished));
+                return getComputedStyle(el).backgroundColor;
+              });
+              expect(closed).toBe(idle);
               await trigger.click();
               await page.locator(".md-reading").waitFor({ state: "visible" });
               await page.mouse.click(8, 680);
