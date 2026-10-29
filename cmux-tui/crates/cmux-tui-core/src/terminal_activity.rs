@@ -166,16 +166,24 @@ pub(crate) struct ShellActivity {
     /// unread for the line editor, so that prompt is not idle. A Return no
     /// prompt answers (a `read`, a password, a continuation line, fish's
     /// Ctrl-C) leaves one owed for good: never idle again (fails safe). Only
-    /// an `A` after the command ended (`C`/`D`) or after the last line typed
-    /// at a prompt pays: a prompt drawn again for the same line (a redraw)
-    /// pays nothing ([`Self::line_since_prompt`]).
+    /// an `A` the shell drew for a new line pays, never the same prompt drawn
+    /// again (a redraw: zsh's `A;redraw=1` in PS1 on `reset-prompt`, a
+    /// resize, a transient prompt at accept). A shell that sends `C` or `D`
+    /// marks every new prompt with one first (Ghostty's bash and zsh
+    /// integrations send `D` before each prompt), so there only an `A` after
+    /// a `C` or `D` pays ([`Self::command_since_prompt`]); a shell that sends
+    /// only `A` and `B` has no such mark, so there an `A` after a line typed
+    /// at the prompt pays ([`Self::line_since_prompt`]).
     owed_prompts: u32,
-    /// The shell may draw its next prompt for a new line: a command ended
-    /// (`C` then `D` or `A`), or a line was submitted at the prompt since
-    /// its last `A`. A primary `A` with this false is the same prompt drawn
-    /// again (zsh's `A;redraw=1` in PS1 on `reset-prompt`, a resize, a
-    /// transient prompt) and pays nothing.
+    /// A line was submitted at the prompt (a Return or Ctrl-C), or a command
+    /// started, since the last `A` (an `A`/`B`-only shell's new prompt).
     line_since_prompt: bool,
+    /// A `C` or `D` came since the last `A`: the next `A` is a new prompt.
+    command_since_prompt: bool,
+    /// The shell sent a `C` or `D`: it marks its new prompts with one, so an
+    /// `A` without one is a redraw. Set for good once seen, and after a
+    /// restore (the marks before it are unknown: the strict rule).
+    sends_command_marks: bool,
     /// The shell printed its first prompt: the first `A` answers the spawn,
     /// not a line, so input typed before it stays owed.
     prompted: bool,
@@ -235,24 +243,34 @@ impl ShellActivity {
                 self.busy_since_ms.get_or_insert(now_ms);
                 self.prompt_since_ms = None;
                 self.line_since_prompt = true;
+                self.command_since_prompt = true;
+                self.sends_command_marks = true;
                 self.drawing_prompt = false;
                 false
             }
             ShellMark::CommandEnd { .. } => {
                 self.settle_command_input();
                 self.end();
+                self.command_since_prompt = true;
+                self.sends_command_marks = true;
                 false
             }
             ShellMark::PromptStart => {
                 self.settle_command_input();
                 self.end();
                 self.prompt_since_ms.get_or_insert(now_ms);
+                let new_prompt = if self.sends_command_marks {
+                    self.command_since_prompt
+                } else {
+                    self.line_since_prompt
+                };
                 if !self.prompted {
                     self.prompted = true;
-                } else if self.line_since_prompt {
+                } else if new_prompt {
                     self.owed_prompts = self.owed_prompts.saturating_sub(1);
                 }
                 self.line_since_prompt = false;
+                self.command_since_prompt = false;
                 // Input written before this `A` was parsed but after the
                 // shell printed it may wait unread for the line editor: a
                 // line still owed (typed ahead) or a partial one.
@@ -563,6 +581,8 @@ impl ShellActivity {
         self.unsubmitted = false;
         self.in_paste = false;
         self.line_since_prompt = false;
+        self.command_since_prompt = false;
+        self.sends_command_marks = true;
         self.shell_foreground = None;
         self.foreground_leader = None;
         self.epoch = self.epoch.wrapping_add(1);
@@ -580,6 +600,8 @@ impl ShellActivity {
         self.prompted = previous.prompted;
         self.typed_while_running = previous.typed_while_running;
         self.line_since_prompt = previous.line_since_prompt;
+        self.command_since_prompt = previous.command_since_prompt;
+        self.sends_command_marks = previous.sends_command_marks;
         self.drawing_prompt = previous.drawing_prompt;
         self.unsubmitted = previous.unsubmitted;
         self.in_paste = previous.in_paste;
@@ -1033,7 +1055,8 @@ mod tests {
         activity.observe(ShellMark::PromptStart, 3_000);
         let epoch = activity.foreground_check_due().unwrap();
         activity.record_foreground(epoch, true);
-        assert_eq!(activity.idle_since(), Some(2_000), "the prompt after it answered it");
+        // `C` cleared the prompt fact; the `A` that answered the line set it.
+        assert_eq!(activity.idle_since(), Some(3_000), "the prompt after it answered it");
     }
 
     /// Review 5, nit: a raw program (ISIG off) reads Ctrl-C as a byte; the
@@ -1058,11 +1081,49 @@ mod tests {
     /// before the command's `C`, such a redraw must not pay the line.
     #[test]
     fn shell_idle_a_redrawn_prompt_answers_no_line() {
-        let mut activity = idle_at(1_000);
+        // Ghostty's zsh integration: a `D` before each new prompt, `A` in PS1.
+        let mut activity = ShellActivity::default();
+        activity.observe(ShellMark::CommandEnd { exit_code: None }, 900);
+        activity.observe(ShellMark::PromptStart, 1_000);
+        check_at_b(&mut activity, 1_001);
+        assert!(activity.idle_since().is_some(), "the first prompt");
         activity.note_input(b"sleep 600\r");
+        // reset-prompt (or a transient prompt) prints PS1, so `A`, again.
         activity.observe(ShellMark::PromptStart, 1_100);
+        check_at_b(&mut activity, 1_101);
         assert_eq!(activity.foreground_check_due(), None, "`sleep 600` is not answered");
         assert_eq!(activity.idle_since(), None);
+        // The new prompt after it comes after its `C` and `D`, and pays.
+        activity.observe(ShellMark::CommandStart, 1_200);
+        activity.observe(ShellMark::CommandEnd { exit_code: Some(0) }, 1_300);
+        activity.observe(ShellMark::PromptStart, 1_400);
+        check_at_b(&mut activity, 1_401);
+        assert_eq!(activity.idle_since(), Some(1_400));
+    }
+
+    /// A shell that sends only `A` and `B` (no `C` or `D`): its new prompt
+    /// after a Return is the only mark, and it pays the line.
+    #[test]
+    fn shell_idle_an_a_b_only_shell_pays_a_line_at_its_next_prompt() {
+        let mut activity = idle_at(1_000);
+        activity.note_input(b"true\r");
+        activity.observe(ShellMark::PromptStart, 1_100);
+        check_at_b(&mut activity, 1_101);
+        assert!(activity.idle_since().is_some());
+    }
+
+    /// After a restore the marks before it are unknown: an `A` with no `C`
+    /// or `D` since pays nothing (the strict rule).
+    #[test]
+    fn shell_idle_after_a_restore_only_a_command_mark_lets_a_prompt_pay() {
+        let mut previous = idle_at(1_000);
+        previous.note_input(b"true\r");
+        let mut activity = ShellActivity::default();
+        activity.restore(previous.snapshot());
+        activity.note_input(b"ls\r");
+        activity.observe(ShellMark::PromptStart, 2_000);
+        check_at_b(&mut activity, 2_001);
+        assert_eq!(activity.idle_since(), None, "no C or D: maybe a redraw");
     }
 
     /// Review of cp/fix-tip-continuation-prompt-idle-2, finding 1: several
