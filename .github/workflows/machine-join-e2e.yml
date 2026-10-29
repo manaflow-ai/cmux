@@ -156,6 +156,8 @@ jobs:
         run: |
           set -uo pipefail
           out="$RUNNER_TEMP/machine-join-smoke.txt"
+          # The runner, not the disposable user, writes the output file (it lives in the runner's temp).
+          # shellcheck disable=SC2024
           printf 'not-a-join-token\n' | sudo -n -u "$JOIN_USER" -- /usr/bin/env -i -C "$JOIN_HOME" \
             HOME="$JOIN_HOME" USER="$JOIN_USER" LOGNAME="$JOIN_USER" \
             PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
