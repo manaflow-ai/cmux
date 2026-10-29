@@ -6,8 +6,8 @@
     scripts/journeys/run.py --list | --check
 
 The route is the one cmux-ci capture and restore-journey-slot.sh use (no new harness, no CI job):
-capture-host leases one slot on a GUI capture mini (released in every case; a lease lasts at most
-10 minutes), the slot downloads the build's artifact (`cmux-ci artifact JOB`), capture-host launches
+capture-host leases a whole GUI capture mini, its host.lock held exclusively so no build runs beside
+the journeys (--shared-slot: one slot instead; released in every case; a lease lasts at most 10 minutes), the slot downloads the build's artifact (`cmux-ci artifact JOB`), capture-host launches
 it in the slot (own HOME, bundle id, socket, settings), and driver.py plays the journeys there over
 the control socket, the bundled CLI on the app's daemon, the process table and the app's own
 window snapshots. Journeys that do not fit one lease run in further leases.
@@ -63,6 +63,11 @@ RESULT_MAX_BYTES = 64 << 20
 LOAD_LIMIT = 4.0
 LOAD_WAIT_SECONDS = 600
 LOAD_POLL_SECONDS = 30
+# A journey lease holds the mini's host.lock exclusively (a whole-host lease; the lock the proof runs'
+# exclusive steps hold), so the controller places no build on that Mac until it ends; a shared slot lease
+# does not stop one. Its acquire waits (draining running jobs) up to EXCLUSIVE_ACQUIRE_SECONDS. Journeys draw
+# the app's own window (debug.window_snapshot), so the lease skips capture-host's CuaDriver grant check.
+EXCLUSIVE_ACQUIRE_SECONDS = 300
 RESULT_TAR_MAX_BYTES = 768 << 20
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}
 
@@ -75,8 +80,8 @@ def q(text):
     return "'" + str(text).replace("'", "'\"'\"'") + "'"
 
 
-def run(argv, *, input=None, timeout=None, check=True):
-    done = subprocess.run(argv, input=input, capture_output=True, timeout=timeout)
+def run(argv, *, input=None, timeout=None, check=True, env=None):
+    done = subprocess.run(argv, input=input, capture_output=True, timeout=timeout, env=env)
     if check and done.returncode != 0:
         raise RuntimeError(f"{' '.join(map(str, argv[:3]))} ... exited {done.returncode}: "
                            f"{(done.stderr or done.stdout).decode(errors='replace').strip()[-500:]}")
@@ -280,11 +285,11 @@ class LoadedHost(Exception):
         self.host = host
 
 
-def run_lease(specs, build, out, frame_interval):
+def run_lease(specs, build, out, frame_interval, exclusive=True):
     """Plays `specs` in one slot of a quiet host; {id: result} (driver results, or not run with the reason).
     A loaded host's lease goes back (a lease lasts at most 10 minutes) while the host is read again every
     LOAD_POLL_SECONDS; then the same host is preferred. After LOAD_WAIT_SECONDS it drives anyway, load-invalid."""
-    gate = {"limit": LOAD_LIMIT, "reads": [], "waited_s": 0.0}
+    gate = {"limit": LOAD_LIMIT, "reads": [], "waited_s": 0.0, "exclusive": exclusive}
     began = time.monotonic()
     gate_end = began + LOAD_WAIT_SECONDS
     prefer = None
@@ -306,7 +311,13 @@ def play_lease(specs, build, out, frame_interval, gate, gate_end, prefer):
     ch = capture_host()
     ids = [s["id"] for s in specs]
     try:
-        acquired = run([ch, "acquire", "--slot"] + (["--prefer", prefer] if prefer else []), timeout=330).stdout.decode().split()
+        if gate["exclusive"]:
+            env = dict(os.environ, CAPTURE_HOST_REMOTE_CUA_DRIVER="",
+                       CAPTURE_HOST_ACQUIRE_TIMEOUT_SECONDS=str(EXCLUSIVE_ACQUIRE_SECONDS))
+            argv, wait = [ch, "acquire"], EXCLUSIVE_ACQUIRE_SECONDS + 60
+        else:
+            env, argv, wait = None, [ch, "acquire", "--slot"], 330
+        acquired = run(argv + (["--prefer", prefer] if prefer else []), timeout=wait, env=env).stdout.decode().split()
     except (RuntimeError, subprocess.TimeoutExpired) as error:
         return {i: {"status": "not run", "reason": f"no capture slot: {str(error)[-300:]}"} for i in ids}
     if not acquired:
@@ -482,7 +493,7 @@ for path in glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*.ips
 
 def collect(out, ids, host, missing_reason, gate=None):
     results = {}
-    lease_load = {k: (gate or {}).get(k) for k in ("start", "waited_s", "reads")}
+    lease_load = {k: (gate or {}).get(k) for k in ("start", "waited_s", "reads", "exclusive")}
     for i in ids:
         path = out / i / "result.json"
         if path.is_file():
@@ -678,6 +689,8 @@ def main(argv=None):
     pick.add_argument("--all", action="store_true")
     ap.add_argument("--out", help="output folder (default artifacts/journeys/<job12>-<time>)")
     ap.add_argument("--hosts", help="capture hosts to lease from, spaces between (sets CAPTURE_HOST_SLOT_HOSTS)")
+    ap.add_argument("--shared-slot", action="store_true",
+                    help="lease a shared slot, not the whole mini: builds can run beside it (results say exclusive false)")
     ap.add_argument("--frame-interval", type=float, default=1.0, help="seconds between clip frames (>= 0.25)")
     ap.add_argument("--build-wait-minutes", type=float, default=90, help="how long to wait for a running build")
     ap.add_argument("--list", action="store_true", help="print the journeys and exit")
@@ -720,7 +733,7 @@ def main(argv=None):
         results = {s["id"]: {"status": "not run", "reason": why} for s in chosen}
     else:
         for group in batches(chosen):
-            results.update(run_lease(group, build, out, opts.frame_interval))
+            results.update(run_lease(group, build, out, opts.frame_interval, exclusive=not opts.shared_slot))
 
     lines = []
     for spec in chosen:

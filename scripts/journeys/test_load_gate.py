@@ -178,7 +178,7 @@ class Summary(unittest.TestCase):
 
     def summary(self, result):
         RUN.wait_build = lambda job, seconds: {"id": job, "state": "done", "ref": "abc", "tag": "t"}
-        RUN.run_lease = lambda specs, build, out, interval: {s["id"]: dict(result) for s in specs}
+        RUN.run_lease = lambda specs, build, out, interval, **kw: {s["id"]: dict(result) for s in specs}
         if hasattr(RUN, "clip_check"):
             # The gate tree's run.py: a pass needs a clip of its action (not under test here).
             RUN.make_clip = lambda directory, interval: (directory / "clip.png", {1, 2})
