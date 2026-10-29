@@ -68,6 +68,30 @@ import Testing
         return center(list, try #require(badge.glyphFrames.first), in: badge)
     }
 
+    /// The center of what `view`'s layer tree actually paints (pixels with alpha over a quarter), in the list: a
+    /// glyph whose ink sits off its box's center reads off the column however its box is placed. Nil when nothing paints.
+    static func inkCenter(_ list: SidebarListView, _ view: NSView) -> CGPoint? {
+        guard let layer = view.layer, view.bounds.width > 0, view.bounds.height > 0 else { return nil }
+        let scale: CGFloat = 4
+        let w = Int(view.bounds.width * scale), h = Int(view.bounds.height * scale)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        // Layer space is y-down for a flipped view: draw it so row 0 of the buffer is the view's minY.
+        ctx.scaleBy(x: scale, y: scale)
+        if !view.isFlipped { ctx.translateBy(x: 0, y: view.bounds.height); ctx.scaleBy(x: 1, y: -1) }
+        layer.render(in: ctx)
+        guard let data = ctx.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        var (minX, minY, maxX, maxY) = (Int.max, Int.max, Int.min, Int.min)
+        for y in 0..<h { for x in 0..<w where data[(y * w + x) * 4 + 3] > 64 {
+            (minX, minY, maxX, maxY) = (min(minX, x), min(minY, y), max(maxX, x), max(maxY, y))
+        } }
+        guard minX <= maxX else { return nil }
+        // CGContext rows run bottom-up in memory for a bitmap context: row index y is the view's y from the top.
+        let cx = CGFloat(minX + maxX + 1) / 2 / scale, cyTop = CGFloat(minY + maxY + 1) / 2 / scale
+        let local = CGPoint(x: cx, y: view.isFlipped ? cyTop : view.bounds.height - cyTop)
+        return list.convert(local, from: view)
+    }
+
     /// Home's glyph, the pin and a workspace row's icon share one center x.
     @Test(arguments: HomePinnedRowAlignmentTests.cases)
     func leadingGlyphsShareOneCenterX(_ c: Case) throws {
@@ -118,6 +142,15 @@ import Testing
             let homeDot = try Self.markCenter(list, home.rowBadge)
             #expect(abs(dot.x - error.x) <= Self.tolerance, "\(c.testDescription): the unread dot centers at \(dot.x), the error at \(error.x)")
             #expect(abs(homeDot.x - error.x) <= Self.tolerance, "\(c.testDescription): Home's dot centers at \(homeDot.x), the error at \(error.x)")
+            // What a person sees: the drawn ink of each mark, not only its box.
+            let inks = try [("unread", unreadRow.rowBadge), ("error", errorRow.rowBadge), ("Home", home.rowBadge)].map { name, badge in
+                (name, try #require(Self.inkCenter(list, badge), "the \(name) mark painted nothing"))
+            }
+            print("ICONCOL|\(c.testDescription)|" + inks.map { "\($0.0)=\($0.1.x),\($0.1.y)" }.joined(separator: "|"))
+            for (name, ink) in inks.dropFirst() {
+                #expect(abs(ink.x - inks[0].1.x) <= Self.tolerance,
+                        "\(c.testDescription): the \(name) mark's ink centers at \(ink.x), the unread dot's at \(inks[0].1.x)")
+            }
             let rows: [(String, CGPoint, NSView)] = [("unread", dot, unreadRow), ("error", error, errorRow), ("Home", homeDot, home)]
             for (name, mark, row) in rows {
                 let rowMidY = Self.center(list, row.bounds, in: row).y
