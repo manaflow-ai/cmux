@@ -3728,18 +3728,16 @@ jobs:
 
   prepare-nightly-variant-fallback:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant-primary]
-    # This job must not be skipped when the primary succeeds: GitHub skips every job whose
-    # needs chain holds a skipped job unless its `if` calls a status function, so a skipped
-    # fallback skipped signing and publishing (runs 40154003204 and 40155340212 built an app
-    # and published nothing). After a successful primary it runs on Linux, finds the primary's
-    # result and does nothing; after a failed primary it prepares there.
+    # Never skipped when the primary succeeds: GitHub skips every job whose needs chain
+    # holds a skipped job unless its `if` calls a status function, so a skipped fallback
+    # skipped signing and publishing (runs 40154003204 and 40155340212 published nothing).
+    # After a successful primary it finds its result and does nothing.
     if: always() && (needs.prepare-nightly-variant-primary.result == 'failure' || needs.prepare-nightly-variant-primary.result == 'success') && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     permissions:
       contents: read
       actions: read
-    # Another runner-set size than the primary's: one stalled size never holds
-    # both (Leo, 2026-10-27: "16vcpu blacksmiths do exist").
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER != 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # A no-op after a primary success; a retry takes the other set size.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.prepare-nightly-variant-primary.result == 'success' && (vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404') || vars.LINUX_RUNNER != 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false

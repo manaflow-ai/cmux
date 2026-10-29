@@ -146,6 +146,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                          + "'blacksmith-32vcpu-ubuntu-2404' }}")
         self.assertEqual(jobs["prepare-nightly-variant-fallback"]["runs-on"],
                          "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                         "needs.prepare-nightly-variant-primary.result == 'success' && "
+                         "(vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404') || "
                          "vars.LINUX_RUNNER != 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || "
                          "'blacksmith-32vcpu-ubuntu-2404' }}")
         moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
@@ -190,8 +192,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         for name in LIGHT_NIGHTLY_JOBS:
             with self.subTest(job=name):
                 runs_on = jobs[name]["runs-on"]
-                # The prepare fallback reads LINUX_RUNNER only to take another size than the primary.
-                self.assertIn("vars.LINUX_RUNNER != " if name == "prepare-nightly-variant-fallback" else "vars.LINUX_RUNNER || ", runs_on)
+                self.assertIn("vars.LINUX_RUNNER || ", runs_on)
                 self.assertNotIn("macos", runs_on)
                 labels = resolve_labels(runs_on, variables={"CI_CLOUD_OVERFLOW_SAVED": [OVERFLOW_RECORD],
                                                             "LINUX_RUNNER": sorted(linux)})
