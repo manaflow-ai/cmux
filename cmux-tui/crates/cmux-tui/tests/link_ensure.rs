@@ -398,12 +398,11 @@ fn link_stop_waits_for_an_ending_link_whose_registration_is_still_there() {
     let base = Scratch::new("ending-reg");
     let app = base.app("a");
     app.ensure(&["--install", "inst_app_a", "--port", "0"]);
-    let registered: Value = serde_json::from_slice(
+    let mut ending: Value = serde_json::from_slice(
         &std::fs::read(app.registration()).expect("the link's registration"),
     )
     .expect("registration JSON");
     assert_eq!(app.stop()["stopped"], true);
-    let mut ending = registered.clone();
     ending["pid"] = Value::from(std::process::id());
     std::fs::write(app.registration(), serde_json::to_vec(&ending).unwrap()).unwrap();
     let lock = std::fs::OpenOptions::new()
