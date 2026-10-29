@@ -335,6 +335,31 @@ class SwiftPMBuildMetricsTests(unittest.TestCase):
                 self.assertFalse(receipt["stale_link_retry"]["detected"])
                 self.assertTrue((debug / "CmuxNextAgentPane.build/AcpmuxHarnessList.swift.o").is_file())
 
+    def test_a_linker_assertion_is_never_retried_even_when_it_exits_one(self):
+        debug = self.stale_build()
+        output = STALE_LINK + "ld: Assertion failed: (atom != nullptr), function addAtom, file OutputFile.cpp\n"
+        result, receipt = self.run_build(**self.link_env(debug, FAKE_LINK_OUTPUT=output))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(self.runs.read_text().count("run"), 1)
+        self.assertTrue(receipt["stale_link_retry"]["crashed"])
+        self.assertFalse(receipt["stale_link_retry"]["detected"])
+        self.assertTrue((debug / "CmuxNextAgentPane.build/AcpmuxHarnessList.swift.o").is_file())
+
+    def test_an_explicit_referencing_module_does_not_clear_same_named_objects_elsewhere(self):
+        debug = self.stale_build()
+        for module in ("CmuxNextAppUI", "CmuxNextSidebar"):
+            (debug / f"{module}.build/Strings.swift.o").write_text("object")
+        output = STALE_LINK.replace("AgentPaneChatsPage.swift.o", "Strings.swift.o")
+        result, receipt = self.run_build(**self.link_env(debug, FAKE_LINK_OUTPUT=output))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((debug / "CmuxNextSidebar.build/Strings.swift.o").is_file())
+        self.assertTrue((debug / "CmuxNextSidebar.build/primary.priors").is_file())
+        self.assertFalse((debug / "CmuxNextAppUI.build/Strings.swift.o").exists())
+        self.assertEqual(receipt["stale_link_retry"]["cleared"], [
+            "arm64-apple-macosx/debug/CmuxNextAgentPane.build",
+            "arm64-apple-macosx/debug/CmuxNextAppUI.build",
+        ])
+
     def test_ansi_coloured_link_output_is_still_read(self):
         debug = self.stale_build()
         coloured = "\n".join(f"\x1b[0;1m{line}\x1b[0m" for line in STALE_LINK.splitlines()) + "\n"
