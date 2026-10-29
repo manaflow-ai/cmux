@@ -263,9 +263,10 @@ public final class FeedStore {
         }
     }
 
-    /// Explicit recovery also nudges the Macs before reading their feeds again.
-    public func retry(reconnect: @MainActor () -> Void = {}) async {
-        reconnect()
+    /// Recovery finishes opening the Macs' feeds before reading them again.
+    public func retry(reconnect: @MainActor () async -> Void = {}) async {
+        await reconnect()
+        guard !Task.isCancelled else { return }
         await refresh()
     }
 

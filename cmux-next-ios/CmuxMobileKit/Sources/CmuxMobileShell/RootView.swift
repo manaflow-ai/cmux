@@ -681,7 +681,10 @@ private struct FeedTabContent: View {
     var body: some View {
         @Bindable var shell = shell
         CmuxMobileFeed.FeedScreen(path: $shell.feedPath, reconnect: {
-            for mac in shell.store.activeTeam?.macs ?? [] { shell.live?.retry(macID: mac.id) }
+            for mac in shell.store.activeTeam?.macs ?? [] {
+                guard !Task.isCancelled else { return }
+                await shell.live?.reconnectFeed(macID: mac.id)
+            }
         }) { SidebarToolbarItem(sidebar: shell.sidebar) }
     }
 }

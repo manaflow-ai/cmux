@@ -76,6 +76,35 @@ final class WatchReply: @unchecked Sendable {
         #expect(Set(store.items.map(\.id)) == ["ask-perm", "turn-s1-t9"])
     }
 
+    @Test func retryWaitsForDelayedReconnectionBeforeRefreshing() async throws {
+        let store = FeedStore(items: [])
+        let hub = AcpmuxHub()
+        let feed = LiveFeed(store: store, hub: hub, place: { _ in nil })
+        store.actions = feed
+        await store.refresh()
+        #expect(store.refreshError != nil)
+        let (started, signalStarted) = AsyncStream<Void>.makeStream()
+        let (ready, signalReady) = AsyncStream<Void>.makeStream()
+        let channel = try await Self.mac(WatchReply(Self.waiting)).openChannel(service: "acpmux", args: [:])
+        let retry = Task { @MainActor in
+            await store.retry {
+                signalStarted.yield(())
+                for await _ in ready { break }
+                await hub.bind(channel)
+            }
+        }
+        for await _ in started { break }
+        #expect(store.refreshError != nil)
+        #expect(!hub.isReady)
+        signalReady.yield(())
+        await retry.value
+        signalStarted.finish()
+        signalReady.finish()
+        #expect(store.refreshError == nil)
+        #expect(Set(store.items.map(\.id)) == ["ask-perm", "turn-s1-t9"])
+        await hub.bind(nil)
+    }
+
     @Test func refreshWithNoMacFailsVisibly() async {
         let store = FeedStore(items: [])
         await store.refresh()

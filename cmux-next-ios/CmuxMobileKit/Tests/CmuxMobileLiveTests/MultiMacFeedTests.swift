@@ -102,6 +102,34 @@ import Testing
         #expect(feed.actions != nil)
     }
 
+    @Test func retryReopensFailedFeedChannelOnConnectedMac() async throws {
+        UserDefaults.standard.removeObject(forKey: Self.teamKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
+        let feed = FeedStore(items: [])
+        let store = emptyStore()
+        let dialer = PerMacDialer(acpmux: Self.acpmux(Answers()))
+        let live = coordinator(store: store, feed: feed, dialer: dialer)
+        defer { live.stop() }
+        live.showing(macIDs: ["m1"])
+        #expect(await live.waitUntil(within: .seconds(3)) { live.sessions["m1"]?.acpmux.isReady == true })
+        let session = try #require(live.sessions["m1"])
+        let link = try #require(session.currentLink)
+        let dials = dialer.dialCount("m1")
+        await session.acpmux.bind(nil)
+        session.chatsError = "channel closed"
+        await feed.refresh()
+        #expect(feed.refreshError != nil)
+
+        await feed.retry { await live.reconnectFeed(macID: "m1") }
+
+        #expect(session.currentLink === link)
+        #expect(dialer.dialCount("m1") == dials)
+        #expect(session.acpmux.isReady)
+        #expect(session.chatsError == nil)
+        #expect(feed.refreshError == nil)
+        #expect(feed.item(id: "ask-perm-m1") != nil)
+    }
+
     /// The user's report: the second Mac's agent asks, the first Mac is the
     /// chosen one, and both are connected. Deny reaches the second Mac only.
     @Test func anAskFromTheOtherMacIsAnsweredOnThatMac() async throws {
