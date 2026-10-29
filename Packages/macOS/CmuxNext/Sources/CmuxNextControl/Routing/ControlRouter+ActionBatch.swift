@@ -129,7 +129,8 @@ extension ControlRouter {
                     // live chat or canvas facts) refuses the whole batch, also `atomic: false`, before
                     // any op applies. A later op that becomes unavailable is refused when it runs.
                     if start == 0, let index = executor.firstUnavailable(all) {
-                        throw (ControlError.actionOutcome(.unavailable, action: all[index].actionID) ?? expired).atBatchOp(index)
+                        let action = all.dropFirst(index).first?.actionID ?? call.method
+                        throw (ControlError.actionOutcome(.unavailable, action: action) ?? expired).atBatchOp(index)
                     }
                     // The request may have answered `not_run` already: then never run.
                     guard progress.begin(), scope.noting("handler") else { throw expired }
