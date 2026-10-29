@@ -20,6 +20,7 @@ on:
       - web/services/vms/images/manifest.json
       - web/services/vms/images/sizes.ts
       - web/services/vms/images/devbox/**
+      - tests/test_devbox_bubblewrap.py
       - web/tests/vm-image-*.test.ts
       - .github/workflows/cloud-vm-image-contract.yml
   push:
@@ -41,6 +42,7 @@ on:
       - web/services/vms/images/manifest.json
       - web/services/vms/images/sizes.ts
       - web/services/vms/images/devbox/**
+      - tests/test_devbox_bubblewrap.py
       - web/tests/vm-image-*.test.ts
       - .github/workflows/cloud-vm-image-contract.yml
   workflow_dispatch:
@@ -88,6 +90,9 @@ jobs:
 
       - name: Validate the checked-in image ladder
         run: bun run devbox:manifest:check
+
+      - name: Test bubblewrap installation and unprivileged sandbox
+        run: python3 ../tests/test_devbox_bubblewrap.py
 
       - name: Test image contracts
         run: bun test tests/vm-image-manifest.test.ts tests/vm-image-sizes.test.ts tests/vm-devbox-image.test.ts
