@@ -148,9 +148,7 @@ const draw = () =>
   ]);
   const path = "/tmp/project/gap-selection.mp4";
   seedLinkStore({ paths: { [path]: { place: "root", folder: false } } });
-  setChipHost(async (method) =>
-    method === "media.load" ? { src: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } : {},
-  );
+  setChipHost(async (method) => (method === "media.load" ? { src: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` } : {}));
   const host = document.createElement("div");
   host.id = "gap-reply-media";
   host.style.cssText = "width:360px;max-width:100%";

@@ -443,7 +443,7 @@ export function installGutterSelect(
     const targetElement = target instanceof Element ? target : undefined;
     const rowGapPress = Boolean(
       targetElement?.closest<HTMLElement>("[data-transcript-gap='row']") &&
-        thread.contains(targetElement.closest("[data-transcript-gap='row']")),
+      thread.contains(targetElement.closest("[data-transcript-gap='row']")),
     );
     const stripPress = Boolean(
       targetElement?.matches(".acpmux-composer-strip") && eventSurface.contains(targetElement),
@@ -464,14 +464,7 @@ export function installGutterSelect(
     if (!sideGutter && !transcriptGap) return;
     if (rowGapPress && hitsText(doc, thread, event.clientX, event.clientY)) return;
     const point = clampIntoColumn(event.clientX, event.clientY, geometry);
-    const resolved =
-      transcriptGap || !hitsText(doc, thread, point.x, point.y)
-        ? nearestCaretAtPoint(doc, thread, point.x, point.y, geometry.view)
-        : (() => {
-            const caret = caretAt(doc, point.x, point.y);
-            const row = inThread(caret) ? rowOf(caret.node) : undefined;
-            return caret && row ? { caret, row } : nearestCaretAtPoint(doc, thread, point.x, point.y, geometry.view);
-          })();
+    const resolved = nearestCaretAtPoint(doc, thread, point.x, point.y, geometry.view);
     // A plain click in a gap with no mounted text clears an existing transcript selection, while
     // leaving the browser's normal background focus behavior untouched.
     if (!resolved) {

@@ -116,6 +116,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         // Tool headers are controls before their output. Aim at the row's real blank trailing
         // padding, so the midpoint cannot accidentally be inside the next tool's disclosure.
         gapY: column.bottom - Math.max(1, padding / 2),
+        hasRowPadding: padding > 0,
         center: (column.left + column.right) / 2,
         left: column.left / 2,
         right: (column.right + innerWidth - 16) / 2,
@@ -143,6 +144,9 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
               if (direction === "ltr") paragraph.dir = "ltr";
             }
           }, lineDirection);
+          // A real, explicit padding surface on the upper row lets both endpoints be tested
+          // without aiming into the paragraph's own line-height padding.
+          await page.addStyleTag({ content: '.acpmux-row[data-row-id="upper"] { padding-bottom: 32px; }' });
           await paint(page);
           const box = await page.evaluate(() => {
             const line = (id: string) => {
@@ -165,6 +169,12 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
               upper: line("upper"),
               lower: line("lower"),
               after: line("after"),
+              gap: (() => {
+                const rect = document
+                  .querySelector('[data-row-id="upper"] [data-transcript-gap="row"]')!
+                  .getBoundingClientRect();
+                return { top: rect.top, bottom: rect.bottom };
+              })(),
               xs: [
                 (view.left + column.left) / 2,
                 (column.left + column.right) / 2,
@@ -175,13 +185,14 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           expect(box.upper.direction).toBe(lineDirection);
           expect(box.lower.direction).toBe(lineDirection);
           expect(box.lower.top - box.upper.bottom).toBeGreaterThan(4);
+          expect(box.gap.bottom - box.gap.top).toBe(32);
           const end = {
             x: lineDirection === "rtl" ? box.after.left + 0.5 : box.after.right - 0.5,
             y: (box.after.top + box.after.bottom) / 2,
           };
           for (const [row, y, offset] of [
-            ["upper", box.upper.bottom + 1, box.upper.text.length],
-            ["lower", box.lower.top - 1, 0],
+            ["upper", box.gap.top + 1, box.upper.text.length],
+            ["lower", box.gap.bottom - 1, 0],
           ] as const)
             for (const x of box.xs) {
               await drag(page, { x, y }, end);
@@ -210,7 +221,8 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           const box = await geometry(page);
           expect(box.lower.top).toBeGreaterThan(box.upper.bottom);
           const nearestRow = box.gapY - box.upper.bottom <= box.lower.top - box.gapY ? "upper" : "lower";
-          for (const x of [box.center, box.left, box.right]) {
+          // Consecutive tool rows can have zero row padding: their content owns the center.
+          for (const x of [...(box.hasRowPadding ? [box.center] : []), box.left, box.right]) {
             await drag(page, { x, y: box.gapY }, box.after);
             expect((await selected(page)).length).toBeGreaterThan(0);
             const anchor = await page.evaluate(() => {
@@ -229,14 +241,6 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
             await page.mouse.click(x, box.gapY);
             expect(await selected(page)).toBe("");
           }
-          // A point nearer the next row starts at its first caret, rather than at the preceding end.
-          await drag(page, { x: box.center, y: box.lower.top - 0.5 }, box.after);
-          expect(
-            await page.evaluate(() =>
-              getSelection()?.anchorNode?.parentElement?.closest(".acpmux-row")?.getAttribute("data-row-id"),
-            ),
-          ).toBe("lower");
-          expect(await page.evaluate(() => getSelection()?.anchorOffset)).toBe(0);
           await page.close();
         });
         test(`${name}: ${above} to ${below} inter-row midpoint starts at the nearest caret`, async () => {

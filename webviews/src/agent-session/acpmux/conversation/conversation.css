@@ -1237,7 +1237,9 @@ pre.cv-math-source {
   right: 0;
   bottom: 0;
   left: 0;
-  height: 8px;
+  height: 0;
+  /* Inherit the actual row padding: step rows and live lines use smaller or zero gaps. */
+  padding-bottom: inherit;
   pointer-events: auto;
   background: transparent;
 }
