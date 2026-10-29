@@ -189,3 +189,33 @@ async fn unfinished_pipe_cannot_hold_the_join_lock_forever() {
     assert_eq!(result.status.code(), Some(2));
     assert!(!String::from_utf8_lossy(&result.stderr).contains("cmj_incomplete"));
 }
+
+#[tokio::test]
+async fn credential_write_failure_after_redeem_requires_a_fresh_token_without_secrets() {
+    let home = tempfile::tempdir().unwrap();
+    let target = home.path().join("machine-credential.json");
+    let (origin, server) = response_server(200, move |_, body| {
+        // Fail the actual credential commit only after the one-shot redeem.
+        std::fs::create_dir(&target).unwrap();
+        json!({"credential": CREDENTIAL, "machineId":"machine_test", "teamId":"team_test", "wgPublicKey":body["wgPublicKey"]})
+    });
+    let mut child = cli(home.path())
+        .args(["host", "join", "--hub", &origin])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    input.write_all(format!("{TOKEN}\n").as_bytes()).await.unwrap();
+    drop(input);
+    let result = child.wait_with_output().await.unwrap();
+    server.join().unwrap();
+    assert_eq!(result.status.code(), Some(5));
+    let error = String::from_utf8_lossy(&result.stderr);
+    assert!(error.contains("join token was used"), "{error}");
+    assert!(error.contains("fix local storage"), "{error}");
+    assert!(error.contains("machine add again for a fresh token"), "{error}");
+    for text in [&result.stderr, &result.stdout] {
+        let text = String::from_utf8_lossy(text);
+        assert!(!text.contains(TOKEN) && !text.contains(CREDENTIAL));
+    }
+}
