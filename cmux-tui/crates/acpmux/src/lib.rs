@@ -22,6 +22,7 @@ pub mod agent_displays;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_tools;
+mod artifacts_tools;
 pub mod attach;
 pub mod author;
 pub mod beads;
