@@ -97,6 +97,7 @@ import Testing
             let temporary = DisplayBackdropBinding(window: window, scope: room, center: center, displayID: { first })
             temporary.apply(["appearance": ["displayBackgrounds": .object([first: "daily"])]])
             released = temporary
+            temporary.stop()
         }
         #expect(released == nil, "Observers and the rotation timer must not retain their window binding")
     }

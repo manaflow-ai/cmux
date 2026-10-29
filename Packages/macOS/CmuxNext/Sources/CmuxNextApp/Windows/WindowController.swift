@@ -117,8 +117,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         let displayBackdrop = DisplayBackdropBinding(window: window, scope: themeScope,
                                                       displayID: { [weak window] in
-                                                          guard let number = window?.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
-                                                          return number.stringValue
+                                                          window?.screen.flatMap(WindowPlacementFallback.displayID(of:))
                                                       })
         self.displayBackdrop = displayBackdrop
         if let settings = services.settings {
