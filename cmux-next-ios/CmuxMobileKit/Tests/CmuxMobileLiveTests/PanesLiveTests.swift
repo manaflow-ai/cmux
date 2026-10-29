@@ -80,7 +80,7 @@ import Testing
      "panes":[{"id":60,"name":"","active_tab":0,"tabs":[{"surface":60,"kind":"pty","title":"zsh","dead":false,"terminal_id":"term_s"}]}]}
     """#
 
-    /// wk1 in viewport columns: a chat dock docked on the left, 90% of the viewport wide (pane 64),
+    /// wk1 in viewport columns: a chat dock floating over the left edge, 90% of the viewport wide (pane 64),
     /// then three scrolling columns, each two thirds of the viewport wide (panes 61, 62, 63). The
     /// screen's `layout` is the compatibility chain that squeezes them all into one width.
     nonisolated static let columnsTree = #"""
@@ -91,7 +91,7 @@ import Testing
                        "b":{"type":"split","split":72,"dir":"right","ratio":0.5,"a":{"type":"leaf","pane":62},"b":{"type":"leaf","pane":63}}}},
         "viewport_base_width":0.9,
         "columns":[
-          {"id":80,"width":0.9,"layout":{"type":"leaf","pane":64},"dock":{"edge":"left","mode":"docked","role":"agent_chat"}},
+          {"id":80,"width":0.9,"layout":{"type":"leaf","pane":64},"dock":{"edge":"left","mode":"overlay","role":"agent_chat"}},
           {"id":81,"width":0.6667,"layout":{"type":"leaf","pane":61}},
           {"id":82,"width":0.6667,"layout":{"type":"leaf","pane":62}},
           {"id":83,"width":0.6667,"layout":{"type":"leaf","pane":63}}],
@@ -253,8 +253,8 @@ import Testing
 
     /// Viewport columns are as wide as the Mac draws them (`columns[].width` of its viewport), not
     /// the compatibility chain's share of one width: three columns two thirds of a viewport wide
-    /// are each 10.67 by 10 in a 16:10 window, so the first one splits right. The docked chat
-    /// column is never split, as on the Mac.
+    /// are each 10.67 by 10 in a 16:10 window, so the first one splits right. The chat dock (an
+    /// overlay, so the strip keeps the full width) is never split, as on the Mac.
     @Test func autoLayoutReadsViewportColumnsAtTheirWidths() async throws {
         let seen = Seen()
         seen.setTree(Self.columnsTree.replacingOccurrences(of: "\n", with: ""))
@@ -276,7 +276,7 @@ import Testing
             ],
         ]
         let columns = DaemonTree.columns(screen, without: [9])
-        #expect(columns.map(\.dock) == [.init(edge: .left), nil])
+        #expect(columns.map(\.dock) == [WorkspaceLayout.Column.Dock(edge: .left), nil])
         #expect(columns.map(\.width) == [0.9, 0.6667])
         #expect(columns.last?.root == .pane(1))
     }
@@ -297,7 +297,7 @@ import Testing
         #expect(screen.autoLayoutSplit?.direction == .right)
         // Only docked columns' panes have no frame to compare: nothing scrolling is split.
         let docked = WorkspaceLayout.Screen(id: 1, isActive: true, panes: [WorkspaceLayout.Pane(id: 4, tabIDs: [])], root: .pane(4),
-                                            columns: [WorkspaceLayout.Column(width: 1, dock: .init(edge: .left), root: .pane(4))])
+                                            columns: [WorkspaceLayout.Column(width: 1, dock: WorkspaceLayout.Column.Dock(edge: .left), root: .pane(4))])
         #expect(docked.autoLayoutSplit == nil)
     }
 
@@ -309,17 +309,17 @@ import Testing
             WorkspaceLayout.Screen(id: 1, isActive: true, panes: [1, 2, 9].map { WorkspaceLayout.Pane(id: $0, tabIDs: []) }, root: nil,
                                    columns: [dock, WorkspaceLayout.Column(width: 0.5, root: .pane(1)), WorkspaceLayout.Column(width: 0.5, root: .pane(2))])
         }
-        let band = screen(WorkspaceLayout.Column(width: 0.3, dock: .init(edge: .top), root: .pane(9)))
+        let band = screen(WorkspaceLayout.Column(width: 0.3, dock: WorkspaceLayout.Column.Dock(edge: .top), root: .pane(9)))
         #expect(band.autoLayoutSplit?.pane == 1)
         #expect(band.autoLayoutSplit?.direction == .right)
-        let overlayBand = screen(WorkspaceLayout.Column(width: 0.3, dock: .init(edge: .bottom, isOverlay: true), root: .pane(9)))
+        let overlayBand = screen(WorkspaceLayout.Column(width: 0.3, dock: WorkspaceLayout.Column.Dock(edge: .bottom, isOverlay: true), root: .pane(9)))
         #expect(overlayBand.autoLayoutSplit?.direction == .right)
         // A docked left dock half the window wide leaves 8 by 10: the halves are 4 by 10 and split down.
-        let docked = screen(WorkspaceLayout.Column(width: 0.5, dock: .init(edge: .left), root: .pane(9)))
+        let docked = screen(WorkspaceLayout.Column(width: 0.5, dock: WorkspaceLayout.Column.Dock(edge: .left), root: .pane(9)))
         #expect(docked.autoLayoutSplit?.pane == 1)
         #expect(docked.autoLayoutSplit?.direction == .down)
         // The same dock floating over the strip leaves it the whole width: halves 8 wide.
-        let overlay = screen(WorkspaceLayout.Column(width: 0.5, dock: .init(edge: .left, isOverlay: true), root: .pane(9)))
+        let overlay = screen(WorkspaceLayout.Column(width: 0.5, dock: WorkspaceLayout.Column.Dock(edge: .left, isOverlay: true), root: .pane(9)))
         #expect(overlay.autoLayoutFrames[1]?.width == 8)
         #expect(docked.autoLayoutFrames[1]?.width == 4)
         #expect(band.autoLayoutFrames[1]?.height == 7)
