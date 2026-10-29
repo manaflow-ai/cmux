@@ -1771,6 +1771,56 @@ async fn queue_ops_edits_survive_a_daemon_crash() {
     assert_eq!(order, ["q-2", "q-1"]);
 }
 
+/// An answered rename, tag, policy and rules come back after a crash that came before their
+/// session record (`session.json`) was written: the restart rebuilds them from the event log,
+/// the source of truth (`hub/meta_replay.rs`). `ACPMUX_TEST_META_WRITE_DELAY_MS` (debug builds
+/// only) holds every session record write, so the daemon dies with the new record unwritten;
+/// the test waits for the log records first (the log is what the restart reads).
+#[tokio::test]
+async fn answered_session_settings_survive_a_crash_before_the_session_record_is_saved() {
+    let mut daemon = Daemon::new("meta-slow", "approve-all");
+    let session = new_session(&daemon).await;
+    // The session's own record is on disk before the slow writes start.
+    let record = daemon.home.join("sessions").join(&session).join("session.json");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !record.exists() {
+        assert!(Instant::now() < deadline, "no session record at {}", record.display());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    daemon.sigkill();
+    daemon.env.push(("ACPMUX_TEST_META_WRITE_DELAY_MS".into(), "5000".into()));
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/rename", json!({"sessionId": session, "newName": "named-before-crash"}))
+        .await;
+    rpc.call("_acpmux/tag", json!({"sessionId": session, "set": {"lane": "fast"}})).await;
+    rpc.call("_acpmux/set_policy", json!({"sessionId": session, "policy": "deny-all"})).await;
+    rpc.call(
+        "_acpmux/set_rules",
+        json!({"sessionId": session, "rules": {"autoApprove": ["execute"]}}),
+    )
+    .await;
+    for kind in ["renamed", "tags", "policy", "rules"] {
+        daemon.wait_event(&session, kind, |e| e["kind"] == kind);
+    }
+    daemon.sigkill();
+    drop(rpc);
+    daemon.env.retain(|(k, _)| k != "ACPMUX_TEST_META_WRITE_DELAY_MS");
+    daemon.start();
+
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let s = &attached["session"];
+    assert_eq!(s["name"], "named-before-crash", "an answered rename was lost: {attached:#}");
+    assert_eq!(s["tags"]["lane"], "fast", "an answered tag was lost: {attached:#}");
+    assert_eq!(s["enforcement"]["policy"], "deny-all", "an answered policy was lost: {attached:#}");
+    assert_eq!(
+        s["rulesJson"],
+        json!({"autoApprove": ["execute"]}),
+        "answered rules were lost: {attached:#}"
+    );
+}
+
 /// A queued prompt that left the queue for its turn (`dequeued`) when the daemon died, before
 /// its turn started, runs once after the restart: a client that resends it gets its real
 /// outcome, not `interrupted`. `ACPMUX_TEST_EXIT_AFTER_DEQUEUE` stops the first daemon there.
