@@ -127,7 +127,7 @@ nonisolated enum AcpmuxStatusClient {
                 let fallback = try await call(socketPath: socketPath, method: "_acpmux/resolve",
                                               params: ["query": sessionId], deadline: deadline, detailed: true)
                 return sessionSummary(sessionId, in: fallback)
-            } catch let fallbackError as AcpmuxRPCError where fallbackError.code == -32002 {
+            } catch let fallbackError as AcpmuxRPCError where shouldTreatLegacyResolveFailureAsMissing(fallbackError) {
                 return nil
             }
         }
@@ -136,6 +136,12 @@ nonisolated enum AcpmuxStatusClient {
 
     static func shouldFallbackExactResolve(_ error: AcpmuxRPCError) -> Bool {
         error.code == -32601 || error.code == -32602
+    }
+
+    /// A daemon may reject both the new exact form and the legacy resolver
+    /// itself. In either case the caller has no session summary to open.
+    static func shouldTreatLegacyResolveFailureAsMissing(_ error: AcpmuxRPCError) -> Bool {
+        error.code == -32002 || shouldFallbackExactResolve(error)
     }
 
     static func sessionSummary(_ sessionId: String, in result: [String: Any]) -> [String: Any]? {

@@ -34,6 +34,17 @@ import Testing
         #expect(!AcpmuxStatusClient.shouldFallbackExactResolve(AcpmuxRPCError(code: -32002, message: "not found")))
     }
 
+    @Test func legacyResolveMissingErrorsBecomeNoSummary() {
+        #expect(AcpmuxStatusClient.shouldTreatLegacyResolveFailureAsMissing(
+            AcpmuxRPCError(code: -32002, message: "not found")))
+        #expect(AcpmuxStatusClient.shouldTreatLegacyResolveFailureAsMissing(
+            AcpmuxRPCError(code: -32601, message: "method missing")))
+        #expect(AcpmuxStatusClient.shouldTreatLegacyResolveFailureAsMissing(
+            AcpmuxRPCError(code: -32602, message: "invalid params")))
+        #expect(!AcpmuxStatusClient.shouldTreatLegacyResolveFailureAsMissing(
+            AcpmuxRPCError(code: -32000, message: "server error")))
+    }
+
     @Test func legacyLocalResolveHostDoesNotMakeFolderRemote() {
         let result: [String: Any] = ["session": [
             "sessionId": "local-1", "cwd": "/work", "host": "This Mac",
