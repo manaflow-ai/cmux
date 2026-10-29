@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextPages
 import CmuxNextScreenshots
+import CmuxNextTabs
 
 /// One of this app's main windows as on screen, for `cmux window|pane|tab
 /// screenshot`: the window server's image of the window and its Chromium
@@ -103,7 +104,7 @@ extension ScreenshotMask.Rules {
             // PaneContentView keeps the tab strip beside the browser chrome. Tab titles, badges,
             // and page-derived labels in that sibling can carry the same secrets as the page.
             // Cover the strip as a separate area so window and pane crops cannot expose it.
-            if let pane = view as? PaneContentView { return pane.stripView }
+            if let strip = view as? TabStripView { return strip }
             // A chat's last frame, drawn under the pane's content until its page paints. Hidden
             // it has already been replaced by the content above it, which `visit` reaches itself.
             guard let launch = (view as? PaneContentView)?.launchImageView, !launch.isHidden else { return nil }

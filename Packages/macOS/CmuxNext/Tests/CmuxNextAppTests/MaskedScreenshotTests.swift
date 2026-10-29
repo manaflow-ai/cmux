@@ -6,7 +6,7 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextPages
 import CmuxNextScreenshots
-@testable import CmuxNextTabs
+import CmuxNextTabs
 import Testing
 import WebKit
 
@@ -197,10 +197,14 @@ import WebKit
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil); window.close() }
+        let reveal = LaunchReveal()
+        reveal.markAllReady()
         let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "secret-title")]),
-                                   reveal: LaunchReveal(deadline: .zero))
-        pane.frame = window.contentLayoutRect
-        window.contentView = pane
+                                   reveal: reveal)
+        let root = NSView(frame: window.contentLayoutRect)
+        pane.frame = root.bounds.insetBy(dx: 20, dy: 20)
+        root.addSubview(pane)
+        window.contentView = root
         window.orderFrontRegardless()
         pane.layoutSubtreeIfNeeded()
         let titlePixels = NSView(frame: pane.stripView.bounds.insetBy(dx: 8, dy: 4))
@@ -210,11 +214,16 @@ import WebKit
         pane.layoutSubtreeIfNeeded()
         CATransaction.flush()
 
+        let stripRect = pane.stripView.convert(pane.stripView.bounds, to: nil)
+        #expect(stripRect.width > 0 && stripRect.height > 0)
+        await ScreenshotMask.waitToSettle()
+        let raw = try await window.screenshotImage(includeChild: { _ in false })
+        #expect(Self.isRed(Pixels(raw).at(CGPoint(x: stripRect.midX, y: stripRect.midY), size: window.frame.size)),
+                "the unmasked strip actually renders the sentinel over its secret title")
         let services = AppServices(environment: AppEnvironment.current([:]))
         var invocation = ActionInvocation(origin: .user)
         invocation.viaControlSocket = true
         let full = try await ScreenshotHandlers.shown(window, crop: nil, for: invocation, services: services)
-        let stripRect = pane.stripView.convert(pane.stripView.bounds, to: nil)
         let fullPixels = Pixels(full.image)
         #expect(full.masked ?? 0 >= 1)
         #expect(fullPixels.all(in: stripRect, size: window.frame.size).allSatisfy(Self.isMask),
@@ -222,8 +231,35 @@ import WebKit
 
         let crop = try await ScreenshotHandlers.shown(window, crop: pane, for: invocation, services: services)
         #expect(crop.masked ?? 0 >= 1)
-        #expect(Pixels(crop.image).all(in: pane.stripView.convert(pane.stripView.bounds, to: pane), size: pane.bounds.size)
-            .allSatisfy(Self.isMask), "tab titles and badges in the pane crop are masked")
+        // Pixel helpers use a bottom-left origin, while PaneContentView is flipped.
+        let paneRect = pane.convert(pane.bounds, to: nil)
+        let croppedStrip = stripRect.offsetBy(dx: -paneRect.minX, dy: -paneRect.minY)
+        let stripPixels = Pixels(crop.image).all(in: croppedStrip, size: pane.bounds.size)
+        #expect(!stripPixels.isEmpty)
+        #expect(stripPixels.allSatisfy(Self.isMask), "tab titles and badges in the pane crop are masked")
+    }
+
+    @Test func maskingTheStripPreservesTheLaunchImageMask() {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let reveal = LaunchReveal()
+        reveal.markAllReady()
+        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: "chat", title: "secret-title")]), reveal: reveal)
+        window.contentView = pane
+        pane.layoutSubtreeIfNeeded()
+        let launch = NSView(frame: pane.contentHost.bounds)
+        pane.contentHost.addSubview(launch)
+        pane.launchImageView = launch
+        let mask = ScreenshotMask.read(window, rules: .app)
+        let stripRect = pane.stripView.convert(pane.stripView.bounds, to: nil)
+        let launchRect = launch.convert(launch.bounds, to: nil)
+        #expect(stripRect.width > 0 && stripRect.height > 0)
+        #expect(launchRect.width > 0 && launchRect.height > 0)
+        #expect(mask.regions.contains(stripRect))
+        #expect(mask.regions.contains(launchRect))
     }
 
     /// App pages are masked unless checked to show nothing secret: a new page is masked by default.
