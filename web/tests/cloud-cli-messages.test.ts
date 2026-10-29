@@ -11,3 +11,13 @@ test("Cloud CLI guidance renders machine targets as text in every locale", async
     expect(errors).toEqual([]);
   }
 });
+
+test("docs search includes every generated Cloud command", async () => {
+  const { docsSearchPages } = await import("../tools/build-docs-search.mjs");
+  const catalog = (await import("../app/[locale]/(landing)/docs/cloud/cli/actions.json")).default;
+  const pages = await docsSearchPages();
+  const page = pages.find((entry: { locale: string; href: string }) => entry.locale === "en" && entry.href === "/docs/cloud/cli");
+  expect(page).toBeDefined();
+  const text = page.sections.flatMap((section: { texts: string[] }) => section.texts).join("\n");
+  for (const { command } of catalog.actions) expect(text).toContain(command);
+});

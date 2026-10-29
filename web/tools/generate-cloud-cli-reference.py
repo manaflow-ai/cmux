@@ -8,12 +8,14 @@ The website's main branch does not contain the NEXT catalog itself.
 """
 import argparse
 import json
+import re
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CATALOG = 'plans/cmux-next/action-surfaces.json'
 OUTPUT = ROOT / 'web/app/[locale]/(landing)/docs/cloud/cli/actions.json'
+PAGE = OUTPUT.with_name('page.tsx')
 
 
 def snapshot(ref):
@@ -39,8 +41,17 @@ if __name__ == '__main__':
     args = parser.parse_args()
     ref = args.ref or json.loads(OUTPUT.read_text())['sourceCommit']
     generated = snapshot(ref)
+    actions = json.loads(generated)['actions']
+    # Inline rows keep commands discoverable by the site's static search index.
+    rows = '\n'.join('          <tr><td><code>' + a['command'] + '</code></td><td><code>' + a['id'] + '</code></td></tr>' for a in actions)
+    page, replacements = re.subn(r'(?s)(          \{/\* GENERATED_CLOUD_ACTIONS_START \*/\})(.*?)(          \{/\* GENERATED_CLOUD_ACTIONS_END \*/\})', lambda m: m[1] + '\n' + rows + '\n' + m[3], PAGE.read_text())
+    if replacements != 1:
+        parser.exit(1, 'Expected exactly one generated Cloud table in page.tsx.\n')
     if args.check:
+        if PAGE.read_text() != page:
+            parser.exit(1, 'Cloud CLI table differs; regenerate it with --ref.\n')
         if OUTPUT.read_text() != generated:
             parser.exit(1, 'Cloud CLI snapshot differs; regenerate it with --ref.\n')
     else:
         OUTPUT.write_text(generated)
+        PAGE.write_text(page)
