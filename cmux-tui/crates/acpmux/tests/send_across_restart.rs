@@ -203,8 +203,8 @@ fn cli_daemon_restart_reattaches_an_active_turn() {
 
     let stopped = cli(&dir, &["daemon", "shutdown"]);
     assert!(stopped.status.success(), "shutdown: {}", text(&stopped));
-    let restarted = cli(&dir, &["--json", "daemon", "start"]);
-    assert!(restarted.status.success(), "start: {}", text(&restarted));
+    let restarted = cli(&dir, &["--json", "daemon", "restart"]);
+    assert!(restarted.status.success(), "restart: {}", text(&restarted));
     let restart_json: serde_json::Value =
         serde_json::from_slice(&restarted.stdout).expect("restart JSON");
     assert_eq!(restart_json["restarted"], true);
