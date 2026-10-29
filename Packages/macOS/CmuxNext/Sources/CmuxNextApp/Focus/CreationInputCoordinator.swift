@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextFocusUI
 import CmuxNextTerminal
@@ -272,6 +273,11 @@ final class CreationInputCoordinator {
     /// The creation behind `ticket` got its reply (`landed`: its focus was asked for) or failed (its keys drop).
     func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, in window: NSWindow?) {
         resolve(ticket, landed: landed, workspace: nil, in: window)
+    }
+
+    /// The creation behind `ticket` made surface `created`, or failed (nil).
+    func resolve(_ ticket: CreationInputBuffer.Ticket?, created: SurfaceID?, in window: NSWindow?) {
+        resolve(ticket, landed: created != nil, workspace: nil, in: window)
     }
 
     /// The new workspace behind `ticket` (``beginWorkspace(in:)``) was made (`workspace`, its id) or not (nil: it

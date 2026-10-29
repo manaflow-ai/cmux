@@ -214,7 +214,7 @@ struct EarlyTerminalKeysTests {
             let router = h.services.keyRouter
             let coordinator = router.creationInputCoordinator
             let ticket = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation))
-            coordinator.resolve(ticket, landed: true, in: window) // its flush runs in a later turn
+            coordinator.resolve(ticket, created: SurfaceID(rawValue: 1), in: window) // its flush runs in a later turn
             #expect(window.firstResponder === h.entry.session.surfaceView, "the test needs the terminal to have the keyboard")
             let typed = try Self.key("a", keyCode: 0, in: window)
             let held = router.interceptKeyDown(typed, in: window)
@@ -236,7 +236,7 @@ struct EarlyTerminalKeysTests {
                         "a key before the reply was not held: \(Self.held(h))")
             }
             let before = coordinator.replayedCount
-            coordinator.resolve(ticket, landed: true, in: window)
+            coordinator.resolve(ticket, created: SurfaceID(rawValue: 1), in: window)
             let held = router.interceptKeyDown(try Self.key("c", keyCode: 8, in: window), in: window)
             #expect(!held, "the key after the reply waited: \(Self.held(h))")
             #expect(coordinator.replayedCount == before + 2, "the two held keys did not run first")
@@ -265,7 +265,7 @@ struct EarlyTerminalKeysTests {
             window.makeFirstResponder(entry.session.surfaceView)
             #expect(!router.interceptKeyDown(try Self.key("b", keyCode: 11, in: window), in: window), "the next key waited: \(Self.held(h))")
             #expect(seam.stage(.creation).count == start + 1, "the early replay sent a held key again without recording its hold")
-            coordinator.resolve(early, landed: false, in: window)
+            coordinator.resolve(early, created: nil, in: window)
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: window) }, within: .seconds(2),
                                                       report: { "the early hold never ended: \(Self.held(h))" })
 
@@ -274,7 +274,7 @@ struct EarlyTerminalKeysTests {
             for (letter, code) in [("c", UInt16(8)), ("d", UInt16(2))] {
                 #expect(router.interceptKeyDown(try Self.key(letter, keyCode: code, in: window), in: window), "a key was not held: \(Self.held(h))")
             }
-            coordinator.resolve(ticket, landed: true, in: window)
+            coordinator.resolve(ticket, created: SurfaceID(rawValue: 1), in: window)
             #expect(!router.interceptKeyDown(try Self.key("e", keyCode: 14, in: window), in: window), "the key after the reply waited: \(Self.held(h))")
             #expect(seam.stage(.creation).count == start + 3, "the hold's end sent held keys again without recording their holds")
         }
@@ -290,7 +290,7 @@ struct EarlyTerminalKeysTests {
             let mount = try Self.unmount(h)
             defer { mount() }
             let ticket = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation))
-            coordinator.resolve(ticket, landed: true, in: window)
+            coordinator.resolve(ticket, created: SurfaceID(rawValue: 1), in: window)
             let before = coordinator.replayedCount
             let held = router.interceptKeyDown(try Self.key("a", keyCode: 0, in: window), in: window)
             #expect(held, "a key went on while the new terminal could not take it: \(Self.held(h))")
@@ -362,7 +362,7 @@ struct EarlyTerminalKeysTests {
                 #expect(router.interceptKeyDown(try Self.key(letter, keyCode: code, in: window), in: window),
                         "a key before the reply was not held: \(Self.held(h))")
             }
-            coordinator.resolve(ticket, landed: true, in: window) // its flush runs in a later turn
+            coordinator.resolve(ticket, created: SurfaceID(rawValue: 1), in: window) // its flush runs in a later turn
             window.makeFirstResponder(composer)
             // The focus model follows the responder to the composer (fleet ceed6045: resolved .textField), a programmatic
             // move, not the person's: the keys typed for the new terminal still wait for it.
@@ -396,7 +396,7 @@ struct EarlyTerminalKeysTests {
             }
             window.makeFirstResponder(composer)
             let before = coordinator.replayedCount
-            coordinator.resolve(ticket, landed: true, in: window)
+            coordinator.resolve(ticket, created: SurfaceID(rawValue: 1), in: window)
             // The focus model follows the responder to the composer (fleet ceed6045: resolved .textField), a programmatic
             // move, not the person's: the keys typed for the new terminal still wait for it.
             #expect(window.firstResponder === composer, "the test needs another view to have the keyboard")
@@ -502,6 +502,54 @@ struct EarlyTerminalKeysTests {
         }
     }
 
+    /// A creation whose focus never lands (review finding 6b): the daemon replied with the new surface, but the store, once
+    /// it holds everything the daemon emitted before that reply, does not show it in this window (it went elsewhere or
+    /// is already gone). Before, the keys waited for an expectation that could never land, with nothing to end the wait.
+    /// The creation's own operation ends it: its keys drop (targetFailed) in that turn, never go to another target, and
+    /// the window holds nothing more.
+    @Test func aCreationWhoseSurfaceNeverShowsInTheWindowDropsItsKeys() async throws {
+        try await Self.withTerminal { h in
+            let (controller, window) = (h.controller, h.window)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            let mount = try Self.unmount(h)
+            defer { mount() }
+            let ticket = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation))
+            #expect(router.interceptKeyDown(try Self.key("a", keyCode: 0, in: window), in: window), "the key was not held: \(Self.held(h))")
+            let before = coordinator.replayedCount
+
+            // The reply names surface 99, which no workspace of this window's store has.
+            coordinator.resolve(ticket, created: SurfaceID(rawValue: 99), in: window)
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: window) }, within: .seconds(2),
+                                                      report: { "the hold still waits for a surface the window never shows: \(Self.held(h))" })
+            #expect(coordinator.heldCount(in: window) == 0, "the key typed for the surface still waits: \(Self.held(h))")
+            #expect(router.inputQueues.existing(for: window.windowNumber)?.counts.dropped == 1, "the key did not drop with a reason")
+            #expect(coordinator.replayedCount == before, "the key typed for the surface ran in another target")
+        }
+    }
+
+    /// A landed creation's keys go only to the surface it made (review finding 5): its focus expectation was refused or
+    /// replaced, so the focus model still names the old terminal. Before, the hold took the model's current tab as the
+    /// creation's landing and ran the keys typed for the new terminal into the old one.
+    @Test func aLandedCreationsKeysGoOnlyToTheSurfaceItMade() async throws {
+        try await Self.withTerminal(panes: 2) { h in
+            let (controller, window, entry) = (h.controller, h.window, h.entry)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            let ticket = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation))
+            #expect(router.interceptKeyDown(try Self.key("a", keyCode: 0, in: window), in: window), "the key was not held: \(Self.held(h))")
+            let before = coordinator.replayedCount
+
+            // The creation made the second pane's surface; no expectation was set for it, and the old terminal has the
+            // keyboard and the model's focus.
+            coordinator.resolve(ticket, created: SurfaceID(rawValue: 2), in: window)
+            window.makeFirstResponder(entry.session.surfaceView)
+            _ = router.interceptKeyDown(try Self.key("b", keyCode: 11, in: window), in: window)
+            _ = await PasswordManagerRouteTests.becomes({ coordinator.replayedCount != before }, within: .milliseconds(300))
+            #expect(coordinator.replayedCount == before, "a key typed for the new surface ran in the old terminal: \(Self.held(h))")
+        }
+    }
+
     /// R3 at a failed creation: the daemon refused the new terminal and its pane is gone from the tree. In the same turn
     /// the model names a defined target (the other pane's terminal), never the gone one, so nothing waits for a view
     /// that cannot come. The keys typed for the failed terminal drop (reason targetFailed): they never go to another
@@ -531,7 +579,7 @@ struct EarlyTerminalKeysTests {
             let remaining = tree.workspaces[0].screens[0].panes.filter { $0.id != PaneID(rawValue: 1) }
             tree.workspaces[0].screens[0] = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 2)), panes: remaining)
             store.apply(snapshot: tree)
-            coordinator.resolve(ticket, landed: false, in: window)
+            coordinator.resolve(ticket, created: nil, in: window)
             #expect(controller.focus.state.resolved == .terminal(pane: otherKey, tab: otherTab),
                     "in the failure's turn the model names \(controller.focus.state.resolved), not the target that remains")
 

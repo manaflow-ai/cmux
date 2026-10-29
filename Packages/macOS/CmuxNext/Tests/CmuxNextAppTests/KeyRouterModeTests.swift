@@ -167,7 +167,7 @@ struct KeyRouterModeTests {
         #expect(Self.dispatch(try Self.plain(harness), in: harness), "the creation hold did not take the typing key")
         // Its reply came and what it asked for holds (this window's focus names no terminal that waits): the hold ends
         // at the next key, its keys go on and the mode goes off (first-keys-proof item 2: never wait for a settle).
-        input.resolve(ticket, landed: false, in: harness.shell)
+        input.resolve(ticket, created: nil, in: harness.shell)
         _ = Self.dispatch(try Self.plain(harness), in: harness)
         #expect(harness.modes.isNormal, "the creation hold's mode stayed on after it ended: \(harness.modes.active)")
     }
