@@ -26,7 +26,7 @@
 
 use super::{MAX_ATTEMPTS, SUFFIX, split_attempt};
 use crate::hub::{Hub, Session};
-use crate::store::EventRecord;
+use crate::store::{EventRecord, RecordHead};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -137,7 +137,7 @@ fn continue_text(prompts: &[String], tools: &[UnfinishedTool], omitted_tools: us
         let what = if i == 0 { "Its prompt" } else { "A message sent into it" };
         text.push_str(&format!("\n\n{what}:\n<message>\n{quoted}\n</message>"));
     }
-    if !tools.is_empty() {
+    if !tools.is_empty() || omitted_tools > 0 {
         text.push_str("\n\nTool calls started but not finished:");
         for tool in tools {
             text.push_str(&format!("\n- {} (id: {})", tool.name, tool.id));
@@ -186,17 +186,24 @@ impl Hub {
         let mut floor_cancelled = false;
         let mut unfinished = Vec::new();
         let mut omitted_tools = false;
-        let kinds = [
-            "turn_started",
-            "user_message",
-            "turn_control",
-            "remote_control_ended",
-            "remote_control_restored",
-            "remote_floor_cancel",
-            "tool_call",
-            "tool_call_update",
-        ];
-        let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
+        let _ = self.store.scan_heads(&session.id, &mut |head: &RecordHead<'_>| {
+            // Headers are cheap to inspect. Parse payloads only after the interrupted turn starts,
+            // and stop at its result so a long session does not deserialize historical tool I/O.
+            let needs_record = match head.kind {
+                "turn_started"
+                | "user_message"
+                | "turn_control"
+                | "remote_control_ended"
+                | "remote_control_restored"
+                | "remote_floor_cancel"
+                | "turn_result" => true,
+                "tool_call" | "tool_call_update" => started,
+                _ => false,
+            };
+            if !needs_record {
+                return true;
+            }
+            let Some(e) = head.record() else { return true };
             let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
             match e.kind.as_str() {
@@ -226,6 +233,7 @@ impl Hub {
                         note_unfinished_tool(&mut unfinished, &mut omitted_tools, update);
                     }
                 }
+                "turn_result" if is_turn => return false,
                 _ => {}
             }
             true
@@ -370,5 +378,34 @@ mod tests {
         assert!(text.contains("Run tests (id: call-1)"), "{text}");
         assert!(text.contains("input: {\"command\":\"cargo test -p acpmux\"}"), "{text}");
         assert!(!text.contains("Finished (id: call-2)"), "{text}");
+    }
+
+    #[test]
+    fn an_omitted_unfinished_tool_is_still_reported_after_retained_calls_finish() {
+        let mut open = (0..MAX_UNFINISHED_TOOLS)
+            .map(|n| UnfinishedTool {
+                name: format!("tool-{n}"),
+                id: format!("call-{n}"),
+                input: None,
+            })
+            .collect::<Vec<_>>();
+        let mut omitted = false;
+        note_unfinished_tool(
+            &mut open,
+            &mut omitted,
+            &json!({"toolCallId": "call-overflow", "title": "overflow", "status": "in_progress"}),
+        );
+        assert!(omitted);
+        for n in 0..MAX_UNFINISHED_TOOLS {
+            note_unfinished_tool(
+                &mut open,
+                &mut omitted,
+                &json!({"toolCallId": format!("call-{n}"), "status": "completed"}),
+            );
+        }
+        assert!(open.is_empty());
+        let text = continue_text(&[], &open, usize::from(omitted));
+        assert!(text.contains("Tool calls started but not finished:"), "{text}");
+        assert!(text.contains("additional unfinished tool calls omitted"), "{text}");
     }
 }
