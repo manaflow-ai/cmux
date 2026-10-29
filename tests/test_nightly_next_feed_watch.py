@@ -812,6 +812,65 @@ class UnstartedRunTests(unittest.TestCase):
             workflow="nightly-next-tick.yml", ref="main", minutes=20.0, by_tip_age=True), "fresh")
         self.assertEqual(young.dispatched, [])
 
+    class Flows(Gh):
+        """Runs per (workflow, branch), and compare answers per head sha."""
+
+        def __init__(self, outer, by_flow, jobs, compare=None):
+            super().__init__(outer, [], jobs)
+            self.by_flow, self.compare, self.compared = by_flow, compare or {}, []
+
+        def recent_runs(self, workflow, branch=None, now=None):
+            return list(self.by_flow.get((workflow, branch), []))
+
+        def call(self, method, path, body=None):
+            if "/compare/" in path:
+                self.compared.append(path)
+                answer = self.compare.get(path.rsplit("...", 1)[1])
+                if isinstance(answer, Exception):
+                    raise answer
+                return {"status": answer}
+            raise AssertionError(f"unexpected call {method} {path}")
+
+    def next_guard(self, gh):
+        return watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=45), published_sha="", branch="feat-cmux-next",
+            workflow="nightly-next-tick.yml", ref="main", minutes=watch.NEXT_STARVATION_MINUTES,
+            active_workflows=watch.next_delivery_workflows(""),
+            carries=lambda run, tip, landed: watch.next_carries_tip(gh, run, tip, landed))
+
+    def test_a_main_nightly_alongside_a_stale_next_feed_never_holds_the_dispatch(self):
+        """Review of 47a10b07: a classic main build created after the tip landed counted as carrying it."""
+        running = [live_job("mac_build_done", status="in_progress", conclusion=None, completed_at=None)]
+        main_runs = [dict(self.live(run_minutes_ago=5, status="in_progress"), head_branch="main", head_sha="e" * 40,
+                          event=event, display_title=title)
+                     for event, title in (("schedule", "Nightly macOS build · 47 8 * * *"),
+                                          ("workflow_dispatch", "Promote nightly-next to " + "e" * 40),
+                                          ("workflow_dispatch", "Resume nightly-next run 1 attempt 1"))]
+        gh = self.Flows(self, {("nightly.yml", "main"): main_runs,
+                               ("nightly-next-tick.yml", "main"): main_runs[:1]}, running)
+        self.assertEqual(self.next_guard(gh), f"dispatched nightly-next-tick.yml for {self.TIP}")
+        self.assertEqual(len(gh.dispatched), 1)
+        self.assertNotIn(("nightly.yml", "main"), watch.next_delivery_workflows(""))
+
+    def test_a_nightly_next_run_carries_the_tip_only_by_its_head(self):
+        running = [live_job("mac_build_done", status="in_progress", conclusion=None, completed_at=None)]
+        other = "d" * 40
+        for head, compare, blocks in ((self.TIP, None, True),            # the tip itself
+                                      (other, "ahead", True),            # a commit containing it
+                                      (other, "identical", True),
+                                      (other, "behind", False),          # an older commit, however new the run
+                                      (other, "diverged", False),
+                                      (other, OSError("502"), False),    # an unreadable compare
+                                      ("", None, False)):                # no head at all
+            with self.subTest(head=head[:4], compare=repr(compare)):
+                run = dict(self.live(run_minutes_ago=2, status="in_progress"), head_sha=head)
+                gh = self.Flows(self, {("nightly.yml", "nightly-next"): [run]}, running,
+                                compare={other: compare} if compare is not None else {})
+                answer = self.next_guard(gh)
+                self.assertEqual(answer.startswith("running "), blocks, answer)
+                if head == other:
+                    self.assertEqual(gh.compared, [f"/compare/{self.TIP}...{other}"])
+
     def test_cmux_next_is_dispatched_after_twenty_minutes(self):
         """The rolling rule: 20 minutes, checked every 10, so the tip is asked for within 30."""
         self.assertEqual(watch.NEXT_STARVATION_MINUTES, 20.0)
@@ -820,11 +879,12 @@ class UnstartedRunTests(unittest.TestCase):
                 unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
                 unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
                 unittest.mock.patch.object(watch, "starvation_dispatch",
-                                           lambda *a, **k: seen.append((k.get("branch"), k.get("minutes"), k.get("by_tip_age"))) or "stubbed"), \
+                                           lambda *a, **k: seen.append((k.get("branch"), k.get("minutes"), k.get("by_tip_age"), k.get("carries") is not None)) or "stubbed"), \
                 unittest.mock.patch.object(watch, "fetch_feed", lambda url: ""), \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
             watch.main(["--repo", "o/r", "--dry-run", "--legacy-identity", "off"])
-        self.assertIn(("feat-cmux-next", 20.0, True), seen)
+        self.assertIn(("feat-cmux-next", 20.0, True, True), seen)
+        self.assertIn(("main", None, None, False), seen, "the classic guard keeps its own rule")
 
     def test_the_watch_runs_every_ten_minutes(self):
         """At :07/:37 with a 25-minute trigger the 30-minute bound could not hold."""
@@ -1065,8 +1125,7 @@ class TrainModeTests(unittest.TestCase):
         for mode in ("", "dry-run", "off", "plan"):
             flows = watch.next_delivery_workflows(mode)
             self.assertNotIn(train, flows, mode)
-            self.assertIn(("nightly.yml", "nightly-next"), flows)
-            self.assertIn(("nightly-next-tick.yml", "main"), flows)
+            self.assertEqual(flows, [("nightly.yml", "nightly-next")], "main's runs never hold NEXT back")
 
     def test_the_watch_passes_the_train_switch(self):
         workflow = (self.WORKFLOWS / "nightly-next-feed-watch.yml").read_text(encoding="utf-8")

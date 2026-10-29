@@ -11,8 +11,9 @@ name: nightly-next feed watch
 # tests/test_nightly_next_feed_watch.py). It also requests the continuation
 # run that publishes a build Apple accepted after its run stopped waiting, and
 # dispatches a current-tip build after 20 minutes without a publication when
-# no started nightly or promotion run carries the tip (a run queued 10 minutes
-# without a runner is not started). The guard covers classic NIGHTLY too. The
+# no started nightly-next build has the tip or a commit containing it as its
+# head (a run queued 10 minutes without a runner is not started; main's runs
+# never count). The guard covers classic NIGHTLY too. The
 # tick (nightly-next-tick.yml) asks at landing; this is the backstop, and at
 # :07/:37 with a 25-minute trigger it could not meet the 30-minute bound.
 on:

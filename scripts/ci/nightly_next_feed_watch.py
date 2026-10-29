@@ -401,17 +401,19 @@ def started(gh: "GitHub", run: dict, now: dt.datetime) -> bool:
 
 
 def next_delivery_workflows(train: str) -> list[tuple[str, str]]:
-    """The (workflow, branch) runs that may still deliver feat-cmux-next.
-
-    A train delivers only in mode on (repository variable NIGHTLY_NEXT_TRAIN,
-    the train's own switch). Otherwise it is a dry run that plans and runs car
-    guards, sometimes for an hour, and publishes nothing, so it must never
-    hold back the starvation dispatch.
+    """The (workflow, branch) runs that may hold cmux NEXT's starvation dispatch back: nightly-next's
+    own builds, and the train when it is on (repository variable NIGHTLY_NEXT_TRAIN; a dry run
+    publishes nothing). Each counts only when it builds the tip or a commit containing it
+    (`next_carries_tip`). Main's runs are not here: classic NIGHTLY is unsupported (Leo,
+    2026-10-27), and a classic build or an unsigned resume on main carries no feat-cmux-next tip,
+    yet a main run created after the tip landed held the NEXT dispatch back (review of 47a10b07).
+    A promotion or tick in flight is not counted either: the dispatch this allows asks the tick,
+    and the promotion ignores a request that does not move nightly-next forward.
     """
-    flows = [("nightly-next-tick.yml", "main"), ("nightly.yml", "nightly-next"), ("nightly.yml", "main")]
+    flows = [("nightly.yml", "nightly-next")]
     # GitHub compares strings case-insensitively; so does this.
     if train.strip().lower() == "on":
-        flows.insert(1, ("nightly-next-train.yml", "feat-cmux-next"))
+        flows.append(("nightly-next-train.yml", "feat-cmux-next"))
     return flows
 
 
@@ -422,6 +424,24 @@ def published_commit_for_release(gh: GitHub, tag: str) -> str:
         return ""
     match = PUBLISHED_MARKER.search(body)
     return match.group(1).lower() if match else ""
+
+
+def next_carries_tip(gh: "GitHub", run: dict, tip: str, tip_landed: dt.datetime | None = None) -> bool:
+    """Whether a cmux NEXT delivery run builds `tip` or a commit that contains it, judged by the
+    run's head_sha against the compare API, never by when the run was created. A run with no
+    head_sha, or a compare that fails, does not carry it (the dispatch then asks the tick, and the
+    promotion ignores a request that does not move nightly-next forward)."""
+    head = (run.get("head_sha") or "").lower()
+    if not head:
+        return False
+    if head == tip.lower():
+        return True
+    try:
+        status = gh.call("GET", f"/compare/{tip}...{head}").get("status")
+    except Exception as error:  # noqa: BLE001 - fail toward dispatching
+        print(f"::warning::could not compare {tip[:12]}...{head[:12]} ({error!r}); the run does not count")
+        return False
+    return status in ("identical", "ahead")
 
 
 def carries_tip(run: dict, tip: str, tip_landed: dt.datetime | None) -> bool:
@@ -448,7 +468,8 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
                         ref: str, inputs: dict[str, str] | None = None,
                         active_workflows: list[tuple[str, str | None]] | None = None,
                         minutes: float = 25.0, tip_input: str | None = None,
-                        feed_unknown: bool = False, by_tip_age: bool = False) -> str:
+                        feed_unknown: bool = False, by_tip_age: bool = False,
+                        carries=None) -> str:
     """Start one build of the branch tip after `minutes` without a publication.
 
     Nothing is ever cancelled: a newer tip builds alongside a running build,
@@ -484,6 +505,10 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
     caller's argument list keeps a `fresh` or `unchanged` answer free of API
     calls, and means the dispatched commit is exactly the one that was
     judged stale.
+
+    `carries(run, tip, tip_landed)` replaces `carries_tip`: cmux NEXT passes
+    `next_carries_tip`, which reads the run's head_sha against the compare
+    API instead of trusting the run's creation time.
 
     `by_tip_age` (cmux NEXT) is the rolling rule: past `minutes` since the
     feed's newest item OR since the tip landed, the tip is dispatched unless a
@@ -523,7 +548,8 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
         return f"unchanged: the tip is published, feed newest {feed.isoformat()}"
     active = [run for name, run_branch in (active_workflows or [(workflow, branch)])
               for run in gh.recent_runs(name, run_branch, now)
-              if is_active_delivery_run(name, run_branch, run) and carries_tip(run, tip, tip_landed)
+              if is_active_delivery_run(name, run_branch, run)
+              and (carries or carries_tip)(run, tip, tip_landed)
               and started(gh, run, now)]
     if active:
         return f"running {active[0].get('html_url', active[0].get('id', '?'))}"
@@ -736,7 +762,8 @@ def main(argv: list[str]) -> int:
         gh, now, feed=newest, published_sha=published(), minutes=NEXT_STARVATION_MINUTES, by_tip_age=True,
         branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main", tip_input="sha",
         feed_unknown=bool(missing),
-        active_workflows=next_delivery_workflows(args.train)))
+        active_workflows=next_delivery_workflows(args.train),
+        carries=lambda run, tip, landed: next_carries_tip(gh, run, tip, landed)))
     heal("classic", lambda: starvation_dispatch(
         gh, now, feed=classic_newest, published_sha=published("nightly"),
         branch="main", workflow="nightly.yml", ref="main", inputs={"force": "false"},
