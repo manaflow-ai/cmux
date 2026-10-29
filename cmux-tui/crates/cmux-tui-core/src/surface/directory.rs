@@ -84,7 +84,11 @@ impl Surface {
     }
 
     /// The daemon's last foreground check behind `shell_idle`: `extra.foreground_check`.
+    /// Never on Windows, where a console has no foreground process group to check.
     pub(crate) fn terminal_foreground_check(&self) -> Option<(bool, Option<u32>)> {
+        if cfg!(not(unix)) {
+            return None;
+        }
         self.as_pty()?
             .terminal_metadata
             .lock()

@@ -1002,7 +1002,8 @@ pub fn shell_holds_foreground(pid: u32) -> bool {
 /// the kernel set from the exec'd file's name (`/proc/<pid>/stat` field 2,
 /// at most 15 bytes; only the program itself can rename it, with prctl).
 /// `None` when another process group holds the foreground (a job the shell
-/// started: ssh, a nested shell) or a lookup fails. One PTY query of a known
+/// started: ssh, a nested shell), when the shell has more than one thread on
+/// Linux (see [`exec_name`]), or a lookup fails. One PTY query of a known
 /// process, never a process scan. The caller also needs the shell to have no
 /// child (cmux-tui-core `terminal_activity`).
 #[track_caller]
@@ -1016,13 +1017,26 @@ pub fn foreground_own_shell(pid: u32) -> Option<(u32, String)> {
 }
 
 /// The program `pid` runs, as the kernel exec'd it (see [`foreground_own_shell`]).
+/// Linux: `None` also for a process with more than one thread. The caller's
+/// no-child test reads the main thread's children list
+/// (`/proc/<pid>/task/<pid>/children`), and a threaded shell (nushell's
+/// `job spawn`, elvish's goroutines, fish's thread pool) forks from any
+/// thread, so its children are unknown: never idle.
 #[cfg(target_os = "linux")]
 fn exec_name(pid: u32) -> Option<String> {
-    let stat = proc_stat(pid)?;
+    single_thread_name(&proc_stat(pid)?)
+}
+
+/// [`exec_name`] from one `/proc/<pid>/stat` line.
+#[cfg(any(target_os = "linux", test))]
+fn single_thread_name(stat: &str) -> Option<String> {
     // Field 2 is the command name in parentheses; it may hold spaces and
     // parentheses itself, so it ends at the last `)`.
-    let name = stat.get(stat.find('(')? + 1..stat.rfind(')')?)?;
-    (!name.is_empty()).then(|| name.to_string())
+    let close = stat.rfind(')')?;
+    let name = stat.get(stat.find('(')? + 1..close)?;
+    // Field 20 is num_threads; after the `)` the fields start at 3 (state).
+    let threads = stat.get(close + 1..)?.split_whitespace().nth(17)?.parse::<u32>().ok()?;
+    (threads == 1 && !name.is_empty()).then(|| name.to_string())
 }
 
 /// macOS and Windows: [`process_name`] reads the image path already.

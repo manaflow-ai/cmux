@@ -73,7 +73,7 @@ impl Surface {
             let hosted = matches!(&*pty.runtime.lock().recover_poison(), PtyRuntime::Hosted(_));
             if hosted
                 && fallback_key.is_some()
-                && pty.terminal_metadata.lock().recover_poison().activity.note_input()
+                && pty.terminal_metadata.lock().recover_poison().activity.note_input(&[])
             {
                 self.post_pending_publications();
             }
@@ -156,7 +156,7 @@ impl Surface {
                     // its next prompt (`terminal_activity`), noted before it
                     // is written.
                     let publish =
-                        pty.terminal_metadata.lock().recover_poison().activity.note_input();
+                        pty.terminal_metadata.lock().recover_poison().activity.note_input(&[]);
                     // A holder terminal's keys go through its `pty-writer`
                     // queue, so the fallback key follows them in order. The
                     // wait for its delivery runs after the runtime lock is

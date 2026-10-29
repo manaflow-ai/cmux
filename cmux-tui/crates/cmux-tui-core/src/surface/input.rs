@@ -57,10 +57,14 @@ impl From<crate::pty_write::DeliveryFailure> for ConfirmedInputFailure {
 }
 
 /// Notes input about to be written to `pty` (`ShellActivity::note_input`):
-/// its shell is not idle until its next prompt. True when the published facts
-/// still say idle, so the caller asks for a publication after the write. A
-/// memory write under the metadata lock, before the bytes leave: a prompt mark
-/// read after it is the shell's answer to this input or later.
+/// its shell is not idle until the prompt that answers its lines. True when an
+/// idle fact may have been published, so the caller queues a publication. A
+/// memory write under the metadata lock, before the bytes leave, so every read
+/// and record built after it says not idle; the record that tells clients
+/// leaves on the work lane, after the bytes (a client that sent this input
+/// must not trust an idle fact it read before, `TabModel.shellIdleSinceMs`).
+/// A prompt mark parsed after it may predate it (typed ahead): the prompt
+/// count in `ShellActivity` keeps that prompt not idle.
 fn note_shell_input(pty: &PtySurface, bytes: &[u8]) -> bool {
     !bytes.is_empty()
         && !only_focus_reports(bytes)
@@ -69,7 +73,25 @@ fn note_shell_input(pty: &PtySurface, bytes: &[u8]) -> bool {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .activity
-            .note_input()
+            .note_input(bytes)
+}
+
+/// [`note_shell_input`] for a paste: the writer wraps it in bracketed paste
+/// marks when the program turned that mode on (2004), so its line breaks are
+/// text for the line editor, not Returns; the note reads it wrapped the same way.
+fn note_shell_paste(pty: &PtySurface, bytes: &[u8]) -> bool {
+    if bytes.is_empty() {
+        return false;
+    }
+    let bracketed = pty.term.lock().unwrap_or_else(PoisonError::into_inner).mode(2004, false);
+    if !bracketed {
+        return note_shell_input(pty, bytes);
+    }
+    let mut wrapped = Vec::with_capacity(bytes.len() + 12);
+    wrapped.extend_from_slice(b"\x1b[200~");
+    wrapped.extend_from_slice(bytes);
+    wrapped.extend_from_slice(b"\x1b[201~");
+    note_shell_input(pty, &wrapped)
 }
 
 /// Whether `bytes` are only focus reports (`CSI I`, `CSI O`): a view that
@@ -172,7 +194,7 @@ impl Surface {
         flow: u64,
     ) -> std::io::Result<()> {
         let publish = note_shell_input(self.pty_in(turn)?, bytes);
-        // The publication goes out before the bytes: no client reads the shell idle while its command runs.
+        // Not idle in memory before the bytes; the record that says so is queued here and leaves after them.
         if publish {
             self.post_pending_publications();
         }
@@ -339,7 +361,7 @@ impl Surface {
             return Err(ConfirmedInputFailure::Known(not_a_terminal()));
         };
         let publish = note_shell_input(pty, bytes);
-        // The publication goes out before the bytes: no client reads the shell idle while its command runs.
+        // Not idle in memory before the bytes; the record that says so is queued here and leaves after them.
         if publish {
             self.post_pending_publications();
         }
@@ -426,8 +448,8 @@ impl Surface {
         bytes: &[u8],
         timeout: Option<Duration>,
     ) -> std::io::Result<()> {
-        let publish = note_shell_input(self.pty_in(turn)?, bytes);
-        // The publication goes out before the bytes: no client reads the shell idle while its command runs.
+        let publish = note_shell_paste(self.pty_in(turn)?, bytes);
+        // Not idle in memory before the bytes; the record that says so is queued here and leaves after them.
         if publish {
             self.post_pending_publications();
         }
