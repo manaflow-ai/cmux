@@ -17,9 +17,18 @@ nonisolated struct DesyncReport: Hashable, Sendable, Codable {
     var observation: InputObservation
     var journal: [InputJournalEntry]
     var journalStats: InputJournal.Stats
+    /// The action that ran last before the check, with its origin (`InputInvariantMonitor.lastAction`); a focus
+    /// violation names it (plans/cmux-next/focus-invariant.md). Optional for older reports.
+    var lastAction: String?
 
-    /// One line per violation, for logs and `debug.desync`.
-    var summary: [String] { violations.map { "\($0.invariant.rawValue) \($0.window ?? "-"): \($0.detail)" } }
+    /// One line per violation, for logs and `debug.desync`; a focus rule's line names the last action.
+    var summary: [String] {
+        violations.map { violation in
+            let line = "\(violation.invariant.rawValue) \(violation.window ?? "-"): \(violation.detail)"
+            guard InputInvariant.keysRules.contains(violation.invariant) else { return line }
+            return line + " [after \(lastAction ?? "no action")]"
+        }
+    }
 
     static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()

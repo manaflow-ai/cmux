@@ -46,6 +46,11 @@ final class InputVerificationService {
         self.monitor = monitor
         journalSubscription = Self.subscribeJournal(journal, to: services.inputTap) { monitor.noteChange() }
         observeWindowGeometry(services.appEvents, journal: journal, monitor: monitor)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // Something takes the keys after every action (plans/cmux-next/focus-invariant.md); key-window and
+        // activation changes reach the monitor as focus reductions (`observeFocus`).
+        services.registry.willRunObservers.append { [weak monitor] id, origin in monitor?.noteAction(id.rawValue, origin: origin.rawValue) }
+        #endif
         // M1: a mirror write outside daemon apply and the intent overlay is
         // checked (and reported) once input settles.
         services.daemon.store.onMirrorViolation = { [weak monitor] _ in monitor?.noteChange() }
