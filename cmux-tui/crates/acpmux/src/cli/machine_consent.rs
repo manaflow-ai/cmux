@@ -39,13 +39,27 @@ impl Authority {
 
     /// Persist before any remote redeem. A failed join keeps conservative gating.
     pub(super) fn enroll(&self) -> Result<()> {
+        self.enroll_with_sync(|path| {
+            std::fs::File::open(path)?.sync_all()?;
+            Ok(())
+        })
+    }
+
+    fn enroll_with_sync(&self, sync: impl Fn(&Path) -> Result<()>) -> Result<()> {
         self.prepare()?;
-        if exists(&self.root.join("enrolled.json"))? {
+        let marker = self.root.join("enrolled.json");
+        if exists(&marker)? {
             self.validate_marker()?;
-            return Ok(());
+        } else {
+            crate::config::write_atomic(&marker, b"{\"schema\":1}")?;
         }
-        crate::config::write_atomic(&self.root.join("enrolled.json"), b"{\"schema\":1}")?;
-        std::fs::File::open(&self.root)?.sync_all()?;
+        // Retry all durability barriers even if a previous attempt wrote the
+        // marker then failed. The account home persists a newly-created .acpmux;
+        // .acpmux persists machine-consent, and machine-consent persists marker.
+        sync(&marker)?;
+        for path in self.root.ancestors().take(3) {
+            sync(path)?;
+        }
         Ok(())
     }
 
@@ -267,5 +281,22 @@ mod tests {
         assert!(authority.set("screen", true).is_err());
         assert_eq!(authority.status()["consentRequired"], true);
         assert_eq!(authority.status()["consent"]["screen"], "none");
+    }
+    #[test]
+    fn existing_marker_retries_file_and_parent_durability() {
+        use std::cell::RefCell;
+        let (_dir, a, _) = fixture();
+        let first = a.enroll_with_sync(|_| anyhow::bail!("injected interrupted flush"));
+        assert!(first.is_err());
+        assert!(a.root.join("enrolled.json").exists());
+        let seen = RefCell::new(Vec::new());
+        a.enroll_with_sync(|path| {
+            seen.borrow_mut().push(path.to_owned());
+            Ok(())
+        })
+        .unwrap();
+        let mut expected = vec![a.root.join("enrolled.json")];
+        expected.extend(a.root.ancestors().take(3).map(Path::to_owned));
+        assert_eq!(*seen.borrow(), expected);
     }
 }

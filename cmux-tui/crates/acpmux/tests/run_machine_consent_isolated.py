@@ -45,10 +45,11 @@ def main():
                         "--no-create-home", "--user-group", "--shell", "/usr/sbin/nologin", user], check=True)
         created = True
         account = pwd.getpwnam(user)
-        subprocess.run(["sudo", "-n", "chown", f"{account.pw_uid}:{account.pw_gid}", str(home)], check=True)
+        subprocess.run(["sudo", "-n", "chown", f"{account.pw_uid}:{account.pw_gid}", str(root), str(home)], check=True)
+        # timeout owns only this invocation's child process group; no name-based kills.
         for name, filters in [("machine_join", []), ("person_allow", ["machine_consent_"])]:
             subprocess.run([
-                "sudo", "-n", "runuser", "-u", user, "--", "env", "-i",
+                "sudo", "-n", "timeout", "--kill-after=5s", "120s", "runuser", "-u", user, "--", "env", "-i",
                 "PATH=/usr/bin:/bin", f"HOME={home}", f"ACPMUX_TEST_ACCOUNT_HOME={home}",
                 # The selected tests start no agents. Avoid the harness's compiled
                 # runner-owned scratch dir; children still use daemon_env's clean
