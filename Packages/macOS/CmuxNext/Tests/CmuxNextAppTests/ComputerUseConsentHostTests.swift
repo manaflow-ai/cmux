@@ -110,6 +110,7 @@ struct ComputerUseConsentHostTests {
 
     /// An unverified host is logged and reported once with the helper's reason, and the host hangs up.
     /// When a later connection is accepted (the helper restarted and now verifies it), the report clears.
+    /// (The daemon also clears it on every start; this covers an accept that comes later.)
     @MainActor @Test(.timeLimit(.minutes(1))) func anUnverifiedRefusalIsReportedAndClearsOnRecovery() async throws {
         let helper = try FakeHelper()
         defer { helper.close() }
@@ -130,7 +131,9 @@ struct ComputerUseConsentHostTests {
             reported.append(reason)
             guard reported.count == 1 else { break }
             #expect(await peer.readLine(timeout: 5_000) == nil)
-            // The host retries; this time the helper accepts it.
+            // A refused attach is not retried; the restarted helper starts the host again,
+            // and this time it accepts it.
+            host.start(helper.configuration)
             retried = try #require(await helper.accept())
             try await retried?.attach()
         }
