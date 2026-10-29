@@ -84,6 +84,10 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(self.lines, [])
 
 
+OLD, NEW = "Sat Oct 24 10:00:00 2026", "Sat Oct 24 10:05:00 2026"
+DAEMON = "/app/Contents/Resources/bin/cmux-tui --headless --session cmux-app-t --socket /tmp/s.sock"
+
+
 class TerminalHandoffTests(unittest.TestCase):
     """--handoff passes a terminal only through a replacement cmux-tui daemon: if acpmux hands off but cmux-tui keeps
     its original daemon, the original socket still lists the terminal, and that must not certify the handoff."""
@@ -97,32 +101,45 @@ class TerminalHandoffTests(unittest.TestCase):
 
     def tearDown(self):
         self.sessions.wait_path = self.saved
+        self.sessions.subprocess = subprocess
         import shutil
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def terminal(self, daemons):
         terminal = self.sessions.Terminal(os.path.join(self.dir, "cmux DEV t.app"), self.dir, lambda *_: None, "cmux-app-t")
-        terminal.socket, terminal.term, terminal.pid, terminal.daemon_pids = "/tmp/old.sock", "term_1", os.getpid(), [10]
-        terminal.daemons = lambda root: daemons
+        terminal.socket, terminal.term, terminal.pid = "/tmp/s.sock", "term_1", os.getpid()
+        terminal.daemon_pids, terminal.daemon_ids = [10], {(10, OLD)}
+        # `ps` as the harness runs it, answering whichever columns are asked (pid, [lstart,] command).
+        def ps(argv, **_):
+            columns = argv[2]
+            rows = [f"{pid} {start} {command}" if "lstart" in columns else f"{pid} {command}" for pid, command, start in daemons]
+            return subprocess.CompletedProcess(argv, 0, "\n".join(rows) + "\n", "")
+        self.sessions.subprocess = type("FakeSubprocess", (), {"run": staticmethod(ps)})
         terminal.list_quietly = lambda: '{"terminals": ["term_1"]}' if terminal.socket else ""
         with open(terminal.file, "w") as f:
             f.write(f"100.0 {os.getpid()}\n101.0 {os.getpid()}\n103.0 {os.getpid()}\n")
         return terminal
 
     def test_handoff_without_a_replacement_daemon_fails(self):
-        terminal = self.terminal([(10, "cmux-tui --headless --session cmux-app-t --socket /tmp/old.sock")])
+        terminal = self.terminal([(10, DAEMON, OLD)])
         record = terminal.check("/app", 100.5, 102.0, handoff=True)
         # The original daemon still lists the terminal: that lookup must not count.
         self.assertFalse(record["same_terminal_listed"])
         self.assertFalse(record["replacement_daemon"])
         self.assertFalse(run.terminal_survived(record, True))
 
-    def test_handoff_through_a_replacement_daemon_passes(self):
-        terminal = self.terminal([(11, "cmux-tui --headless --session cmux-app-t --socket /tmp/new.sock")])
+    def test_handoff_through_a_replacement_daemon_on_the_same_socket_passes(self):
+        # The real handoff: the new daemon binds the session's same socket path after the old one exits.
+        terminal = self.terminal([(11, DAEMON, NEW)])
         record = terminal.check("/app", 100.5, 102.0, handoff=True)
-        self.assertEqual(record["socket_after"], "/tmp/new.sock")
+        self.assertEqual(record["socket_after"], record["socket_before"])
         self.assertTrue(record["replacement_daemon"])
+        self.assertEqual(record["replacement_daemon_pid"], 11)
         self.assertTrue(run.terminal_survived(record, True))
+
+    def test_a_reused_pid_with_another_start_is_a_replacement(self):
+        terminal = self.terminal([(10, DAEMON, NEW)])
+        self.assertTrue(run.terminal_survived(terminal.check("/app", 100.5, 102.0, handoff=True), True))
 
 
 if __name__ == "__main__":
