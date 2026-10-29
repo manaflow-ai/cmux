@@ -4,7 +4,7 @@
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
@@ -79,9 +79,9 @@ impl Client {
                 }
                 closed.store(true, Ordering::SeqCst);
                 let mut p = pending.lock().await;
-                for (_, tx) in p.drain() {
-                    let _ = tx.send(Err(RpcError::internal("daemon connection closed")));
-                }
+                // Dropping the senders identifies transport EOF independently
+                // of any message or error code supplied by the daemon.
+                p.clear();
                 drop(p);
                 // The stream never ends on its own (the client keeps a
                 // sender), so say goodbye explicitly.
@@ -243,9 +243,6 @@ impl Client {
         }
         match rx.await {
             Ok(Ok(v)) => Ok(v),
-            Ok(Err(e)) if e.message == "daemon connection closed" => {
-                Err(self.closed(&format!("waiting for the reply to {m}")))
-            }
             Ok(Err(e)) => Err(DaemonError(e).into()),
             Err(_) => Err(self.closed(&format!("waiting for the reply to {m}"))),
         }
@@ -308,6 +305,18 @@ impl std::fmt::Display for DaemonError {
 
 impl std::error::Error for DaemonError {}
 
+/// A local socket/channel closure, never a JSON-RPC error received from the daemon.
+#[derive(Debug)]
+pub struct TransportClosed(String);
+
+impl std::fmt::Display for TransportClosed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for TransportClosed {}
+
 /// "daemon connection closed" with a cause: the pid file and socket say
 /// whether the daemon is still running (it dropped us: a restart or an
 /// internal error), died without cleanup (a crash), or was shut down.
@@ -345,10 +354,10 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
         }
         _ => String::new(),
     };
-    anyhow!(
+    TransportClosed(format!(
         "daemon connection closed while {context}: {why}.{build} The next acpmux command starts a daemon; its log is {}",
         home.join("daemon.log").display()
-    )
+    )).into()
 }
 
 #[cfg(test)]

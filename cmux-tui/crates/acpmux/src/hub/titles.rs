@@ -508,7 +508,10 @@ fn is_thin_prompt(prompt: &str) -> bool {
     let words: Vec<_> = prompt.split_whitespace().collect();
     words.is_empty()
         || words.len() <= 1
-        || (words.len() <= 2 && words[0].trim_matches(|c: char| !c.is_alphanumeric()).len() <= 12)
+        || (words.len() <= 2
+            && words
+                .first()
+                .is_some_and(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).len() <= 12))
         || words.iter().any(|word| {
             matches!(
                 word.trim_matches(|c: char| !c.is_alphanumeric()).to_ascii_lowercase().as_str(),

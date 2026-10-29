@@ -76,6 +76,19 @@ struct ComputerUseSetupTests {
         #expect(setup.pageJSON["screen_recording"] == .null)
     }
 
+    /// The legacy helper refusing this build as its consent host shows on the card under the
+    /// legacy driver only.
+    @Test func anUnverifiedConsentHostShowsUnderTheLegacyDriver() async {
+        let box = InputBox()
+        box.value.consentHostUnverified = true
+        let setup = make(box, Reader())
+        setup.start()
+        #expect(setup.pageJSON["host_unverified"] == .bool(true))
+        box.value.driver = .upstream
+        for await value in ObservationStream({ setup.hostUnverified }) where !value { break }
+        #expect(setup.pageJSON["host_unverified"] == .bool(false))
+    }
+
     @Test func recheckStartsANewReadBudget() async {
         let reader = Reader()
         let setup = make(InputBox(), reader)
