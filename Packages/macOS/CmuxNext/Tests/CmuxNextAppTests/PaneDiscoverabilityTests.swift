@@ -59,6 +59,59 @@ import Testing
         #expect(intents == [.newTab(after: nil, sameKind: true)], "Option-click keeps the existing same-kind action")
     }
 
+    @Test func draggingOutCancelsThePendingNewTabMenu() async throws {
+        let model = TabStripModel(tabs: [TabItem(id: TabID("sample"), title: "Chat")], selectedID: TabID("sample"))
+        let strip = TabStripView(model: model)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.orderOut(nil) }
+        window.contentView = strip
+        strip.frame = window.contentLayoutRect
+        strip.layoutSubtreeIfNeeded()
+        let menu = NSMenu(); menu.addItem(withTitle: "Terminal", action: nil, keyEquivalent: "")
+        strip.contextMenuProvider = { _ in menu }
+        var presentations = 0
+        strip.presentNewTabMenu = { _, _, _ in presentations += 1 }
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        strip.groups.sleep = { _ in for await _ in stream {} }
+        let point = strip.newTabButton.convert(NSPoint(x: strip.newTabButton.bounds.midX, y: strip.newTabButton.bounds.midY), to: nil)
+        let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        strip.mouseDown(with: down)
+        await Task.yield()
+        let outside = try #require(NSEvent.mouseEvent(with: .leftMouseDragged, location: NSPoint(x: 2, y: 2), modifierFlags: [], timestamp: 1,
+                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        strip.mouseDragged(with: outside)
+        continuation.yield(())
+        await Task.yield()
+        #expect(!strip.pressedNewTab)
+        #expect(presentations == 0)
+        continuation.finish()
+    }
+
+    @Test func hidingStripCancelsThePendingNewTabMenu() async throws {
+        let model = TabStripModel(tabs: [TabItem(id: TabID("sample"), title: "Chat")], selectedID: TabID("sample"))
+        let strip = TabStripView(model: model)
+        strip.frame = NSRect(x: 0, y: 0, width: 600, height: 40)
+        strip.layoutSubtreeIfNeeded()
+        let menu = NSMenu(); menu.addItem(withTitle: "Terminal", action: nil, keyEquivalent: "")
+        strip.contextMenuProvider = { _ in menu }
+        var presentations = 0
+        strip.presentNewTabMenu = { _, _, _ in presentations += 1 }
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        strip.groups.sleep = { _ in for await _ in stream {} }
+        strip.pressedNewTab = true
+        strip.newTabButton.isPressed = true
+        strip.newTabHold.start()
+        await Task.yield()
+        strip.viewDidHide()
+        continuation.yield(())
+        await Task.yield()
+        #expect(!strip.pressedNewTab)
+        #expect(!strip.newTabButton.isPressed)
+        #expect(presentations == 0)
+        continuation.finish()
+    }
+
     @Test func thePaneMenuEndsWithACommandPaletteEntry() throws {
         let registry = ActionRegistry.standard()
         let target = ActionTargetRef(kind: .pane, id: "sample-pane")
