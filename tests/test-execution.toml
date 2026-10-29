@@ -1935,11 +1935,6 @@ lane = "manual"
 reason = "fleet and local tool; Lawrence 2026-10-23 no new CI tests. render-done-checks.py is the rendering push's done-check and machine-queue report, run at the branch tip; run python3 -I tests/test_render_done_checks.py yourself after changing it (about 1 s, rg and git only, no build)."
 
 [[test]]
-path = "tests/test_blocking_probe_report.py"
-lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. blocking-probe-report.py is the fleet blocking probe's report, not a gate; run python3 -I tests/test_blocking_probe_report.py yourself after changing scripts/measure/blocking-probe* (about 3 s; git and cc for the probe's match rules, skipped without cc; no app, no build)."
-
-[[test]]
 path = "tests/test_script_storm_bench.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. script-storm-bench.py --hidden N is a fleet measurement, not a gate; run python3 -I tests/test_script_storm_bench.py yourself after changing the bench (about 1 s, no app, no build)."
