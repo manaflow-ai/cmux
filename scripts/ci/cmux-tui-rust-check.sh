@@ -40,6 +40,14 @@
 # ghostty-vt with its VT, tmux regress, kitty graphics and corpus suites, ghostty-vt-sys,
 # the PTY, sizing, encode and client crates), no fmt, clippy or doc tests: the fast
 # gate for a terminal change (cmux-next-terminal.yml).
+# api-compat: cmux-tui-spec.yml's api-compat job, the same command (`cargo run --locked
+# -p cmux-api-compat --bin api-compat-check`): a protocol change that can break an older
+# or newer peer needs a compat rule, and spec/api-compat.surface.json must be current.
+# api-compat-write: the same with --write (it refuses while a break lacks a rule), then
+# the snapshot's diff at .build/artifacts/api-compat.patch (empty when nothing changed);
+# fetch it with --artifact, `git apply` it in your checkout and commit it there. Neither
+# takes a TEST_FILTER or checks out ghostty-next (the crate needs only serde), and
+# neither commits or pushes.
 set -euo pipefail
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
   cat >&2 <<'MSG'
@@ -50,7 +58,11 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
+if [[ "$mode" == api-compat* && -n "$filter" ]]; then
+  echo "error: $mode takes no TEST_FILTER" >&2
+  exit 2
+fi
 # The crates the terminal mode tests; every other mode's tests take the whole workspace.
 terminal_crates=(ghostty-vt ghostty-vt-sys cmux-pty cmux-terminal-sizing cmux-terminal-client cmux-encode)
 test_scope=(--workspace)
@@ -104,8 +116,11 @@ fi
 # shell integration since 0c9d74bc3ea).
 # A synced copy without the gitlink (rbx lanes have their own snapshot repository)
 # already holds ghostty-next's files: use them.
-ghostty_next_status="$(git -C "$root" submodule status ghostty-next 2>/dev/null || true)"
-if [[ -z "$ghostty_next_status" && -f "$root/ghostty-next/build.zig" ]]; then
+ghostty_next_status=""
+[[ "$mode" == api-compat* ]] || ghostty_next_status="$(git -C "$root" submodule status ghostty-next 2>/dev/null || true)"
+if [[ "$mode" == api-compat* ]]; then
+  echo "ghostty-next: not needed by $mode (cmux-api-compat builds only serde)"
+elif [[ -z "$ghostty_next_status" && -f "$root/ghostty-next/build.zig" ]]; then
   echo "ghostty-next: no gitlink in this tree (a synced copy); using the files present"
 elif ! git -C "$root" submodule update --init --depth 1 ghostty-next; then
   echo "error: git submodule update --init ghostty-next failed; no cargo command ran" >&2
@@ -820,6 +835,27 @@ if [[ "$mode" == vm-cli ]]; then
   step "vm-cli test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
   step "vm-cli release build" cargo build --locked --release -p cmux-vm
   step "vm-cli artifact" copy_vm_cli
+  finish
+fi
+# The refreshed snapshot as a patch against the step's commit; the one file --write writes.
+api_compat_patch() {
+  mkdir -p "$root/.build/artifacts"
+  git -C "$root" diff --binary -- cmux-tui/spec/api-compat.surface.json >"$root/.build/artifacts/api-compat.patch" || return 1
+  if [[ -s "$root/.build/artifacts/api-compat.patch" ]]; then
+    echo "api-compat.patch: spec/api-compat.surface.json changed ($(wc -c <"$root/.build/artifacts/api-compat.patch") bytes); apply it with git apply"
+  else
+    echo "api-compat.patch: empty (the snapshot was already current)"
+  fi
+}
+if [[ "$mode" == api-compat ]]; then
+  step "api-compat check" cargo run --locked -p cmux-api-compat --bin api-compat-check
+  finish
+fi
+if [[ "$mode" == api-compat-write ]]; then
+  # A warm slot keeps .build: never hand back an older step's patch.
+  rm -f "$root/.build/artifacts/api-compat.patch"
+  step "api-compat write" cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write
+  [[ "$first_rc" -ne 0 ]] || step "api-compat patch" api_compat_patch
   finish
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
