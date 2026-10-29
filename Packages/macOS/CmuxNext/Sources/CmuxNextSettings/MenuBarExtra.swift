@@ -9,7 +9,8 @@ import CmuxNextCompat
 ///
 /// The menu is built as it opens (`menuNeedsUpdate`) from ``MenuBarExtraHost``, so nothing is read
 /// or observed while it is closed. The App's services own one; it shows while the setting is on.
-/// Background mode (``BackgroundActivation``) uses this item instead of adding a second one.
+/// Background mode (`BackgroundActivation`, CmuxNextSettingsWindow) uses this item instead of adding
+/// a second one: ``follow(_:itemDidChange:)`` tells it each time the item comes or goes.
 @MainActor
 public final class MenuBarExtra: NSObject, NSMenuDelegate {
     private let registry: ActionRegistry
@@ -34,19 +35,20 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
     /// The item is in the menu bar.
     public var isShown: Bool { item != nil }
 
-    /// Shows the item while `app.showMenuBarIcon` is on, from the first load on, and tells
-    /// `background` each time so background mode keeps exactly one way back in the menu bar.
+    /// Shows the item while `app.showMenuBarIcon` is on, from the first load on, and calls
+    /// `itemDidChange` each time (background mode's `menuBarItemDidChange`, so it keeps exactly one
+    /// way back in the menu bar; that type is in a module above this one).
     /// Event-driven (Observation): no polling, nothing runs while the setting stays put.
-    public func follow(_ settings: SettingsController, background: BackgroundActivation) {
+    public func follow(_ settings: SettingsController, itemDidChange: @escaping @MainActor () -> Void) {
         following?.cancel()
         // task-owner: replaced by the next follow; ends with this item (the App's services)
-        following = Task { [weak self, weak settings, weak background] in
+        following = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
             for await shown in ObservationStream({ settings.snapshot.showMenuBarIcon }) {
                 guard let self else { return }
                 self.setShown(shown)
-                background?.menuBarItemDidChange()
+                itemDidChange()
             }
         }
     }

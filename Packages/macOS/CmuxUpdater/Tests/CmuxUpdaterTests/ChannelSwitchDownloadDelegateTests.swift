@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 import Testing
 @testable import CmuxUpdater
@@ -28,7 +29,7 @@ import Testing
         delegate.urlSession(URLSession.shared, task: task, didCompleteWithError: Probe())
 
         await #expect(throws: Probe.self) {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
                 delegate.setContinuation(continuation)
             }
         }
@@ -44,7 +45,7 @@ import Testing
         defer { task.cancel() }
         let delegate = DownloadDelegate(destination: destination, progress: { _ in })
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             delegate.setContinuation(continuation)
             delegate.urlSession(URLSession.shared, downloadTask: task, didFinishDownloadingTo: location)
             delegate.urlSession(URLSession.shared, task: task, didCompleteWithError: nil)
@@ -62,7 +63,7 @@ import Testing
         let delegate = DownloadDelegate(destination: directory.appendingPathComponent("app.zip"), progress: { _ in })
 
         await #expect(throws: (any Error).self) {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
                 delegate.setContinuation(continuation)
                 delegate.urlSession(
                     URLSession.shared,
@@ -82,7 +83,7 @@ import Testing
                 delegate.urlSession(URLSession.shared, task: task, didCompleteWithError: nil)
                 task.cancel()
             }
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
                 delegate.setContinuation(continuation)
             }
             await completer.value

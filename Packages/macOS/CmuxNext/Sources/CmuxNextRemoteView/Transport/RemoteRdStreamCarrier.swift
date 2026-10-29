@@ -20,10 +20,19 @@ public nonisolated struct RemoteRdByteStream: Sendable {
 /// The rd byte path over a `RemoteRdByteStream`: opens it when the transport starts, then copies
 /// both directions; either direction ending ends the path (`.closed`), so the pane says why and
 /// never waits.
+///
+/// The bytes queued for the stream and not yet written count against ``sendBound``, as the loopback
+/// carriers' do: past it the carrier is backed up and the transport stops producing until `.writable`
+/// (``RemoteRdByteCarrier``).
 public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
+    /// The bytes queued for the stream and not yet written before the carrier is backed up: 4 MiB, as
+    /// ``RemoteRdLoopbackCarrier/sendBound``.
+    public static let sendBound = RemoteRdLoopbackCarrier.sendBound
+
     private let open: @Sendable () async throws -> RemoteRdByteStream
     private let outgoing: AsyncStream<Data>
     private let outbox: AsyncStream<Data>.Continuation
+    private let unsent: ByteCreditWindow
     private let state = Mutex(State())
 
     private struct State {
@@ -34,11 +43,15 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
         var cancelled = false
     }
 
-    public init(open: @escaping @Sendable () async throws -> RemoteRdByteStream) {
+    public init(sendBound: Int = RemoteRdStreamCarrier.sendBound,
+                open: @escaping @Sendable () async throws -> RemoteRdByteStream) {
         self.open = open
-        // concurrency-allow: the transport's frames in send order; the transport paces them as it does for NWConnection's send queue
+        unsent = ByteCreditWindow(limit: sendBound)
+        // concurrency-allow: bounded by `unsent`: the transport stops producing while ``isBackedUp``, so the stream holds at most `sendBound` plus one batch
         (outgoing, outbox) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .unbounded)
     }
+
+    public var isBackedUp: Bool { unsent.isPaused }
 
     public func start(queue: DispatchQueue, events: @escaping @Sendable (RemoteRdCarrierEvent) -> Void) {
         state.withLock { state in
@@ -75,6 +88,7 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
                             self.emit(.closed)
                             return
                         }
+                        if self.unsent.consumed(bytes.count), self.unsent.resumeIfDrained() { self.emit(.writable) }
                     }
                 }
                 await group.next()
@@ -86,6 +100,7 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
     }
 
     public func send(_ bytes: Data) {
+        _ = unsent.produced(bytes.count)
         outbox.yield(bytes)
     }
 

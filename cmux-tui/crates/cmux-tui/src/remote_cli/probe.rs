@@ -18,6 +18,9 @@ use crate::localization::catalog;
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
+/// `wireguard-hub-token`: `wg hub --client-token-stdin` and `--config -`, and
+/// `remote connect --wireguard-hub-token-stdin`, so only the app's own clients
+/// use the hub and its config needs no file.
 /// `remote-link-mux-socket` and `remote-link-strict-flags`: see
 /// `cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY`; an SSH client
 /// that needs one refuses a remote without it (cx-z3zh).
@@ -29,6 +32,7 @@ use crate::localization::catalog;
 pub const PROBE_CAPABILITIES: &[&str] = &[
     "direct-ws-user-agent",
     "wireguard-hub",
+    "wireguard-hub-token",
     "browser-proxy",
     "cloud-browser-network",
     cmux_remote::provider::REMOTE_LINK_MUX_SOCKET_CAPABILITY,
@@ -159,6 +163,7 @@ mod tests {
     fn probe_capabilities_include_direct_ws_user_agent() {
         assert!(PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
         assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub"));
+        assert!(PROBE_CAPABILITIES.contains(&"wireguard-hub-token"));
     }
 
     #[test]

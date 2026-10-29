@@ -47,7 +47,7 @@ pub(super) fn scope_refusal(mux: &Mux, client: u64) -> Refusal {
 pub(super) fn scope(
     mux: &Arc<Mux>,
     client: u64,
-    object: &mut serde_json::Map<String, Value>,
+    object: &mut Map<String, Value>,
     author: Option<&Value>,
     writer: &MessageWriter,
 ) -> Option<bool> {
@@ -83,7 +83,7 @@ pub(super) fn author(mux: &Mux, client: u64) -> Option<Value> {
 pub(super) fn bind(
     mux: &Arc<Mux>,
     client: u64,
-    mut object: serde_json::Map<String, Value>,
+    mut object: Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
     let id = object.remove("id");
@@ -161,7 +161,7 @@ pub(super) struct Teammate {
 pub(super) fn check(
     mux: &Mux,
     client: u64,
-    object: &mut serde_json::Map<String, Value>,
+    object: &mut Map<String, Value>,
 ) -> Result<Option<Teammate>, Refusal> {
     let supplied = object.remove("_host_author");
     let pinned = object.remove("_host_session");
@@ -198,7 +198,7 @@ pub(super) fn check(
 pub(super) fn session_of(
     mux: &Mux,
     client: u64,
-    mut object: serde_json::Map<String, Value>,
+    mut object: Map<String, Value>,
     bound: bool,
     writer: &MessageWriter,
 ) -> bool {

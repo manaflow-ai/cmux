@@ -166,7 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The platform services: what the first frame or the restore reads now, the rest posted.
         services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
         // Nor a menu bar item: a tagged build an agent launches leaves the person's menu bar alone.
-        if !environment.isolatedLaunch { services.menuBarExtra.follow(settings, background: services.background) }
+        if !environment.isolatedLaunch { services.menuBarExtra.follow(settings) { [weak background = services.background] in background?.menuBarItemDidChange() } }
         // An upgrade's payment page sends the person back here: read the plan again on each activation.
         services.lifetimeFollowers.append(services.appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "PaidPlan.returned") { [weak services] in
             guard let services else { return }

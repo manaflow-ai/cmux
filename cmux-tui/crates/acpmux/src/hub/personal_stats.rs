@@ -3,7 +3,6 @@
 //! dead daemon left open.
 
 use super::*;
-use crate::no_panic::LockExt;
 
 impl Hub {
     /// Personal stats over every session log (`crate::stats`): blocking,

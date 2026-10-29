@@ -258,7 +258,7 @@ mod script {
     fn a_runtime_that_cannot_run_fails_the_start_with_its_exec_error() {
         let sink: LogSink = Arc::new(|_: &str, _: &str| {});
         let missing = Path::new("/nonexistent/cmux-app-host");
-        let error = Session::start(missing, Arc::new(FakeRouter::default()), sink)
+        let error = Session::start(missing, None, Arc::new(FakeRouter::default()), sink)
             .err()
             .expect("a missing binary does not start");
         assert_eq!(error.code, codes::HOST, "{error}");

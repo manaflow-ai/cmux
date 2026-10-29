@@ -36,6 +36,8 @@ let package = Package(
             dependencies: [
                 "CmuxUpdater",
                 .product(name: "Sparkle", package: "Sparkle"),
+                // OnceContinuation: the download delegate's continuation type.
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
