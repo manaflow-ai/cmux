@@ -205,9 +205,9 @@ extension CloudHandlers {
                 // Stats are a separate provider read, while idle-pause diagnostics
                 // live on the VM record. Fetch both so a status action observes a
                 // cron decision written after the sidebar last refreshed.
-                async let stats = cloud.api.stats(session.machineID)
-                async let record = cloud.api.machine(session.machineID)
-                let (stats, record) = try await (stats, record)
+                async let statsRequest = cloud.api.stats(session.machineID)
+                async let recordRequest = cloud.api.machine(session.machineID)
+                let (stats, record) = try await (statsRequest, recordRequest)
                 session.machine = record
                 return CloudAnswer(title: CloudStrings.statusTitle, text: describe(session, stats), fields: statusFields(session, stats))
             }
