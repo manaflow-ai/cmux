@@ -197,7 +197,8 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
             decisionHandler(.allow)
             return
         }
-        if [.linkActivated, .formSubmitted, .backForward].contains(action.navigationType) { model?.personNavigated?() }
+        // A tap or Back/Forward; a form a page submits by itself (a sign-in step) is not the person's.
+        if [.linkActivated, .backForward].contains(action.navigationType) { model?.personNavigated?() }
         if PhoneReach(target) == .macOnly {
             model?.refuse(target)
             decisionHandler(.cancel)

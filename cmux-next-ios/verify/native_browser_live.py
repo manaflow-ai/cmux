@@ -16,7 +16,7 @@ headless simulator driven with AXe (accessibility taps on that simulator only).
 5. The Mac's own localhost (a server on 127.0.0.1 of the rig Mac) mirrors; Open on iPhone
    refuses it with "is on <Mac>. It can only be mirrored."
 6. On the phone, an unreachable tailnet host shows "This iPhone can't reach", with Try Again
-   and Mirror from <Mac>.
+   and Mirror from <Mac>; a plain http:// page says iOS opens only secure pages here.
 7. The app relaunches: the tab is still on the iPhone.
 Each step stills the phone (OCR and accessibility checks). The simulator is recorded for the
 whole run. Writes DIR/results.json, run.log, shots/, phone.mp4.
@@ -105,18 +105,29 @@ def main():  # noqa: C901 - one live scenario
     c, notes = result["checks"], result["notes"]
     rec = None
 
-    def native_shown():
-        return any(e.ident == "browser.native" for e in sim.tree())
-
     def mirror_button():
-        hit = sim.find(ident="browser.mirror")
+        """The phone page's Mac button (labelled "Mirror from <Mac>")."""
+        els = sim.tree()
+        hit = [e for e in els if e.ident == "browser.mirror"] or \
+              [e for e in els if (e.label or "").startswith("Mirror from") and e.kind == "Button" and e.frame[1] > 400]
         return hit[0] if hit else None
+
+    def mirrored_shown():
+        """The Mac's page: its keyboard button (the phone's page has the Mac button instead)."""
+        els = sim.tree()
+        return any(e.ident in ("browser.keyboard", "browser.stream") or (e.label == "Keyboard" and e.kind == "Button") for e in els)
+
+    def native_shown():
+        return mirror_button() is not None and not mirrored_shown()
+
+    def dump(tag):
+        notes[f"tree-{tag}"] = [(e.kind, e.label, e.ident) for e in sim.tree() if e.label or e.ident][:60]
 
     def page_menu(item):
         """Page Menu, then the item named `item` (prefix match: "Mirror from" names the Mac)."""
         sim.tap_q(label="Page Menu", timeout=15)
         time.sleep(0.8)
-        hit = wait_for(lambda: sim.find(prefix=item), 10)
+        hit = wait_for(lambda: [e for e in sim.find(contains=item) if e.kind in ("Button", "MenuItem", "Cell") or (e.label or "").startswith(item)], 10)
         if not hit:
             raise RuntimeError(f"page menu has no {item!r}: {[e.label for e in sim.tree() if e.kind == 'Button']}")
         return hit[0]
@@ -163,8 +174,9 @@ def main():  # noqa: C901 - one live scenario
         time.sleep(0.8)
         sim.dismiss_keyboard_intro()
         sim.softtype("example.com\n")
-        c["mirrored_example"] = bool(sim.ocr_find("Example Domain", timeout=45))
-        c["mirrored_is_not_native"] = not native_shown() and bool(sim.find(ident="browser.stream"))
+        c["mirrored_example"] = bool(sim.ocr_find("documentation examples", timeout=45))
+        dump("mirrored")
+        c["mirrored_is_not_native"] = mirrored_shown() and mirror_button() is None
         result["shots"]["01-mirrored"] = sim.shot("01-mirrored-example")
 
         # 2. Open on iPhone.
@@ -172,9 +184,10 @@ def main():  # noqa: C901 - one live scenario
         result["shots"]["02-menu"] = sim.shot("02-page-menu-open-on-iphone")
         sim.tap_el(item)
         c["native_shown"] = bool(wait_for(native_shown, 15))
+        dump("native")
         c["caveat_toast"] = bool(wait_for(lambda: sim.find(contains="Sign-ins on"), 5))
         c["mirror_button"] = mirror_button() is not None
-        c["native_example"] = bool(sim.ocr_find("Example Domain", timeout=30))
+        c["native_example"] = bool(sim.ocr_find("documentation examples", timeout=30))
         result["shots"]["03-native"] = sim.shot("03-native-example")
 
         # 3. Browse on the phone: iana.org's reserved domains page.
@@ -184,8 +197,12 @@ def main():  # noqa: C901 - one live scenario
         result["shots"]["04-native-navigated"] = sim.shot("04-native-navigated")
 
         # 4. The Mac button: back to the mirror, which continues at iana.org.
-        sim.tap_el(mirror_button())
-        c["back_to_mirror"] = bool(wait_for(lambda: not native_shown() and sim.find(ident="browser.stream"), 15))
+        button = mirror_button()
+        if button is None:
+            dump("no-mirror-button")
+            raise RuntimeError("no Mirror from button on the phone's page")
+        sim.tap_el(button)
+        c["back_to_mirror"] = bool(wait_for(lambda: mirrored_shown() and mirror_button() is None, 15))
         c["mac_followed_phone"] = bool(sim.ocr_find("Reserved Domains", timeout=45))
         result["shots"]["05-mirror-continues"] = sim.shot("05-mirror-continues-at-iana")
 
@@ -197,22 +214,29 @@ def main():  # noqa: C901 - one live scenario
         toast = wait_for(lambda: sim.find(contains="can only be mirrored"), 6)
         c["localhost_refused_with_reason"] = bool(toast)
         notes["localhost_toast"] = toast[0].label if toast else None
-        c["localhost_stays_mirrored"] = not native_shown()
+        c["localhost_stays_mirrored"] = mirrored_shown()
         result["shots"]["07-localhost-refused"] = sim.shot("07-localhost-stays-mirrored")
 
         # 6. On the phone, a tailnet host it can't reach.
         address("example.com")
-        sim.ocr_find("Example Domain", timeout=45)
+        sim.ocr_find("documentation examples", timeout=45)
         sim.tap_el(page_menu("Open on iPhone"))
         wait_for(native_shown, 15)
-        address("http://no-such-host-cmux.tail137216.ts.net:3000")
-        card = wait_for(lambda: sim.find(ident="browser.native.problem"), 45)
+        address("https://no-such-host-cmux.tail137216.ts.net:3000")
+        card = wait_for(lambda: sim.find(contains="This iPhone can't reach"), 45)
+        dump("unreachable")
         c["unreachable_card"] = bool(card) and bool(sim.find(contains="This iPhone can't reach"))
         c["unreachable_explains_network"] = bool(sim.find(contains="reachable from"))
-        c["unreachable_offers_mirror"] = bool(sim.find(ident="browser.native.mirror")) and bool(sim.find(ident="browser.native.retry"))
+        c["unreachable_offers_mirror"] = bool(sim.find(contains="Mirror from")) and bool(sim.find(label="Try Again"))
         result["shots"]["08-unreachable"] = sim.shot("08-unreachable-tailnet-host")
+        # A plain http:// page: iOS App Transport Security refuses it in the app's web view.
+        address("http://neverssl.com")
+        card = wait_for(lambda: sim.find(contains="secure (https)"), 45)
+        c["http_page_explained"] = bool(card)
+        notes["http_page_texts"] = [e.label for e in sim.tree() if e.label and ("can't" in e.label or "https" in e.label)][:4]
+        result["shots"]["08b-http"] = sim.shot("08b-plain-http-page")
         address("example.com")
-        sim.ocr_find("Example Domain", timeout=45)
+        sim.ocr_find("documentation examples", timeout=45)
 
         # 7. Relaunch: the tab is still on the iPhone.
         subprocess.run(["xcrun", "simctl", "terminate", udid, journey.BUNDLE], capture_output=True)
@@ -222,7 +246,7 @@ def main():  # noqa: C901 - one live scenario
         result["shots"]["09-relaunched"] = sim.shot("09-relaunched-still-native")
         # And back, from the page menu this time.
         sim.tap_el(page_menu("Mirror from"))
-        c["menu_mirror_back"] = bool(wait_for(lambda: not native_shown() and sim.find(ident="browser.stream"), 15))
+        c["menu_mirror_back"] = bool(wait_for(lambda: mirrored_shown() and mirror_button() is None, 15))
         result["shots"]["10-menu-mirror"] = sim.shot("10-mirror-from-menu")
 
         result["pass"] = all(c.values())

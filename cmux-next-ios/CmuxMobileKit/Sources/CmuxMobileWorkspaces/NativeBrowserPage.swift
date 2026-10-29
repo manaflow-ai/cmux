@@ -56,7 +56,7 @@ struct NativeBrowserPage: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             HStack(spacing: 10) {
-                if !problem.isMacOnly {
+                if !problem.isMacOnly, !problem.isInsecure {
                     Button("Try Again") { model.reloadOrStop() }
                         .buttonStyle(.glass)
                         .accessibilityIdentifier("browser.native.retry")

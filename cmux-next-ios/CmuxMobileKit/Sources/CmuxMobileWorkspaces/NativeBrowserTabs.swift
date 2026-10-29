@@ -177,7 +177,7 @@ enum PhoneReach: Equatable {
     /// The Mac's own loopback: only the mirror can show it.
     case macOnly
 
-    static let macSchemes: Set<String> = ["file", "view-source", "chrome", "chrome-extension", "devtools", "cmux"]
+    static let macSchemes: Set<String> = ["file", "view-source", "chrome", "chrome-extension", "devtools"]
 
     init(_ url: URL?) {
         guard let url, let scheme = url.scheme?.lowercased() else { self = .web; return }

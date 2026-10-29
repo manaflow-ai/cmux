@@ -40,7 +40,10 @@ extension WorkspaceTabsSource {
     public func mirrorFromMac(_ id: TabsKitTab.ID) {
         guard let tab = workspaceTab(id), tab.kind == .browser, canMirror(tab),
               let mirror = streamed.model(tab: tab.id, url: tab.url, macID: workspace?.macID) else { return }
-        if let carried = native.close(tab: tab.id, macID: workspace?.macID) { mirror.navigate(to: carried.absoluteString) }
+        // Already there (the person came back to where the Mac is): no reload of the Mac's page.
+        if let carried = native.close(tab: tab.id, macID: workspace?.macID), carried != mirror.url {
+            mirror.navigate(to: carried.absoluteString)
+        }
     }
 
     /// Whether the tab can switch between the Mac's page and this iPhone's (linked to its Mac).
