@@ -3657,7 +3657,7 @@ export class AcpmuxDirectClient {
       // Into a running turn, it stops that turn. Only while it still waits: a record replayed over
       // the live queue (rebuildKeepingLiveState) is of a prompt that already ran. After Stop, the
       // turn's end is the Stop's.
-      if (next && this.turnOpen && this.stopAfterSeq === undefined && this.queue.some((entry) => entry.id === next))
+      if (next && this.turnOpen && !this.stopAffectsRunningTurn() && this.queue.some((entry) => entry.id === next))
         this.interrupting = next;
       this.queue = [...this.queue]
         .sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size))
@@ -3774,9 +3774,14 @@ export class AcpmuxDirectClient {
 
   /// What is ending the running turn, as `event` finds it: a prompt sent now (its `queue_order`
   /// set `interrupting`), or this pane's Stop, pressed before the event. Else unknown.
+  private stopAffectsRunningTurn(): boolean {
+    return this.stopAfterSeq !== undefined &&
+      (this.stopTurnId === undefined || this.runningTurnId === undefined || this.stopTurnId === this.runningTurnId);
+  }
+
   private turnStopCause(event: EventRecord): SubagentStopReason | undefined {
     if (this.interrupting !== undefined) return "sendNow";
-    if (this.stopAfterSeq !== undefined && event.seq > this.stopAfterSeq) return "user";
+    if (this.stopAffectsRunningTurn() && event.seq > this.stopAfterSeq!) return "user";
     return undefined;
   }
 
@@ -4241,16 +4246,11 @@ export class AcpmuxDirectClient {
         this.silentTurn = false;
       } else if (event.kind === "turn_started") {
         const startedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
-        // Stop grace belongs to the turn it was sent to. Once a distinct turn starts, its
-        // controls must recover even if the old turn_result is delayed or never recorded.
-        if (
-          this.stopAfterSeq !== undefined &&
-          (this.stopTurnId === undefined || startedTurnId === undefined || startedTurnId !== this.stopTurnId)
-        ) {
+        // Keep the old cancellation pending for its acknowledgement, but its expired grace
+        // cannot hide the controls of a different, identified turn.
+        if (this.stopTurnId !== undefined && startedTurnId !== undefined && startedTurnId !== this.stopTurnId) {
           clearTimeout(this.stopTimer);
           this.stopGaveUp = false;
-          this.stopAfterSeq = undefined;
-          this.stopTurnId = undefined;
         }
         this.turnOpen = true;
         if (startedTurnId !== undefined) this.runningTurnId = startedTurnId;
@@ -4832,7 +4832,7 @@ export class AcpmuxDirectClient {
       // A replayed turn is history: no live "Working for" clock.
       isWorking:
         this.replayThrough === undefined &&
-        !this.stopGaveUp &&
+        !(this.stopGaveUp && this.stopAffectsRunningTurn()) &&
         // acpmux may still list a paused queue's session as running from before its turn failed.
         (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary))),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
@@ -5581,8 +5581,7 @@ export class AcpmuxDirectClient {
     if (!this.actingSessionId || !this.socket) return;
     // Stop is idempotent until its terminal turn_result. A second click while the daemon is
     // settling must not enqueue another cancel or another forced-end notice.
-    if (this.stopAfterSeq !== undefined && (this.runningTurnId === undefined || this.runningTurnId === this.stopTurnId))
-      return;
+    if (this.stopAffectsRunningTurn()) return;
     // Stop ends the turn: a prompt sent now before it no longer continues the turn.
     this.interrupting = undefined;
     const text = JSON.stringify({
@@ -5598,6 +5597,7 @@ export class AcpmuxDirectClient {
     // The daemon's cancelled turn_result is the completion authority while compacting. Do not
     // invent a local completion or forced-end notice while that result is in flight.
     clearTimeout(this.stopTimer);
+    this.stopGaveUp = false;
     this.stopAfterSeq = this.lastSeq;
     const openerTurnId = this.turnOpener?.msg?.turnId;
     const listedTurnId = this.summary?.turn?.turnId;

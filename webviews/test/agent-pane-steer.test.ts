@@ -479,6 +479,26 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.close();
     });
 
+    test("an expired Stop grace leaves a distinct new turn working and able to send now", async () => {
+      const page = await openChat({ clock: true });
+      await page.getByRole("button", { name: "Stop" }).click();
+      await until(() => cancels.length > 0, "Stop's session/cancel");
+      await page.clock.runFor(6_000);
+      await drawn(page);
+      expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(0);
+      record("user_message", { text: "new work", turnId: "turn-2" });
+      record("turn_started", { turnId: "turn-2" });
+      await drawn(page);
+      expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(1);
+      record("queued", { text: "send now", promptId: "p-now" });
+      record("queue_order", { promptId: "p-now", next: true, order: ["p-now"] });
+      record("turn_result", { status: "cancelled", turnId: "turn-2" });
+      await drawn(page);
+      // Send-now ended the current turn as a continuation, not as the older Stop.
+      expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(0);
+      await page.close();
+    });
+
     test("a Stop the agent answered leaves the next turn alone", async () => {
       const page = await openChat({ clock: true });
       await page.getByRole("button", { name: "Stop" }).click();
