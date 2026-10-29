@@ -132,6 +132,9 @@ function stillUnchanged(vm: CloudVmRow, providerVmId: string) {
     const repo = yield* VmRepository;
     const current = yield* repo.findUserVm({ userId: vm.userId, billingTeamId: vm.ownerTeamId, providerVmId, provider: vm.provider });
     if (!current || current.id !== vm.id || current.status !== "running" || current.providerVmId !== providerVmId) return null;
+    // This branch predates the dedicated idle epoch fence. Keep updatedAt as
+    // its lifecycle fence until the complete claim protocol is ported.
+    if (current.updatedAt.getTime() !== vm.updatedAt.getTime()) return null;
     if (vmLastApiActivityFromRow(current) !== vmLastApiActivityFromRow(vm)) return null;
     // Addresses are probe inputs. Generic updatedAt writes (renames,
     // reservation bookkeeping, provider metadata) do not invalidate a check,
