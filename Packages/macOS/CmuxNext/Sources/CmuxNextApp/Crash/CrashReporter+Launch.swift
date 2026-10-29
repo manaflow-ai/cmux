@@ -79,13 +79,7 @@ extension CrashReporter {
 /// panic log forwarders. Starts only for the app itself
 /// (`marksRun`), after the run marker installed its signal handlers.
 ///
-/// With feature
-/// `crashForwardersAfterStartup` the forwarders' first pass
-/// (the DiagnosticReports listing, the panic logs) and their watches are one
-/// afterStartup best-effort files-lane post, behind the best-effort fence; the
-/// handlers and the LayoutPassGuard install at once either way. Chrome posts non-critical
-/// startup work through `AfterStartupTaskUtils::PostTask`
-/// (chrome/browser/after_startup_task_utils.cc). The `crash.sentry_start` and
+/// The forwarders start at once, each on its own queue (``CrashForwarders/start()``). The `crash.sentry_start` and
 /// `crash.sentry_started` launch marks bound the start
 /// (`LaunchSignposts.Interval.sentryStart`).
 struct AppCrashReporting: Sendable {
@@ -103,12 +97,10 @@ struct AppCrashReporting: Sendable {
     ///     (`DebugSettingsService.start` keeps them current as live Debug toggles change, `CrashReporter.followFeatures`).
     ///   - hangSinks: The main-thread watchdog's hang sinks, set before Sentry starts; they decide whether Sentry's
     ///     app-hang tracker runs (``WatchdogHangSinks/hangTracking``). Nil (tests, no watchdog) keeps the tracker.
-    ///   - forwardersAfterStartup: The launch's scheduler with feature `crashForwardersAfterStartup`: the
-    ///     forwarders run in its afterStartup lane post (``CrashForwarders/post(on:)``). Nil: they start now.
     ///   - runMarker: The app's run marker: the previous run's crash event, sent after the start, gets that run's
     ///     crash keys and black box.
     init(environment: AppEnvironment, features: CrashFeatureScope? = nil,
-         hangSinks: WatchdogHangSinks? = nil, forwardersAfterStartup: StartupScheduler? = nil, runMarker: AppRunMarker? = nil) {
+         hangSinks: WatchdogHangSinks? = nil, runMarker: AppRunMarker? = nil) {
         let previousRun = CrashReporter.previousRunEvidence(marker: runMarker, bundleID: environment.launch.bundleID)
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID, hangTracking: hangSinks?.hangTracking ?? .sentry,
                                                previousRun: previousRun)
@@ -169,7 +161,7 @@ struct AppCrashReporting: Sendable {
                     sends: sends)
             }
         }
-        if let forwardersAfterStartup { forwarders.post(on: forwardersAfterStartup) } else { forwarders.start() }
+        forwarders.start()
         self.forwarders = forwarders
         Self.installLayoutPassGuard(reporter: reporter)
     }

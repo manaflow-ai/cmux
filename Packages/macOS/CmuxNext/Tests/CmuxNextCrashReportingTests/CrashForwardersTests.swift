@@ -1,49 +1,42 @@
-import CmuxNextCompat
 import Foundation
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// ``CrashForwarders/run()`` does the forwarders' first pass on the calling thread (the launch's
-/// best-effort files lane), so a panic the last run left is sent when it returns, and acpmux is found once, there.
-@Suite struct CrashForwardersTests {
-    @Test func runSendsThePreviousRunsPanicOnTheCallingThreadAndFindsAcpmuxOnce() throws {
+/// ``CrashForwarders/start()`` starts each forwarder on its own queue, so a panic the last run left is sent there,
+/// and acpmux is found once, on the calling thread. A helper crash forwarder that waits for its release (the
+/// hang-reports controller's first decision) does its pass only at whichever of the start and the release comes last.
+@Suite(.timeLimit(.minutes(1))) struct CrashForwardersTests {
+    @Test func aSystemForwarderThatWaitsForItsReleaseDoesNoPassBeforeIt() async throws {
         let dir = try CrashForwardersScratch()
         defer { dir.remove() }
-        let sent = CrashForwardersSent()
-        let forwarders = dir.forwarders(sent: sent)
-        #expect(sent.values.isEmpty, "making the forwarders read or sent something")
-        forwarders.run()
-        #expect(sent.values == ["owner: boom", "acpmux.made"])
-        #expect(forwarders.acpmuxPanics == nil, "this test's acpmux maker finds no acpmux")
-    }
-
-    /// A helper crash forwarder that waits for its release (the hang-reports controller's first
-    /// decision) does no pass in ``CrashForwarders/run()`` before it; the other forwarders do theirs.
-    @Test func aSystemForwarderThatWaitsForItsReleaseDoesNoPassBeforeIt() throws {
-        let dir = try CrashForwardersScratch()
-        defer { dir.remove() }
-        let sent = CrashForwardersSent()
-        let forwarders = dir.forwarders(sent: sent, systemWaitsForRelease: true)
-        forwarders.run()
-        #expect(sent.values == ["owner: boom", "acpmux.made"])
+        let (seen, report) = AsyncStream.makeStream(of: CrashForwardersReport.self)
+        let forwarders = dir.forwarders(systemWaitsForRelease: true,
+                                        report: { report.yield(CrashForwardersReport(value: $0)) })
+        forwarders.start()
+        var reports = seen.makeAsyncIterator()
+        let first = try #require(await reports.next())
+        let second = try #require(await reports.next())
+        #expect(Set([first.value, second.value]) == ["acpmux.made", "owner: boom"])
         #expect(!FileManager.default.fileExists(atPath: dir.systemState.path), "the helper forwarder ran before its release")
+        forwarders.releaseSystem()
+        await dir.waitForSystemState()
     }
 
-    @Test func aSystemForwarderReleasedBeforeTheRunDoesItsPassInIt() throws {
+    @Test func aSystemForwarderReleasedBeforeTheStartDoesItsPassThen() async throws {
         let dir = try CrashForwardersScratch()
         defer { dir.remove() }
-        let forwarders = dir.forwarders(sent: nil, systemWaitsForRelease: true)
+        let forwarders = dir.forwarders(systemWaitsForRelease: true)
         forwarders.releaseSystem()
         #expect(!FileManager.default.fileExists(atPath: dir.systemState.path), "the release alone started the helper forwarder")
-        forwarders.run()
-        #expect(FileManager.default.fileExists(atPath: dir.systemState.path), "the run skipped the released helper forwarder")
+        forwarders.start()
+        await dir.waitForSystemState()
     }
 
     @Test func startSendsThePreviousRunsPanicOnTheForwardersQueue() async throws {
         let dir = try CrashForwardersScratch()
         defer { dir.remove() }
         let (seen, report) = AsyncStream.makeStream(of: CrashForwardersReport.self)
-        let forwarders = dir.forwarders(sent: nil, report: { report.yield(CrashForwardersReport(value: $0)) })
+        let forwarders = dir.forwarders(report: { report.yield(CrashForwardersReport(value: $0)) })
         forwarders.start()
         var reports = seen.makeAsyncIterator()
         // The owner's queue and the calling thread both report, in no set order.
@@ -51,8 +44,8 @@ import Testing
         let second = try #require(await reports.next())
         #expect(Set([first.value, second.value]) == ["acpmux.made", "owner: boom"])
         let byValue = Dictionary([first, second].map { ($0.value, $0.thread) }, uniquingKeysWith: { kept, _ in kept })
-        // start() finds acpmux on the calling thread, as the launch did before the feature, and the
-        // owner's panic goes out on the forwarder's own queue, so on another thread.
+        // start() finds acpmux on the calling thread, and the owner's panic goes out on the forwarder's own
+        // queue, so on another thread.
         #expect(byValue["acpmux.made"] != byValue["owner: boom"])
     }
 }
@@ -90,13 +83,14 @@ private struct CrashForwardersScratch {
     var ownerState: URL { root.appending(path: "owner-state.json") }
     var systemState: URL { root.appending(path: "system-state.json") }
 
-    /// The forwarders over this folder; each sent panic and the acpmux search go to `sent` or `report`.
-    func forwarders(sent: CrashForwardersSent?, systemWaitsForRelease: Bool = false,
-                    report: @escaping @Sendable (String) -> Void = { _ in }) -> CrashForwarders {
-        let record: @Sendable (String) -> Void = { value in
-            sent?.append(value)
-            report(value)
-        }
+    /// Returns once the helper crash forwarder's first pass wrote its state (the suite's time limit bounds the wait).
+    func waitForSystemState() async {
+        while !FileManager.default.fileExists(atPath: systemState.path) { try? await Task.sleep(for: .milliseconds(5)) }
+    }
+
+    /// The forwarders over this folder; each sent panic and the acpmux search go to `report`.
+    func forwarders(systemWaitsForRelease: Bool = false,
+                    report record: @escaping @Sendable (String) -> Void = { _ in }) -> CrashForwarders {
         let system = SystemCrashForwarder(directory: root.appending(path: "DiagnosticReports", directoryHint: .isDirectory),
                                           stateFile: systemState, bundlePath: root.path,
                                           mainExecutable: nil, hostExeRoot: nil, ownRustBinaries: [], artifacts: nil,
@@ -110,13 +104,4 @@ private struct CrashForwardersScratch {
     }
 
     func remove() { try? FileManager.default.removeItem(at: root) }
-}
-
-/// What the forwarders sent, in order, from any thread.
-private final class CrashForwardersSent: Sendable {
-    private let state = Mutex<[String]>([])
-
-    var values: [String] { state.withLock { $0 } }
-
-    func append(_ value: String) { state.withLock { $0.append(value) } }
 }
