@@ -110,14 +110,16 @@ READ_ONLY_POSTCONDITION_METHODS = {
 # The tour's shells read these rc files, never the runner account's, whose `%n@%m` prompt names the CI
 # Mac. A DEBUG app launched with CMUX_CAPTURE_SHELL_HOME (as a PR capture slot is) starts its terminals'
 # zsh there (ZDOTDIR; Ghostty's wrapper hands it back before `.zshrc` runs) and names the showcase Mac
-# ("Studio Mac") on its panes, its machine picker and its daemon, so pr-media's privacy check
+# ("Studio Mac") on its panes and its machine picker, so pr-media's privacy check
 # (scripts/ci/pr_media_privacy.py) passes the tour's shots.
 FIXTURE_ZSHRC = "PROMPT='tour@studio-mac %1~ %# '\nRPROMPT=''\n"
 # Inherited caller context a cmux terminal exports. Left in place, a local run
-# inside cmux would route the tour's commands at the caller's own workspace.
+# inside cmux would route the tour's commands at the caller's own workspace, and
+# any of LaunchIdentity.otherCmuxMarkers makes the app drop the tour's
+# CMUX_NEXT_SOCKET_PATH and CMUX_CAPTURE_SHELL_HOME as another cmux's.
 SCRUBBED_ENV = ("CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID",
                 "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD", "CMUX_TUI_SOCKET", "CMUX_TAG",
-                "CMUX_BUNDLE_ID", "CMUX_SOCKET")
+                "CMUX_BUNDLE_ID", "CMUX_SOCKET", "MUX_AGENT_TOKEN_FILE")
 
 
 class TourError(Exception):

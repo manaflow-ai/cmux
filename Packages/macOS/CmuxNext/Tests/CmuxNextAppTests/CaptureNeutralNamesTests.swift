@@ -26,7 +26,6 @@ struct CaptureNeutralNamesTests {
         #expect(captured.terminalEnvironment["ZDOTDIR"] == home.path)
         #expect(captured.terminalEnvironment["SHELL"] == "/bin/zsh")
         #expect(captured.namesShowcaseMac)
-        #expect(captured.terminalEnvironment[AppEnvironment.fixtureMachineNameKey] == "Studio Mac")
     }
 
     /// A media tour (scripts/cmux-next/media/tour.py) launches a DEBUG build with the shell home in its environment,
@@ -49,6 +48,5 @@ struct CaptureNeutralNamesTests {
         #expect(plain.terminalEnvironment["ZDOTDIR"] == nil)
         #expect(plain.terminalEnvironment["SHELL"] == nil)
         #expect(!plain.namesShowcaseMac)
-        #expect(plain.terminalEnvironment[AppEnvironment.fixtureMachineNameKey] == nil)
     }
 }

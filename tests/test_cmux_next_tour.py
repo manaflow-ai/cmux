@@ -35,6 +35,9 @@ server.listen(8)
 lock = threading.Lock()
 with open(log, "a") as out:
     out.write(json.dumps({"method": "_launch", "params": {"no_activate": os.environ.get("CMUX_NEXT_NO_ACTIVATE")}}) + "\n")
+    markers = {key: os.environ[key] for key in ("CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG", "MUX_AGENT_TOKEN_FILE")
+               if key in os.environ}
+    out.write(json.dumps({"method": "_markers", "params": markers}) + "\n")
     home = os.environ.get("CMUX_CAPTURE_SHELL_HOME") or ""
     zshrc = os.path.join(home, ".zshrc")
     out.write(json.dumps({"method": "_fixture", "params": {"shell_home": home,
@@ -218,6 +221,14 @@ class AppWindowCaptureTests(unittest.TestCase):
         # "Studio Mac": AgentTabStore.showcaseMachineName, the name the app shows under capture.
         found = pr_media_privacy.findings(["Studio Mac", prompt], list(pr_media_privacy.GENERIC_PATTERNS))
         self.assertEqual(found, [])
+
+    def test_no_other_cmux_marker_reaches_the_app(self) -> None:
+        # Any of LaunchIdentity.otherCmuxMarkers makes the app drop the tour's socket and capture home
+        # as another cmux's, so a tour run from an agent's terminal would show the runner's prompt again.
+        done, _ = self.run_tour(MUX_AGENT_TOKEN_FILE=str(self.root / "token"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([entry["params"] for entry in entries if entry["method"] == "_markers"], [{}])
 
     def test_a_working_window_snapshot_never_probes_the_desktop(self) -> None:
         # A desktop capture shows whatever covers the window (permission
