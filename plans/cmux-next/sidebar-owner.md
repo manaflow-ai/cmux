@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-29: the tab tuck and additive geometry springs hold their starting values until their
+  explicit begin times. Display-rate frames at nightly source `316bd521` showed an initial flash;
+  opacity-only backwards fill exposed the destination frame, so geometry needs the same fill.
+  Verification includes presentation position and size plus composited folds. The spring, early-fade
+  threshold, duration and row layout stay the same. Leo: "fade it a bit faster or a bit earlier in
+  the movement, so that it looks like, you know, it, like, tucks under rather than it tucks over".
+
 Owner: the sidebar-owner agent (Chief subagent, Oct 23 2026, "one new agent that owns everything about
 sidebar from now on"). Scope: workspace and group rows, nested groups, the group rail, the hover card,
 the row close (X), unread dots, densities, drag and reorder, the Home/pinned band, and sidebar
