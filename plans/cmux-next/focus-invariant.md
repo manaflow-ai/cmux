@@ -2,8 +2,9 @@
 
 Status: binding (felt 1f, Lawrence 2026-10-29: "at any point in time (with some very minor exceptions?),
 something should always be focused, so that keyboard only operation is possible"). Owner: the focus agent of
-felt 1f. Checker: `InputInvariantMonitor` (W10, W11, with W1 and W5 of [input-spec.md](input-spec.md)). Fuzz:
-`scripts/journeys/ext_focus.py` (`focus-fuzz`, `focus-new-browser-tab`).
+felt 1f. Checker: `InputInvariantMonitor` (W10, W11, with W1 and W5 of [input-spec.md](input-spec.md)). Fuzz: the
+journeys group `ext_focus.py` (`focus-fuzz`, `focus-new-browser-tab`) on branch `cp/journeys-focus-fuzz`, until it lands
+in `scripts/journeys/`.
 
 ## The rule
 
@@ -55,7 +56,7 @@ Where the target is ambiguous, these decide:
 | A system sheet or panel is up (open/save panel, print, the color panel, a permission prompt) | AppKit owns the keys; the window under it is checked when it closes |
 | A menu is open (main menu, context menu) | the menu tracking loop owns the keys |
 | Within `holdLimit` (2 s) of a create whose target comes later | the keys are held for the target (above); W11 reports one that never lands |
-| Under `CMUX_NEXT_NO_ACTIVATE=1` (agent and capture runs) with no key window | the app never takes the keyboard by itself; the journeys make the shell key first |
+| Under `CMUX_NEXT_NO_ACTIVATE=1` (agent and capture runs) with no key window | the app never takes the keyboard by itself, so it is not active (`NSApp.isActive` false) and W10's key-window part does not apply; the journeys type into the front window |
 
 Any other state where a key goes nowhere is a bug.
 
@@ -66,10 +67,10 @@ Any other state where a key goes nowhere is a bug.
 | W1 | AppKit's first responder is what the model targets (input-spec.md) |
 | W5 | Only the window AppKit made key has the keys in the model; a page, panel or sheet has them only over its window (input-spec.md) |
 | W10 | Keys have a target: cmux active with a visible window has a key window; the key cmux window's model targets something that takes keys (not `none`, not an empty pane while a pane has tabs) |
-| W11 | A focus expectation (a target that lands later) lands or is dropped within `holdLimit` plus one settle; one still pending after that is stuck: the keys go to the old target |
+| W11 | A focus expectation (a target that lands later) lands or is dropped within `holdLimit` plus one settle after its create's key hold ends (a slow reply is not stuck); one still pending after that is stuck: the keys go to the old target. A failed create leaves its expectation until a newer intent, and is reported |
 
 `InputInvariantMonitor` checks these after every action run (`ActionRegistry.willRunObservers`), every focus
-reduction (responder reports included), every key-window change and every key or mouse press, once input settles
-(200 ms), in Debug and bench builds (`DEBUG || CMUX_BENCH_HOOKS`); `debug.desync {check: true}` checks on demand in
-any build. A violation names the action that ran last, the window, the first responder and the expected target. The
+reduction (key-window, activation and responder changes included) and every key or mouse press, once input settles
+(200 ms), in Debug builds, and in bench builds launched with `CMUX_NEXT_FOCUS_CHECK=1` (a bench build otherwise times
+like Release); `debug.desync {check: true}` checks on demand in any build. A violation names the action that ran last, the window, the first responder and the expected target. The
 monitor only records: it never moves focus to repair a violation.

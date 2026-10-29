@@ -48,6 +48,36 @@ struct KeysHaveTargetInvariantTests {
         #expect(w10(observation).map(\.invariant) == [.keysHaveTarget])
     }
 
+    @Test func anEmptyWorkspaceIsTheEmptyStateException() {
+        let observation = InputObservation(windows: [window(.none, isKey: true, panes: [])], keyWindow: .window("window_1"),
+                                           paletteOpen: false, activeWindow: "window_1", context: FocusState.Context(), appActive: true)
+        #expect(w10(observation).isEmpty)
+    }
+
+    @Test func anExpectationReKeyedFromItsSurfaceToItsTabKeepsItsClock() {
+        let start = ContinuousClock.now
+        let limit = InputInvariantMonitor.expectationLimit
+        let bySurface = FocusState.Expectation(key: .surface("7"), target: .content, generation: 5)
+        let byTab = FocusState.Expectation(key: .tab("tab_7"), target: .content, generation: 5)
+        var ages = FocusExpectationAges()
+        _ = ages.check([window(.terminal(pane: "pane_a", tab: "tab_t"), isKey: true, expectation: bySurface)], now: start, limit: limit)
+        let later = ages.check([window(.terminal(pane: "pane_a", tab: "tab_t"), isKey: true, expectation: byTab)], now: start + limit, limit: limit)
+        #expect(later.violations.map(\.invariant) == [.expectationLands])
+    }
+
+    @Test func aWindowWhoseKeysWaitForACreatesReplyStartsItsClockWhenTheHoldEnds() {
+        let start = ContinuousClock.now
+        let limit = InputInvariantMonitor.expectationLimit
+        let pending = [window(.terminal(pane: "pane_a", tab: "tab_t"), isKey: true,
+                              expectation: FocusState.Expectation(key: .tab("tab_new"), target: .addressBar, generation: 3))]
+        var ages = FocusExpectationAges()
+        _ = ages.check(pending, now: start, limit: limit, holding: ["window_1"])
+        // The slow daemon held the keys 5 s: no W11 while it held them, none at once after.
+        #expect(ages.check(pending, now: start + .seconds(5), limit: limit, holding: ["window_1"]).violations.isEmpty)
+        #expect(ages.check(pending, now: start + .seconds(5) + .milliseconds(1), limit: limit).violations.isEmpty)
+        #expect(ages.check(pending, now: start + .seconds(5) + limit, limit: limit).violations.map(\.invariant) == [.expectationLands])
+    }
+
     @Test func aKeyWindowFocusedOnATabLessPaneBesideOneWithTabsIsW10() {
         let panes = [FocusTopology.Pane(id: "pane_a", tabs: [], selected: nil),
                      FocusTopology.Pane(id: "pane_b", tabs: [FocusTopology.Tab(id: "tab_t", kind: .terminal)], selected: "tab_t")]

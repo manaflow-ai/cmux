@@ -16,7 +16,8 @@ nonisolated extension InputInvariants {
         guard case .window(let id) = observation.keyWindow, let window = observation.window(id),
               window.topPage != true, window.model.overlays.isEmpty else { return out }
         switch window.model.resolved {
-        case .none:
+        // A workspace with no panes shows its empty state, whose own button takes the keys (focus-invariant.md rule 3).
+        case .none where !window.model.topology.panes.isEmpty:
             out.append(InputViolation(invariant: .keysHaveTarget, window: id,
                                       detail: "the key window's model targets nothing (target \(window.model.target), \(window.model.topology.panes.count) panes)"))
         // An empty pane that holds no tab while another pane holds some: focus should have moved to a pane with
