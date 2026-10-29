@@ -122,3 +122,5 @@ cargo build -p cmux-tui
 python3 scripts/smoke-tui.py
 python3 scripts/smoke-attach.py
 ```
+
+<!-- timing probe for #25952; this branch is never merged -->
