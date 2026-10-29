@@ -127,10 +127,9 @@ describe("native popup DOM observations", () => {
     const f = fixture(
       '<aside id="summary" style="position:absolute;z-index:4">Summary</aside><aside id="info" style="position:fixed;z-index:5"><div id="nested" role="menu">More</div></aside><ul role="listbox"><li>Inline list</li></ul>',
     );
-    const semantics: Map<Element, SurfaceSemantics> = new Map([
-      [f.element("summary"), { kind: "persistent" }],
-      [f.element("info"), { kind: "persistent" }],
-    ]);
+    const semantics = new Map<Element, SurfaceSemantics>();
+    semantics.set(f.element("summary"), { kind: "persistent" });
+    semantics.set(f.element("info"), { kind: "persistent" });
     expect(f.inspect({ semantics }).map((violation) => violation.element?.id)).toEqual(["nested"]);
   });
 
@@ -158,16 +157,12 @@ describe("native popup DOM observations", () => {
       '<div id="content" style="position:fixed;z-index:1"><div id="nested" role="menu">More</div></div>',
     );
     const expected = identity();
-    const semantics: Map<Element, SurfaceSemantics> = new Map([
-      [
-        f.element("content"),
-        {
-          kind: "native-content",
-          expected,
-          presentation: shown(expected),
-        },
-      ],
-    ]);
+    const semantics = new Map<Element, SurfaceSemantics>();
+    semantics.set(f.element("content"), {
+      kind: "native-content",
+      expected,
+      presentation: shown(expected),
+    });
     expect(f.inspect({ semantics }).map((violation) => violation.element?.id)).toEqual(["nested"]);
     semantics.set(f.element("content"), { kind: "native-content", expected, presentation: null });
     expect(f.inspect({ semantics }).map((violation) => violation.kind)).toEqual(["native-presentation", "dom-popup"]);
