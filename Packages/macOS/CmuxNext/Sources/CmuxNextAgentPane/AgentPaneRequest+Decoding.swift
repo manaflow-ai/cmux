@@ -348,6 +348,11 @@ extension AgentPaneRequest {
         case "pane.setQuickActions":
             if let list = AgentPaneQuickAction.list(params?["quickActions"]) { self = .setQuickActions(list) }
             else { self = .unsupported(method) }
+        case "chat.btw.inline":
+            if let question = params?["question"] as? String, !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, question.utf8.count <= 32 * 1024,
+               let sessionId = params?["sessionId"] as? String, !sessionId.isEmpty, sessionId.utf8.count <= 256 {
+                self = .btwInline(question: question, sessionId: sessionId)
+            } else { self = .unsupported(method) }
         case "chat.sideChat":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
         case "chat.subagentPane":
