@@ -180,7 +180,7 @@ impl HttpHub {
             let mut out = Zeroizing::new(vec![0u8; MAX_TOKEN_OUTPUT + 1]);
             let mut len = 0;
             loop {
-                let n = pipe.read(&mut out[len..]).await?;
+                let n = pipe.read(out.get_mut(len..).unwrap_or_default()).await?;
                 if n == 0 {
                     break;
                 }
@@ -202,7 +202,7 @@ impl HttpHub {
         if !status.success() {
             return Err(HubError::unavailable(format!("the token command failed ({status})")));
         }
-        let stdout = std::str::from_utf8(&out[..len])
+        let stdout = std::str::from_utf8(out.get(..len).unwrap_or_default())
             .map_err(|_| HubError::unavailable("the token command printed no text"))?;
         let token = parse_token(stdout).map_err(HubError::unavailable)?;
         *held = Some((Arc::clone(&token.0), token.1));

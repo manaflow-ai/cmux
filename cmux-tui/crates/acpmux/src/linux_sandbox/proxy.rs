@@ -215,13 +215,18 @@ async fn read_header(client: &mut TcpStream) -> Result<(Vec<u8>, usize), &'stati
         if limit == 0 {
             return Err("431 Request Header Fields Too Large");
         }
-        let n = client.read(&mut chunk[..limit]).await.map_err(|_| "400 Bad Request")?;
+        let n = client
+            .read(chunk.get_mut(..limit).unwrap_or_default())
+            .await
+            .map_err(|_| "400 Bad Request")?;
         if n == 0 {
             return Err("400 Bad Request");
         }
         let scan_from = bytes.len().saturating_sub(3);
-        bytes.extend_from_slice(&chunk[..n]);
-        if let Some(at) = bytes[scan_from..].windows(4).position(|w| w == b"\r\n\r\n") {
+        bytes.extend_from_slice(chunk.get(..n).unwrap_or_default());
+        if let Some(at) =
+            bytes.get(scan_from..).unwrap_or_default().windows(4).position(|w| w == b"\r\n\r\n")
+        {
             return Ok((bytes, scan_from + at + 4));
         }
     }
@@ -282,8 +287,8 @@ fn request(line: &str) -> Option<(String, u16, Option<String>)> {
     }
     let rest = target.strip_prefix("http://")?;
     let at = rest.find(['/', '?']).unwrap_or(rest.len());
-    let (host, port) = authority(&rest[..at], Some(80))?;
-    let path = &rest[at..];
+    let (authority_text, path) = rest.split_at_checked(at)?;
+    let (host, port) = authority(authority_text, Some(80))?;
     let path = if path.starts_with('/') { path.to_owned() } else { format!("/{path}") };
     Some((host, port, Some(format!("{method} {path} HTTP/1.1\r\n"))))
 }
@@ -301,10 +306,12 @@ where
             return reply(&mut client, "408 Request Timeout", "header deadline exceeded").await;
         }
     };
-    let Some(line_end) = bytes[..end].windows(2).position(|w| w == b"\r\n") else {
+    let Some(line_end) = bytes.get(..end).unwrap_or_default().windows(2).position(|w| w == b"\r\n")
+    else {
         return reply(&mut client, "400 Bad Request", "missing request line terminator").await;
     };
-    let parsed = std::str::from_utf8(&bytes[..line_end]).ok().and_then(request);
+    let parsed =
+        std::str::from_utf8(bytes.get(..line_end).unwrap_or_default()).ok().and_then(request);
     let Some((host, port, rewritten)) = parsed else {
         return reply(&mut client, "400 Bad Request", "invalid proxy request target").await;
     };
@@ -329,10 +336,10 @@ where
         };
         if let Some(line) = rewritten {
             upstream.write_all(line.as_bytes()).await?;
-            upstream.write_all(&bytes[line_end + 2..]).await?;
+            upstream.write_all(bytes.get(line_end + 2..).unwrap_or_default()).await?;
         } else {
             client.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await?;
-            upstream.write_all(&bytes[end..]).await?;
+            upstream.write_all(bytes.get(end..).unwrap_or_default()).await?;
         }
         return tunnel(client, upstream).await;
     }

@@ -71,7 +71,7 @@ pub fn parse_token_text(text: &str) -> Result<String> {
     if !token.starts_with("cmj_")
         || token.len() <= 4
         || token.len() > MAX_TOKEN_BYTES
-        || token[4..].bytes().any(|b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+        || token.bytes().skip(4).any(|b| !(b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
     {
         return Err(anyhow!("join token is malformed"));
     }

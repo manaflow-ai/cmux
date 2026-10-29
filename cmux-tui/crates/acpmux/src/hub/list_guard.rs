@@ -147,7 +147,9 @@ impl Snapshot {
                 text.push(',');
             }
             let at = key["at"].as_u64().unwrap_or_default() as usize;
-            text.push_str(self.spans.get(at).map_or("null", |span| &self.whole[span.clone()]));
+            text.push_str(
+                self.spans.get(at).and_then(|span| self.whole.get(span.clone())).unwrap_or("null"),
+            );
         }
         text.push_str("]}");
         Ok(text)
@@ -155,7 +157,8 @@ impl Snapshot {
 
     /// Every summary, parsed back.
     pub(crate) fn values(&self) -> Vec<Value> {
-        let parse = |span: &Range<usize>| serde_json::from_str(&self.whole[span.clone()]);
+        let parse =
+            |span: &Range<usize>| serde_json::from_str(self.whole.get(span.clone()).unwrap_or(""));
         self.spans.iter().map(|span| parse(span).unwrap_or_default()).collect()
     }
 
@@ -229,7 +232,12 @@ impl Rows {
             }
             let source = key.at;
             let start = whole.len();
-            whole.extend_from_slice(&self.text[self.spans[source].clone()]);
+            whole.extend_from_slice(
+                self.spans
+                    .get(source)
+                    .and_then(|span| self.text.get(span.clone()))
+                    .unwrap_or_default(),
+            );
             spans.push(start..whole.len());
             let mut value = json!({"at": at});
             if let Some(session_id) = key.session_id {

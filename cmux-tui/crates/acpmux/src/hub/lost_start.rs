@@ -87,7 +87,7 @@ impl Unstarted {
                 let steer = e.msg.get("steer") == Some(&Value::Bool(true));
                 let slots: Vec<usize> = (self.of_prompt(prompt_id).into_iter())
                     .filter(|&i| {
-                        let q = self.lost[i].as_ref();
+                        let q = self.lost.get(i).and_then(Option::as_ref);
                         steer || q.is_some_and(|q| Some(q.turn_id.as_str()) != turn_id)
                     })
                     .collect();
