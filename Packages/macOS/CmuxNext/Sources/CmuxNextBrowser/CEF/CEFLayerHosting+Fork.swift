@@ -23,8 +23,6 @@ extension CEFLayerHosting {
         /// The Track A calls the app makes for this fork's pages while the
         /// feature `cefLayerHosting` is on; nil while it is off.
         let trackA: TrackA?
-        /// Feature `cefLayerHostingEveryPage`: every page window hosts (``Policy/hostsEveryPage``).
-        let hostsEveryPage: Bool
         /// `cmux_shim_browser_attach_view` (Track B) from fork API ``CEFLayerHosting/attachViewForkAPI`` while the
         /// feature `cefAttachedPages` is on; nil otherwise.
         let attachView: CEFAttachedPages.Attach?
@@ -60,13 +58,11 @@ extension CEFLayerHosting {
              evictFrame: ((_ browser: Int32) -> Bool)? = nil,
              copyFrame: ((_ browser: Int32, _ done: @escaping @MainActor (IOSurface?) -> Void) -> Bool)? = nil,
              onNextFrame: ((_ browser: Int32, _ presented: @escaping @MainActor () -> Void) -> Bool)? = nil,
-             hostsEveryPage: Bool = false,
              hostedWidgets: Set<Widget> = [.page], attachedWidgets: Set<Widget> = [.page]) {
             self.setLayerHosting = setLayerHosting
             self.setResizeSync = setResizeSync
             self.resizeFence = resizeFence
             self.trackA = trackA
-            self.hostsEveryPage = hostsEveryPage
             self.attachView = attachView
             self.setVisibility = setVisibility
             self.evictFrame = evictFrame
@@ -103,7 +99,6 @@ extension CEFLayerHosting {
                 setVisibility = nil
             }
             trackA = calls
-            hostsEveryPage = policy.hostsEveryPage
             attachView = CEFAttachedPages.shimAttach(shim, apiVersion: apiVersion, enabled: policy.attachesViews)
             // The fork's keep-frame-while-hidden call has no shim export yet: Chromium's own eviction decides.
             evictFrame = nil

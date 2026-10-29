@@ -185,7 +185,6 @@ extension AppServices {
                                            disabledChromiumFeatures = features.disabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
                                            attachedPages = features.isEnabled(.cefAttachedPages), resizeFence = features.isEnabled(.cefResizeFence),
                                            memoryCoordinator,
-                                           everyPage = Self.hostsEveryPage(features),
                                            rendererCaps = Self.sharedRendererMemoryCaps(.forThisMac(gpuResidentAvailable: false))] stores, deadlines, source in
                                       // Chromium's start as launch marks; its first page paint counts until startup_complete.
                                       let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
@@ -196,7 +195,7 @@ extension AppServices {
                                                        chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
                                                        prefetchWork: prefetchWork,
                                                        launch: launchOrder, pageHostScripts: pageHostScripts).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
-                                          .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
+                                          .votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
                                           .followingVisibilityForRendererHangs(hangFollowsVisibility)
                                           .slicingPumpToFrames(of: pumpFrames).cappingSharedRendererMemory(rendererCaps).usingResizeFence(resizeFence)
                                   },
@@ -211,15 +210,6 @@ extension AppServices {
     nonisolated static func sharedRendererMemoryCaps(_ budget: SubsystemBudget) -> CEFSharedRendererMemoryCaps {
         CEFSharedRendererMemoryCaps(mainFrameBytes: budget.sharedRendererMemoryCapBytes,
                                     subframeBytes: budget.sharedRendererSubframeMemoryCapBytes)
-    }
-
-    /// Bench-only feature `cefLayerHostingEveryPage`, the layer hosting benches' on arm: compiled out of shipped builds.
-    nonisolated static func hostsEveryPage(_ features: FeatureList) -> Bool {
-        #if DEBUG || CMUX_BENCH_HOOKS
-        features.isEnabled(.cefLayerHostingEveryPage)
-        #else
-        false
-        #endif
     }
 
     /// The slot's `engineDidCreate`. It holds the crash services themselves, not the `AppServices`, so on every engine

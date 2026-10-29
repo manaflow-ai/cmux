@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """Chromium in process vs Chromium in its own host app (prototype; plans/cmux-next/cef-helper-app-DESIGN.md).
 
-Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHostingEveryPage` (the
-bench-only feature `cefLayerHostingEveryPage`'s local override: every page window hosts from fork API 26, without the
-Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice. Chromium tabs
-stay in cmux (`browserHost.tabs` off) except with `--modes profiles`, `--modes tcc`, `--modes agentcdp` and
-`--kill-host`, which need them in the host: profiles, tcc and agentcdp run in a launch without the in-process rows
+Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHosting` (the feature
+`cefLayerHosting`'s local override: a pane's page hosts where the app makes every Track A call for the fork) on, and
+measures the same probe page twice. Chromium tabs stay in cmux (`browserHost.tabs` off) except with `--modes profiles`,
+`--modes tcc`, `--modes agentcdp` and `--kill-host`, which need them in the host: profiles, tcc and agentcdp run in a launch without the in-process rows
 (inproc, --baseline, --stress), and
 --kill-host runs instead of the modes; an in-process row of a launch whose tabs run in the host says not_run (its
 numbers would be the host's):
 
   inproc   a normal Chromium tab (`openBrowser.chromium`): the browser process is the cmux app, its pump runs on
-           cmux's main thread, the page's pixels are layer hosted (fork API >= 26) and its input goes to the page
+           cmux's main thread, the page's pixels are layer hosted (where the fork has every Track A call) and its input goes to the page
            window (debug.mouse/debug.key `target: page`)
   helper   `debug.chromium_host open`: the browser process is `<App>.app/Contents/MacOS/<App> Chromium Host`, the page's pixels are the
            host's CAContext in a CALayerHost over the same pane, and cmux forwards its input over the wire
@@ -484,7 +483,7 @@ for (const type of ["mousedown", "mouseup", "click", "auxclick", "contextmenu"])
 addEventListener("wheel", e => { if (e.ctrlKey) __mouse.push({type: "pinch-wheel", dy: e.deltaY}); }, {capture: true, passive: true});
 </script>""".replace("TIP", MOUSE_TOOLTIP)
 
-TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHostingEveryPage": True}}
+TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHosting": True}}
 
 
 # The modes whose rows need every Chromium tab in the host: profiles (task 080) and tcc (task 089: the host's own

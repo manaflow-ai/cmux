@@ -8,15 +8,6 @@ extension CEFEngine {
         return self
     }
 
-    /// Feature `cefLayerHostingEveryPage` (DEBUG and bench builds): every page window from fork API 26 hosts,
-    /// DevTools and popups too, without the Track A calls: the layer hosting benches' on arm
-    /// (`cef-layer-verify.py --mode on`). Applies to page windows made from now on.
-    @discardableResult
-    public func hostingEveryPage(_ enabled: Bool) -> CEFEngine {
-        CEFRuntime.shared.pageHosting.hostsEveryPage = enabled
-        return self
-    }
-
     /// Feature `cefAttachedPages`: a pane's tabs attach Chromium's own view in the pane
     /// where the fork has the call (`CEFAttachedPages`). Applies to page windows made from now on.
     @discardableResult

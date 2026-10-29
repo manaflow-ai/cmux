@@ -14,9 +14,7 @@ import IOSurface
 /// window of a kind the fork hosts (``Widget``, ``Fork/hostedWidgets``) only
 /// where the app makes every one of them (``TrackA``). The Debug tunable
 /// `browserResize.layerHosting` is only that feature's local override,
-/// resolved at launch, never read here. The benches' arm, feature
-/// `cefLayerHostingEveryPage` (DEBUG and bench builds, ``Fork/hostsEveryPage``),
-/// hosts every page window, DevTools and popups too.
+/// resolved at launch, never read here.
 ///
 /// The context belongs to the page window, not to a tab: every tab of a pane
 /// shares it, so a tab switch inside a hosted pane makes no fork call. A new
