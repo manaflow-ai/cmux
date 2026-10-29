@@ -473,6 +473,20 @@ test("only explicit title data supplies titles; edits preserve their supplied ti
   );
   expect(transcriptPullRequests(rows)[0]?.title).toBe("New title");
 });
+test("repository casing preserves lifecycle and source identity", () => {
+  const close = shell("gh pr close 41 -R acme/app");
+  close.tool!.endedAt = 42;
+  const rows = toolsRows(shell("gh pr view 41 -R Acme/App"), close);
+  expect(transcriptPullRequests(rows)).toMatchObject([{ number: 41, state: "closed" }]);
+  expect(transcriptPullRequests(rows)[0]!.closedAt).toBe(42);
+  const mutated = toolsRows(
+    shell("gh pr comment 41 -R Acme/App", "https://github.com/acme/app/pull/41#issuecomment-123"),
+  );
+  expect(sessionSummary(mutated, "acme/app").sources).toEqual([]);
+  const mentioned = [assistant("https://github.com/Acme/App/pull/41 https://github.com/acme/app/pull/41", 1)];
+  expect(sessionSummary(mentioned, "acme/app").sources).toHaveLength(1);
+});
+
 test("shell substitutions and conditions retain executed mutations", () => {
   for (const command of [
     "url=$(gh pr create -R acme/app); echo $url",

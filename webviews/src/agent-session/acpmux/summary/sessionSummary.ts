@@ -97,7 +97,7 @@ const GITHUB_REFERENCE_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(pul
 const sourceKey = (source: SummarySource) => {
   const github = source.url?.match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:pull|issues)\/(\d+)/);
   return github
-    ? `github:${github[1]}/${github[2]}#${github[3]}`
+    ? `github:${github[1]!.toLowerCase()}/${github[2]!.toLowerCase()}#${github[3]}`
     : `${source.kind ?? "url"}:${source.url ?? source.label}`;
 };
 // Revision ownership lets old summaries go when their producer and snapshots release them.
@@ -148,7 +148,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
   };
   // Match canonical GitHub links after removing query and fragment suffixes. Keep a separate
   // identity set so an issue-form link for a PR the chat changed cannot resurrect it as a Source.
-  const knownPullRequests = new Map(pullRequests.map((pr) => [pr.url, pr]));
+  const knownPullRequests = new Map(pullRequests.map((pr) => [`${pr.repo.toLowerCase()}#${pr.number}`, pr]));
   const changedIdentities = new Set(
     pullRequests
       .filter((pr) => (pr.changed || pr.opened) && pr.kind !== "issue")
@@ -164,10 +164,8 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
         const [, owner, repo, path, number] = reference;
         const canonical = `https://github.com/${owner}/${repo}/${path}/${number}`;
         const identity = `${owner}/${repo}`.toLowerCase() + `#${number}`;
-        const known =
-          knownPullRequests.get(canonical) ??
-          knownPullRequests.get(`https://github.com/${owner}/${repo}/pull/${number}`);
-        if (known?.changed || known?.opened || (path === "issues" && changedIdentities.has(identity))) continue;
+        const known = knownPullRequests.get(identity);
+        if (known?.changed || known?.opened || changedIdentities.has(identity)) continue;
         const pr = path === "pull" || known?.kind === "pullRequest";
         add(
           {
