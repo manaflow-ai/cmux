@@ -203,8 +203,9 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         case .audioMutedChanged(let muted):
             state.isAudioMuted = muted
 
-        case .pageScrolled:
-            break
+        case .pageScrolled(let y):
+            guard let url = state.url else { return }
+            state.scrollReport = BrowserScrollReport(url: url, y: y)
         }
     }
 

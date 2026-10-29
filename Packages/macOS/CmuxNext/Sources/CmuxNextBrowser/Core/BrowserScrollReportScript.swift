@@ -17,7 +17,7 @@ nonisolated struct BrowserScrollReportScript {
     static func source(post: String, ready: String) -> String {
         """
         (() => {
-          let timer = 0, last = -1;
+          let timer = 0, last = 0;
           const send = () => {
             timer = 0;
             const y = Math.max(0, Math.round(window.scrollY || 0));

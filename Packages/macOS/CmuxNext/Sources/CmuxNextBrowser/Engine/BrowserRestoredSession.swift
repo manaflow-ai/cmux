@@ -112,6 +112,11 @@ class BrowserRestoredSession {
     /// knows; `measuringScroll` also asks the shown page.
     func savedSession(measuringScroll: Bool) async -> BrowserSavedSession? {
         guard let tab else { return nil }
+        // Where the page said its scrolling settled (no page question): a crash after it keeps it.
+        // Not while a restore still scrolls the page back: its load reports the top first.
+        if pendingScrollY == nil, restoringEntry == nil, let report = tab.state.scrollReport {
+            knownScrollY[report.url] = report.y
+        }
         if measuringScroll, pendingScrollY == nil, restoringEntry == nil, let url = tab.state.url, let y = await tab.currentScrollY() {
             // The page may have moved on while it answered.
             if tab.state.url == url { knownScrollY[url] = y }
