@@ -53,6 +53,8 @@ final class LineTransport: Sendable {
         var order: [UInt64] = []
         var closed: TransportCloseReason?
         var sawShutdown = false
+        /// The daemon refused this connection at its connection limit (`server.busy`).
+        var sawBusyRefusal = false
         /// Events routed so far; responses capture it as their barrier.
         var eventCount: UInt64 = 0
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
@@ -283,6 +285,10 @@ final class LineTransport: Sendable {
         child?.terminate()
     }
 
+    /// The close detail of a connection the daemon refused at its connection limit
+    /// (`{"type":"refused","code":"server.busy"}`, then EOF): the daemon is alive and busy.
+    static let busyRefusal = "refused: the session is at its connection limit (server.busy)"
+
     // MARK: - Private
 
     private static func closedError(_ reason: TransportCloseReason) -> DaemonError {
@@ -332,7 +338,8 @@ final class LineTransport: Sendable {
         }
         let reason: TransportCloseReason = state.withLock { state in
             if let closed = state.closed { return closed }
-            return state.sawShutdown ? .daemonShutdown : .lost(closeDetail)
+            if state.sawShutdown { return .daemonShutdown }
+            return .lost(state.sawBusyRefusal ? Self.busyRefusal : closeDetail)
         }
         failAll(reason)
         writer.close()
@@ -365,6 +372,11 @@ final class LineTransport: Sendable {
                 return state.eventCount
             }
             onEvent(name, line, index)
+            return
+        }
+        if envelope.type == "refused" {
+            // The one line of a connection refused at the limit, then EOF: no request ran.
+            if envelope.code == "server.busy" { state.withLock { $0.sawBusyRefusal = true } }
             return
         }
         guard envelope.ok != nil || envelope.id != nil else { return }

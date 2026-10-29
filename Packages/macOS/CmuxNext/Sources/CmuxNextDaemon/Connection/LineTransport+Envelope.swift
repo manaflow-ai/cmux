@@ -16,9 +16,11 @@ extension LineTransport {
         var streamID: String?
         var errorDetails: JSONValue?
         var retryable: Bool?
+        /// A `cmux.protocol/2` refusal's code (`type: "refused"`, `server.busy`).
+        var code: String?
 
         enum CodingKeys: String, CodingKey {
-            case id, ok, event, error, type, reason, retryable, data
+            case id, ok, event, error, type, reason, retryable, data, code
             case errorCode = "error_code"
             case streamID = "stream_id"
         }
@@ -40,6 +42,7 @@ extension LineTransport {
             ok = try? c.decodeIfPresent(Bool.self, forKey: .ok)
             (event, streamID) = (try? c.decodeIfPresent(String.self, forKey: .event), try? c.decodeIfPresent(String.self, forKey: .streamID))
             type = try? c.decodeIfPresent(String.self, forKey: .type)
+            code = try? c.decodeIfPresent(String.self, forKey: .code)
             errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
             if let text = try? c.decodeIfPresent(String.self, forKey: .error) {
                 error = text
