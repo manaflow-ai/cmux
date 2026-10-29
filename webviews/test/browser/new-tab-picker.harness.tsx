@@ -56,7 +56,7 @@ const snapshot = noChat(
               { id: "default", name: "Ask before edits" },
               { id: "acceptEdits", name: "Edit automatically" },
               { id: "plan", name: "Plan" },
-              { id: "bypassPermissions", name: "Full access" },
+              { id: "bypassPermissions", name: "Bypass permissions" },
             ],
           },
         },

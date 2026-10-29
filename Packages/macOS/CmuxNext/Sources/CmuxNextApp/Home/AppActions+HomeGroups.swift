@@ -106,6 +106,15 @@ extension AppActions {
             guard let id = shownPage(services)?.shown else { return false }
             return pinSource(services).isPinned(id)
         }
+        // A chat's own colours: arguments set them (`cmux chat colors`, MCP); a person's run with none opens the panel.
+        registry.bindEffect("home.chatColors", requires: nil, effect: { invocation in
+            guard let id = conversation(invocation, services) else { return .done }
+            let values = ["sent", "sentText", "received", "receivedText"].reduce(into: [String: String]()) { $0[$1] = invocation[$1]?.stringValue }
+            guard try !services.home.chatColors.apply(values, reset: invocation["reset"]?.boolValue == true, to: id.rawValue) else { return .done }
+            let name = services.home.homeStore.rows.first { $0.id == id }?.title ?? ""
+            services.home.chatColorsPanel.show(conversation: id.rawValue, name: name, over: services.windows.active?.window)
+            return .done
+        })
         registry.bind("home.sendMessage", invoke: { invocation in
             guard let id = conversation(invocation, services) else { return }
             let text = invocation["text"]?.stringValue ?? ""

@@ -48,6 +48,7 @@ from typing import Any, Callable, Mapping, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nightly_sign_runner as blacksmith_picker  # noqa: E402
 import pr_runner_pool as pool  # noqa: E402
+from nightly_build_runner import owned_label  # noqa: E402
 
 ENABLED_VALUE = "1"
 
@@ -66,7 +67,9 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
     its labels, is busy or offline now. `seed` (the run ID) picks among the qualifying minis, so two signing jobs
     picking at once tend to land on different minis.
     """
-    wanted = [label for label in labels if label and pool.persistent(label)]
+    # The owned labels nightly_build_runner offers: a persistent pool or glaeda's nightly slot, which
+    # vars.CI_NIGHTLY_NEXT_BUILD_RUNNER may name (its hook still admits a signing job only as the exclusive class).
+    wanted = [label for label in labels if label and owned_label(label)]
     if not wanted:
         return "", f"no owned pool label among {list(labels) or 'none'}"
     busy: set[str] = set()
