@@ -114,8 +114,16 @@ public struct BrowserFolderGrants: Sendable {
     public func detect(_ browsers: [ImportBrowser] = ImportBrowser.allCases) -> [BrowserSource] {
         // Stops resolving grants once the scan is cancelled (the import window closed).
         let readable = browsers.filter { !Task.isCancelled && isGranted($0) }
+        // Each granted folder is resolved and opened one at a time, so a cancelled scan
+        // (the import window closed) stops at the next bookmark instead of resolving them all.
+        var scoped: [URL] = []
+        defer { scoped.forEach { $0.stopAccessingSecurityScopedResource() } }
+        for browser in readable {
+            guard !Task.isCancelled else { return [] }
+            if let folder = grantedFolder(browser), folder.startAccessingSecurityScopedResource() { scoped.append(folder) }
+        }
         guard !Task.isCancelled else { return [] }
-        return accessing(readable) { BrowserSourceDetector(environment: environment).detect(readable) }
+        return BrowserSourceDetector(environment: environment).detect(readable)
     }
 
     /// Runs `body` with every granted folder of `browsers` in scope.
