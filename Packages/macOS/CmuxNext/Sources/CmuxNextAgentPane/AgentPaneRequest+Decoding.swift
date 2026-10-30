@@ -4,21 +4,20 @@ import Foundation
 
 extension AgentPaneRequest {
     private static let maximumUploadStageChunk = 512 * 1024
-    private static let maximumUploadStageFile = 1 * 1024 * 1024 * 1024
 
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
         case "chat.upload.begin":
             guard let name = params["name"] as? String, AgentPaneUpload.isFileName(name),
-                  let size = (params["size"] as? NSNumber)?.intValue, size >= 0, size <= maximumUploadStageFile else { return .unsupported(method) }
+                  let size = (params["size"] as? NSNumber)?.intValue, size >= 0 else { return .unsupported(method) }
             let batchToken = params["batchToken"] as? String
             var batch: [AgentPaneUploadBatchEntry]?
             if let list = params["batch"] as? [[String: Any]] {
-                guard !list.isEmpty, list.count <= 64 else { return .unsupported(method) }
+                guard !list.isEmpty else { return .unsupported(method) }
                 let parsed = list.compactMap { item -> (String, Int)? in
                     guard let n = item["name"] as? String, AgentPaneUpload.isFileName(n), let s = (item["size"] as? NSNumber)?.intValue,
-                          s >= 0, s <= maximumUploadStageFile else { return nil }
+                          s >= 0 else { return nil }
                     return (n, s)
                 }
                 guard parsed.count == list.count else { return .unsupported(method) }
@@ -97,6 +96,12 @@ extension AgentPaneRequest {
         case "pane.checkpointAvailability":
             if let available = params?["available"] as? Bool {
                 self = .checkpointAvailability(available)
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.commandAvailability":
+            if let commands = params?["commands"] as? [String] {
+                self = .commandAvailability(commands)
             } else {
                 self = .unsupported(method)
             }
@@ -304,6 +309,12 @@ extension AgentPaneRequest {
             // A session id is short; anything else never names a stored avatar.
             if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
                 self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
+            } else { self = .unsupported(method) }
+        case "chief.face":
+            // A Chief's participant id (acpmux `fromChief`): `agent_` and a short token.
+            if let chief = params?["chief"] as? String, chief.hasPrefix("agent_"), (7...64).contains(chief.utf8.count),
+               chief.utf8.allSatisfy({ $0 == UInt8(ascii: "_") || $0 == UInt8(ascii: "-") || (0x30...0x39).contains($0) || (0x41...0x5A).contains($0) || (0x61...0x7A).contains($0) }) {
+                self = .chiefFace(chief)
             } else { self = .unsupported(method) }
         case "harness.symbol":
             if let name = params?["name"] as? String, HarnessSymbolImages.isSymbolName(name) { self = .harnessSymbol(name) }

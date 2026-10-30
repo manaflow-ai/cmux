@@ -15,6 +15,8 @@ pub(crate) mod auto_resume;
 mod bg_tasks;
 mod bounded;
 mod btw;
+// A turn ends when its agent ends it; the steers it runs on with are the next turn's.
+mod carried_turn;
 mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
@@ -86,7 +88,7 @@ mod prompt_line;
 mod queue;
 mod queue_edit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
-pub use queue::{QueuedPrompt, supersede::key as supersede_key};
+pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
@@ -124,6 +126,7 @@ mod tap;
 mod titles;
 mod tool_paths;
 mod tools;
+pub(crate) mod turn_cap;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -338,6 +341,9 @@ pub struct PromptOptions {
     /// Another agent's name when it sent the prompt with no provenance: the session a
     /// connection proved it runs in, or `_meta.acpmux.fromAgent` (`digest.rs`).
     pub agent: Option<String>,
+    /// `_meta.acpmux.class` (`prompt_class.rs`): what another agent's message asks of this chat.
+    /// Kept only on another agent's message, where none means `result`.
+    pub class: Option<crate::prompt_class::PromptClass>,
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
@@ -354,6 +360,9 @@ pub struct PromptOptions {
     /// A person's subagent retry (`subagent_retry_manual.rs`): refused with `retry.busy` where it
     /// would wait (behind a turn, the queue, the turn lock or a run slot), never queued.
     pub no_queue: bool,
+    /// A queued prompt sent now (`queue.rs` `steer_queued`): it steers in even past the running
+    /// turn's cap (`turn_cap.rs`).
+    pub send_now: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -1042,6 +1051,7 @@ impl Hub {
             queue_moved: Notify::new(),
             moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
+            inbox_digests: StdMutex::new(HashMap::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
@@ -1089,6 +1099,7 @@ impl Hub {
             stalled_gen: AtomicU64::new(0),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
+            turn_cap_timer: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),

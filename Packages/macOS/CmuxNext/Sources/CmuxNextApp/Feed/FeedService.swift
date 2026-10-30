@@ -137,11 +137,13 @@ final class FeedService {
 
     var isSignedIn: Bool { auth.isSignedIn }
 
+
     /// Posts an installed update's card (cmux or an agent CLI) through the local owner, never a
     /// cloud session; the owner's dedupe keeps one card per version.
     func post(update card: UpdateFeedCard) {
         localOwner.post(card.item)
     }
+
 
     /// Live GitHub details are held by the source only while the app runs.
     func githubDetail(for id: String) -> GitHubFeedDetail? { github.githubDetail(for: id) }
