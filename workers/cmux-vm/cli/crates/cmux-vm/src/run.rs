@@ -918,11 +918,14 @@ pub(crate) fn credential_shaped(name: &str) -> bool {
 /// Whether a path (relative to the synced directory) is a credential: a
 /// credential-shaped name, or anything under a credential directory.
 pub(crate) fn credential_path(path: &Path) -> bool {
+    // Lossy, so a name that is not UTF-8 is still matched on the parts that
+    // are (`.env.<bad byte>` starts with `.env.`, `x<bad byte>.pem` ends
+    // with `.pem`): it syncs as raw bytes, so it must be filtered too.
     let name = path
         .file_name()
-        .and_then(|name| name.to_str())
+        .map(|name| name.to_string_lossy())
         .unwrap_or_default();
-    if credential_shaped(name) {
+    if credential_shaped(&name) {
         return true;
     }
     let parts: Vec<&std::ffi::OsStr> = path
@@ -1549,6 +1552,24 @@ mod tests {
         let answer = run(&["missing"], 1024 * 1024);
         assert_ne!(answer.split_whitespace().nth(1), Some("0"), "{answer}");
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn credential_names_that_are_not_utf8_never_sync() {
+        use std::os::unix::ffi::OsStrExt;
+        for name in [
+            &b".env.\xff"[..],
+            b"private-\xff.pem",
+            b"id_rsa\xff",
+            b"\xff.key",
+        ] {
+            let path = Path::new(std::ffi::OsStr::from_bytes(name));
+            assert!(credential_path(path), "{path:?}");
+            assert!(credential_path(&Path::new("src").join(path)), "{path:?}");
+        }
+        let plain = Path::new(std::ffi::OsStr::from_bytes(b"caf\xe9.txt"));
+        assert!(!credential_path(plain));
     }
 
     #[cfg(unix)]
