@@ -31,7 +31,7 @@ export type AcpmuxDebug = {
   /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
   /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
   /// "subagents".
-  seedRows(count?: number, fixture?: string): Promise<Record<string, unknown>>;
+  seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
@@ -141,11 +141,11 @@ export function createAcpmuxDebug(
   };
 
   return {
-    async seedRows(count = 5000, fixture) {
+    async seedRows(count = 5000, fixture, agents) {
       acpmuxPerf.enable();
       const rows =
         fixture === "subagents"
-          ? subagentTrayRows(trayStep(count), trayOrigin(count))
+          ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
           : fixture === "worked-turn"
             ? workedTurnRows(Date.now() - 60_000)
             : fixture === "incoming"

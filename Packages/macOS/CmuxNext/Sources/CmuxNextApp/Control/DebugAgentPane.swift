@@ -18,7 +18,8 @@ import WebKit
 /// seeds a turn that edits three files instead, for the changes view, and `"short"` one-line
 /// turns answered "ok N", for the thread minimap's density, and `"incoming"` received agent
 /// messages, for the received-message card, and `"shared"` a shared chat, for chat multiplayer's
-/// authors, answered-by, header faces and typing line), `fling` (`seconds`,
+/// authors, answered-by, header faces and typing line, and `"subagents"` the subagent tray's life,
+/// one step per `count`, with `agents` subagents started, 2 by default), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `load_seed` (`turns`, default 5000:
 /// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
@@ -296,7 +297,9 @@ enum DebugAgentPane {
     private static func arguments(_ action: String, _ params: [String: JSONValue]) -> [Any] {
         switch action {
         case "seed_rows":
-            return [params["count"]?.intValue ?? 5000, params["fixture"]?.stringValue.map { $0 as Any } ?? NSNull()]
+            // `agents`: how many subagents the `subagents` fixture starts (2 when omitted).
+            return [params["count"]?.intValue ?? 5000, params["fixture"]?.stringValue.map { $0 as Any } ?? NSNull(),
+                    params["agents"]?.intValue.map { $0 as Any } ?? NSNull()]
         case "fling":
             var options: [String: Any] = ["wait": params["wait"]?.boolValue == true]
             if let nominal = params["nominal_ms"]?.doubleValue { options["nominal_ms"] = nominal }
