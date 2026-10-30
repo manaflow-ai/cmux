@@ -589,8 +589,12 @@ export function useSession(): SessionState {
       createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
       onSocket: (ws) => {
         wsRef.current = ws;
-        if (!ws) failFileDiffRequests();
-        if (!ws) latestCommandRequestsRef.current.clear();
+        if (ws) return;
+        // The socket dropped (close, error or no answer): not ready until the next socket's
+        // hello, so the reconnect notice shows and nothing reads as sent while it is gone.
+        setReady(false);
+        failFileDiffRequests();
+        latestCommandRequestsRef.current.clear();
       },
       onOpen: () => {
         for (const requestId of pendingStartStopsRef.current) sendRaw({ op: "stop", requestId });

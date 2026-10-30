@@ -1,7 +1,74 @@
 //! Host proxy identity is attested by the same-user socket, not by network JSON.
 //! Local same-user processes already have owner access. Remote relay transports
 //! cannot bind; the host proxy never forwards this verb from a teammate.
+//! A link share's guest binds the same way (`link_guest`, agent_session_shares.rs).
 use super::*;
+
+#[path = "agent_session_shares.rs"]
+pub(super) mod shares;
+
+/// A teammate's verbs: the shared chat's own, never start, trust, media, children, permission,
+/// typing or view, whatever the proxy forwards.
+const TEAMMATE_VERBS: [&str; 6] = [
+    "agent-session-attach",
+    "agent-session-observe",
+    "agent-session-events",
+    "agent-session-prompt",
+    "agent-session-cancel",
+    "agent-session-detach",
+];
+/// A link guest's verbs: watch and write (every prompt held for the owner), its typing and view.
+/// Never cancel, permission, children or media. An attach is the guest's writable observe.
+const GUEST_VERBS: [&str; 7] = [
+    "agent-session-attach",
+    "agent-session-observe",
+    "agent-session-events",
+    "agent-session-prompt",
+    "agent-session-typing",
+    "agent-session-view",
+    "agent-session-detach",
+];
+
+/// Whether `author` is a link guest's (`guest:<share_id>.<guest_id>`).
+pub(super) fn is_guest(author: &Value) -> bool {
+    author["id"].as_str().is_some_and(|id| id.starts_with(shares::GUEST_PREFIX))
+}
+
+/// The refusal of a frame outside a bound link's verbs.
+pub(super) fn scope_refusal(mux: &Mux, client: u64) -> Refusal {
+    match author(mux, client) {
+        Some(author) if is_guest(&author) => Refusal::ScopeNotGranted,
+        _ => Refusal::NotTrusted,
+    }
+}
+
+/// A frame `check` accepted: a bound link's frame outside its verbs is refused; the owner's own
+/// verbs (`agent-session-of`, `agent-session-share-*`) are answered here. `None` goes on.
+pub(super) fn scope(
+    mux: &Arc<Mux>,
+    client: u64,
+    object: &mut serde_json::Map<String, Value>,
+    author: Option<&Value>,
+    writer: &MessageWriter,
+) -> Option<bool> {
+    let cmd = object.get("cmd").and_then(Value::as_str).unwrap_or_default().to_owned();
+    if let Some(author) = author {
+        let guest = is_guest(author);
+        let verbs: &[&str] = if guest { &GUEST_VERBS } else { &TEAMMATE_VERBS };
+        if !verbs.contains(&cmd.as_str()) {
+            let refusal = if guest { Refusal::ScopeNotGranted } else { Refusal::NotTrusted };
+            return Some(refuse(writer, object.remove("id"), refusal));
+        }
+    }
+    if cmd == "agent-session-of" {
+        return Some(session_of(mux, client, std::mem::take(object), author.is_some(), writer));
+    }
+    if cmd.starts_with("agent-session-share-") {
+        let object = std::mem::take(object);
+        return Some(shares::handle(mux, client, &cmd, object, author.is_some(), writer));
+    }
+    None
+}
 
 pub(super) fn author(mux: &Mux, client: u64) -> Option<Value> {
     mux.control_clients
@@ -32,24 +99,42 @@ pub(super) fn bind(
     if mux.control_clients.agent_sessions.past_first_line(client) {
         return refuse(writer, id, Refusal::NotTrusted);
     }
-    let Some(author) = object.remove("author") else {
-        return refuse(writer, id, Refusal::BadRequest);
+    let author = match (object.remove("author"), object.remove("link_guest")) {
+        (Some(author), None) => {
+            let login = author["login"].as_str().unwrap_or_default();
+            let node = author["node"].as_str().unwrap_or_default();
+            if login.is_empty() || login.len() > 320 || node.is_empty() || node.len() > 255 {
+                return refuse(writer, id, Refusal::BadRequest);
+            }
+            let login = login.trim().to_ascii_lowercase();
+            json!({"id": format!("tailnet:{login}"), "name": login, "login": login, "node": node})
+        }
+        // A redeemed guest of a live share: the daemon names it, never the binding connection.
+        (None, Some(link)) => match shares::guest_author(mux, link) {
+            Ok(author) => author,
+            Err(refusal) => return refuse(writer, id, refusal),
+        },
+        _ => return refuse(writer, id, Refusal::BadRequest),
     };
-    let login = author["login"].as_str().unwrap_or_default();
-    let node = author["node"].as_str().unwrap_or_default();
-    if login.is_empty() || login.len() > 320 || node.is_empty() || node.len() > 255 {
-        return refuse(writer, id, Refusal::BadRequest);
-    }
-    let login = login.trim().to_ascii_lowercase();
-    let author =
-        json!({"id": format!("tailnet:{login}"), "name": login, "login": login, "node": node});
     let mut authors =
         mux.control_clients.agent_sessions.proxy_authors.lock().unwrap_or_else(|e| e.into_inner());
     if authors.contains_key(&client) || mux.control_clients.agent_sessions.lock().count(client) != 0
     {
         return refuse(writer, id, Refusal::NotTrusted);
     }
-    authors.insert(client, author);
+    authors.insert(client, author.clone());
+    drop(authors);
+    // A share or guest that ended while this bind ran: its sweep may have missed this connection,
+    // which was not bound yet. Checked after the insert, so any end later sees it bound.
+    if is_guest(&author) && !mux.control_clients.agent_sessions.link_shares().guest_live(&author) {
+        mux.control_clients
+            .agent_sessions
+            .proxy_authors
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&client);
+        return refuse(writer, id, Refusal::ShareEnded);
+    }
     // No host paths, session inventory or machine metadata in the handshake.
     ok(
         writer,
@@ -91,6 +176,9 @@ pub(super) fn check(
             Err(Refusal::NotTrusted)
         };
     };
+    if is_guest(&bound) {
+        return shares::check_guest(mux, client, bound, supplied, pinned, object).map(Some);
+    }
     if supplied.as_ref() != Some(&bound) {
         return Err(Refusal::NotTrusted);
     }

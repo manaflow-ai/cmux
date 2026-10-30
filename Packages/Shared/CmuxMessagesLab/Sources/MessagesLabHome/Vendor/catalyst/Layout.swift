@@ -223,6 +223,13 @@ struct RowSpec: Hashable {
     /// Height estimated from another width (lazy re-measure after a resize).
     var estimated = false
     var metrics: Metrics { Metrics(width: width) }
+    /// The height in this row a thread connector's arc hangs from (row coordinates): its vertical middle.
+    /// A quote (`ThreadPreview`) hangs it 2 pt under the quote's middle, not the row's (macOS 27 Messages, 2x reference
+    /// of 2026-10-28: the arc's stroke centre 13.75 pt under a 23.5 pt quote's top, 19.25 pt under a 34.5 pt one's).
+    var connectorAnchorY: CGFloat {
+        if case let .threadPreview(pv) = kind { return pv.box.height / 2 + 2 }
+        return height / 2
+    }
 
     /// Cheap hash: the key plus geometry. Equality still compares everything,
     /// so specs that differ only in content collide and are told apart by ==.
@@ -336,8 +343,10 @@ struct ThreadPreview: Hashable {
         } else if case let .text(t, _) = part {
             let maxBox = ThreadPreview.maxTextBoxWidth(width: width)
             p.textLines = ThreadPreview.wrap(t, maxWidth: maxBox - ThreadPreview.textPadX)
-            let one = p.textLines.count == 1 ? p.textLines.first.map { TextDraw.width($0, font: ThreadPreview.textFont) } : nil
-            p.box = CGSize(width: one.map { min(maxBox, ($0 + ThreadPreview.textPadX).rounded(.toNearestOrEven)) } ?? maxBox,
+            // cmux (user, 2026-10-28): the quote hugs its widest line, wrapped or not, as Messages' does (it took the whole
+            // column when wrapped, leaving an empty band right of the text). Rounded up so the widest line always fits.
+            let widest = p.textLines.map { TextDraw.width($0, font: ThreadPreview.textFont) }.max() ?? 0
+            p.box = CGSize(width: min(maxBox, (widest + ThreadPreview.textPadX).rounded(.up)),
                            height: ThreadPreview.textHeight(lines: p.textLines.count))
         } else {
             let (title, sub) = p.lines
@@ -353,27 +362,42 @@ struct ThreadPreview: Hashable {
     /// takes the full quote column; the column scales with the bubble column (`Metrics.maxTextWidth`). It
     /// replaces the outlined 10 pt copy of macOS Messages' preview, which did not look like the quoted bubble.
     var isText: Bool { if case .text = part { return true }; return false }
-    static let textFont = UIFont.systemFont(ofSize: 12)
+    /// cmux (2026-10-28, the user's macOS 27 Messages reference at 2x, docs/design/home-reply-imessage-parity.md): Messages
+    /// draws the quote 10 pt (its 48-character line is 229 pt wide, the 10 pt system font's width to 0.05 pt).
+    static let textFont = UIFont.systemFont(ofSize: 10)
     /// The text's lines as drawn (text roots only; one line when it fits).
     var textLines: [String] = []
     /// cmux: bubble edge to text plus text to bubble edge: a bubble's padding (`Fixture.bubblePadX`) on each side.
-    static let textPadX: CGFloat = 2 * Fixture.bubblePadX
-    /// cmux: a one-line quote's height (under 30 pt, so its ends are half circles as a 1-line bubble's).
-    static let textOneLineHeight: CGFloat = 28
-    /// Baseline to baseline of a wrapped root.
-    static let textLinePitch: CGFloat = 15
+    /// Messages: the text starts 8 pt in from the quote's left end and ends 9 pt before its right end.
+    static let textPadX: CGFloat = 17
+    static let textLeft: CGFloat = 8
+    /// cmux: a one-line quote's height, outline outside to outside (Messages: 23.5 pt; its ends are half circles).
+    static let textOneLineHeight: CGFloat = 23.5
+    /// Baseline to baseline of a wrapped root (Messages: 11 pt).
+    static let textLinePitch: CGFloat = 11
+    /// The first baseline under the quote's top (Messages: 16 pt, one line or two).
+    static let textFirstBaselineY: CGFloat = 16
+    /// The quote's tail is the bubbles' tail at this scale (Messages: it hangs 4 pt under the quote, the bubbles' 5.1).
+    static let tailScale: CGFloat = 0.8
     static let maxTextLines = 2
-    /// cmux: the quote's height for `lines` lines: 28 pt for one; a wrapped quote is at least 46 pt, a 2-line bubble's
-    /// height, so it keeps the bubbles' 15 pt continuous corner (a shorter body takes UIKit's pill corner).
+    /// cmux: the quote's height for `lines` lines: 23.5 pt for one, 11 pt more per line (Messages: 34.5 pt for two; both
+    /// end in half circles).
     static func textHeight(lines: Int) -> CGFloat {
-        lines <= 1 ? textOneLineHeight : max(46, textOneLineHeight + textLinePitch * CGFloat(lines - 1))
+        textOneLineHeight + textLinePitch * CGFloat(max(0, lines - 1))
     }
-    /// cmux: the first baseline under the quote's top: the lines centred in the quote.
-    func textFirstBaseline() -> CGFloat {
-        let f = ThreadPreview.textFont
-        let lineH = f.ascender - f.descender
-        let block = lineH + ThreadPreview.textLinePitch * CGFloat(max(0, textLines.count - 1))
-        return ((box.height - block) / 2 + f.ascender).rounded(.toNearestOrEven)
+    /// cmux: the first baseline under the quote's top (Messages: 16 pt).
+    func textFirstBaseline() -> CGFloat { ThreadPreview.textFirstBaselineY }
+    /// cmux: the quote's outline in `box`: a text quote is a pill with the bubbles' tail at `tailScale` on its root's side
+    /// (Messages draws a quote with its own small tail); a card or thumbnail is its bubble shape without a tail.
+    func outline(in box: CGRect) -> UIBezierPath {
+        guard isText else { return BubblePath.balloon(frame: box, row: shapeRow) }
+        let body = BubblePath.make(body: box, outgoing: outgoing, tail: false, circularEnds: true)
+        let t = BubblePath.tailPath(outgoing: outgoing)
+        var xf = outgoing
+            ? CGAffineTransform(translationX: box.maxX, y: box.maxY).scaledBy(x: ThreadPreview.tailScale, y: ThreadPreview.tailScale)
+            : CGAffineTransform(translationX: box.minX, y: box.maxY).scaledBy(x: -ThreadPreview.tailScale, y: ThreadPreview.tailScale)
+        guard let tail = t.cgPath.copy(using: &xf) else { return body }
+        return UIBezierPath(cgPath: body.cgPath.union(tail))
     }
     /// cmux: the quote's shape as a row: a part of the root's side, the quote's size, no tail (a quote is never the
     /// last bubble of a run). `BubblePath.balloon` of this row is the quote's outline, the same rule as every bubble.
@@ -406,7 +430,10 @@ struct ThreadPreview: Hashable {
                 break
             }
             guard TextLayout.range(line.range.location, line.range.length, in: ns.length) != nil else { break }
-            lines.append(ns.substring(with: line.range))
+            // cmux: a wrapped line's trailing space is not drawn, so it does not widen the quote (user, 2026-10-28).
+            var text = ns.substring(with: line.range)
+            while text.last == " " { text.removeLast() }
+            lines.append(text)
         }
         return lines.isEmpty ? [""] : lines
     }
@@ -421,6 +448,12 @@ struct ThreadPreview: Hashable {
         let safe = cut < ns.length ? ns.rangeOfComposedCharacterSequence(at: cut).location : cut
         var head = ns.substring(to: safe)
         while head.last == " " { head.removeLast() }
+        // cmux: the index lookup can land past the room (the glyph under `room` is kept); drop characters until the line
+        // with "…" fits, so a cut quote never runs past its outline (user, 2026-10-28).
+        while !head.isEmpty, TextDraw.width(head + "…", font: textFont) > maxWidth + 0.01 {
+            head.removeLast()
+            while head.last == " " { head.removeLast() }
+        }
         return head + "…"
     }
     static let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
@@ -442,7 +475,9 @@ struct ThreadPreview: Hashable {
     /// Box to stub: 3.5 pt under a card, 5.5 pt under a thumbnail (its tail is between).
     /// Text previews (macOS 27, lossless stills): stub 5.15 pt under the box, 12.25 pt long.
     var stubGap: CGFloat { isThumbnail ? 5.5 : isText ? 5.15 : ThreadPreview.stubGap }
-    var stubHeight: CGFloat { isThumbnail ? 11.5 : isText ? 12.25 : ThreadPreview.stubHeight }
+    /// A text quote's row ends 17.9 pt under the quote (stub gap + stub), so the reply 7 pt under the row sits 48.5 pt under a
+    /// one-line quote's top, as in Messages (2026-10-28 reference).
+    var stubHeight: CGFloat { isThumbnail ? 11.5 : isText ? 12.75 : ThreadPreview.stubHeight }
     /// The row's height: box, stub, rounded to the device pixel grid (Fixture.renderScale). A text preview's parts are
     /// 41.65 pt (24.25 + 5.15 + 12.25; 52.65 with 2 lines); Messages' rows under a preview sit on whole device pixels
     /// (nosb-active against deactivate-activate tp0000ms: incoming edges 798.00 / 864.00 px, ours were 798.31 / 864.31
@@ -551,7 +586,8 @@ enum Sizing {
             case "voiceMemo": return (CGSize(width: 196, height: 36), nil)
             case "contact": return (CGSize(width: 250, height: 56), nil)
             // File and audio rows (measured): 275 x 89.5, icon centred.
-            default: return (CGSize(width: 275, height: 89.5), nil)
+            // cmux: a file card is as wide as its text needs (HomeFileCard, #26395).
+            default: return (HomeFileCard.size(a, maxWidth: m.maxTextWidth + 2 * Fixture.bubblePadX), nil)
             }
         case let .location(lat, lon, _, _):
             // A map snapshot (macOS 26): 500 pt wide, caption inside; its
@@ -753,6 +789,7 @@ final class MeasureCache: @unchecked Sendable {
         case let .text(t, runs): h.combine(t); h.combine(runs.count); for r in runs { h.combine(r.start); h.combine(r.length); h.combine(r.style) }
         case let .link(url, title, site, image, theme): h.combine(url); h.combine(title); h.combine(site); h.combine(image); h.combine(theme)
         case let .attachment(a): h.combine(a.kind); h.combine(a.asset); h.combine(a.poster); h.combine(a.width); h.combine(a.height)
+            h.combine(a.fileName); h.combine(a.byteSize); h.combine(a.mimeType) // cmux: a file card's width follows its text (#26395)
         default: return 0
         }
         return h.finalize()
@@ -1042,6 +1079,9 @@ enum RowBuilder {
                 if case .replies = rows.last?.kind ?? previousRow { pvGap -= 5 }
                 rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: pvGap, height: pv.height(scale: scale)))
                 gap = ThreadPreview.replyGap
+                // cmux (2026-10-28, macOS 27 Messages reference): the Chief's reply under the quote of my root hangs from the
+                // quote on the grey arc, as a reply right under its root does (incoming side only, as there).
+                if pv.outgoing, !outgoing { connector = "preview:\(m.id)" }
             }
 
             if m.retractedAt != nil {

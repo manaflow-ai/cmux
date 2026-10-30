@@ -219,8 +219,8 @@ mod agent_types;
 pub use agent_types::{AgentRecord, AgentSource, AgentState};
 use agent_types::{
     AgentReportOrigin, AgentReportTarget, AgentRosterHost, TerminalAgentRecord,
-    agent_hook_notification, agent_provider_identity, agent_state_for_hook_kind,
-    legacy_hook_session_id, parse_projection_agent_state, published_agent_session_id,
+    agent_hook_notification, agent_provider_identity, legacy_hook_session_id,
+    parse_projection_agent_state, published_agent_session_id,
 };
 mod events;
 pub(crate) mod layout_invariants;
@@ -291,6 +291,7 @@ pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
+mod startup_record;
 mod terminal_adoption;
 pub(crate) mod terminal_archive;
 mod terminal_catalog_index;
@@ -710,6 +711,9 @@ pub struct Mux {
     /// Lets a start's adoption threads go before the owner says ready: a
     /// creation the crash interrupted waits on its host's adoption.
     startup_adoptions_released: AtomicBool,
+    /// The laps of this owner's open (registry, restore, adoption), until
+    /// the owner's start takes them for `startup-timings.jsonl`.
+    startup_timings: Mutex<Option<crate::startup_timings::StartupTimings>>,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.

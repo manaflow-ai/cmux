@@ -13,7 +13,7 @@ use super::*;
 
 /// The registry's handoff reservation holder for an orphan exit. Client ids
 /// start at 1, so no connection can own or release it.
-const ORPHAN_SHUTDOWN_REQUESTER: u64 = 0;
+pub(super) const ORPHAN_SHUTDOWN_REQUESTER: u64 = 0;
 
 impl ClientRegistry {
     /// Installs the callback for client arrivals and departures. It runs
@@ -44,8 +44,17 @@ impl ClientRegistry {
     /// connection is closed at registration. False when a client is
     /// connected or another handoff runs.
     fn begin_orphan_shutdown(&self) -> bool {
+        self.begin_owner_shutdown(true)
+    }
+
+    /// Reserves the daemon handoff for an exit the owner starts itself (an
+    /// orphan exit, or the exit of the process it was started for,
+    /// `starter_exit`). With `require_no_clients`, only while no client is
+    /// connected. False when another handoff runs (or a client is connected
+    /// and `require_no_clients`).
+    pub(super) fn begin_owner_shutdown(&self, require_no_clients: bool) -> bool {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if state.daemon_handoff.is_some() || !state.clients.is_empty() {
+        if state.daemon_handoff.is_some() || (require_no_clients && !state.clients.is_empty()) {
             return false;
         }
         state.daemon_handoff = Some(DaemonHandoffReservation::Pending(ORPHAN_SHUTDOWN_REQUESTER));

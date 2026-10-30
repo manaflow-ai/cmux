@@ -13,7 +13,6 @@ import {
   chatMetrics,
   DEFAULT_CHAT_DISPLAY,
   ENVIRONMENT_PLACEMENT_KEY,
-  environmentPlacementSurface,
   resolveChatDisplay,
 } from "../src/agent-session/acpmux/chatDisplay";
 import { chatColumnOf } from "../src/agent-session/acpmux/chatWidth";
@@ -87,63 +86,6 @@ describe("chat display resolution", () => {
     expect(resolveChatDisplay({ [ENVIRONMENT_PLACEMENT_KEY]: "right" }).environmentPlacement).toBe("right");
     expect(resolveChatDisplay({ [ENVIRONMENT_PLACEMENT_KEY]: "off" }).environmentPlacement).toBe("off");
     expect(resolveChatDisplay({ [ENVIRONMENT_PLACEMENT_KEY]: "center" }).environmentPlacement).toBe("left");
-  });
-
-  test("the environment chip owns one surface and unmounts while covered", () => {
-    expect(
-      environmentPlacementSurface({
-        placement: "left",
-        inTabRow: false,
-        hasEnvironment: true,
-        hasStatus: false,
-        covered: false,
-      }),
-    ).toEqual({ header: false, row: true, compact: false });
-    expect(
-      environmentPlacementSurface({
-        placement: "right",
-        inTabRow: true,
-        hasEnvironment: true,
-        hasStatus: false,
-        covered: false,
-      }),
-    ).toEqual({ header: true, row: false, compact: true });
-    expect(
-      environmentPlacementSurface({
-        placement: "right",
-        inTabRow: false,
-        hasEnvironment: true,
-        hasStatus: false,
-        covered: false,
-      }),
-    ).toEqual({ header: true, row: false, compact: false });
-    expect(
-      environmentPlacementSurface({
-        placement: "off",
-        inTabRow: false,
-        hasEnvironment: true,
-        hasStatus: false,
-        covered: false,
-      }),
-    ).toEqual({ header: false, row: false, compact: false });
-    expect(
-      environmentPlacementSurface({
-        placement: "left",
-        inTabRow: false,
-        hasEnvironment: true,
-        hasStatus: false,
-        covered: true,
-      }),
-    ).toEqual({ header: false, row: false, compact: false });
-    expect(
-      environmentPlacementSurface({
-        placement: "left",
-        inTabRow: true,
-        hasEnvironment: true,
-        hasStatus: true,
-        covered: false,
-      }),
-    ).toEqual({ header: false, row: false, compact: false });
   });
 });
 

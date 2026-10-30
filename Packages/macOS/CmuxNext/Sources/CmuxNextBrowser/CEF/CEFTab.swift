@@ -53,6 +53,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         didSet { applyOcclusion() }
     }
 
+    /// Rounded native UI in `contentView` coordinates (the prompt and find
+    /// bars, `BrowserRoundedOcclusionHosting`): holes with their corners, so the page shows around them.
+    var roundedOcclusions: [CEFClipShape.RoundedRect] = [] {
+        didSet { if roundedOcclusions != oldValue { applyOcclusion() } }
+    }
+
     /// DevTools of this page (docked in `contentView` or in a window).
     public internal(set) var devTools: BrowserDevToolsState
     /// DevTools placement (layout, docked views, window); writes `devTools`.

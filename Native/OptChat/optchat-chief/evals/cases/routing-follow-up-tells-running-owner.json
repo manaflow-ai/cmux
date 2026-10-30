@@ -1,0 +1,47 @@
+{
+  "id": "routing-follow-up-tells-running-owner",
+  "group": "routing",
+  "owner": "a680",
+  "about": "A follow-up on work an agent is doing goes to that agent with tell, in its workspace; no second agent and no new workspace.",
+  "history": [
+    {
+      "kind": "user",
+      "text": "fix the white flash when cmux restarts"
+    },
+    {
+      "kind": "talk",
+      "text": "a12 is on it: [Fix restart white flash](cmux://workspace/ws_9f3a1c2e)."
+    }
+  ],
+  "stubs": [
+    {
+      "cmd": "control",
+      "match": "status",
+      "stdout": "outcome: done.\n- a12 [running] Fix restart white flash: at work 9 min. [Fix restart white flash](cmux://workspace/ws_9f3a1c2e)"
+    }
+  ],
+  "turns": [
+    {
+      "text": "it also flashes when the window is fullscreen, make sure that case is covered",
+      "tail": "Subagents at work now: a12.",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "tell",
+          "re": "a12"
+        },
+        {
+          "type": "not_called",
+          "cmd": "spawn"
+        },
+        {
+          "type": "posted"
+        },
+        {
+          "type": "max_words",
+          "n": 30
+        }
+      ]
+    }
+  ]
+}

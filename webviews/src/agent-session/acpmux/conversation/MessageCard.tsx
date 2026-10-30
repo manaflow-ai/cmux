@@ -18,7 +18,7 @@ import { useFindReveal } from "./chatFind";
 import { Envelope, Spinner } from "./icons";
 import { SentActions } from "./MessageActions";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { Markdown } from "./Markdown";
+import { AgentMessageBody } from "./AgentMessageBody";
 import { wholeLineCut } from "./lineCut";
 
 export function MessageCard({
@@ -136,7 +136,7 @@ function MessageText({ item, text, messageAt }: { item: AcpmuxActivity; text: st
         style={cut ? { maxHeight: cutAt } : undefined}
         onFocusCapture={cut ? () => setExpanded(true) : undefined}
       >
-        <Markdown messageAt={messageAt}>{text}</Markdown>
+        <AgentMessageBody text={text} messageAt={messageAt} />
       </div>
       {cutAt !== undefined && (
         <button

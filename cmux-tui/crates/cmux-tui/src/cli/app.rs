@@ -209,7 +209,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                     "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND",
                 ));
             }
-            run_action("cloud exec", &rest[1..], ActionName::Cli)?
+            run_action("cloud exec", rest.get(1..).unwrap_or_default(), ActionName::Cli)?
         }
         ("open", _) => parse_open(rest)?,
         ("keybinding", _) => keybinding::parse(rest)?,
@@ -239,7 +239,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("action", Some("describe")) => {
             // CLI names contain spaces (for example `cloud exec`), so the
             // shell's natural unquoted spelling remains one action name.
-            let words = &rest[1..];
+            let words = rest.get(1..).unwrap_or_default();
             if words.is_empty() || words.iter().any(|word| word.starts_with('-')) {
                 return Err(UsageError::new(messages.action_describe_usage));
             }
@@ -518,8 +518,9 @@ pub(super) fn run_action(
             _ => {
                 let key = argument_name(&name);
                 // A file or folder of the caller's working directory, for an app that runs elsewhere.
-                let file = matches!(key.as_str(), "path" | "out" | "bootstrapScript")
-                    || (key == "cwd" && cwd_is_callers(action));
+                let file =
+                    matches!(key.as_str(), "path" | "out" | "bootstrapScript" | "machineConfig")
+                        || (key == "cwd" && cwd_is_callers(action));
                 let value = if file { caller_path(value) } else { value };
                 arguments.insert(key, value);
             }

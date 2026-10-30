@@ -18,6 +18,15 @@ impl Hub {
         deliver: Option<Delivery>,
         prompt_id: Option<String>,
     ) -> Result<Value, RpcError> {
+        // Never files from an agent a remote device drives, before anything reads them.
+        if !attachments.is_empty() {
+            self.subsession_attach_check(caller)?;
+        }
+        // The uploads it names as its own (by their owner token) go if it is refused
+        // (`attach::OwnedUploads`, `Saved`).
+        let mut owned = crate::attach::OwnedUploads(
+            crate::prompt_uploads::owned(&target.id, &attachments).await,
+        );
         if text.trim().is_empty() {
             return Err(RpcError::invalid_params("text must not be empty"));
         }
@@ -49,18 +58,38 @@ impl Hub {
         self.receiver_check(caller, target).await?;
         let mut blocks = vec![json!({"type": "text", "text": text})];
         blocks.extend(attachments);
-        // The whole message fits one JSON-RPC message, and is saved in the receiver's uploads, as
-        // any message's files are (`attach.rs`).
+        // Inline files fit one JSON-RPC message and are saved in the receiver's uploads, and files
+        // sent by reference are read from them, as any message's are (`attach.rs`,
+        // `prompt_uploads.rs`).
         crate::attach::check_wire(&json!({"sessionId": target.id, "prompt": blocks}))?;
-        let id = target.id.clone();
+        let (id, web) = (target.id.clone(), Self::web_turn(caller));
         let received = tokio::task::spawn_blocking(move || {
-            crate::attach::receive(&id, false, &mut blocks).map(|saved| (blocks, saved))
+            if crate::prompt_uploads::any(&blocks) {
+                crate::prompt_uploads::resolve(&id, web, &mut blocks)?;
+            }
+            crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
         });
         let (blocks, saved) = received.await.map_err(|e| RpcError::internal(e.to_string()))??;
+        let saved = crate::attach::Saved::with_owned(saved, &target.id, owned.take());
         let accepted = self
             .send_family_prompt(caller, target, blocks, prompt_id, steer, interrupt, None, saved)
             .await?;
         Ok(sent_reply(target, &accepted))
+    }
+
+    /// Whether `caller` may send files with a message: not while a remote device drives it (its
+    /// turn, or its last one, is a Web turn, `remote_floor.rs`), since `send_message` reads the
+    /// files it names as the agent's user on this machine. `send_message` asks this before it
+    /// reads any file (`attachCheck`), and every send with files is checked again here.
+    pub fn subsession_attach_check(&self, caller: &Session) -> Result<(), RpcError> {
+        if Self::web_turn(caller) {
+            return Err(refused(
+                "attach.remote",
+                "an agent a remote device drives cannot send files with a message".to_owned(),
+                json!({"sessionId": caller.id}),
+            ));
+        }
+        Ok(())
     }
 }
 

@@ -1,5 +1,6 @@
 // Both composer looks use Codex's permission capsule; its padding belongs to the control,
-// independent of the surrounding row's spacing. Measure the real gallery composer in Chromium.
+// independent of the surrounding row's spacing. Since #26551 both looks draw it in the quiet row
+// under the box, its shield under the + glyph. Measure the real gallery composer in Chromium.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -42,12 +43,16 @@ await requireBrowserLane("composer-permission-pill.test.ts", async () => {
         page.$eval(".acpmux-access-trigger", (pill) => {
           const css = getComputedStyle(pill);
           const plus = document.querySelector(".acpmux-composer-plus .acpmux-icon")!;
+          const shield = pill.querySelector(".acpmux-icon")!.getBoundingClientRect();
+          const plusBox = plus.getBoundingClientRect();
           return {
+            // Both looks put the capsule in the quiet row under the box (#26551), its shield under the
+            // + glyph (composer-alignment-centers.test.ts).
+            shieldUnderPlus: Math.abs((shield.left + shield.right) / 2 - (plusBox.left + plusBox.right) / 2) <= 0.5,
             height: pill.getBoundingClientRect().height,
             paddingStart: Number.parseFloat(css.paddingInlineStart),
             paddingEnd: Number.parseFloat(css.paddingInlineEnd),
             radius: Number.parseFloat(css.borderTopLeftRadius),
-            plusGap: pill.getBoundingClientRect().left - plus.getBoundingClientRect().right,
           };
         });
       const normal = await measure();
@@ -55,7 +60,9 @@ await requireBrowserLane("composer-permission-pill.test.ts", async () => {
       expect(normal.paddingStart).toBe(8);
       expect(normal.paddingEnd).toBe(8);
       expect(normal.radius).toBeGreaterThanOrEqual(normal.height / 2);
-      if (look === "codex") expect(normal.plusGap).toBe(16);
+      // Claude's look pins the shield under the + glyph (composer-alignment-centers.test.ts); Codex's
+      // + sits on its own box inset, which no test pins yet, so only the capsule is checked there.
+      if (look === "claude") expect(normal.shieldUnderPlus).toBe(true);
       await page.hover(".acpmux-access-trigger");
       expect(await measure()).toEqual(normal);
       await page.close();

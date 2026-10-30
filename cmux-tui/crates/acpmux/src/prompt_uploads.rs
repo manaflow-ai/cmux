@@ -56,6 +56,53 @@ fn upload_of(block: &Value) -> Option<&Value> {
     named.or(by_uri.then_some(&NONE))
 }
 
+/// The folders of the uploads `blocks` name as the prompt's own: `_meta.acpmux.upload.owned` is
+/// the owner token `file_put_begin` with `forPrompt` gave its sender (`attach::blocks_for`), and
+/// it matches. Deleted when the prompt is refused (`attach::Saved`), so none is left behind; a
+/// reference to anyone else's upload names none. Each token is read off the runtime.
+pub async fn owned(session: &str, blocks: &[Value]) -> Vec<std::path::PathBuf> {
+    let refs = owned_refs(blocks);
+    if refs.is_empty() {
+        return Vec::new();
+    }
+    let session = session.to_owned();
+    tokio::task::spawn_blocking(move || {
+        refs.iter()
+            .filter_map(|(id, token)| crate::hub::file_uploads::owned_dir(&session, id, token))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// Each `(uploadId, owner token)` `blocks` name ([`owned`]).
+pub fn owned_refs(blocks: &[Value]) -> Vec<(String, String)> {
+    let refs = blocks.iter().filter_map(upload_of).filter_map(|u| {
+        let token = u.get("owned").and_then(Value::as_str)?;
+        Some((u.get("uploadId").and_then(Value::as_str)?.to_owned(), token.to_owned()))
+    });
+    refs.collect()
+}
+
+/// The id, in its one spelling, of every upload `blocks` name, owned or not, by reference or by
+/// a link resolved from one (`uploadPath`, `<uploads>/<chat>/<id>/<name>`). Any chat's: the set
+/// is what a caller keeps, so a larger one deletes less. A path is split on `/` and `\` alike: a
+/// peer's may be a Windows path.
+pub fn upload_ids(blocks: &[Value]) -> std::collections::HashSet<String> {
+    let named = blocks.iter().filter_map(upload_of).filter_map(|u| u.get("uploadId")?.as_str());
+    let linked = blocks.iter().filter_map(|b| {
+        let path = b.pointer("/_meta/acpmux/uploadPath")?.as_str()?;
+        path.rsplit(['/', '\\']).nth(1)
+    });
+    let ids = named.chain(linked).filter_map(|id| uuid::Uuid::try_parse(id).ok());
+    ids.map(|id| id.to_string()).collect()
+}
+
+/// Whether `block` names an upload (`send_message` sends files that go by reference so).
+pub fn names_upload(block: &Value) -> bool {
+    upload_of(block).is_some()
+}
+
 /// Whether any of `blocks` names an upload, or carries a link this daemon resolved from one.
 pub fn any(blocks: &[Value]) -> bool {
     blocks.iter().any(|b| upload_of(b).is_some()) || links_upload(blocks)
@@ -288,5 +335,17 @@ mod tests {
         let refused = resolve("s", true, &mut blocks).unwrap_err();
         assert_eq!(refused.data.unwrap()["reason"], "upload.remote");
         assert!(resolve("s", true, &mut vec![json!({"type": "text", "text": "x"})]).is_ok());
+    }
+
+    #[test]
+    fn a_link_names_its_upload_on_any_platform() {
+        let (id, peer) = (uuid::Uuid::now_v7(), uuid::Uuid::now_v7());
+        let link = |path: String| json!({"type": "resource_link", "_meta": {"acpmux": {"uploadPath": path}}});
+        let blocks = [
+            link(format!("/home/me/state/uploads/chat/{id}/a.png")),
+            link(format!("C:\\Users\\me\\acpmux\\uploads\\chat\\{}\\b.png", peer.simple())),
+            link("a.png".to_owned()),
+        ];
+        assert_eq!(upload_ids(&blocks), [id.to_string(), peer.to_string()].into_iter().collect());
     }
 }

@@ -123,6 +123,10 @@ mark {
   overscroll-behavior: contain;
   --content-fade-top: 18px;
   --content-fade-bottom: 28px;
+  /* A row or card scrolled into view at an edge (a deep link, a capture's scroll) lands clear of
+     the fade, not half-faded under it. */
+  scroll-padding-top: calc(var(--content-fade-top) + 6px);
+  scroll-padding-bottom: calc(var(--content-fade-bottom) + 6px);
   mask-image:
     linear-gradient(
       to bottom,
@@ -241,6 +245,51 @@ mark {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted-text);
+}
+
+.harness-update-cards {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.harness-update-cards:empty {
+  display: none;
+}
+
+.harness-update-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--input-bg);
+}
+
+.harness-update-card-copy {
+  min-width: 0;
+}
+
+.harness-update-card-copy strong {
+  display: block;
+  font-weight: 600;
+}
+
+.harness-update-card-copy p {
+  margin: 3px 0 0;
+}
+
+.harness-update-card-copy code {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
+.harness-update-card > .button {
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
 .rows {

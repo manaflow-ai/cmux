@@ -8,6 +8,7 @@ use crate::client::Client;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 pub const SERVER_NAME: &str = "cmux-subsessions";
@@ -110,7 +111,7 @@ fn tools() -> Value {
                     "text": {"type": "string"},
                     "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "next_step (default): into the running turn, read at its next tool step. after_turn: queued behind the running turn, read when it ends. interrupt: stop the running turn, then run this (not to your parent)."},
                     "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."},
-                    "attachments": {"type": "array", "items": {"type": "string"}, "maxItems": crate::attach::MAX_FILES, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log): an image reaches the receiver as an image, any other file as a link to its saved copy. At most 8 MiB a file and 10 MiB together."}
+                    "attachments": {"type": "array", "items": {"type": "string"}, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log, a video), of any size and number: an image reaches the receiver as an image, any other file (and an image too large to show) as a link to its saved copy."}
                 },
                 "required": ["sessionId", "text"]
             }
@@ -240,8 +241,9 @@ fn sent_text(r: &Value) -> String {
 }
 
 /// `send_message`'s `attachments` (absolute paths) as the files' blocks (`attach.rs`): this server
-/// reads them, as the agent's own user on its own machine.
-async fn with_attachments(mut args: Value) -> Result<Value> {
+/// reads them, as the agent's own user on its own machine, and uploads to the receiver through
+/// `daemon` the ones that go by reference.
+async fn with_attachments(daemon: &Client, mut args: Value) -> Result<Value> {
     let Some(paths) = args.get("attachments").filter(|v| !v.is_null()) else { return Ok(args) };
     let paths: Vec<std::path::PathBuf> = paths
         .as_array()
@@ -250,9 +252,22 @@ async fn with_attachments(mut args: Value) -> Result<Value> {
         .map(|p| p.as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute()))
         .collect::<Option<_>>()
         .ok_or_else(|| anyhow::anyhow!("each attachment is an absolute file path"))?;
-    let blocks =
-        tokio::task::spawn_blocking(move || crate::attach::blocks_from_paths(&paths)).await??;
-    args["attachments"] = Value::Array(blocks);
+    // No files: a text message, as without the field.
+    if paths.is_empty() {
+        return Ok(args);
+    }
+    let session = args.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+    // The daemon says first whether this agent may send files (not while a remote device drives
+    // it), so no file is read for a send it would refuse. With no text, an older daemon refuses
+    // the check rather than sending anything.
+    let check = json!({"sessionId": session, "text": "", "attachCheck": true});
+    daemon.request(method::MUX_SUBSESSION_SEND, check).await?;
+    let text = args.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let blocks = crate::attach::blocks_for(daemon, &session, &text, &paths, &|line| {
+        tracing::info!(session = %session, "{line}");
+    })
+    .await?;
+    args.set("attachments", Value::Array(blocks));
     Ok(args)
 }
 
@@ -261,7 +276,7 @@ fn retry_params(args: &Value) -> Value {
     let session = args.get("session").or_else(|| args.get("sessionId"));
     let mut params = json!({"sessionId": session.cloned().unwrap_or(Value::Null)});
     if let Some(subagent) = args.get("subagent").filter(|v| !v.is_null()) {
-        params["subagentId"] = subagent.clone();
+        params.set("subagentId", subagent.clone());
     }
     params
 }
@@ -297,7 +312,7 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
             Err(e) => refusal(e),
         },
-        "send_message" => match with_attachments(args).await {
+        "send_message" => match with_attachments(daemon, args).await {
             Ok(args) => match request(method::MUX_SUBSESSION_SEND, args).await {
                 Ok(r) => ok(sent_text(&r), r),
                 Err(e) => refusal(e),
