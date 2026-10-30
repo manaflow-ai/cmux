@@ -92,12 +92,10 @@ struct SidebarSessionHostIntegrationTests {
         }
     }
 
-    @Test func draggingAnUnrelatedWorkspaceKeepsEnabledCoordinatorLanesAndTheirDropIdentity() throws {
+    @Test func draggingAnUnrelatedWorkspaceIsRefusedWhileHostGroupsShow() throws {
         try Self.withList { list in
             SidebarSessionTreeFeed.publish(Self.pass(enabled: true), to: .shared)
             list.reload(animated: false)
-            let hostKey = SidebarRowKey.sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local)))
-            let before = try #require(list.displayed.row(for: hostKey))
             let key = SidebarRowKey.workspace(Self.dragged)
             let row = try #require(list.displayed.row(for: key))
             let press = SidebarPress(key: key, point: NSPoint(x: 80, y: row.y + row.height / 2))
@@ -105,32 +103,9 @@ struct SidebarSessionHostIntegrationTests {
             list.beginDrag(press)
             let drag = try #require(list.drag)
 
-            let baseOptions = list.options(includeGap: false)
-            let gapOptions = list.options(includeGap: true)
-            #expect(baseOptions.sessionTree?.hosts[Self.coordinator] == Self.host)
-            #expect(gapOptions.sessionTree == baseOptions.sessionTree)
-            #expect(baseOptions.excludedWorkspaces == [Self.dragged])
-            #expect(baseOptions.gap == nil)
-            #expect(gapOptions.gap == DropPosition(section: .machine(.local), index: Self.workers.count + 2))
-            #expect(gapOptions.gapHeight == drag.gapHeight)
-            // Both the drop resolver's base and the actual in-place drag layout retain the host.
-            let base = SidebarLayout.make(sections: list.listSections, metrics: list.metrics, options: baseOptions)
-            let gap = SidebarLayout.make(sections: list.listSections, metrics: list.metrics, options: gapOptions)
-            for layout in [base, gap, list.displayed] {
-                let header = try #require(layout.row(for: hostKey))
-                #expect(header.childCount == before.childCount)
-                for (index, worker) in Self.workers.enumerated() {
-                    let child = try #require(layout.row(for: .workspace(worker)))
-                    #expect(child.section == .machine(.local))
-                    #expect(child.group == nil)
-                    #expect(child.siblingIndex == index + 2)
-                    #expect(child.content?.treeDepth == 2)
-                    #expect(layout.rows.filter { $0.key == child.key }.count == 1)
-                }
-            }
-            #expect(base.row(for: key) == nil)
-            #expect(gap.gapY != nil)
-            #expect(list.displayed.gapY == list.displayed.row(for: key)?.y)
+            #expect(list.displayed.hostHeadersShowing)
+            #expect(drag.target == nil)
+            #expect(list.displayed.gapY == nil)
             #expect(list.model.sections[0].workspaces.map(\.id) == [Self.coordinator, Self.plain] + Self.workers + [Self.dragged])
         }
     }
