@@ -31,19 +31,25 @@ struct CloudWorkspaceAccountListTests {
                                                         hasLoadedMachines: true, hasLoadedCurrentMachines: true)
 
     /// Finding 4: a machine deleted from the account (the signed-in account's loaded list does not
-    /// have it, so the registry has no session for it) takes its workspace out of the saved window.
+    /// have it, so the registry has no session for it) takes its workspace out of the saved window;
+    /// the window's workspace on a machine the list still has stays, with its machine.
     @Test func aMachineDeletedFromTheAccountTakesItsWorkspaceOutOfTheSavedWindow() {
         let services = Self.services(savedOn: "vm-deleted", list: Self.signedInWithCurrentList)
         let windows = services.windows
         #expect(windows.isDead(Self.workspace), "the account's loaded list does not have its machine: it left the account")
-        var record = WindowRecord(id: "w1", workspaceKey: WorkspaceKey(rawValue: "ws-local"),
-                                  workspaceKeys: [WorkspaceKey(rawValue: "ws-local"), WorkspaceKey(rawValue: Self.workspace)])
-        record.workspaceMachines = [Self.workspace: "vm-deleted"]
+        // The window's other workspace is on a machine the list has (paused, so it has no tree yet).
+        let kept = "ws-account-list-kept"
+        _ = CloudWorkspaceRestoreTests.pausedMachine(services, id: "vm-kept")
+        var record = WindowRecord(id: "w1", workspaceKey: WorkspaceKey(rawValue: kept),
+                                  workspaceKeys: [WorkspaceKey(rawValue: kept), WorkspaceKey(rawValue: Self.workspace)])
+        record.workspaceMachines = [kept: "vm-kept", Self.workspace: "vm-deleted"]
+        windows.rememberMachines(of: WindowStateDocument(windows: [record]))
+        #expect(!windows.isDead(kept), "a listed machine's workspace waits for its machine")
         var document = WindowStateDocument(windows: [record])
-        document.prune(liveWorkspaces: Set([WorkspaceKey(rawValue: "ws-local"), WorkspaceKey(rawValue: Self.workspace)]
+        document.prune(liveWorkspaces: Set([WorkspaceKey(rawValue: kept), WorkspaceKey(rawValue: Self.workspace)]
             .filter { !windows.isDead($0.rawValue) }))
-        #expect(document.windows.first?.workspaceKeys == [WorkspaceKey(rawValue: "ws-local")])
-        #expect(document.windows.first?.workspaceMachines.isEmpty == true)
+        #expect(document.windows.first?.workspaceKeys == [WorkspaceKey(rawValue: kept)])
+        #expect(document.windows.first?.workspaceMachines == [kept: "vm-kept"])
     }
 
     /// Finding 4: the same account state with the machine listed (paused, so it has no tree yet)
