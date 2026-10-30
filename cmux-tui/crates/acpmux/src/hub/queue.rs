@@ -152,6 +152,21 @@ pub(super) fn withdrawn_reply(prompt_id: &str, turn_id: &str) -> Value {
     })
 }
 
+/// What a queued prompt answers that `take_queued` no longer found: the answer of the inbox
+/// digest that took it (`inbox_digest.rs` takes messages without the turn lock, so one may go
+/// between its task's turn and its take), else `withdrawn`, no turn having run.
+async fn gone_reply(
+    joined: &StdMutex<Option<super::digest::Joined>>,
+    prompt_id: &str,
+    withdrawn: Value,
+) -> Answer {
+    let went_in = joined.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    match went_in {
+        Some(went_in) => super::digest::joined_reply(&went_in, prompt_id).await,
+        None => Ok(withdrawn),
+    }
+}
+
 /// Whether a prompt waits in the chat's queue that a failed turn does not hold, read under the
 /// queue's lock.
 fn queue_waits(session: &Session) -> bool {
@@ -318,9 +333,25 @@ impl Hub {
             }
         }
         // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
-        let guard = loop {
+        // A lane's report queued behind a turn its parent's close then ended is refused before
+        // its turn starts (`turns.rs`), so it never reopens the parent.
+        let (guard, run) = loop {
             match self.queue_turn(session, &turn_id, &withdraw).await {
-                Wait::Turn(guard) => break guard,
+                Wait::Turn(guard) => match self.take_queued(session, p.prompt_id, &turn_id) {
+                    Ok(run) => break (guard, run),
+                    // Gone as its turn came: withdrawn, or taken into an inbox digest, which takes
+                    // no turn lock (`inbox_digest.rs`). The turn is freed first (the digest runs
+                    // in it), and the digest's answer is its own unless that turn failed and put
+                    // it back (`requeue_joined`): then it waits again.
+                    Err(gone) => {
+                        drop(guard);
+                        let answer = gone_reply(&joined, p.prompt_id, gone).await;
+                        if session.queue().iter().any(|q| q.turn_id == turn_id) {
+                            continue;
+                        }
+                        return Err(answer);
+                    }
+                },
                 // Gone in with an earlier agent message's turn (`digest.rs`): that turn's answer.
                 // A failed one put it back in the queue (`requeue_joined`): it waits again.
                 Wait::Withdrawn => {
@@ -335,7 +366,16 @@ impl Hub {
                     return Err(answer);
                 }
                 Wait::Steer => {
-                    let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
+                    let run = match self.take_queued(session, p.prompt_id, &turn_id) {
+                        Ok(run) => run,
+                        Err(gone) => {
+                            let answer = gone_reply(&joined, p.prompt_id, gone).await;
+                            if session.queue().iter().any(|q| q.turn_id == turn_id) {
+                                continue;
+                            }
+                            return Err(answer);
+                        }
+                    };
                     let answer = self.steer_queued(session, run, p.client, p.prompt_id).await;
                     // Refused: logged, so a restart does not queue it again (`lost_start.rs`).
                     if let Err(e) = &answer {
@@ -346,9 +386,6 @@ impl Hub {
                 }
             }
         };
-        // A lane's report queued behind a turn its parent's close then ended is refused before
-        // its turn starts (`turns.rs`), so it never reopens the parent.
-        let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
         Ok((turn_id, true, guard, run))
     }
 
@@ -362,18 +399,30 @@ impl Hub {
         prompt_id: &str,
     ) -> Answer {
         let (control, trust_gate) = (run.control, run.trust_gate);
+        let digest = super::digest::inbox_digest::is_digest(run.provenance.as_ref());
+        // The person's Send now (`queue_edit.rs`) marks it in `steer_now.step` until it steers.
+        let persons = session
+            .steer_now
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .step
+            .contains(prompt_id);
         let (prompt_id, provenance) = (Some(prompt_id.to_owned()), run.provenance.clone());
         let opts = PromptOptions {
             prompt_id,
             control,
             trust_gate,
-            interrupt: true,
+            // An inbox digest whose turn ended first waits behind the person's prompts
+            // (`enqueue`), and stops no turn.
+            interrupt: !digest,
             provenance,
             agent: run.agent.clone(),
             class: run.class,
             display_parts: run.display_parts.clone(),
             full_access_device: run.full_access_device.clone(),
-            send_now: true,
+            // Send now is the person's; a digest the drain marked to steer is agents' messages,
+            // which a turn past its cap does not take (`turn_cap.rs`): it waits for the next turn.
+            send_now: !digest || persons,
             ..Default::default()
         };
         Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
@@ -425,7 +474,11 @@ impl Hub {
         // Ahead of the prompts a failed turn holds: a prompt sent after the failure runs first.
         // The person's prompt goes ahead of every agent message waiting too (`digest.rs`), behind
         // the person's own and a prompt sent now.
+        // An inbox digest goes behind the person's prompts, held ones too (`inbox_digest.rs`).
         let at = match p.agent {
+            Some(_) if super::digest::inbox_digest::is_digest(p.provenance) => {
+                Some(super::digest::inbox_digest::place(&queue))
+            }
             Some(_) => queue.iter().position(|q| q.held),
             None => queue.iter().position(|q| q.held || (q.run.agent.is_some() && !q.sent_now)),
         };
@@ -850,6 +903,7 @@ impl Hub {
         let mut pair_records: Vec<EventRecord> = Vec::new();
         let mut recorded: std::collections::HashSet<String> = Default::default();
         let mut unstarted = lost_start::Unstarted::default();
+        let mut digests = queue_waiting::Digests::default();
         let mut branch = session.meta().git_branch;
         let scanned =
             self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
@@ -857,6 +911,7 @@ impl Hub {
                     waiting.remove_turn(Some(&turn_id));
                     order.remove(&prompt_id);
                 }
+                digests.read(&e);
                 let turn_id = e.msg.get("turnId");
                 // Queued or run again under another turn id (a daemon that had not restored it
                 // took its id as new): that copy is the prompt's, so this one does not run too.
@@ -884,6 +939,19 @@ impl Hub {
                         {
                             order.prioritize_restart(id);
                         }
+                        // An inbox digest holds the queue's order with it in it, as its
+                        // `queue_order` record does.
+                        if super::digest::inbox_digest::is_digest_record(&e.msg)
+                            && let Some(ids) = e.msg.get("order").and_then(Value::as_array)
+                        {
+                            order.set(ids.iter());
+                            unstarted.lead(&mut order);
+                        }
+                        // Put back after a failed turn (`requeue_joined`): this copy replaces
+                        // the one the turn took (an inbox digest's message is still waiting).
+                        if e.msg.get("requeued") == Some(&Value::Bool(true)) {
+                            waiting.remove_turn(turn_id);
+                        }
                         waiting.push(e);
                     }
                     "agent_pair_held"
@@ -899,6 +967,9 @@ impl Hub {
                     "dequeued" | "user_message" if unstarted.holds(turn_id) => {
                         unstarted.lead(&mut order);
                     }
+                    // Taken into an inbox digest: it waits until that digest's turn starts
+                    // (`queue_waiting.rs` `Digests`).
+                    "dequeued" if e.msg.get("digestPromptId").is_some() => {}
                     "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
                         waiting.remove_turn(turn_id);
                     }
@@ -972,15 +1043,20 @@ impl Hub {
         }
         self.restore_agent_pairs(&session.id, pair_records, &recorded);
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
+        // An inbox digest whose turn never started gives its messages back in its place.
+        digests.finish(&mut waiting, &mut order, |id, order| {
+            unstarted.key(Some(&json!(id)), order).unwrap_or_else(|| order.key(Some(&json!(id))))
+        });
         let mut waiting = waiting.into_records();
         if scanned.is_err() || waiting.is_empty() {
             return;
         }
         // The last reorder holds (a prompt that left the queue for its turn went back ahead of
         // it); a prompt queued after it keeps its place at the end.
+        // An inbox digest's messages share its place, in their order (`Digests::rank`).
         waiting.sort_by_key(|q| {
             let id = q.msg.get("promptId");
-            unstarted.key(id, &order).unwrap_or_else(|| order.key(id))
+            (unstarted.key(id, &order).unwrap_or_else(|| order.key(id)), digests.rank(id))
         });
         // A prompt that left the queue for its turn runs first, as it would have.
         for id in unstarted.prompts() {

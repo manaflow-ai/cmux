@@ -76,6 +76,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onSetAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onRemoveAgentAvatar: ((String) -> Void)?
+    /// `chief.face`: Chief `chief`'s name and avatar as the sidebar shows them (`name`, `src` or `text`).
+    @ObservationIgnored public var onChiefFace: ((String) async -> [String: String])?
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
     /// The folders a chat on another machine can pick: that machine's (its workspace's folders
@@ -103,6 +105,14 @@ public final class AgentPaneModel {
     @ObservationIgnored public let tabRow = AgentPaneTabRow()
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
+    /// Takes back a long recording the pane's dictation gave the page, for chat `session`
+    /// (``AgentPaneDictation/takeRecording(_:session:)``); nil for any other path.
+    @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> AgentPaneIssuedRecording?)?
+    /// Gives back a long recording of chat `session` whose upload failed, so the page may try again
+    /// (``AgentPaneDictation/giveBackRecording(_:session:)``).
+    @ObservationIgnored var onDictationRecordingUnsent: ((_ recording: AgentPaneIssuedRecording, _ session: String) -> Void)?
+    /// The long recordings uploading now, and the ones whose chip's × stopped them.
+    @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
     /// Opens a turn's local web page in a browser tab beside the agent;
@@ -288,7 +298,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .projectIcon, .agentAvatar, .harnessSymbol, .environment(.list), .cloudMachine(.list), .sandboxState: break
+             .tabRowTools, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .environment(.list), .cloudMachine(.list), .sandboxState: break
         case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -385,6 +395,8 @@ public final class AgentPaneModel {
         case .removeAgentAvatar(let session):
             onRemoveAgentAvatar?(session)
             return AgentPaneReply.success()
+        case .chiefFace(let chief):
+            return AgentPaneReply.success(await onChiefFace?(chief) ?? [:])
         case .projectIcon where remoteChat:
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()
@@ -478,6 +490,8 @@ public final class AgentPaneModel {
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
             return AgentPaneReply.success()
+        case .dictationRecordingUpload(let path): return await AgentPaneDictationUpload.respond(path, in: self)
+        case .dictationRecordingCancel(let path): return AgentPaneDictationUpload.cancel(path, in: self)
         case .openFile(let path, let target): return await openFile(path, target: target)
         case .quickDismiss, .quickSetOnTop, .quickSetCollapsed, .quickFloatingState, .quickContext, .quickOpenInWindow, .quickStartInBackground:
             return await quick?.respond(to: request, in: self) ?? Self.unsupported(String(describing: request))

@@ -1058,7 +1058,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // feed owner; the App supplies the source.
         .target(
             name: "CmuxNextFeed",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -1195,7 +1195,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // a safe point and answers `updates.web.*`.
         .target(
             name: "CmuxNextWebUpdates",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextControl", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings", "CmuxNextUpdater", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextControl", "CmuxNextPages", "CmuxNextSettings", "CmuxNextUpdater", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Cloud machines: auth, REST client, tunnel and link processes. The

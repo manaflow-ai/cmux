@@ -691,6 +691,18 @@ async fn dispatch_request(
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
         return reply;
     }
+    if matches!(
+        m,
+        method::MUX_FILE_PUT_BEGIN
+            | method::MUX_FILE_PUT_CHUNK
+            | method::MUX_FILE_PUT_FINISH
+            | method::MUX_FILE_PUT_CANCEL
+            | method::MUX_FILE_PUT_STATUS
+    ) && super::remote_guard::control_of(conn.origin, conn.auth, &params)
+        == crate::hub::Control::Web
+    {
+        return crate::hub::file_uploads::web::handle(hub, m, params).await;
+    }
     match m {
         method::MUX_MESH_CONTROL => super::mesh_control_send::handle(hub, conn, &params).await,
         method::MUX_DISPATCH => dispatch_brief(hub, conn, params).await,
@@ -1243,6 +1255,12 @@ async fn dispatch_request(
             });
             let provenance =
                 stamp_bound_sender(hub, conn, &s.id, &params, provenance, person_message);
+            // A Chief's turn names the Chief (manaflow-ai/cmux#27914), by the session's exact id.
+            let provenance = provenance.map(|p| {
+                crate::prompt_provenance::stamp_chief(p, |id| {
+                    hub.resolve(id).ok().filter(|from| from.id == id).map(|from| from.meta())
+                })
+            });
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
             let agent = declared
@@ -2026,8 +2044,8 @@ async fn dispatch_request(
             let mut reply = json!({"sessionId": s.id, "promptId": prompt_id,
                 "removed": w == crate::hub::Withdrawn::Removed});
             if agents_only {
-                reply["fromAgentsOnly"] = json!(true);
-                reply["notFromAgent"] = json!(w == crate::hub::Withdrawn::NotFromAgent);
+                reply.set("fromAgentsOnly", json!(true));
+                reply.set("notFromAgent", json!(w == crate::hub::Withdrawn::NotFromAgent));
             }
             Ok(reply)
         }
@@ -2035,9 +2053,10 @@ async fn dispatch_request(
             super::outbox::handle(hub, conn, m, &params).await
         }
         method::MUX_SESSION_AUTH => super::session_auth::handle(hub, conn, params).await,
-        method::MUX_PROMPT_WITHDRAW | method::MUX_AGENT_PAIR_RESUME | method::MUX_RETRY => {
-            super::agent_messages::handle(hub, conn, m, &params).await
-        }
+        method::MUX_PROMPT_WITHDRAW
+        | method::MUX_AGENT_PAIR_RESUME
+        | method::MUX_RETRY
+        | method::MUX_INBOX_DIGEST => super::agent_messages::handle(hub, conn, m, &params).await,
         method::MUX_PERMISSION_GROUPS => {
             let s = hub.resolve(session_key(&params)?)?;
             let mut list = hub.permission_groups(&s, &params)?;
