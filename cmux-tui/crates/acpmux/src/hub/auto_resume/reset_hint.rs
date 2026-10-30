@@ -386,7 +386,7 @@ mod tests {
         assert_eq!(
             error_reset_at(
                 Some(&serde_json::json!({"Retry-After":"Sun, 06 Nov 1994 08:49:37 GMT"})),
-                0
+                784111000000
             ),
             Some(784111777000)
         );
