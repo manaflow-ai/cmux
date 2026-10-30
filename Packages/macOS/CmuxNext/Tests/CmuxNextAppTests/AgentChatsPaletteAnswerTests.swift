@@ -46,4 +46,41 @@ import Testing
         #expect(shown.last?.isEnabled == false)
         #expect(shown.last?.title.contains("250") == true)
     }
+
+    /// No regression (lead, #28090): the palette ranked a chat the person chose before above an
+    /// equal match. The page sends its choice history of chats with the query; acpmux ranks with it.
+    @Test func aQuerySendsThePersonsChoiceHistory() throws {
+        let windows = AcpmuxChatWindows()
+        var sent: [[String: any Sendable]] = []
+        windows.connected { _, params in sent.append(params) }
+        let used = FrecencyStore.Entry(score: 2, lastUsed: Date(timeIntervalSinceReferenceDate: 1_000))
+        let store = FrecencyStore(entries: ["chat:codex:1": used, "action.other": used])
+        let history = store.rankerHistory(keyPrefix: "chat:", query: "fix", now: Date(timeIntervalSinceReferenceDate: 2_000))
+        _ = AgentChatsPalettePage.answers("fix", windows: windows, history: history, open: { _ in })
+        let text = try #require(sent.last?["history"] as? String)
+        let decoded = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        let entries = try #require((decoded["frecency"] as? [String: Any])?["entries"] as? [String: Any])
+        #expect(Array(entries.keys) == ["chat:codex:1"], "only the chats' history goes: \(entries.keys)")
+        #expect(decoded["now"] as? Double == 2_000)
+    }
+
+    /// The empty query lists the newest page and says how many more chats there are (R-L5).
+    @Test func theEmptyQuerySaysHowManyMoreChatsThereAre() async throws {
+        let windows = AcpmuxChatWindows()
+        var sent: [[String: any Sendable]] = []
+        windows.connected { _, params in sent.append(params) }
+        let stream = AgentChatsPalettePage.answers("", windows: windows, open: { _ in })
+        let params = try #require(sent.last)
+        #expect(params["count"] as? Bool == true, "the page asks acpmux to count every chat")
+        let generation = try #require(params["gen"] as? UInt64)
+        let row: [String: Any] = ["key": "codex:1", "sessionId": "1", "harness": "codex", "title": "Port the parser", "updatedMs": 1_000]
+        let message: [String: Any] = ["window": AgentChatsPalettePage.window, "gen": NSNumber(value: generation), "revision": 1,
+                                      "full": true, "keys": ["codex:1"], "rows": [row], "hasMore": true, "total": 3_000]
+        windows.apply(try #require(AcpmuxChatWindows.Update(params: message)))
+        var answers: [[PaletteItem]] = []
+        for await answer in stream { answers.append(answer) }
+        let shown = try #require(answers.first)
+        #expect(shown.map(\.id) == ["chat:codex:1", "agentChats.more"], "\(shown.map(\.id))")
+        #expect(shown.last?.title == AgentChatsPaletteStrings.moreChats(2_999))
+    }
 }

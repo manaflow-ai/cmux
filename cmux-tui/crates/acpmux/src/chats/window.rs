@@ -23,6 +23,10 @@ use super::{ChatActivity, ChatQuery, chat_value, key_text, parse_key};
 /// anywhere) finds in their title, folder and harness, best match first, and the `total` that
 /// matched; otherwise the newest chats the filter passes, none of `exclude`, at most `limit`.
 /// `untitled` is the title a chat with none shows (the client's own word, so a query finds it).
+/// `history` is the client's choice history as JSON text, `{now, frecency}` in the palette
+/// ranker's own shape (`cmux_palette_ranker::Frecency`, keys `chat:<key>`), so a chat the person
+/// chose before ranks as it did in the palette. `count` makes a no-query window report the
+/// `total` of chats it could show, so a client can say how many more there are.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowSpec {
     pub window: String,
@@ -36,6 +40,22 @@ pub struct WindowSpec {
     /// The typed query, ranked by the palette ranker (the filter's own substring text is off).
     query: Option<String>,
     untitled: String,
+    /// The client's choice history (JSON text, checked when the spec is read).
+    history: Option<String>,
+    count: bool,
+}
+
+/// The client's choice history: the palette ranker's frecency and the clock it is read at.
+#[derive(serde::Deserialize)]
+struct History {
+    now: f64,
+    frecency: cmux_palette_ranker::Frecency,
+}
+
+impl WindowSpec {
+    fn history(&self) -> Option<History> {
+        self.history.as_deref().and_then(|text| serde_json::from_str(text).ok())
+    }
 }
 
 impl WindowSpec {
@@ -81,6 +101,20 @@ impl WindowSpec {
             None | Some(Value::Null) => 0,
             Some(value) => value.as_u64().ok_or("gen must be a non-negative number")?,
         };
+        let history = match params.get("history") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(text)) => {
+                serde_json::from_str::<History>(text)
+                    .map_err(|e| format!("history must be {{now, frecency}} JSON: {e}"))?;
+                Some(text.clone())
+            }
+            Some(_) => return Err("history must be a JSON string".to_owned()),
+        };
+        let count = match params.get("count") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(on)) => *on,
+            Some(_) => return Err("count must be true or false".to_owned()),
+        };
         Ok(Self {
             window,
             generation,
@@ -90,6 +124,8 @@ impl WindowSpec {
             keys: strings("keys")?,
             query,
             untitled,
+            history,
+            count,
         })
     }
 }
@@ -108,8 +144,10 @@ pub struct WindowRows {
 }
 
 /// One chat as the palette ranker reads it: what the palette's chats page showed and searched
-/// (its title, its folder with `~` for the home folder, and the harness and folder as keywords).
+/// (its title, its folder with `~` for the home folder, and the harness and folder as keywords),
+/// and its frecency key (`chat:<key>`, the palette row's id the choice history is kept under).
 pub fn rank_entry(
+    key: &str,
     title: Option<&str>,
     untitled: &str,
     cwd: Option<&str>,
@@ -128,16 +166,26 @@ pub fn rank_entry(
         title: title.filter(|t| !t.is_empty()).unwrap_or(untitled).to_owned(),
         keywords,
         subtitle,
+        frecency_key: Some(format!("chat:{key}")),
         ..Default::default()
     }
 }
 
-/// The indexes of `entries` the palette ranker finds for `query`, best match first, all of them.
-pub fn ranked(query: &str, entries: Vec<cmux_palette_ranker::Entry>) -> Vec<usize> {
+/// The indexes of `entries` the palette ranker finds for `query`, best match first, all of them,
+/// with the client's choice history (`frecency` at `now`) as the palette ranked with it.
+pub fn ranked(
+    query: &str,
+    entries: Vec<cmux_palette_ranker::Entry>,
+    history: Option<(f64, cmux_palette_ranker::Frecency)>,
+) -> Vec<usize> {
     let count = i64::try_from(entries.len()).unwrap_or(i64::MAX);
+    let (now, frecency) =
+        history.map_or((None, None), |(now, frecency)| (Some(now), Some(frecency)));
     let request = cmux_palette_ranker::RankRequest {
         operation: "rank".to_owned(),
         query: Some(query.to_owned()),
+        frecency,
+        now,
         row_limit: Some(count),
         highlight_limit: Some(0),
         entries: Some(entries),
@@ -182,15 +230,22 @@ pub fn rows(spec: &WindowSpec, index: &ChatIndex, activity: &ChatActivity) -> Wi
         if spec.exclude.contains(&key) {
             continue;
         }
-        let value = decorated(chat);
-        if spec.top_level && !value.get("parent").is_none_or(Value::is_null) {
+        if spec.top_level && activity.has_parent(&key) {
             continue;
         }
         if window.rows.len() == spec.filter.limit {
             window.has_more = true;
-            break;
+            if !spec.count {
+                break;
+            }
+            // Counted only: no value is built for a chat past the page.
+            *window.total.get_or_insert(window.rows.len()) += 1;
+            continue;
         }
-        window.rows.push((key, value));
+        window.rows.push((key, decorated(chat)));
+    }
+    if spec.count {
+        window.total.get_or_insert(window.rows.len());
     }
     window
 }
@@ -221,6 +276,7 @@ fn ranked_rows(
         }
         let entry = &chat.entry;
         entries.push(rank_entry(
+            &key,
             entry.title.as_deref(),
             &spec.untitled,
             entry.cwd.as_deref(),
@@ -229,7 +285,7 @@ fn ranked_rows(
         ));
         candidates.push((key, value));
     }
-    let order = ranked(query, entries);
+    let order = ranked(query, entries, spec.history().map(|h| (h.now, h.frecency)));
     let total = order.len();
     let mut slots: Vec<Option<(String, Value)>> = candidates.into_iter().map(Some).collect();
     let rows = order
@@ -314,7 +370,14 @@ mod tests {
     }
 
     fn entry(title: &str, cwd: &str, harness: &str) -> cmux_palette_ranker::Entry {
-        rank_entry(Some(title), "New chat", Some(cwd), harness, Some("/Users/me"))
+        rank_entry(
+            &format!("{harness}:{title}"),
+            Some(title),
+            "New chat",
+            Some(cwd),
+            harness,
+            Some("/Users/me"),
+        )
     }
 
     /// The palette's chats page found a chat by its harness and by words anywhere in it (review of
@@ -328,20 +391,41 @@ mod tests {
                 entry("Write the docs", "/Users/me/site", "codex"),
             ]
         };
-        let mut codex = ranked("codex", entries());
+        let mut codex = ranked("codex", entries(), None);
         codex.sort_unstable();
         assert_eq!(codex, vec![1, 2], "a harness name finds that harness's chats");
         assert_eq!(
-            ranked("fix build", entries()),
+            ranked("fix build", entries(), None),
             vec![0],
             "two words that are not next to each other"
         );
-        assert_eq!(ranked("tools", entries()), vec![1], "the folder");
-        let untitled = rank_entry(None, "New chat", None, "codex", None);
+        assert_eq!(ranked("tools", entries(), None), vec![1], "the folder");
+        let untitled = rank_entry("codex:u", None, "New chat", None, "codex", None);
         assert_eq!(
-            ranked("new chat", vec![untitled]),
+            ranked("new chat", vec![untitled], None),
             vec![0],
             "an untitled chat by the client's word"
+        );
+    }
+
+    /// The palette ranked a chat the person chose before above one with the same match.
+    #[test]
+    fn a_chat_chosen_before_ranks_first_among_equal_matches() {
+        let entries = || {
+            vec![
+                rank_entry("codex:a", Some("Fix the build"), "New chat", None, "codex", None),
+                rank_entry("codex:b", Some("Fix the build"), "New chat", None, "codex", None),
+            ]
+        };
+        assert_eq!(ranked("fix build", entries(), None), vec![0, 1], "no history: the index order");
+        let frecency: cmux_palette_ranker::Frecency = serde_json::from_value(json!({
+            "entries": {"chat:codex:b": {"score": 3.0, "lastUsed": 990.0}}, "halfLife": 259_200.0
+        }))
+        .unwrap();
+        assert_eq!(
+            ranked("fix build", entries(), Some((1_000.0, frecency))),
+            vec![1, 0],
+            "the chosen chat first"
         );
     }
 

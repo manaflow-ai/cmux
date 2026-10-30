@@ -32,10 +32,17 @@ public final class AcpmuxChatWindows {
         public var query: String?
         /// The title a chat with none shows, so a query finds it by that word.
         public var untitled: String?
+        /// The person's choice history for these chats (the palette ranker's `{now, frecency}`
+        /// JSON), so acpmux ranks a chat chosen before as the palette did.
+        public var history: String?
+        /// acpmux reports how many chats the window could show in all (`Window.total`).
+        public var count: Bool
 
         public init(window: String, limit: Int, topLevel: Bool = true, exclude: [String] = [], keys: [String]? = nil,
-                    query: String? = nil, untitled: String? = nil) {
+                    query: String? = nil, untitled: String? = nil, history: String? = nil, count: Bool = false) {
             self.untitled = untitled
+            self.history = history
+            self.count = count
             self.window = window
             self.limit = limit
             self.topLevel = topLevel
@@ -51,6 +58,8 @@ public final class AcpmuxChatWindows {
             if let keys { params["keys"] = keys }
             if let query, !query.isEmpty { params["query"] = query }
             if let untitled { params["untitled"] = untitled }
+            if let history { params["history"] = history }
+            if count { params["count"] = true }
             return params
         }
     }
@@ -59,7 +68,8 @@ public final class AcpmuxChatWindows {
     @MainActor @Observable
     public final class Window {
         public private(set) var rows: [AcpmuxChat] = []
-        /// How many chats matched a query window's query (more than `rows` when it shows a page).
+        /// How many chats matched a query window's query, or a counted window could show (more than
+        /// `rows` when it shows a page).
         public private(set) var total: Int?
         /// The revision of the last message applied; 0 before the first.
         @ObservationIgnored public fileprivate(set) var revision: UInt64 = 0
@@ -94,7 +104,7 @@ public final class AcpmuxChatWindows {
         public var full: Bool
         public var keys: [String]
         public var rows: [String: AcpmuxChat]
-        /// How many chats matched (a query window only).
+        /// How many chats matched, or a counted window could show.
         public var total: Int?
 
         public init(window: String, generation: UInt64? = nil, revision: UInt64, full: Bool, keys: [String], rows: [AcpmuxChat]) {

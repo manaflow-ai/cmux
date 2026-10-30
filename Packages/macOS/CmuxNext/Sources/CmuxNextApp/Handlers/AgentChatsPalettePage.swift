@@ -24,7 +24,12 @@ struct AgentChatsPalettePage {
                                symbol: "bubble.left.and.bubble.right", providers: [],
                                onCancel: { windows?.close(Self.window) },
                                queryResults: { [services] query in
-                                   Self.answers(query, windows: windows) { [weak services] key in services?.chatsOpener.open(key) }
+                                   // The person's past choices of chats (the rows' `chat:<key>` use), as the palette ranks them.
+                                   let model = services.palette.model
+                                   let history = model.frecency.rankerHistory(keyPrefix: "chat:", query: query, now: model.now())
+                                   return Self.answers(query, windows: windows, history: history) { [weak services] key in
+                                       services?.chatsOpener.open(key)
+                                   }
                                },
                                filtersByQuery: false)
     }
@@ -32,8 +37,12 @@ struct AgentChatsPalettePage {
     /// The window's rows for `query`: acpmux's first answer to its spec, then the stream ends (the
     /// palette's spinner runs until it ends, and an empty answer shows the empty state). An edit
     /// opens the next query's spec; the window stays open until the page closes.
-    /// - Parameter open: Opens a chat by key (the app's Open Chat path).
-    static func answers(_ query: String, windows: AcpmuxChatWindows?, open: @escaping @MainActor (String) -> Void) -> AsyncStream<[PaletteItem]> {
+    /// - Parameters:
+    ///   - history: The person's choice history of chats (`FrecencyStore.rankerHistory`), so acpmux
+    ///     ranks a chat chosen before as the palette did; nil: none.
+    ///   - open: Opens a chat by key (the app's Open Chat path).
+    static func answers(_ query: String, windows: AcpmuxChatWindows?, history: String? = nil,
+                        open: @escaping @MainActor (String) -> Void) -> AsyncStream<[PaletteItem]> {
         let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
         guard let windows else {
             continuation.yield([])
@@ -42,14 +51,16 @@ struct AgentChatsPalettePage {
         }
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let spec = AcpmuxChatWindows.Spec(window: window, limit: pageLimit, topLevel: true, query: text.isEmpty ? nil : text,
-                                          untitled: AgentChatsPaletteStrings.untitled)
+                                          untitled: AgentChatsPaletteStrings.untitled, history: text.isEmpty ? nil : history,
+                                          count: true)
         // The follower lives as long as this query's stream: ending it releases the token.
         let token = FollowToken()
         let answer = { (rows: [AcpmuxChat]) in
             var shown = items(rows, windows: windows, open: open)
-            // acpmux ranked more chats than one page holds: say so, and how to see the rest.
+            // More chats than one page holds: say so, and how to reach the rest (R-L5: a limit
+            // that leaves chats out shows it).
             if let total = windows.window(window).total, total > rows.count {
-                shown.append(moreNotice(shown: rows.count, total: total))
+                shown.append(text.isEmpty ? moreChatsNotice(more: total - rows.count) : moreNotice(shown: rows.count, total: total))
             }
             continuation.yield(shown)
             continuation.finish()
@@ -66,6 +77,13 @@ struct AgentChatsPalettePage {
     /// The last row when more chats match than the page shows: not a command.
     static func moreNotice(shown: Int, total: Int) -> PaletteItem {
         let text = AgentChatsPaletteStrings.moreMatch(shown: shown, total: total)
+        return PaletteItem(id: "agentChats.more", title: text, symbol: "info.circle", isEnabled: false,
+                           primary: PaletteCommand(id: "none", title: text, effect: .performKeepingOpen {}))
+    }
+
+    /// The last row of the empty query when more chats exist than the page shows: not a command.
+    static func moreChatsNotice(more: Int) -> PaletteItem {
+        let text = AgentChatsPaletteStrings.moreChats(more)
         return PaletteItem(id: "agentChats.more", title: text, symbol: "info.circle", isEnabled: false,
                            primary: PaletteCommand(id: "none", title: text, effect: .performKeepingOpen {}))
     }
@@ -98,6 +116,12 @@ struct AgentChatsPaletteStrings {
     static var placeholder: String { String(localized: "handlers.agentChats.placeholder", defaultValue: "Search chats", table: "MiscHandlers", bundle: .module) }
     static var open: String { String(localized: "handlers.agentChats.open", defaultValue: "Open Chat", table: "MiscHandlers", bundle: .module) }
     static var untitled: String { String(localized: "handlers.agentChats.untitled", defaultValue: "New chat", table: "MiscHandlers", bundle: .module) }
+    /// The row under the empty query's page when `more` chats are not shown.
+    static func moreChats(_ more: Int) -> String {
+        String(format: String(localized: "handlers.agentChats.moreChats", defaultValue: "%lld more chats. Type to search.",
+                              table: "MiscHandlers", bundle: .module), Int64(more))
+    }
+
     /// The row under a page that shows only the best `shown` of `total` matching chats.
     static func moreMatch(shown: Int, total: Int) -> String {
         String(format: String(localized: "handlers.agentChats.moreMatch", defaultValue: "The best %1$lld of %2$lld matching chats. Type more to narrow.",
