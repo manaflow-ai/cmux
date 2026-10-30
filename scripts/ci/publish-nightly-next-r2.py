@@ -9,8 +9,8 @@ follow-up job that never holds the feed.
 
   upload --file F [--file ...]
       Writes each file to <prefix><name>, write-once, all at once (one thread
-      per file), then reads each back from the public base and checks the
-      served bytes' size and SHA-256 against the local file's.
+      per file), then reads each back from R2 and checks its size and SHA-256
+      against the local file's, and checks the public base serves it at that size.
   rewrite --feed F --name N [--name ...]
       Points every enclosure <github-prefix><N> in F at <public-base>/<N>.
       --if-public rewrites only names the public base serves at the enclosure's
@@ -42,6 +42,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -108,26 +109,17 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def public_digest(url: str, attempts: int = 5) -> tuple[int, str] | None:
-    """(size, SHA-256) of the bytes the public base serves for url, None when it never answers.
+def stored_digest(key: str) -> tuple[int, str]:
+    """(size, SHA-256) of the object's bytes as R2 stores them, read back through the S3 API.
 
-    The served bytes, not the Content-Length header: an object of the right length with other
-    bytes (stale or corrupt) must not pass the readback."""
-    for attempt in range(attempts):
-        request = urllib.request.Request(url, headers={"User-Agent": "cmux-nightly-next-r2/1"})
-        try:
-            digest, size = hashlib.sha256(), 0
-            with urllib.request.urlopen(request, timeout=60) as response:
-                for chunk in iter(lambda: response.read(1 << 20), b""):
-                    digest.update(chunk)
-                    size += len(chunk)
-            return size, digest.hexdigest()
-        except (urllib.error.URLError, OSError, ValueError) as error:
-            if attempt == attempts - 1:
-                print(f"{url}: {error}", file=sys.stderr)
-                return None
-            _sleep(2 * (attempt + 1))
-    return None
+    Straight from R2, not the public base: a CDN read can trickle (files.cmux.com served a binary at
+    4-35 KB/s), and upload-r2-object.py --download-to bounds each attempt and retries."""
+    with tempfile.TemporaryDirectory(prefix="nightly-next-r2-readback-") as scratch:
+        copy = Path(scratch) / "object"
+        subprocess.run([sys.executable, str(UPLOADER), "--endpoint-url", env("R2_ENDPOINT"),
+                        "--bucket", env("NIGHTLY_NEXT_R2_BUCKET"), "--key", key, "--download-to", str(copy)],
+                       check=True)
+        return copy.stat().st_size, file_sha256(copy)
 
 
 def upload_one(path: Path) -> str:
@@ -141,13 +133,16 @@ def upload_one(path: Path) -> str:
         content_type = "text/plain; charset=utf-8"
     subprocess.run(uploader_args(path, key, IMMUTABLE_CACHE, content_type) + ["--write-once"], check=True)
     size, sha256 = path.stat().st_size, file_sha256(path)
+    # The stored bytes, not only a length: an object of the right length with other bytes (stale or
+    # corrupt) must not pass the readback.
+    stored = stored_digest(key)
+    if stored != (size, sha256):
+        raise RuntimeError(f"s3://{env('NIGHTLY_NEXT_R2_BUCKET')}/{key} holds {stored[0]} bytes with SHA-256 "
+                           f"{stored[1]}, expected {size} bytes with SHA-256 {sha256}")
     url = public_base() + path.name
-    served = public_digest(url)
-    if served is None:
-        raise RuntimeError(f"{url} could not be read back")
-    if served != (size, sha256):
-        raise RuntimeError(f"{url} serves {served[0]} bytes with SHA-256 {served[1]}, "
-                           f"expected {size} bytes with SHA-256 {sha256}")
+    served = public_length(url)
+    if served != size:
+        raise RuntimeError(f"{url} serves {served} bytes, expected {size}")
     return f"{path.name}: {size} bytes, SHA-256 {sha256}, in {time.monotonic() - started:.1f} s, live at {url}"
 
 
