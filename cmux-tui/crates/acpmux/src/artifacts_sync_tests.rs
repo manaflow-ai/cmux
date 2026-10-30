@@ -66,8 +66,11 @@ fn serve_recording(
 fn sync_at(base_url: String, root: &Path) -> ArtifactsSync {
     let config = ArtifactsSyncConfig { enabled: true, base_url, ..Default::default() };
     let mut sync = ArtifactsSync::new(config, Some("fixture-token".into())).unwrap().unwrap();
-    sync.roots =
-        vec![SyncRoot { local: root.to_path_buf(), remote_prefix: "memory/codex/".into() }];
+    sync.roots = vec![SyncRoot {
+        local: root.to_path_buf(),
+        remote_prefix: "memory/codex/".into(),
+        anchor: root.parent().unwrap().to_path_buf(),
+    }];
     sync
 }
 
@@ -274,6 +277,37 @@ fn synced_state_survives_a_restart() {
     assert!(restarted.state.base.is_empty(), "file contents stay out of the state file");
 }
 
+/// A folder above the root that is a symlink (`~/.claude/projects/work -> /elsewhere`) leads
+/// it out too: no upload from it and no pull into it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_root_below_a_symlinked_folder_is_not_synced() {
+    let home = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    fs::create_dir_all(outside.path().join("memory")).unwrap();
+    fs::write(outside.path().join("memory/secret.md"), "private").unwrap();
+    fs::create_dir_all(home.path().join(".claude/projects")).unwrap();
+    std::os::unix::fs::symlink(outside.path(), home.path().join(".claude/projects/work")).unwrap();
+    let config = ArtifactsSyncConfig {
+        enabled: true,
+        base_url: "http://127.0.0.1:9".into(),
+        ..Default::default()
+    };
+    let mut sync = ArtifactsSync::new(config, Some("fixture-token".into())).unwrap().unwrap();
+    sync.roots = vec![SyncRoot {
+        local: home.path().join(".claude/projects/work/memory"),
+        remote_prefix: "memory/claude/work/".into(),
+        anchor: home.path().to_path_buf(),
+    }];
+    assert!(!sync.roots[0].usable());
+    assert_eq!(sync.local_for_remote("memory/claude/work/secret.md"), None);
+    // Nothing to send: an upload would reach the server at port 9 and fail.
+    assert_eq!(sync.sync_once(Trailers::default()).await.unwrap(), SyncReport::default());
+    fs::create_dir_all(home.path().join(".claude/projects/real/memory")).unwrap();
+    sync.roots[0].local = home.path().join(".claude/projects/real/memory");
+    assert!(sync.roots[0].usable());
+}
+
 #[cfg(unix)]
 #[test]
 fn a_root_that_is_a_symlink_is_not_synced() {
@@ -310,7 +344,11 @@ fn a_remote_path_never_maps_outside_its_root() {
     let mut sync = ArtifactsSync::new(config, None).unwrap().unwrap();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
-    sync.roots = vec![SyncRoot { local: root.clone(), remote_prefix: "memory/codex/".into() }];
+    sync.roots = vec![SyncRoot {
+        local: root.clone(),
+        remote_prefix: "memory/codex/".into(),
+        anchor: root.parent().unwrap().to_path_buf(),
+    }];
     assert_eq!(sync.local_for_remote("memory/codex/notes/a.md"), Some(root.join("notes/a.md")));
     for path in [
         "memory/codex/../../.ssh/authorized_keys",

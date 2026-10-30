@@ -171,12 +171,22 @@ pub struct ArtifactsSync {
 struct SyncRoot {
     local: PathBuf,
     remote_prefix: String,
+    /// The folder `local` is under (home). Every folder from below it down to `local` must be a
+    /// real one.
+    anchor: PathBuf,
 }
 
 impl SyncRoot {
-    /// A root that is itself a symlink is not synced: its files live somewhere else.
+    /// A root reached through a symlink, at itself or any folder above it below the anchor
+    /// (`~/.claude/projects/work -> /elsewhere`), is not synced: its files live somewhere else.
     fn usable(&self) -> bool {
-        fs::symlink_metadata(&self.local).is_ok_and(|meta| meta.is_dir())
+        let Ok(relative) = self.local.strip_prefix(&self.anchor) else { return false };
+        let mut path = self.anchor.clone();
+        relative.components().all(|part| {
+            path.push(part);
+            matches!(part, std::path::Component::Normal(_))
+                && fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_dir())
+        })
     }
 }
 
@@ -809,18 +819,25 @@ fn discover_roots() -> Vec<SyncRoot> {
     if claude.is_dir()
         && let Ok(entries) = fs::read_dir(&claude)
     {
-        for entry in entries.flatten().filter(|e| e.path().is_dir()) {
+        for entry in entries.flatten() {
             let scope = entry.file_name().to_string_lossy().into_owned();
             roots.push(SyncRoot {
                 local: entry.path().join("memory"),
                 remote_prefix: format!("memory/claude/{scope}/"),
+                anchor: home.clone(),
             });
         }
     }
-    let codex = home.join(".codex/memories");
-    roots.push(SyncRoot { local: codex, remote_prefix: "memory/codex/".into() });
-    roots
-        .push(SyncRoot { local: home.join(".cmux/artifacts"), remote_prefix: "artifacts/".into() });
+    for (local, remote_prefix) in
+        [(".codex/memories", "memory/codex/"), (".cmux/artifacts", "artifacts/")]
+    {
+        roots.push(SyncRoot {
+            local: home.join(local),
+            remote_prefix: remote_prefix.into(),
+            anchor: home.clone(),
+        });
+    }
+    // Checked every pass (`usable`), so a folder made a symlink later is left out from then on.
     roots
 }
 
