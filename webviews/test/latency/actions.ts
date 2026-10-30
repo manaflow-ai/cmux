@@ -625,8 +625,8 @@ export const AGENT_PANE_PAGE: LatencyPageSpec = {
 // The chat's prompt rail (test/latency/thread-rail.html: the transcript and rail with 120 turns).
 // Leo, 2026-10-29: "giving it faster scrttoll/hover over"; the rulebook holds the rail to "ultra
 // fast ultra responsive". "hover card" is the pointer arriving on a tick, to the first painted frame
-// with its preview card; "click jump" is a click on a tick far up the chat, to the first painted
-// frame with that prompt landed at the top of the view (35 px down, within 2 px).
+// with its preview card; "click jump" is a click on the tick of a drawn prompt at least 300 px from
+// its landing, to the first painted frame with that prompt landed (35 px down, within 2 px).
 const railTarget = new WeakMap<Page, number>();
 /** A tick shown in the rail's list, a different one each run among the first shown (the farthest up
  *  the chat while the transcript is at its end), with the center of its hit row. */
@@ -643,6 +643,28 @@ async function railPoint(page: Page): Promise<{ index: number; x: number; y: num
     const box = tick.getBoundingClientRect();
     return { index: Number(tick.dataset.tick), x: box.left + 6, y: box.top + box.height / 2 };
   }, (run % 4) * 3);
+}
+/** For a click: a prompt whose row is drawn (so a glide, where there is one, has a row to glide to)
+ *  and sits at least 300 px from its landing, a different one each run, with its tick's point. */
+async function railJumpPoint(page: Page): Promise<{ index: number; x: number; y: number }> {
+  const run = (railTarget.get(page) ?? -1) + 1;
+  railTarget.set(page, run);
+  return page.evaluate((offset) => {
+    const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!.getBoundingClientRect();
+    const drawn = [...document.querySelectorAll<HTMLElement>(".acpmux-row.acpmux-user")]
+      .filter((row) => Math.abs(row.getBoundingClientRect().top - view.top - 35) >= 300)
+      .map((row) => Number(row.dataset.rowId!.replace(/^t(\d+)-user$/, "$1")))
+      .filter((index) => {
+        const tick = document.querySelector<HTMLElement>(`.acpmux-minimap__tick[data-tick="${index}"]`);
+        if (!tick) return false;
+        const box = tick.getBoundingClientRect();
+        return box.top >= list.top && box.bottom <= list.bottom;
+      });
+    const index = drawn[drawn.length - 1 - (offset % Math.max(1, Math.min(3, drawn.length)))]!;
+    const box = document.querySelector<HTMLElement>(`.acpmux-minimap__tick[data-tick="${index}"]`)!.getBoundingClientRect();
+    return { index, x: box.left + 6, y: box.top + box.height / 2 };
+  }, run);
 }
 /** Puts the pointer off the rail and the transcript at its end, then waits for a still page. */
 async function railRest(page: Page): Promise<void> {
@@ -682,7 +704,7 @@ const railActions: LatencyAction[] = [
     name: "click jump",
     async prepare(page) {
       await railRest(page);
-      const point = await railPoint(page);
+      const point = await railJumpPoint(page);
       // A pointer resting on the tick first, as a person's does before a click (not measured).
       await page.mouse.move(point.x, point.y);
       await quiet(page);
