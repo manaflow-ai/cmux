@@ -55,6 +55,9 @@ pub async fn install() -> Result<serde_json::Value> {
     if url.is_empty() {
         bail!("managed Codex is currently supported on macOS only")
     }
+    // The workspace builds reqwest with `rustls-no-provider`; a standalone CLI run has no
+    // process-level provider until one is installed (as `catalog/fetch.rs`).
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
     let got = format!("{:x}", Sha256::digest(&bytes));
     if got != expected {
@@ -96,6 +99,12 @@ pub async fn install() -> Result<serde_json::Value> {
     let ready = serde_json::json!({"version": VERSION, "sha256": expected, "path": managed_path(), "url": url});
     crate::config::write_atomic(&ready_path(), serde_json::to_string_pretty(&ready)?.as_bytes())?;
     Ok(ready)
+}
+
+/// The Codex binary to run: the one on PATH, else the managed runtime once it is ready.
+pub fn codex_binary() -> Option<String> {
+    crate::config::which("codex")
+        .or_else(|| configured_path().map(|path| path.to_string_lossy().into_owned()))
 }
 
 pub fn configured_path() -> Option<PathBuf> {
