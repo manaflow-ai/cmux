@@ -43,10 +43,12 @@ extension WindowManager {
 
     /// Where a create with no machine asked for goes: the default session of the space it is born in
     /// (`spawn.profile`, else its window's, else the active window's). A create that carries something of this
-    /// Mac (a folder, a command, a chat or a session to open: Finder's New Workspace Here, `cmux open <dir>`, a
-    /// chat resumed or imported) stays on the Mac whatever the space.
+    /// Mac (a folder, a command, a chat or a session to open, a browser profile: Finder's New Workspace Here,
+    /// `cmux open <dir>`, a chat resumed or imported) stays on the Mac whatever the space.
     func spaceCreation(_ spawn: WorkspaceSpawn, into windowID: String?) -> MachineRegistry.SpaceCreation {
-        guard spawn.cwd == nil, spawn.command == nil, spawn.firstChat == nil, spawn.firstSession == nil else { return .mac }
+        guard spawn.cwd == nil, spawn.command == nil, spawn.firstChat == nil, spawn.firstSession == nil, spawn.browserProfile == nil else {
+            return .mac
+        }
         guard let profile = spawn.profile ?? windowID.flatMap({ states[$0]?.profileID }) ?? active?.state.profileID else { return .mac }
         return services.machines.creation(in: profile)
     }

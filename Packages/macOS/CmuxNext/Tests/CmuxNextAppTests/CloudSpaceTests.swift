@@ -86,6 +86,24 @@ struct CloudSpaceTests {
         #expect(Self.isMac(services.windows.spaceCreation(session, into: nil)))
     }
 
+    /// A space whose machine is not listed (the machine list has not come, the account signed out) has nothing to
+    /// show and nowhere to create: the switch is refused and the window keeps its space, never an empty one.
+    @Test func switchingIntoASpaceWhoseMachineIsUnknownKeepsTheWindowWhereItIs() {
+        let services = Self.services()
+        let state = services.windows.state(for: "w-cloud-space")
+        #expect(state.profileID == .defaultProfile)
+        services.windows.switchProfile(Self.goneSpace, in: state)
+        #expect(state.profileID == .defaultProfile, "the window entered a space it can show nothing in")
+    }
+
+    @Test func aBrowserProfileCreateStaysOnTheMac() {
+        let services = Self.services()
+        _ = Self.cloudMachine(services, id: "vm-space")
+        var browser = WorkspaceSpawn(profile: Self.cloudSpace)
+        browser.browserProfile = "work"
+        #expect(Self.isMac(services.windows.spaceCreation(browser, into: nil)))
+    }
+
     @Test func theSpaceFollowsTheMachineSoItsWorkspacesLeaveTheDefaultSpace() {
         let services = Self.services()
         #expect(services.machines.local.store.personal.follows[Self.cloudSpace] == ["s-vm"])

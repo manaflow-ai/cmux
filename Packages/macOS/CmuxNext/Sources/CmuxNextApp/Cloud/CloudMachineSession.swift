@@ -414,6 +414,8 @@ extension CloudMachineSession {
     func connectedForSpace() async throws {
         // A machine the person disconnected stays so until they connect it (its menu's Connect): no wait for it.
         if disconnected { throw ActionFailure(message: CloudStrings.notConnected) }
+        // A failure left from an earlier attempt must not end this wait before this attempt's own resume runs.
+        resumeFailure = nil
         if daemon.connection == nil {
             await refreshIfMaybePaused()
             if machine.status == .paused { attach(origin: .user) } else { connect(origin: .user) }

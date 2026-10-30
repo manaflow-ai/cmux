@@ -39,13 +39,17 @@ extension WindowManager {
             // a new workspace (no empty window, REWRITE.md round 1). It is
             // claimed before the create command, so the switch shows it as
             // soon as the daemon mirrors it.
+            // A space naming a machine no listed machine serves (the list has not come, the account signed out)
+            // has nothing to show and nowhere to create: the window stays where it is.
+            if case .unresolved = services.machines.creation(in: profile) { return services.registry.refuse(CloudStrings.notConnected) }
+            let previous = state.profileID
             state.enterProfile(profile)
             recordSaver.stateDidChange(state)
             // A space on a machine whose tree has not loaded (a paused Cloud machine, a link still connecting) may
             // hold workspaces already: wake it and show them once its tree loads, and create one only if it has none.
             if case let .machine(daemon) = services.machines.creation(in: profile), !daemon.store.isLoaded {
                 let windowID = state.id
-                Task { [services] in await enterLoaded(profile, on: daemon, in: windowID); withExtendedLifetime(services) {} }
+                Task { [services] in await enterLoaded(profile, on: daemon, in: windowID, from: previous); withExtendedLifetime(services) {} }
                 return
             }
             Task { [services] in await createWorkspace(into: state.id); withExtendedLifetime(services) {} }
@@ -57,17 +61,21 @@ extension WindowManager {
     }
 
     /// The rest of a switch into a space whose machine had not loaded: once its tree loads, the window shows the
-    /// space's workspaces no other window shows, else a new one. Nothing happens if the window left the space.
-    private func enterLoaded(_ profile: ProfileID, on daemon: DaemonService, in windowID: String) async {
+    /// space's workspaces no other window shows, else a new one. If the machine never loads, the window goes back
+    /// to `previous` (never left empty) with the reason. Nothing happens if the window left the space meanwhile.
+    private func enterLoaded(_ profile: ProfileID, on daemon: DaemonService, in windowID: String, from previous: ProfileID) async {
+        var failure: String?
         do {
             if let machine = services.machines.cloudSession(of: daemon) { try await machine.connectedForSpace() }
+            if await !CloudMove.holds(within: .seconds(60), until: { daemon.store.isLoaded }) { failure = CloudStrings.notConnected }
         } catch {
-            return services.registry.refuse(RefusalStrings.describe(error))
-        }
-        guard await CloudMove.holds(within: .seconds(60), until: { daemon.store.isLoaded }) else {
-            return services.registry.refuse(CloudStrings.notConnected)
+            failure = RefusalStrings.describe(error)
         }
         guard let state = states[windowID], state.profileID == profile else { return }
+        if let failure {
+            switchProfile(previous, in: state)
+            return services.registry.refuse(failure)
+        }
         let adoptable = adoptableWorkspaces(in: profile, for: windowID)
         guard !adoptable.isEmpty else {
             _ = await createWorkspace(into: windowID)

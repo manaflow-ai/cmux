@@ -345,9 +345,9 @@ extension RoomHandlers {
                 }
                 try await machine.connectedForSpace()
                 let daemon = machine.daemon
-                // The session id as `MachineRegistry.daemon(session:)` matches it (the identity's, lowercased).
+                // The session id as membership qualifies workspaces (`WindowProfiles`): the tree's `registry_id`.
                 guard await CloudMove.holds(within: .seconds(30), until: { daemon.store.registryID != nil }),
-                      let session = daemon.identity?.sessionID ?? daemon.store.registryID?.lowercased() else { throw ActionFailure(message: CloudStrings.notConnected) }
+                      let session = daemon.store.registryID else { throw ActionFailure(message: CloudStrings.notConnected) }
                 let profile = try await space(following: session, named: name ?? machine.machine.title, services: services)
                 if let window, let state = services.windows.states[window] { services.windows.switchProfile(profile, in: state) }
                 return nil

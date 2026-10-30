@@ -143,7 +143,10 @@ extension AppActions {
         let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: windows.active?.state.id) : nil
         // `machine` (App machine id; the CLI's `--session`): born on that
         // session's daemon (plans/cmux-next/data-model.md 1.3).
-        let daemon = (invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue).flatMap(services.machines.daemon(machine:))
+        let asked = (invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue).flatMap(services.machines.daemon(machine:))
+        // With none asked for, a person's create (or one naming a space) goes where the space creates; a script's
+        // stays on this Mac, so a `cmux new-workspace` never wakes a paused Cloud machine of the space shown.
+        let daemon = asked ?? (invocation.origin == .user || spawn.profile != nil ? nil : services.daemon)
         if invocation["machine"] != nil, daemon?.connection == nil {
             services.registry.track(Task { ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected) })
             return
