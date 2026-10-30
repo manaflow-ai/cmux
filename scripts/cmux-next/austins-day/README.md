@@ -91,6 +91,15 @@ to explore, and say so next to any number you cite.
   fixed seed). It says `better` or `worse` only when the whole interval is on one side of 0, otherwise
   `no difference`. Every metric is lower-is-better.
 
+## A/A self-test
+
+`austins-day.sh --aa <JOB|SHA>` runs one build in both arms, the same 5 alternating rounds. Every metric
+must show no difference: its 95 % interval must contain 0. A metric that fails is a harness defect (a
+bias from run order, warm caches, or the host), not a product result. The owner records the failed
+metrics in `aa-failures.json` in this folder, and from then on every summary marks that metric
+"invalid (fails A/A)" until a later A/A passes it. The A/A runs before any A/B is cited, and again after
+every harness change that could change a measurement.
+
 ## The long arm (memory over an hour)
 
 For #27693 (the app at 20.7 GB): `--seconds 3600`, one run per arm, measuring RSS and footprint of the

@@ -3,6 +3,7 @@
 #
 #   austins-day.sh --build JOB|SHA [--out DIR] [-- driver.py args]
 #   austins-day.sh --base JOB|SHA --head JOB|SHA [--runs 5] [--out DIR] [-- driver.py args]
+#   austins-day.sh --aa JOB|SHA [--runs 5] [--out DIR]       (A/A self-test: the same build in both arms)
 #
 # JOB is a done `cmux-ci build cmux` job; a 40-hex SHA names the newest done cmux build of that
 # commit (`cmux-ci status --ref SHA`). Each run takes its own exclusive lease (capture-host acquire
@@ -21,11 +22,12 @@ repo=$(cd "$here/../../.." && pwd)
 harness_sha=$(git -C "$repo" rev-parse HEAD)
 git -C "$repo" diff --quiet HEAD -- scripts/cmux-next/austins-day || { echo "uncommitted harness edits: commit them first" >&2; exit 2; }
 usage() { sed -n '2,16p' "$0" >&2; exit 2; }
-build='' base='' head='' runs=5 out=''
+build='' base='' head='' runs=5 out='' aa=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --build) build=${2:?}; shift 2 ;;
     --base) base=${2:?}; shift 2 ;;
+    --aa) base=${2:?}; head=${2:?}; aa=1; shift 2 ;;
     --head) head=${2:?}; shift 2 ;;
     --runs) runs=${2:?}; shift 2 ;;
     --out) out=${2:?}; shift 2 ;;
@@ -177,5 +179,9 @@ fi
 [ ${#dirs[@]} -gt 0 ] || { echo "no run finished" >&2; exit 1; }
 # summarize.py checks that the head does not change the harness (git diff base head): both commits must be here.
 if [ -z "$build" ]; then git -C "$repo" fetch -q origin "$base_commit" "$head_commit" 2>/dev/null || true; fi
-python3 -I "$here/summarize.py" "$out/summary.json" "${dirs[@]}"
+if [ "$aa" = 1 ]; then
+  python3 -I "$here/summarize.py" --aa "$out/summary.json" "${dirs[@]}"
+else
+  python3 -I "$here/summarize.py" "$out/summary.json" "${dirs[@]}"
+fi
 echo "summary: $out/summary.json $out/summary.txt"

@@ -166,8 +166,8 @@ def write_run(root, name, arm, sha, round_, quiet=False, scale=1.0):
     return d
 
 
-def summarize(out, dirs):
-    done = run(sys.executable, "-I", os.path.join(HERE, "summarize.py"), out, *dirs)
+def summarize(out, dirs, *flags):
+    done = run(sys.executable, "-I", os.path.join(HERE, "summarize.py"), *flags, out, *dirs)
     assert done.returncode == 0, done.stderr
     with open(out) as f:
         return json.load(f)
@@ -249,6 +249,29 @@ class Verdicts(unittest.TestCase):
                     write_run(tmp, "base-2", "base", head, 2), write_run(tmp, "head-2", "head", head, 2, scale=2.0)]
             summary = summarize(os.path.join(tmp, "s.json"), dirs)
             self.assertEqual(summary["comparison"]["metrics"]["person CLI p99 ms"]["verdict"], "no difference")
+
+
+class AA(unittest.TestCase):
+    def test_aa_passes_a_metric_whose_interval_contains_zero_and_fails_one_that_does_not(self):
+        head = run("git", "-C", REPO, "rev-parse", "HEAD").stdout.strip()
+        with tempfile.TemporaryDirectory() as tmp:
+            dirs = []
+            for r in range(1, 6):
+                # Same build in both arms; the "head" runs' person CLI is 3x slower every round: a metric
+                # with an arm bias (for example from the run order) that the A/A must catch.
+                dirs += [write_run(tmp, f"base-{r}", "base", head, r), write_run(tmp, f"head-{r}", "head", head, r, scale=3.0)]
+            summary = summarize(os.path.join(tmp, "s.json"), dirs, "--aa")
+            self.assertIn("person CLI p99 ms", summary["aa"]["failed"])
+            self.assertIn("daemon refused per s", summary["aa"]["passed"])  # identical: [0, 0] contains 0
+            self.assertIn("app request p99 ms", summary["aa"]["passed"])
+            self.assertNotIn("person CLI p99 ms", summary["aa"]["passed"])
+
+    def test_aa_needs_one_build(self):
+        before, after = harness_commits()
+        with tempfile.TemporaryDirectory() as tmp:
+            dirs = [write_run(tmp, "base-1", "base", before, 1), write_run(tmp, "head-1", "head", after, 1)]
+            summary = summarize(os.path.join(tmp, "s.json"), dirs, "--aa")
+            self.assertTrue(summary["invalid"].startswith("invalid: an A/A needs one build"), summary["invalid"])
 
 
 class ReadTimes(unittest.TestCase):

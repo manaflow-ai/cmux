@@ -494,8 +494,25 @@ def validity(runs):
     return None
 
 
+AA_FAILURES = os.path.join(HERE, "aa-failures.json")
+
+
+def aa_failures():
+    """Metrics that failed the last A/A self-test (aa-failures.json beside this file): every summary marks
+    them 'invalid (fails A/A)' until a later A/A passes them."""
+    try:
+        with open(AA_FAILURES) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
 def main():
-    out_path, run_dirs = sys.argv[1], sys.argv[2:]
+    args = sys.argv[1:]
+    aa_mode = bool(args) and args[0] == "--aa"
+    if aa_mode:
+        args = args[1:]
+    out_path, run_dirs = args[0], args[1:]
     runs = []
     for d in run_dirs:
         try:
@@ -528,8 +545,25 @@ def main():
     summary["invalid"] = validity(runs)
     if "base" in arms and "head" in arms:
         summary["measured_commits"] = measured_commits(arms["base"][0].get("sha"), arms["head"][0].get("sha"))
+    if aa_mode:
+        shas = {r.get("sha") for r in runs if "metrics" in r}
+        if len(shas) != 1:
+            summary["invalid"] = f"invalid: an A/A needs one build in both arms, got {sorted(map(str, shas))}"
     if "base" in arms and "head" in arms and not summary["invalid"]:
         summary["comparison"] = compare(runs)
+        known = aa_failures()
+        for label, row in summary["comparison"]["metrics"].items():
+            if label in known.get("metrics", {}) and not aa_mode:
+                row["verdict"] = f"invalid (fails A/A {known.get('date', '')}): {row['verdict']}"
+        if aa_mode:
+            # An A/A passes a metric when its interval contains 0 (an exact [0, 0] passes; no pairs: not tested).
+            failed = {label: {"ci_low": row["ci_low"], "ci_high": row["ci_high"]}
+                      for label, row in summary["comparison"]["metrics"].items()
+                      if row["ci_low"] is not None and row["ci_high"] is not None and not row["ci_low"] <= 0 <= row["ci_high"]}
+            summary["aa"] = {"build": next(iter(shas)), "failed": failed,
+                             "passed": sorted(l for l, r in summary["comparison"]["metrics"].items()
+                                              if l not in failed and r["ci_low"] is not None),
+                             "not_tested": sorted(l for l, r in summary["comparison"]["metrics"].items() if r["ci_low"] is None)}
     with open(out_path, "w") as f:
         json.dump(summary, f, indent=1, default=str)
     names = list(summary["arms"])
@@ -556,6 +590,12 @@ def main():
         lines.append(line)
     if comparison:
         lines.append(f"({comparison['method']}; {comparison['rounds']} rounds)")
+    if summary.get("aa"):
+        aa = summary["aa"]
+        lines.append(f"A/A self-test of {aa['build']}: {len(aa['passed'])} metrics pass (CI contains 0), "
+                     f"{len(aa['failed'])} FAIL: {', '.join(aa['failed']) or 'none'}; not tested: {', '.join(aa['not_tested']) or 'none'}")
+        lines.append("Record it: copy summary.json's 'aa' block into scripts/cmux-next/austins-day/aa-failures.json "
+                     "({\"date\", \"build\", \"metrics\": failed}) in the harness owner's PR.")
     for r in runs:
         if "metrics" not in r:
             lines.append(f"{r['dir']}: {r['error']}")
