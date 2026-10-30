@@ -171,6 +171,13 @@ echo untouched > "$TMP/ref-target"
 rm "$binary.ref"; ln -s "$TMP/ref-target" "$binary.ref"
 portable; n=$((n + 1)); expect_builds "$n" "symlink provenance was reused"
 [[ "$(cat "$TMP/ref-target")" == untouched ]] || fail "rebuild followed the provenance symlink"
+# A restored entry with no binary and a symlinked provenance file rebuilds
+# without writing through the link to a file outside the cache.
+echo untouched > "$TMP/outside-sentinel"
+rm -f "$binary" "$binary.ref"; ln -s "$TMP/outside-sentinel" "$binary.ref"
+portable; n=$((n + 1)); expect_builds "$n" "a missing binary did not rebuild"
+[[ "$(cat "$TMP/outside-sentinel")" == untouched ]] || fail "rebuild of a missing binary wrote through the provenance symlink"
+[[ ! -L "$binary.ref" ]] || fail "rebuild of a missing binary left the provenance symlink"
 
 # Only the 8 most recently used input-keyed entries stay.
 entries=$(find "$TMP/cache" -maxdepth 1 -name 'inputs-*' | grep -c .)
