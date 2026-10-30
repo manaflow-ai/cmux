@@ -122,6 +122,7 @@ pub(super) async fn handle(
         state: State::Queued,
         attempts: 0,
         never_sent: true,
+        relay_to: None,
         error: None,
         accepted: None,
         created_at: now,

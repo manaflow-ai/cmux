@@ -69,6 +69,11 @@ pub struct Delivery {
     /// id. False for a record saved before the field, which may have reached it.
     #[serde(default)]
     pub never_sent: bool,
+    /// Whom a mesh relay post for it went to, recorded before the post: the hub may hold it
+    /// even when its answer was lost, so from then on only the relay tries it again, under the
+    /// same idempotency key, and the peer's link never runs it as well.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_to: Option<crate::mesh::Target>,
     #[serde(default)]
     pub error: Option<String>,
     /// The target's `_acpmux/prompt_accepted` (or its reply) once delivered.
@@ -211,6 +216,7 @@ impl Outbox {
             state: State::Delivered,
             attempts: 0,
             never_sent: false,
+            relay_to: None,
             error: None,
             accepted: None,
             created_at: now,
@@ -380,6 +386,7 @@ mod tests {
             state: State::Queued,
             attempts: 0,
             never_sent: false,
+            relay_to: None,
             error: None,
             accepted: None,
             created_at: now,
@@ -474,6 +481,7 @@ mod tests {
             state: State::Queued,
             attempts: 0,
             never_sent: false,
+            relay_to: None,
             error: None,
             accepted: None,
             created_at: 0,

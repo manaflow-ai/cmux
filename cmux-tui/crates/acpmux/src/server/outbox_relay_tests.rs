@@ -10,6 +10,7 @@ use crate::mesh::{
 };
 use futures::future::BoxFuture;
 use std::sync::Mutex;
+use std::sync::atomic::Ordering::SeqCst;
 
 /// The id huge-blue's last list gave its session `lane`.
 const LANE: &str = "0190f2a4-7c1e-7d3a-9f00-0123456789ab";
@@ -19,6 +20,8 @@ struct FakeHub {
     sent: Mutex<Vec<OutMessage>>,
     /// Every send is refused as a name the hub does not know.
     unknown: bool,
+    /// How many more sends the hub keeps but whose answer is lost on the way back.
+    lose: std::sync::atomic::AtomicUsize,
 }
 
 impl MeshHub for FakeHub {
@@ -45,6 +48,10 @@ impl MeshHub for FakeHub {
                 e.code = Some("mesh.unknown_recipient".into());
                 return Err(e);
             }
+            let lose = &self.lose;
+            if lose.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok() {
+                return Err(HubError::unavailable("the connection reset"));
+            }
             Ok(receipt("queued", message.to.clone()))
         })
     }
@@ -66,16 +73,22 @@ fn receipt(state: &str, to: Target) -> Receipt {
 
 /// This daemon with the relay on, and huge-blue a peer that is down after it listed `lane`.
 fn setup(fake: FakeHub) -> (Arc<Hub>, Arc<FakeHub>) {
+    let (hub, fake, _) = setup_peer(fake);
+    (hub, fake)
+}
+
+/// [`setup`], and the peer that is down.
+fn setup_peer(fake: FakeHub) -> (Arc<Hub>, Arc<FakeHub>, Arc<crate::peer::Peer>) {
     let mut config = Config::default();
     config.store.mode = StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(config, store);
     let row = json!({"sessionId": LANE, "name": "lane", "status": "idle", "turnCount": 1,
                      "updatedAt": 5});
-    hub.seed_down_peer("huge-blue", vec![row]);
+    let peer = hub.seed_down_peer("huge-blue", vec![row]);
     let fake = Arc::new(fake);
     assert!(hub.mesh.set(fake.clone()).is_ok());
-    (hub, fake)
+    (hub, fake, peer)
 }
 
 /// `m` with `params` on a new unix-socket connection to `hub`: its result, or its error.
@@ -137,12 +150,16 @@ async fn a_send_to_a_down_peers_session_is_kept_here_and_relayed_by_its_session_
         assert_eq!(d.accepted.as_ref().unwrap()["via"], "mesh", "{d:?}");
         let to = fake.sent.lock().unwrap().last().unwrap().to.clone();
         assert_eq!(to.session_id.as_deref(), Some(LANE), "{target}: {to:?}");
-        assert_eq!((to.host.as_deref(), to.name.as_deref()), (Some("huge-blue"), None), "{to:?}");
+        // By its id alone: the hub knows the peer's host by its own machine name.
+        assert_eq!((to.host.as_deref(), to.name.as_deref()), (None, None), "{to:?}");
         // Its status is the hub's receipt, under the outbox's delivery id.
         let status = call(&hub, method::MUX_SEND_STATUS, json!({"deliveryId": id})).await.unwrap();
         assert_eq!(status["deliveryId"], json!(id), "{status}");
         assert_eq!(status["status"], "delivered", "{status}");
         assert_eq!(status["target"], json!(target), "{status}");
+        // What `acpmux send` reads of an acceptance.
+        assert_eq!(status["accepted"]["sessionId"], LANE, "{status}");
+        assert_eq!(status["accepted"]["steer"], false, "{status}");
     }
     // A key the peer never listed: an id stays an id, a name a name.
     let other = "0190f2a4-7c1e-7d3a-9f00-00000000beef";
@@ -154,6 +171,7 @@ async fn a_send_to_a_down_peers_session_is_kept_here_and_relayed_by_its_session_
     after_attempt(&hub, &id, 1).await;
     let to = fake.sent.lock().unwrap().last().unwrap().to.clone();
     assert_eq!((to.session_id.as_deref(), to.name.as_deref()), (None, Some("other")), "{to:?}");
+    assert_eq!(to.host.as_deref(), Some("huge-blue"), "{to:?}");
 }
 
 #[tokio::test]
@@ -197,6 +215,7 @@ async fn a_delivery_that_may_have_reached_the_peer_is_never_relayed() {
         state: State::Queued,
         attempts: 1,
         never_sent: false,
+        relay_to: None,
         error: Some("peer disconnected".into()),
         accepted: None,
         created_at: now,
@@ -207,4 +226,23 @@ async fn a_delivery_that_may_have_reached_the_peer_is_never_relayed() {
     assert_eq!(d.state, State::Queued, "{d:?}");
     assert!(!d.never_sent, "{d:?}");
     assert!(fake.sent.lock().unwrap().is_empty(), "relayed a delivery the peer may have run");
+}
+
+#[tokio::test]
+async fn a_relay_post_whose_answer_was_lost_is_tried_again_only_through_the_relay() {
+    let fake = FakeHub { lose: 1.into(), ..FakeHub::default() };
+    let (hub, fake, peer) = setup_peer(fake);
+    let id = queue(&hub, request("huge-blue/lane", "prompt-lost-answer")).await;
+    let d = after_attempt(&hub, &id, 1).await;
+    assert_eq!(d.state, State::Queued, "{d:?}");
+    assert_eq!(d.relay_to.as_ref().and_then(|t| t.session_id.as_deref()), Some(LANE), "{d:?}");
+    // The peer's link comes back: the hub may hold the message, so the link must not run it too.
+    peer.connected.store(true, SeqCst);
+    let d = after_attempt(&hub, &id, 2).await;
+    assert_eq!(d.state, State::Delivered, "{d:?}");
+    assert_eq!(d.accepted.as_ref().unwrap()["via"], "mesh", "{d:?}");
+    let sent = fake.sent.lock().unwrap().clone();
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert_eq!(sent[0].idempotency_key, sent[1].idempotency_key, "the same message again");
+    assert_eq!(sent[1].to, sent[0].to, "{sent:?}");
 }
