@@ -1806,4 +1806,15 @@ fn a_record_works_where_its_id_goes() {
         list["request"]["params"]["pane"], "pane_00000000000000000000000000000abc",
         "{list}"
     );
+    drop(sent);
+
+    // A json field keeps its object even when it has an `id` (review of 7c83a9f).
+    let device = json!({"id": "phone-1", "title": "Phone", "screen": {"vertical": {"width": 390, "height": 844}}});
+    server
+        .call(&json!({"name": "browser_devices_add_custom", "arguments": {"device": device}}))
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    let add = sent.iter().find(|s| s["request"]["operation"] == "browser.devices.add_custom");
+    let add = add.unwrap_or_else(|| panic!("{sent:?}"));
+    assert_eq!(add["request"]["params"]["device"], device, "{add}");
 }

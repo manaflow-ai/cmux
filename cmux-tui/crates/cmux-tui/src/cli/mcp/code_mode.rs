@@ -134,7 +134,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
         "title": "Run a cmux script",
         "description": format!(
             "Run JavaScript that calls cmux tools and return its result.{computer_use} An async \
-             function
+             function \
              body, `await cmux.<tool>({{...}})` per call, `return` a JSON value. Do related \
              steps in one script: look up, act and check together. No file system, network or \
              timers; console.log comes back in logs.\n\n\
