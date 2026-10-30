@@ -209,6 +209,18 @@ import Testing
         #expect(h.updater.newestFetch == nil)
     }
 
+    @Test func aPulledRunningAndStagedBuildKeepsTheRunningExplanation() async {
+        let h = Base.make(ring: "nightly", pulled: ["100", "300"])
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.cancels == 1)
+        #expect(h.sparkle.backgroundChecks == 1)
+        #expect(h.updater.newestFetch == .runningPulled)
+        h.sparkle.staged = nil
+        h.updater.debugIndicatorPhase = .checking
+        #expect(h.updater.card == .gettingNewest(nil, pulled: true))
+        #expect(h.updater.cardPresentation?.detail == UpdaterStrings.runningBuildPulled)
+    }
+
     /// With nothing newer than the pulled running build on the feed, the check ends and nothing shows.
     @Test func aPulledRunningBuildWithNothingNewerEndsQuietly() async throws {
         let h = Base.make(ring: "nightly", pulled: ["100"])
