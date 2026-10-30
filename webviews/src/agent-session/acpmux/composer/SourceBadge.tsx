@@ -63,15 +63,15 @@ export function withSourceLabel(title: string | undefined, label: string | undef
 }
 
 /// The source's app icon at the tile's top-right corner: nothing while it is unknown, or when this
-/// Mac has no such app. In the composer the tile's × takes the corner while the pointer is on it
+/// Mac has no such app. The icon's alt names the source for screen readers. In the composer the tile's × takes the corner while the pointer is on it
 /// (composerAttachments.css).
 export function SourceBadge({ source }: { source: AttachmentSource | undefined }) {
   const icon = useSourceIcon(source?.bundleId);
   const label = useSourceLabel(source);
   if (!source || !icon) return null;
   return (
-    <span className="acpmux-source-badge" role="img" aria-label={label}>
-      <img src={icon} alt="" draggable={false} />
+    <span className="acpmux-source-badge" data-label={label}>
+      <img src={icon} alt={label} draggable={false} />
     </span>
   );
 }

@@ -631,3 +631,22 @@ button.acpmux-attachment-pasted-open:hover {
   left: 17px;
   width: 12px;
 }
+/* A sent image's, at its thumbnail's top-right corner, above the prompt or inline in its text
+   (conversation/UserBubble.tsx SentImage). Its icon keeps its own shape, not the thumbnail's. */
+.cv-user__sourced {
+  position: relative;
+  display: block;
+  flex: none;
+}
+.cv-user__sourced > .acpmux-source-badge {
+  top: 6px;
+  right: 6px;
+}
+:is(.cv-user__images, .cv-user__inline-image) .cv-user__sourced > .acpmux-source-badge > img {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  outline: none;
+  background: none;
+  object-fit: contain;
+}

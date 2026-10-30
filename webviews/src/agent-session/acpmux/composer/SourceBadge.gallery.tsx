@@ -81,7 +81,7 @@ const DESIGNS = `
   [data-source-design=labelled] .acpmux-attachment-image > .acpmux-source-badge > img,
   [data-source-design=labelled] .cv-user__sourced > .acpmux-source-badge > img { width: 14px; height: 14px; }
   [data-source-design=labelled] .acpmux-attachment-image > .acpmux-source-badge::after,
-  [data-source-design=labelled] .cv-user__sourced > .acpmux-source-badge::after { content: attr(aria-label); }
+  [data-source-design=labelled] .cv-user__sourced > .acpmux-source-badge::after { content: attr(data-label); }
   [data-source-design=outside] .acpmux-attachment-image > .acpmux-source-badge { width: 18px; top: -5px; right: -5px; }
   [data-source-design=outside] .cv-user__sourced > .acpmux-source-badge { width: 18px; top: -5px; right: -5px; }
   [data-source-design=outside] .acpmux-attachments { overflow: visible; padding-top: 6px; }
@@ -129,6 +129,22 @@ function useFixtures(design: Design) {
       },
       { id: "unknown", kind: "image", name: "image.png", mimeType: "image/png", size: 1, data: shot(1200, 800, 280) },
       {
+        id: "recording",
+        kind: "link",
+        name: "Screen Recording 2026-10-29 at 10.16.40.mov",
+        mimeType: "video/quicktime",
+        size: 4_210_000,
+        path: "/Users/sample/Desktop/Screen Recording 2026-10-29 at 10.16.40.mov",
+        video: {
+          durationMs: 14_000,
+          width: 1440,
+          height: 900,
+          poster: `data:image/png;base64,${shot(1440, 900, 95)}`,
+          frames: [],
+        },
+        ...sourced(SOURCES.screenshot!),
+      },
+      {
         id: "file",
         kind: "link",
         name: "build-times.csv",
@@ -161,10 +177,15 @@ export default componentEntry<Props>({
   widths: { normal: 620, narrow: 340 },
   covers: [
     "agent-session/acpmux/composer/SourceBadge.tsx#SourceBadge",
+    "agent-session/acpmux/composer/VideoAttachmentTile.tsx#VideoAttachmentTile",
     "agent-session/acpmux/conversation/UserBubble.tsx#SentImages",
   ],
   styles: () =>
-    Promise.all([import("../styles.css"), import("../conversation/conversation.css")]).then(() => undefined),
+    Promise.all([
+      import("../styles.css"),
+      import("../conversation/conversation.css"),
+      import("../composerAttachments.css"),
+    ]).then(() => undefined),
   load: () =>
     Promise.all([
       import("./attachmentIntake"),
@@ -202,7 +223,7 @@ export default componentEntry<Props>({
                         kind: "user",
                         at: 1,
                         inlineParts: fixtures.chips
-                          .filter((chip) => chip.kind === "link")
+                          .filter((chip) => chip.kind === "link" && !chip.video)
                           .map((chip) => ({
                             kind: "file" as const,
                             name: chip.name,
@@ -227,7 +248,7 @@ export default componentEntry<Props>({
       props: { design: "before" },
     },
     corner: {
-      note: "Shipped. The source app's own 16px icon in the tile's top-right corner (a web image from Google Chrome, a Screenshot capture, cmux's Attach Screenshot), on the file glyph's corner for a file from Finder; the fourth image's source is unknown, so it wears none. In the composer the × takes that corner while the pointer is on the tile. The tooltip names the source (\"From Google Chrome · github.com\").",
+      note: "Shipped. The source app's own 16px icon in the tile's top-right corner (a web image from Google Chrome, a Screenshot capture, cmux's Attach Screenshot, a screen recording's poster), on the file glyph's corner for a file from Finder; the fourth image's source is unknown, so it wears none. In the composer the × takes that corner while the pointer is on the tile. The tooltip names the source (\"From Google Chrome · github.com\").",
       props: { design: "corner" },
     },
     small: {

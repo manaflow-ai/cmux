@@ -74,8 +74,9 @@ test("a known app's icon sits on the tile, named for screen readers", async () =
   );
   const badges = container.querySelectorAll(".acpmux-source-badge");
   expect(badges.length).toBe(2);
-  expect(badges[0]!.getAttribute("aria-label")).toBe("From Google Chrome · github.com");
-  expect(badges[0]!.querySelector("img")!.getAttribute("src")).toBe(PNG);
+  const icon = badges[0]!.querySelector("img")!;
+  expect(icon.getAttribute("alt")).toBe("From Google Chrome · github.com");
+  expect(icon.getAttribute("src")).toBe(PNG);
   // One ask per app, however many tiles wear it.
   expect(asked).toEqual(["com.google.Chrome"]);
 });
