@@ -172,6 +172,11 @@ impl Snapshots {
     fn invalidate(&mut self, kind: usize) {
         self.views[kind] = None;
         self.dirty[kind] = true;
+        if kind == TREE {
+            // Layout can authorize pinned workspaces only against the current tree.
+            // Dirty also rejects a layout answer requested before this change.
+            self.invalidate(LAYOUT);
+        }
     }
 
     fn event(&mut self, event: &Value) -> Result<(), ()> {
@@ -213,7 +218,9 @@ impl Snapshots {
                     self.views[TREE] = Some(Arc::new(next));
                     true
                 });
-                if !applied {
+                if applied {
+                    self.invalidate(LAYOUT);
+                } else {
                     self.invalidate(TREE);
                 }
             }
@@ -245,29 +252,15 @@ impl Snapshots {
         }
         if !valid {
             self.views[kind] = None;
-            // Older daemons may not have sidebar_layout.get. That optional
-            // view stays unavailable without disrupting tree/personal reads.
-            // Other failed or malformed replies restart this subscription via
-            // the worker's bounded reconnect backoff, rather than leaving a
-            // missing snapshot stuck until an unrelated event happens.
-            return if kind == LAYOUT && unsupported_layout(&reply) { Ok(()) } else { Err(()) };
+            // Layout is optional: any failed or malformed answer leaves only
+            // that view unavailable. Keep dirty false to avoid a tight retry;
+            // the next tree/personal/layout event requests it again. Required
+            // snapshots still restart through the worker's bounded backoff.
+            return if kind == LAYOUT { Ok(()) } else { Err(()) };
         }
         self.views[kind] = Some(Arc::new(reply));
         Ok(())
     }
-}
-
-fn unsupported_layout(reply: &Value) -> bool {
-    let error = &reply["error"];
-    if error.get("code").and_then(Value::as_str) == Some("operation.unsupported") {
-        return true;
-    }
-    let message = error.as_str().or_else(|| error.get("message").and_then(Value::as_str));
-    message.is_some_and(|message| {
-        // Serde's unknown-operation response on daemons predating this v2
-        // method is a legacy error string rather than a typed ResourceError.
-        message.contains("unknown variant `sidebar_layout.get`")
-    })
 }
 
 async fn session(path: &std::path::Path, published: &Published, generation: u64) -> Result<(), ()> {
