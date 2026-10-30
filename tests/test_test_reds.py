@@ -858,6 +858,27 @@ class BunTestReds(unittest.TestCase):
                       " 1 pass", " 1 fail", "##[endgroup]")
         self.assertIn("before the wrapper ran its file again", reds.read(retried).truncated[0])
 
+    def test_a_bun_run_cut_before_its_first_result_is_judged_whatever_the_job_is_named(self):
+        # Sol on #28330 at bd2322b0: a run that only reached `bun test v…` or a file header was cut short but never
+        # counted as having run tests, so a job not named for tests ("fast checks") got no verdict (exit 2).
+        for cut in (log("bun test v1.4.4 (38afee6c8)"), log("bun test v1.4.4 (38afee6c8)", "::group::test/a.test.ts:"),
+                    log("##[group]test/a.test.ts:")):
+            with self.subTest(cut=cut):
+                found = reds.read(cut)
+                self.assertTrue(found.ran)
+                self.assertEqual(found.truncated, ["a bun test run printed no ` N pass` / ` N fail` summary before the "
+                                                   "log ended"])
+                verdict = reds.classify(cut, cut, "fast checks")
+                self.assertIsNotNone(verdict)
+                self.assertTrue(verdict.own)
+                with tempfile.TemporaryDirectory() as tmp:
+                    head = Path(tmp, "head.log")
+                    head.write_text(cut)
+                    done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/test_reds.py"), "classify", "--head",
+                                           str(head), "--base", str(head), "--job", "fast checks"],
+                                          capture_output=True, text=True)
+                    self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+
     def test_a_bun_crash_or_a_killed_runner_after_a_whole_run_is_never_a_base_red(self):
         whole = bun_run((UNAVAILABLE, [("chat > a", "boom")]))
         for end in ("panic(main thread): Segmentation fault at address 0x0",
