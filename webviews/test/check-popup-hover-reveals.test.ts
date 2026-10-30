@@ -30,6 +30,17 @@ test("functional hover selectors still require a popup state", () => {
   expect(findHoverRevealViolations(css.replace("data-popup-open", "aria-expanded=true"))).toHaveLength(1);
 });
 
+test("a nested :is(:hover, …) reveal with no popup rule is a violation", () => {
+  for (const css of [
+    ".new-row:is(:hover,:focus-within) .new-actions { opacity: 1; }",
+    ".new-row:is(:hover, :focus-within) .new-actions { opacity: 1; }",
+  ]) {
+    const violations = findHoverRevealViolations(css);
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.expected).toContain(":has([data-popup-open])");
+  }
+});
+
 test("a hidden popup selector does not satisfy the reveal contract", () => {
   const css = `
     .new-row:hover .new-actions { opacity: 1; }
