@@ -350,7 +350,11 @@ jobs:
     needs: [resolve-ref, screenshots]
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 30
+    # No upload from CI has been timed yet. deliver deletes the version's screenshots
+    # (overwrite_screenshots) before it uploads about 14 locales x 2 devices x 10 shots
+    # and waits for Apple's processing, so a timeout part way leaves the pending
+    # version with only some screenshots. Keep a wide bound; a re-run repairs it.
+    timeout-minutes: 180
     # The App Store Connect key lives in the release environment (main and v*
     # tags). Capture-only runs, including the call from release.yml, skip this job.
     environment: release
