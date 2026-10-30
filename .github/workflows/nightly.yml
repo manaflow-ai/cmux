@@ -1513,9 +1513,12 @@ jobs:
       # literal ephemeral label; this reused runner only packs and uploads what they save. Each
       # pack keeps the `if:` of the save it replaced and runs where it ran, so a later failure
       # still saves. Neither step can fail the build (a save never decides a nightly).
+      # Each pack also needs a save that can write: an R2 save has its keys only in main's own
+      # runs (ci-cache-writer), so elsewhere it was a no-op and the pack is skipped; the GitHub
+      # store (cache_backend github or warp) writes from any branch, as before.
       - name: Pack the Xcode compilation cache for save-nightly-app-caches
         id: compilation-cache-pack
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true' && ((inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') != 'r2' || github.ref == 'refs/heads/main' && github.repository_owner == 'manaflow-ai')
         continue-on-error: true
         run: scripts/ci/handoff-archive.sh pack build-universal/CompilationCache.noindex "$RUNNER_TEMP/handoff/compilation-cache"
 
@@ -1536,7 +1539,7 @@ jobs:
 
       - name: Pack Swift packages for save-nightly-app-caches
         id: swift-packages-pack
-        if: steps.swift-packages-restore.outputs.cache-hit != 'true'
+        if: steps.swift-packages-restore.outputs.cache-hit != 'true' && ((inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') != 'r2' || github.ref == 'refs/heads/main' && github.repository_owner == 'manaflow-ai')
         continue-on-error: true
         run: scripts/ci/handoff-archive.sh pack .spm-cache "$RUNNER_TEMP/handoff/swift-packages"
 
@@ -1678,7 +1681,8 @@ jobs:
     name: Save the nightly app's build caches
     needs: [decide, build-nightly-app]
     # !cancelled(): the packs ran where the saves used to, so a build that fails later still saves.
-    if: "!cancelled() && (needs.build-nightly-app.outputs.compilation_cache == 'success' || needs.build-nightly-app.outputs.swift_packages == 'success')"
+    # The handoffs exist only where a save can write (the packs' gate); it is repeated here.
+    if: "!cancelled() && (needs.build-nightly-app.outputs.compilation_cache == 'success' || needs.build-nightly-app.outputs.swift_packages == 'success') && ((inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') != 'r2' || github.ref == 'refs/heads/main' && github.repository_owner == 'manaflow-ai')"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 30
@@ -1695,9 +1699,22 @@ jobs:
             .github/actions/cache-save/
             scripts/ci/r2-cache.sh
             scripts/ci/handoff-archive.sh
+            scripts/ci/check-nightly-cache-handoff.py
             scripts/ci/swiftpm-cache-layout
             cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
           sparse-checkout-cone-mode: false
+
+      # The platform and key come from the reused build mini, and this job holds the R2 write
+      # keys: refuse any value the build's own expressions could not give before anything is saved.
+      - name: Check the values the build sent
+        env:
+          PLATFORM: ${{ needs.build-nightly-app.outputs.cache_platform }}
+          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+          COMPILATION_CACHE: ${{ needs.build-nightly-app.outputs.compilation_cache }}
+          COMPILATION_KEY: ${{ needs.build-nightly-app.outputs.compilation_cache_key }}
+          SWIFT_PACKAGES: ${{ needs.build-nightly-app.outputs.swift_packages }}
+          SPM_KEY: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
+        run: python3 scripts/ci/check-nightly-cache-handoff.py
 
       - name: Download the Xcode compilation cache
         if: needs.build-nightly-app.outputs.compilation_cache == 'success'

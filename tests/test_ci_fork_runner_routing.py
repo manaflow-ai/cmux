@@ -1417,6 +1417,9 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertIn("!cancelled()", save["if"])
         self.assertIn(can_write, save["if"])
         self.assertNotIn("github.ref", sentry["if"])
+        saves = [step for step in save["steps"] if step.get("uses") == "./.github/actions/cache-save"]
+        self.assertEqual([step["name"] for step in saves], ["Save Xcode compilation cache", "Save Swift packages"])
+        self.assertEqual(saves[0]["with"]["key"], "${{ needs.build-nightly-app.outputs.compilation_cache_key }}")
         # Before any download or save: the values the reused Mac sent are checked, and a mismatch
         # fails the job (no continue-on-error), so the save steps after it never run.
         check = save["steps"][1]
@@ -1434,9 +1437,6 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         })
         self.assertIn("scripts/ci/check-nightly-cache-handoff.py", check["run"])
         self.assertIn("scripts/ci/check-nightly-cache-handoff.py", save["steps"][0]["with"]["sparse-checkout"])
-        saves = [step for step in save["steps"] if step.get("uses") == "./.github/actions/cache-save"]
-        self.assertEqual([step["name"] for step in saves], ["Save Xcode compilation cache", "Save Swift packages"])
-        self.assertEqual(saves[0]["with"]["key"], "${{ needs.build-nightly-app.outputs.compilation_cache_key }}")
         self.assertEqual(saves[0]["with"]["path"], restore["path"])
         swift = steps[ids.index("swift-packages-restore")]["with"]
         self.assertEqual((saves[1]["with"]["key"], saves[1]["with"]["path"]), (swift["key"], swift["path"]))
