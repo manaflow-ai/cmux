@@ -17,6 +17,9 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 cmux_next=$(cd "$here/.." && pwd)
 repo=$(cd "$here/../../.." && pwd)
+# The harness commit each run used (its tree must be clean: a result names the harness it came from).
+harness_sha=$(git -C "$repo" rev-parse HEAD)
+git -C "$repo" diff --quiet HEAD -- scripts/cmux-next/austins-day || { echo "uncommitted harness edits: commit them first" >&2; exit 2; }
 usage() { sed -n '2,16p' "$0" >&2; exit 2; }
 build='' base='' head='' runs=5 out=''
 while [ $# -gt 0 ]; do
@@ -95,8 +98,8 @@ run_arm() {
   slot=$(sed -n 's/.*slot=\([^ ]*\).*/\1/p' <<<"$info")
   preferred_host=${preferred_host:-$host}
   echo "[$arm round $round] lease $lease host $host slot $slot (job $job, $commit)"
-  printf '{"arm": "%s", "sha": "%s", "job": "%s", "round": %s, "host": "%s", "lease": "%s"}\n' \
-    "$arm" "$commit" "$job" "$round" "$host" "$lease" >"$dir/arm.json"
+  printf '{"arm": "%s", "sha": "%s", "job": "%s", "round": %s, "host": "%s", "lease": "%s", "harness": "%s"}\n' \
+    "$arm" "$commit" "$job" "$round" "$host" "$lease" "$harness_sha" >"$dir/arm.json"
   ssh -o BatchMode=yes "$host" "uptime; sysctl -n vm.swapusage kern.memorystatus_level hw.memsize" >"$dir/host-before.txt" 2>&1 || true
   local stage=$stage_root/$job
   run=/Users/Shared/cmux-capture/austins-day/runs/$arm-$round-$(date +%H%M%S)
