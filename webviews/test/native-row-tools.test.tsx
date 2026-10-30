@@ -71,6 +71,7 @@ function nativeHarness() {
     },
   };
   const render = async (props: Partial<ComponentProps<typeof ChatHeaderTools>> = {}) => {
+    const nativeNeedsYou = props.nativeNeedsYou ? { ...props.nativeNeedsYou, nativeMenu: true } : undefined;
     await act(async () =>
       root!.render(
         <ChatHeaderTools
@@ -80,6 +81,7 @@ function nativeHarness() {
           menu={() => []}
           nativeRowTools={host}
           {...props}
+          nativeNeedsYou={nativeNeedsYou}
         />,
       ),
     );
@@ -699,6 +701,7 @@ test("host events switch the header to native tools and invoke the same web hand
           />
         }
         nativeNeedsYou={{
+          nativeMenu: true,
           mode: "pinned",
           items: [
             {

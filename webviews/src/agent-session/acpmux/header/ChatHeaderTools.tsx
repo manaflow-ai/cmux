@@ -24,7 +24,6 @@ import { headerQuickTools } from "./headerQuickTools";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
 import type { NativeRowNeedsYou } from "./nativeRowTools";
 import type { NeedsYouItem } from "../needsYou/model";
-import { onOpenNeedsYou } from "../needsYou/links";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
@@ -221,11 +220,23 @@ export function ChatHeaderTools({
   const worktree = useWorktree(folder, readStatus, statusKey);
   const worktreeOps = useWorktreeOps(worktree, folder, onApplyWorktree, onRemoveWorktree);
   const pullRequestOps = usePullRequestOps(pullRequest, onMergePullRequest);
+  const nativeNeedsYouMenu = nativeNeedsYou?.nativeMenu === true;
   const [needsYouFailure, setNeedsYouFailure] = useState<NativeRowNeedsYou["failure"]>();
-  const nativeNeedsYouForTools = nativeNeedsYou
+  const nativeNeedsYouForTools = nativeNeedsYouMenu
     ? {
         ...nativeNeedsYou,
         failure: needsYouFailure,
+        actions: {
+          ...nativeNeedsYou.actions,
+          answer: async (...args: Parameters<NativeRowNeedsYou["actions"]["answer"]>) => {
+            setNeedsYouFailure(undefined);
+            return nativeNeedsYou.actions.answer(...args);
+          },
+          ask: async (...args: Parameters<NativeRowNeedsYou["actions"]["ask"]>) => {
+            setNeedsYouFailure(undefined);
+            return nativeNeedsYou.actions.ask(...args);
+          },
+        },
         onFailure: (item: NeedsYouItem, action: "answer" | "ask", error: unknown) =>
           setNeedsYouFailure({
             itemId: item.id,
@@ -357,13 +368,6 @@ export function ChatHeaderTools({
     },
     t,
   );
-  useEffect(() => {
-    if (!native || !nativeNeedsYou || nativeNeedsYou.mode === "off") return;
-    return onOpenNeedsYou((itemId) => {
-      const item = nativeNeedsYou.items.find((candidate) => candidate.id === itemId);
-      if (item) nativeNeedsYou.actions.goTo(item);
-    });
-  }, [native, nativeNeedsYou]);
   const shortcuts: Partial<Record<QuickActionId, string | undefined>> = {
     terminal: terminalKey,
     splitDown: splitDownKey,
@@ -399,7 +403,7 @@ export function ChatHeaderTools({
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
       {!native && inspector}
       {typeof summary === "function" ? summary(native) : !native && summary}
-      {!native && inbox}
+      {(!native || !nativeNeedsYouMenu) && inbox}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (

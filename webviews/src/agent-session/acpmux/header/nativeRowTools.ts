@@ -49,6 +49,9 @@ export interface NativeRowNeedsYou {
   items: readonly NeedsYouItem[];
   mode: NeedsYouMode;
   actions: NeedsYouActions;
+  /// Opt in only when every row action is representable by the native menu. The production
+  /// header leaves the pinned editable Ask about this flow in the web popover.
+  nativeMenu?: boolean;
   /// Native actions have no DOM row to own the rejection state, so the header feeds it back here.
   failure?: { itemId: string; action: "answer" | "ask"; reason?: string };
   onFailure?: (item: NeedsYouItem, action: "answer" | "ask", error: unknown) => void;
@@ -279,7 +282,15 @@ function needsYouBinding(extra: NativeRowNeedsYou, t?: Translate): RowToolBindin
     }
     return {
       id: `needsYou:${itemKey}`,
-      label: menuLabel(askText(item, t ?? ((key) => key))),
+      label: menuLabel(
+        [
+          askText(item, t ?? ((key) => key)),
+          item.who.chief ? t?.("needsYou.chief") : item.who.name,
+          capabilities.detail && item.detail ? item.detail : undefined,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      ),
       enabled: true,
       children: fitVariable(children, NATIVE_MAX_MENU_ITEMS, NATIVE_MAX_TOTAL_MENU_ITEMS, `more:${itemKey}`),
     };
@@ -329,7 +340,7 @@ export function nativeRowToolBindings(
           },
         ]
       : []),
-    ...(extras?.needsYou
+    ...(extras?.needsYou?.nativeMenu
       ? [needsYouBinding(extras.needsYou, t)].filter((binding): binding is RowToolBinding => binding !== undefined)
       : []),
     ...quick.map(({ id, icon, label, pressed, run }) => ({
