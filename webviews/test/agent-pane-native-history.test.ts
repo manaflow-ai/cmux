@@ -74,7 +74,13 @@ function nativePage(before: number) {
 
 /// A daemon over a fake socket; `serves` says whether it lists `_acpmux/native_history`, and
 /// `unknown` makes it answer that method as one it does not serve (an older peer's daemon).
-function fakeDaemon({ serves = true, unknown = false, refused = "", restoreBeforeReply = false } = {}) {
+function fakeDaemon({
+  serves = true,
+  unknown = false,
+  refused = "",
+  restoreBeforeReply = false,
+  configBeforeReply = false,
+} = {}) {
   let socket: any;
   const nativeReads: number[] = [];
   const nativeMarks: unknown[] = [];
@@ -109,7 +115,9 @@ function fakeDaemon({ serves = true, unknown = false, refused = "", restoreBefor
         return { result: { sessions: [session] } };
       case "_acpmux/attach":
         attaches.push(params);
-        return { result: { session, queue: [], events: log, hasMore: false, lastSeq } };
+        return {
+          result: { session: { ...session, configOptions: [] }, queue: [], events: log, hasMore: false, lastSeq },
+        };
       case "_acpmux/events":
         return { result: { events: [], hasMore: false, lastSeq } };
       case "_acpmux/native_history":
@@ -131,6 +139,29 @@ function fakeDaemon({ serves = true, unknown = false, refused = "", restoreBefor
         queueMicrotask(() => {
           const response = answer(message.method, message.params);
           if (restoreBeforeReply && message.method === "_acpmux/attach") restoredQueue();
+          if (configBeforeReply && message.method === "_acpmux/attach")
+            socket.onmessage?.({
+              data: JSON.stringify({
+                jsonrpc: "2.0",
+                method: "_acpmux/event",
+                params: {
+                  sessionId: CHAT,
+                  seq: lastSeq + 2,
+                  at: START + 100_001,
+                  dir: "in",
+                  kind: "config_option_update",
+                  msg: {
+                    method: "session/update",
+                    params: {
+                      update: {
+                        sessionUpdate: "config_option_update",
+                        configOptions: [{ id: "model", currentValue: "new-model", options: [] }],
+                      },
+                    },
+                  },
+                },
+              }),
+            });
           socket.onmessage?.({
             data: JSON.stringify({
               jsonrpc: "2.0",
@@ -177,7 +208,7 @@ type Snapshot = {
   historyFrom?: number;
   rows: { kind: string; text?: string; seq?: number }[];
   queue?: { id: string; prompt: string }[];
-  summary?: { queuePaused?: boolean };
+  summary?: { queuePaused?: boolean; configOptions?: { id: string; currentValue: string }[] };
 };
 
 async function open(daemon: ReturnType<typeof fakeDaemon>) {
@@ -242,6 +273,18 @@ test("a restored queue notification arriving before the attach reply survives it
       { id: "held", prompt: "Send when I resume" },
     ]);
     expect(snapshot().summary?.queuePaused).toBe(true);
+    expect(daemon.attaches).toHaveLength(1);
+  } finally {
+    client.close?.();
+  }
+});
+
+test("restored queue summary preserves config updates replayed after the attach snapshot", async () => {
+  const daemon = fakeDaemon({ restoreBeforeReply: true, configBeforeReply: true });
+  const { client, snapshot } = await open(daemon);
+  try {
+    expect(snapshot().queue?.map((entry) => entry.id)).toEqual(["held"]);
+    expect(snapshot().summary?.configOptions?.[0]?.currentValue).toBe("new-model");
     expect(daemon.attaches).toHaveLength(1);
   } finally {
     client.close?.();

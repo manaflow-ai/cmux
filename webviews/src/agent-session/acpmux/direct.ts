@@ -3554,7 +3554,7 @@ export class AcpmuxDirectClient {
     const latestIsNew =
       latest !== undefined &&
       (latest.seq === undefined || typeof detail.lastSeq !== "number" || latest.seq >= detail.lastSeq);
-    if (latestIsNew) this.summary = { ...detail, ...latest.session };
+    if (latestIsNew) this.summary = { ...this.summary, ...latest.session };
     this.queue = mergeQueue(this.queue, (latestIsNew ? latest?.session.queue : detail.queue) ?? [], this.queueAuthors);
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
