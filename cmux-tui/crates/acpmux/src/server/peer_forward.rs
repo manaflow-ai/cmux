@@ -351,12 +351,14 @@ async fn forward_inner(
             .flatten()
             .map(str::to_owned);
         // Only a link the peer serves as a peer daemon carries the sender's identity there
-        // (`requests.rs` takes `messageSender` from a Peer connection alone): over a link added
-        // with the dashboard token, the receiver records no message, so the sender records none
-        // and waits on none either.
+        // (`requests.rs` takes `messageSender` from a Peer connection alone), and only a peer
+        // that lists `session-messages-v1` records the message: over a link added with the
+        // dashboard token, or to an older peer, the receiver records no message, so the sender
+        // records none and waits on none either.
         let sender_message = if m == method::SESSION_PROMPT
             && !conn.is_person()
             && peer.served_as().as_deref() == Some("peer")
+            && peer.supports_session_messages()
         {
             conn.caller().map(|sender_session| {
                 let sender =

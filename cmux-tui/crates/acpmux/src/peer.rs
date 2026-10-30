@@ -681,6 +681,13 @@ impl Peer {
         self.session_messages.load(Ordering::SeqCst)
     }
 
+    /// Integration-test stand-in for a peer from before `session-messages-v1`: until the next
+    /// handshake, as though it had not listed it.
+    #[doc(hidden)]
+    pub fn forget_session_messages_for_tests(&self) {
+        self.session_messages.store(false, Ordering::SeqCst);
+    }
+
     /// The WebSocket is open and the handshake has not finished.
     pub fn handshaking(&self) -> bool {
         self.open.load(Ordering::SeqCst) && !self.connected.load(Ordering::SeqCst)

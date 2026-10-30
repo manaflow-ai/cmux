@@ -858,6 +858,36 @@ async fn a_send_over_a_dashboard_token_link_keeps_no_message_intent() {
     assert_eq!(a.outbox_unsettled(), 0, "an intent waits on a message the receiver never records");
 }
 
+/// To a peer from before `session-messages-v1`, whose journal records no message, the sender
+/// records no copy of its own and keeps no intent waiting on one.
+#[tokio::test]
+async fn a_send_to_an_older_peer_records_no_sender_copy() {
+    let (a, b, id) = busy_peer_on("older-peer-send", "lane", true).await;
+    assert!(a.forget_peer_session_messages_for_tests("b"));
+    let mut person = C::new(a.clone()).await;
+    let sender = person
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"name": "older-peer-sender"}}}),
+        )
+        .await
+        .unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let mut from = C::as_session(a.clone(), &sender).await;
+    from.send(method::SESSION_PROMPT, prompt("b/lane", "to an older peer", "p-older")).await;
+    from.notified(method::MUX_PROMPT_ACCEPTED, Duration::from_secs(20), |p| {
+        p["promptId"] == "p-older"
+    })
+    .await
+    .expect("the receiver accepted the prompt");
+    let _ = b;
+    assert!(person.message_events(&sender).await.is_empty(), "a sender copy no receiver keeps");
+    assert_eq!(a.outbox_unsettled(), 0, "an intent waits on a message the receiver never records");
+}
+
 /// `acpmux send --no-wait` from inside a session: the outbox records the caller it proved when it
 /// took the message (`Delivery::caller`, saved in outbox.json, so a restart resumes it as that
 /// caller) and proves it again when it delivers, so the target's records name the sending
