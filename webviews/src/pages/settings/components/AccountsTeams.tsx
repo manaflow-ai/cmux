@@ -23,7 +23,7 @@ export function TeamsGroup({ list }: { list: AccountsTeamList }) {
       <div className="rows">
         {list.create && (
           <div className="row accounts-row" data-team-create="">
-            <div className="accounts-body accounts-team-body">
+            <div className="accounts-body accounts-team-body accounts-team-create">
               <TeamNameForm form={list.create} />
             </div>
           </div>
@@ -203,8 +203,10 @@ function TeamNameForm({ form, team }: { form: AccountsTeamForm; team?: string })
   };
   return (
     <div className="accounts-form" data-team-form={form.kind}>
-      <div className="row-title">{form.title}</div>
-      <div className="row-help">{form.help}</div>
+      <div className="row-label">
+        <div className="row-title">{form.title}</div>
+        <div className="row-help">{form.help}</div>
+      </div>
       <input
         className="field"
         type="text"
