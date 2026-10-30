@@ -204,6 +204,12 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       expect(gh.mints().length).toBe(mints + 1)
       const fresh = listings().at(-1)!.auth!
       expect(fresh).not.toBe(cached)
+      // A connection already marked needs_reauth answers 409 needs_reauth, as the token path does, never "no connection".
+      const state = instance.boundEngine.currentState as ConnectionsState
+      const original = Object.values(state.connections).find((c) => c.provider === "github")!
+      const stale: LedgerHost = { ...h, state: () => ({ ...state, connections: { [original.id]: { ...original, status: "needs_reauth" } } }) }
+      expect(await githubRepos(stale, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })
+      expect(await githubRepos({ ...h, state: () => ({ ...state, connections: {} }) }, p, {})).toMatchObject({ ok: false, status: 404, code: "integration.not_found" })
       // The fresh token is cached; when GitHub refuses that one and the next, the connection needs a relink.
       gh.routes["https://api.github.com/installation/repositories"] = () => new Response(null, { status: 401 })
       expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })

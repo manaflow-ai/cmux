@@ -151,8 +151,11 @@ export const githubRepos = async (
   if (!github.configured(h.env) || !h.env.INTEGRATIONS_KEK) return fail(503, "integration.unavailable", "the cmux GitHub App is not configured on this deployment")
   const state = h.state()
   if (!providerAllowed(policyOf(state), "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
-  const connections = Object.values(state.connections).filter((c) => c.provider === "github" && c.status === "active" && mayUse(c, p))
-  if (connections.length === 0) return fail(404, "integration.not_found", "this team has no GitHub connection")
+  // As the token path (authorize): a visible connection that needs a relink is 409 needs_reauth, not "no connection".
+  const visible = Object.values(state.connections).filter((c) => c.provider === "github" && mayUse(c, p) && (c.status === "active" || c.status === "needs_reauth" || c.status === "error"))
+  if (visible.length === 0) return fail(404, "integration.not_found", "this team has no GitHub connection")
+  const connections = visible.filter((c) => c.status === "active")
+  if (connections.length === 0) return fail(409, "needs_reauth", "the team's GitHub connection needs to be linked again")
   const cursor = query.cursor === undefined ? { installation: 0, page: 1 } : decodeRepoCursor(query.cursor)
   if ("ok" in cursor) return cursor
   if (cursor.installation >= connections.length) return fail(400, "request.invalid", "cursor is invalid")
