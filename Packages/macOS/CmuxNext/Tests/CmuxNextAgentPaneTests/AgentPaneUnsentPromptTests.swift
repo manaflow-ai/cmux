@@ -295,6 +295,31 @@ struct AgentPaneUnsentPromptTests {
         #expect(sent.first.flatMap { Self.mux($0)?["resend"] } == nil, "a prompt that never went is not a resend")
     }
 
+    /// The connection ends (the host closed it) while a prompt's record fails to write: the prompt
+    /// was refused, so it is not left over for the next connection to send after all.
+    @Test func aPromptRefusedWhileItsConnectionEndsIsNotSentLater() async throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data().write(to: folder)
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        let journal = AgentPanePromptJournal(url: url)
+        let pane = try await Self.pane(daemon, journal: journal)
+        let owner = try #require(pane.transport.promptRelay?.owner)
+        journal.afterFailedWrite.withLock { $0 = { journal.connectionEnded(owner: owner, byDaemon: false) } }
+        pane.transport.gestures.record()
+        let result = await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "p-10")])
+        try #require(result?.rawValue == "transport.prompt_not_kept")
+        journal.afterFailedWrite.withLock { $0 = nil }
+        #expect(journal.entries().isEmpty, "the refused prompt was left over: \(journal.entries().map(\.promptId))")
+
+        let next = try await Self.pane(daemon, journal: journal)
+        await Self.barrier(next, id: 2)
+        #expect(Self.prompts(daemon, peer: 1).isEmpty, "the next connection sent a prompt that was refused")
+    }
+
     /// The pane's Retry of a prompt the daemon got but never acknowledged, while the journal cannot
     /// be written: the Retry does not go, and the first send's record stays, so a crash after the
     /// disk recovers still sends that prompt again.

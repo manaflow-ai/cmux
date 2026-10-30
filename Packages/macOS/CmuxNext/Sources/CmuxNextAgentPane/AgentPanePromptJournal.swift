@@ -90,6 +90,8 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     /// older one is skipped (it would put back what a newer change took out).
     private let written = Mutex((generation: 0, onDisk: true))
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.prompt-journal", qos: .utility)
+    /// Runs after a record's failed write, before it is taken back (tests: a disconnect in between).
+    let afterFailedWrite = Mutex<(@Sendable () -> Void)?>(nil)
 
     public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
         self.url = url
@@ -133,6 +135,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             return true
         }
         guard onDisk else {
+            afterFailedWrite.withLock { $0 }?()
             takeBack(entry, owner: owner, replaced: replaced, dropped: dropped)
             throw NotWritten()
         }
