@@ -126,6 +126,10 @@ export default componentEntry<Props>({
       props: { acpmux: thisMac, signedOut: ["codex"] },
       play: signIn,
     },
+    hover: {
+      note: "Harness action hover states without an automatic play.",
+      props: { acpmux: thisMac, signedOut: ["codex"] },
+    },
     "custom-harness": {
       note: "Custom harness… starts the harness guide chat in this tab.",
       props: { acpmux: thisMac, signedOut: [] },

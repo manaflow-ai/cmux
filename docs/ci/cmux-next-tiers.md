@@ -13,8 +13,11 @@ MEMBER or OWNER `dev-build` PR keeps its scheme compile, and every
 `feat-cmux-next` push compiles both. In place of the Release compile, the
 native tier compiles the PR's head on the build fleet: `cmux-next app compile
 (build fleet)` runs `cmux-ci compile-check --ref <head> --app` (about a minute,
-Debug, swift.org toolchain). Its red is the PR's red; when the fleet gives no
-verdict, the Mac Release compile runs instead. A red only the Linux toolchain
+Debug, swift.org toolchain). Its red is the PR's red. When the fleet gives no
+verdict (the controller unreachable or timed out, or no client), the job fails
+with "no verdict", never green, and the Mac Release compile runs instead where
+the change has a Release-only input (path_route's `mac_release`); re-run the job
+once the fleet answers. A red only the Linux toolchain
 shows: add `full-ci` and push again (labels do not re-run this workflow), and the
 Mac Release compile decides. A fork pull
 request runs `cmux-next checks`, the fast tier and, for a CmuxNext `.swift`
@@ -56,6 +59,45 @@ proves the committed bundle matches them; the bundle is a `.copy` resource, so
 the app takes it without a compile. An explicitly requested local gallery matrix can diff the touched entries. A
 `dev-build` PR still compiles its dogfood app.
 
+A web bundle source runs no swift test of its own. The bundles' inputs
+(`BUNDLE_INPUTS`: `webviews/src/`, the bundle build scripts, the schema and the
+other files the bundles import) still run the compiles that ship them (`native`),
+but swift test only for the test targets whose sources name the changed file
+(the target graph's `reads`). The four targets that ship a bundle take it as a
+`.copy` resource, or one processed `.js`, so no source edit can break their build,
+and no suite asserts on a built page: the agent pane, page and Activity suites
+load fixture pages (an `AgentPaneView` with a temporary `index.html`,
+`loadHTMLString`, a scratch page root), and the app suites that open a real page
+check only its native side. `BundleInputs` in `tests/test_cmux_next_route.py`
+keeps that true: a suite in a target that links a bundle target and runs page
+JavaScript must load its own document or be an opt-in bench. A test that reads a
+pattern of files names the pattern (`PageDevServerTests`:
+`"webviews/src/pages/*/main.tsx"`, the dev server's entries), and the graph
+records the pattern, so an edit inside a page no longer runs CmuxNextPagesTests
+for the whole of `webviews/src/pages/`. ci-web type-checks, lints, tests and
+builds the bundles on Linux for every webviews change, as before.
+
+A design note runs no Mac tier either. A test helper such as
+`planURL(_ name:)` builds `"plans/cmux-next/\(name)"`, so the target graph
+records the whole of `plans/cmux-next/` as a read. The router narrows that for
+docs (`.md`, `.html`, images): a doc counts as read only when a string literal in
+the reading target names it (or names the directory itself), or when a generator
+writes it (`scripts/cmux-next/generated_outputs.py`). #28326 changed only
+`plans/cmux-next/sidebar-owner.md` and queued the fast tier and swift test.
+
+The Mac fast tier (`cmux-next fast tier`, the `swift` entries of
+`scripts/cmux-next/fast-tier.json`) builds the CmuxNext package and runs a few
+of its suites, so it runs only when that build or those suites can change: a
+package target's sources or a local package it uses, a file read by a test
+target that holds one of its suites (placed from `fast-tier.json` and the target
+graph), a package one of its entries builds, an action its job uses, an input of
+every tier, or the tier's own registry (router output `fast_tier`). The job builds
+no web bundles and links CCmuxAppFFI as a pinned binary, so a change only to the
+bundles' sources, to the cmux-app-ffi crates, or to files only other test targets
+read skips it (#28160, #28015: acpmux Rust with the pane's protocol types, which
+keep the daemon tier and the compiles). A cmux-tui-only or app-host-only change keeps its daemon and
+scheme tiers and skips it too; `fast-tier-cargo` still runs on Linux.
+
 The Swift canary is the pull-request gate for a small package-only Swift diff.
 It builds only the affected CmuxNext production targets with `swift build
 --configuration debug --target`, reusing the linked SwiftPM scratch on a mini.
@@ -71,7 +113,13 @@ verdict (2026-10-21), as a fork PR does for its other native sources. Every
 and push-attribution names the PR.
 
 A CI-only change runs no Mac tier either: workflows, `scripts/ci/`, the router,
-`scripts/gh-merge-green` and their Python tests (alone or with web files). ci.yml's
+`scripts/gh-merge-green` and their Python tests (alone or with web files).
+`cmux-next.yml` counts as one only when, against the pull request's base
+(`--base-rev HEAD^1`), its change leaves every Mac job and every job one needs as
+it was: `on:` paths or `run-name`, or a job that runs only on Linux and that no Mac
+job needs (the `checks` job, a dispatch request). A changed Mac job, path routing,
+placement, the web bundles job, a top-level key, or a base that cannot be read runs
+every tier, as before (#28459 changed only `on:` paths and queued both Mac jobs). ci.yml's
 guards run actionlint and the CI unit tests. When the router itself changes,
 `Routing replay (router changes)` replays the last 30 merged PRs' changed files
 through the base router and the PR's own (`scripts/ci/cmux_next_route_replay.py`)

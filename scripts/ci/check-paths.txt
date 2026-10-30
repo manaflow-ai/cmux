@@ -25,6 +25,7 @@ web/scripts/check-*
 # their baselines and lint configuration: a lowered ratchet or a new rule fails a pull request that passed the old one
 scripts/cmux-next/*baseline*
 webviews/scripts/*baseline*
+webviews/scripts/lint/*
 scripts/lint-*baseline*
 web/oxlint-complexity-baseline.txt
 web/.oxlintrc.json
@@ -33,8 +34,10 @@ scripts/cmux-next/lint/*
 scripts/cmux-next/*allowlist*
 config/vite-plus/*
 
-# the webviews checks are package scripts (check:*); acpmux-protocol:check's generator
+# the webviews checks are package scripts (check:*), and `check` runs check:pieces through the runner;
+# acpmux-protocol:check's generator
 webviews/package.json
+scripts/cmux-next/run-check-pieces.py
 webviews/scripts/acpmux-protocol-codegen.ts
 webviews/src/protocol/codegen/*
 

@@ -19,6 +19,47 @@ nonisolated extension CloudStrings {
                table: "Cloud", bundle: .module)
     }
 
+    /// The confirm when the machine's git will use the cmux GitHub App.
+    static func gitHubAppConfirmBody(name: String, email: String) -> String {
+        String(format: String(localized: "cloud.github.appConfirmBody",
+                              defaultValue: "Sets git user.name to “%1$@” and user.email to “%2$@” on the machine, and lets its git get a short-lived token for each repo from cmux's GitHub App. No GitHub token is stored on the machine.",
+                              table: "Cloud", bundle: .module), name, email)
+    }
+
+    static var gitHubAppConfirmNoIdentity: String {
+        String(localized: "cloud.github.appConfirmNoIdentity",
+               defaultValue: "This Mac has no global git user.name or user.email, so only GitHub is set up: the machine's git gets a short-lived token for each repo from cmux's GitHub App. No GitHub token is stored on the machine.",
+               table: "Cloud", bundle: .module)
+    }
+
+    static var gitHubAppReady: String {
+        String(localized: "cloud.github.appReady",
+               defaultValue: "GitHub is set up through cmux's GitHub App: git on this machine gets a short-lived token for each repo, and none is stored there. For the GitHub CLI, run cmux github gh.",
+               table: "Cloud", bundle: .module)
+    }
+
+    /// Why the machine signs in to GitHub itself instead of using the App, in plain words.
+    static func gitHubFallback(_ reason: CloudGitHubSetup.Fallback) -> String {
+        switch reason {
+        case .notConnected:
+            String(localized: "cloud.github.fallbackNotConnected",
+                   defaultValue: "Your team hasn't connected cmux's GitHub App, so this machine signs in to GitHub itself and keeps that token until you sign out there.",
+                   table: "Cloud", bundle: .module)
+        case .notConfigured:
+            String(localized: "cloud.github.fallbackNotConfigured",
+                   defaultValue: "cmux's GitHub App isn't available here, so this machine signs in to GitHub itself and keeps that token until you sign out there.",
+                   table: "Cloud", bundle: .module)
+        case .unknown:
+            String(localized: "cloud.github.fallbackUnknown",
+                   defaultValue: "cmux couldn't check its GitHub App, so this machine signs in to GitHub itself and keeps that token until you sign out there.",
+                   table: "Cloud", bundle: .module)
+        case .notOnMachine:
+            String(localized: "cloud.github.fallbackNotOnMachine",
+                   defaultValue: "This machine can't use cmux's GitHub App yet, so it signs in to GitHub itself and keeps that token until you sign out there.",
+                   table: "Cloud", bundle: .module)
+        }
+    }
+
     static var gitHubSetUp: String {
         String(localized: "cloud.github.setUp", defaultValue: "Set Up", table: "Cloud", bundle: .module)
     }

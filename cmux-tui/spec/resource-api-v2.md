@@ -122,7 +122,7 @@ workspace, absent for a normal one), `agent_folder` (absent until set), `descrip
 (`workspace-description-v1`, absent until set), `task_status` (`todo`, `working`,
 `needs-attention`, `review` or `done`, `workspace-status-v1`; absent while automatic); tab `pinned`,
 `tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `marked_unread`
-(`true` while the person marked the tab unread by hand, `tab-mark-unread-v1`; absent otherwise), `attention` (`{reason, at_ms}` while an agent needs the person in the tab, `tab-attention-v1`; absent otherwise), `back`, `forward`, `owner` (the install id of the app
+(`true` while the person marked the tab unread by hand, `tab-mark-unread-v1`; absent otherwise), `attention` (`{reason, at_ms, request_id}` while an agent needs the person in the tab, `tab-attention-v1`; absent otherwise), `back`, `forward`, `owner` (the install id of the app
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
 absent otherwise); screen `pinned`, `color`, `icon`,

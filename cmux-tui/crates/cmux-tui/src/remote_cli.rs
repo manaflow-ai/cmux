@@ -15,6 +15,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use cmux_build_identity::BUILD_IDENTITY;
+use cmux_json::JsonSet as _;
 #[cfg(test)]
 use cmux_remote::admin::UnixPeerAuthError;
 use cmux_remote::admin::{AdminRequest, AdminResponse, call_admin, call_admin_with_peer_exit};
@@ -1227,7 +1228,41 @@ async fn next_rpc_input(
     }
 }
 
+/// `cmux rpc action.list '{}'`: the old cmux's app socket call, which agents still write
+/// (tests/tool-evals r4a: GPT 6 Astra ran it 54 times). Here `rpc` is a remote session's
+/// workspace RPC and would wait for a daemon, so such a call names the app commands instead.
+/// A route host (`box.local`) is not one: the method's last word is a verb, or JSON follows.
+fn app_method_call(args: &[String]) -> bool {
+    let Some(method) = args.first() else { return false };
+    let words: Vec<&str> = method.split('.').collect();
+    let shaped = words.len() >= 2
+        && words.iter().all(|word| {
+            !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+        });
+    let verb = matches!(
+        words.last().copied(),
+        Some(
+            "list"
+                | "get"
+                | "run"
+                | "describe"
+                | "search"
+                | "request"
+                | "call"
+                | "ping"
+                | "identify"
+        )
+    );
+    shaped && (verb || args.get(1).is_some_and(|next| next.trim_start().starts_with('{')))
+}
+
 fn run_rpc(args: &[String]) -> anyhow::Result<()> {
+    if let Some(method) = args.first().filter(|_| app_method_call(args)) {
+        return Err(anyhow!(catalog().local_server.unknown_scope(
+            &format!("rpc {method}"),
+            Some("cmux action list` / `cmux action run <id>` (app actions), `cmux app identify"),
+        )));
+    }
     let mut flags = parse_connect_flags(args)?;
     let single = flags.rpc_request.take();
     let connected = start_connected(flags)?;
@@ -2100,8 +2135,11 @@ fn run_update_need(args: &[String]) -> anyhow::Result<()> {
         "need": need, "reason": reason, "remote": side(&remote), "local": side(&local),
     });
     if reason == cmux_remote::update_need::Reason::Incomparable {
-        answer["warning"] = serde_json::json!(
-            "each build serves a capability the other lacks; neither replaces the other"
+        answer.set(
+            "warning",
+            serde_json::json!(
+                "each build serves a capability the other lacks; neither replaces the other"
+            ),
         );
     }
     println!("{answer}");
@@ -2127,8 +2165,10 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
     // 4096 bytes of this output, and the list alone is larger (cx-3r9mt).
     let mut value = value;
     if args.iter().any(|argument| argument == "--build-facts") {
-        value["daemon_capabilities"] =
-            serde_json::json!(cmux_tui_core::server::build_capabilities());
+        value.set(
+            "daemon_capabilities",
+            serde_json::json!(cmux_tui_core::server::build_capabilities()),
+        );
     }
     if args.iter().any(|argument| argument == "--json") {
         println!("{}", serde_json::to_string(&value)?);
@@ -2779,7 +2819,8 @@ fn wait_for_detached_socket(
         match child.try_wait() {
             Ok(Some(status)) => {
                 return Err(anyhow!(
-                    "{process_name} exited {status}; inspect {}",
+                    "{process_name} exited {status}{}; inspect {}",
+                    exit_cause(log_path).map(|cause| format!(": {cause}")).unwrap_or_default(),
                     log_path.display()
                 ));
             }
@@ -2806,6 +2847,32 @@ fn wait_for_detached_socket(
             socket.display()
         )),
     }
+}
+
+/// The bytes of a detached process's log read for its exit cause: enough for
+/// its last lines, never the whole log a long-lived session has grown.
+const EXIT_CAUSE_TAIL_BYTES: u64 = 4096;
+
+/// Why a detached process that exited before its socket appeared did so: its
+/// own last log line (it writes its error there before exiting). A session
+/// another daemon owns (a Chief brain or the machine's own app holds `main`)
+/// says how to get past it, since retrying the same session cannot.
+fn exit_cause(log_path: &Path) -> Option<String> {
+    use std::io::{Seek, SeekFrom};
+    let mut file = fs::File::open(log_path).ok()?;
+    let length = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(length.saturating_sub(EXIT_CAUSE_TAIL_BYTES))).ok()?;
+    let mut tail = Vec::new();
+    file.take(EXIT_CAUSE_TAIL_BYTES).read_to_end(&mut tail).ok()?;
+    let tail = String::from_utf8_lossy(&tail);
+    let line = tail.lines().map(str::trim).rfind(|line| !line.is_empty())?;
+    let line = line.strip_prefix("cmux-tui: ").unwrap_or(line);
+    if line.contains("workspace session is already owned by another daemon") {
+        return Some(format!(
+            "this session on the machine is in use by another cmux daemon ({line}); connect with another session name (--session NAME)"
+        ));
+    }
+    Some(line.to_owned())
 }
 
 fn terminate_detached_process(child: &mut Child) -> io::Result<()> {
@@ -3967,16 +4034,73 @@ mod tests {
         assert!(!target.path().join("sessions").exists());
     }
 
+    /// `/bin/sh -c script` in its own process group, as the mux owner starts.
+    #[cfg(unix)]
+    fn spawn_detached_shell(script: &str) -> Child {
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(script);
+        configure_detached_process(&mut command);
+        command.spawn().unwrap()
+    }
+
+    /// A mux owner that exits says why, from its own last log line: a session
+    /// another daemon owns names the way out instead of only the log path.
+    #[cfg(unix)]
+    #[test]
+    fn owner_that_exits_on_an_owned_session_says_the_session_is_in_use() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("missing.sock");
+        let log = directory.path().join("daemon.log");
+        fs::write(&log, "cmux-tui: an older run's line\n").unwrap();
+        let mut child = spawn_detached_shell(&format!(
+            "echo 'cmux-tui: workspace session is already owned by another daemon: /s/main-1f.lock: try_lock failed' >> '{}'; exit 1",
+            log.display()
+        ));
+
+        let error = wait_for_detached_socket(
+            &mut child,
+            &socket,
+            Duration::from_secs(10),
+            "remote mux owner",
+            &log,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("in use by another cmux daemon"), "{error}");
+        assert!(error.contains("--session"), "{error}");
+        assert!(error.contains(&log.display().to_string()), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owner_that_exits_names_its_last_log_line() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("missing.sock");
+        let log = directory.path().join("daemon.log");
+        let mut child = spawn_detached_shell(&format!(
+            "echo 'cmux-tui: cannot open session \"main\": its saved state is incompatible' >> '{}'; exit 1",
+            log.display()
+        ));
+
+        let error = wait_for_detached_socket(
+            &mut child,
+            &socket,
+            Duration::from_secs(10),
+            "remote mux owner",
+            &log,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("its saved state is incompatible"), "{error}");
+    }
+
     #[cfg(unix)]
     #[test]
     fn timed_out_detached_child_is_killed_and_reaped() {
         let directory = tempfile::tempdir().unwrap();
         let socket = directory.path().join("missing.sock");
         let log = directory.path().join("daemon.log");
-        let mut command = Command::new("/bin/sleep");
-        command.arg("30");
-        configure_detached_process(&mut command);
-        let mut child = command.spawn().unwrap();
+        let mut child = spawn_detached_shell("exec /bin/sleep 30");
         let pid = child.id() as libc::pid_t;
 
         let error = wait_for_detached_socket(

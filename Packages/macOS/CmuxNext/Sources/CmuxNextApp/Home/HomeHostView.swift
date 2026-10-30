@@ -112,6 +112,7 @@ final class HomeHostView: NSView {
             guard let service, let other = service.tabChiefs.otherHost(of: conversation) else { return }
             service.hostedChief.pick(other)
         }
+        transcript.chatColors = service.chatColors  // Chat Colors…: this chat's own colours, live
         // task-owner: lives as long as this view; event-driven (Observation)
         hostWatch = Task { [weak self, weak service] in
             for await host in ObservationStream({ service?.chiefHost(of: conversation) ?? HomeChiefHostLine() }) {
@@ -279,18 +280,23 @@ final class HomeHostView: NSView {
                 self?.transcript.setFirstRunStarters(state.1)
             }
         }
-        // Onboarding: the Chief's first-open message, once per install (ChiefIntroStore). It shows on the
-        // Chief's front page (no messages yet) and is marked shown the moment it does, so it never returns.
+        // Onboarding: the Chief's first-open message, contextual (ChiefIntroStore): the only Chief welcomes once per
+        // install; a Chief made beside others asks what to focus on, once per Chief. It shows on the Chief's front
+        // page (no messages yet) and is marked shown the moment it does, so it never returns.
         chiefIntroWatch = Task { [weak self] in
             let intro = ChiefIntroStore(defaults: .standard)
-            guard intro.shouldShow else { return }
-            for await front in ObservationStream({ () -> Bool in
-                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary else { return false }
-                return summary.lastSeq == 0 && summary.participants.contains(where: { $0.agentClass == .chief })
-            }) where front {
-                guard let self, intro.shouldShow else { return }
-                intro.markShown()
-                self.transcript.showFirstRunIntro()
+            for await kind in ObservationStream({ () -> ChiefIntroKind? in
+                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
+                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return nil }
+                let me = store.me?.id
+                let others = TopHomePageView.visible(store.rows, archivedChiefs: service.directory.archivedChiefs, me: me)
+                    .filter { $0.kind == .chief && $0.id != id }.count
+                return intro.intro(for: id, otherChiefs: others)
+            }) {
+                guard let kind else { continue }
+                guard let self else { return }
+                intro.markShown(kind, for: id)
+                self.transcript.showFirstRunIntro(kind)
                 return
             }
         }
@@ -346,7 +352,9 @@ final class HomeHostView: NSView {
                 (service.isAvailable || service.isCloudConversation(id), service.isRefused || service.migrationNotice != nil,
                  service.homeStore.isOnline, service.unavailableMessage, service.conversationNotice(for: id))
             }) {
-                self?.transcript.isHidden = !available
+                // An unanswered availability check is still loading: keep Home's existing
+                // transcript loading/connecting treatment visible instead of leaving a blank pane.
+                self?.transcript.isHidden = !available && explained
                 self?.message.isHidden = available || !explained
                 self?.message.stringValue = why
                 self?.transcript.showConversationNotice(notice)
@@ -498,6 +506,11 @@ final class HomeHostView: NSView {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.home.drive` engine_set: one pick in this view's Chief settings panel, as its popup does.
     func debugPickEngine(_ key: String, _ value: String?) { settingsView.pick(key, value) }
+    /// `debug.home.api` edit_picture: a picture picked or dropped on this view's Chief card (Move and Scale).
+    func debugEditPicture(_ source: URL, zoom: CGFloat?, save: Bool) async -> Bool? {
+        loadAvatar()
+        return await settingsView.debugEditPicture(source, zoom: zoom, save: save)
+    }
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
     var debugNamedChief: String? { control.named }
     #endif
