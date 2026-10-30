@@ -794,7 +794,12 @@ export function NewTabScreen(props: Props) {
   useLayoutEffect(() => {
     const focus = () => {
       field.current?.focus();
-      field.current?.select();
+      if (carried?.text) {
+        const end = field.current?.value.length ?? 0;
+        field.current?.setSelectionRange(end, end);
+      } else {
+        field.current?.select();
+      }
     };
     if (focusOnShow) focus();
     if (inputToken && inputReadyReported.current !== inputToken) {

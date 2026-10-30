@@ -375,6 +375,14 @@ for (const classic of [false, true]) {
     const selector = classic ? "input.acpmux-newtab-field" : ".nt-field";
     const input = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!;
     expect(input.value).toBe("kept before failure");
+    expect(input.selectionStart).toBe(input.value.length);
+    expect(input.selectionEnd).toBe(input.value.length);
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
+    await act(async () => {
+      setValue.call(input, `${input.value}!`);
+      input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+    });
+    expect(input.value).toBe("kept before failure!");
     const prototype = classic ? dom!.window.HTMLInputElement.prototype : dom!.window.HTMLTextAreaElement.prototype;
     await act(async () => {
       Object.getOwnPropertyDescriptor(prototype, "value")!.set!.call(input, "");

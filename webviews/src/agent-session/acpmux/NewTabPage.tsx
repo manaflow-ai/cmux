@@ -558,7 +558,12 @@ export function NewTabPage({
   useEffect(() => {
     const focus = () => {
       field.current?.focus();
-      field.current?.select();
+      if (carried?.text) {
+        const end = field.current?.value.length ?? 0;
+        field.current?.setSelectionRange(end, end);
+      } else {
+        field.current?.select();
+      }
       // A page shown in a window that is not key yet gets no focus event until it is.
       setFocused(field.current === document.activeElement);
     };
