@@ -124,7 +124,8 @@ export const githubToken = (h: LedgerHost, p: Principal, ask: TokenAsk, now: num
   return work
 }
 
-type RepoCursor = { readonly installation: number; readonly page: number }
+/** The connection id, not its position: a connection that changes status between pages cannot shift the walk onto another installation. */
+type RepoCursor = { readonly connection: string; readonly page: number }
 const encodeRepoCursor = (cursor: RepoCursor) => {
   const raw = btoa(JSON.stringify(cursor))
   return raw.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
@@ -132,10 +133,10 @@ const encodeRepoCursor = (cursor: RepoCursor) => {
 const decodeRepoCursor = (value: string): RepoCursor | TokenFail => {
   try {
     const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "===".slice((value.length + 3) % 4)
-    const parsed = JSON.parse(atob(padded)) as { installation?: unknown; page?: unknown }
-    if (typeof parsed.installation !== "number" || !Number.isSafeInteger(parsed.installation) || parsed.installation < 0 || typeof parsed.page !== "number" || !Number.isSafeInteger(parsed.page) || parsed.page < 1)
+    const parsed = JSON.parse(atob(padded)) as { connection?: unknown; page?: unknown }
+    if (typeof parsed.connection !== "string" || parsed.connection === "" || typeof parsed.page !== "number" || !Number.isSafeInteger(parsed.page) || parsed.page < 1)
       return fail(400, "request.invalid", "cursor is invalid")
-    return { installation: parsed.installation, page: parsed.page }
+    return { connection: parsed.connection, page: parsed.page }
   } catch {
     return fail(400, "request.invalid", "cursor is invalid")
   }
@@ -154,13 +155,14 @@ export const githubRepos = async (
   // As the token path (authorize): a visible connection that needs a relink is 409 needs_reauth, not "no connection".
   const visible = Object.values(state.connections).filter((c) => c.provider === "github" && mayUse(c, p) && (c.status === "active" || c.status === "needs_reauth" || c.status === "error"))
   if (visible.length === 0) return fail(404, "integration.not_found", "this team has no GitHub connection")
-  const connections = visible.filter((c) => c.status === "active")
+  const connections = visible.filter((c) => c.status === "active").sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   if (connections.length === 0) return fail(409, "needs_reauth", "the team's GitHub connection needs to be linked again")
-  const cursor = query.cursor === undefined ? { installation: 0, page: 1 } : decodeRepoCursor(query.cursor)
+  const cursor = query.cursor === undefined ? { connection: connections[0]!.id, page: 1 } : decodeRepoCursor(query.cursor)
   if ("ok" in cursor) return cursor
-  if (cursor.installation >= connections.length) return fail(400, "request.invalid", "cursor is invalid")
-  const connection = connections[cursor.installation]
-  if (!connection) return fail(400, "request.invalid", "cursor is invalid")
+  const at = connections.findIndex((c) => c.id === cursor.connection)
+  // The paginated connection is gone or no longer active: list again rather than continue in another installation.
+  if (at < 0) return fail(400, "request.invalid", "cursor is stale: the GitHub connection changed while listing; list again")
+  const connection = connections[at]!
   {
     const installation = Number(/^github:installation:(\d+)$/.exec(connection.account?.key ?? "")?.[1])
     if (!Number.isSafeInteger(installation)) return fail(503, "integration.unavailable", "the GitHub connection has no installation")
@@ -180,14 +182,16 @@ export const githubRepos = async (
       const response = await h.http(new Request(`https://api.github.com/installation/repositories?per_page=100&page=${cursor.page}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" } })).catch(() => null)
       return { token, response }
     }
+    // GitHub answers 401 or 404 for a token it no longer accepts (revoked, or the installation removed).
+    const refused = (r: Response | null | undefined) => r?.status === 401 || r?.status === 404
     let listed = await list()
-    if (listed?.response?.status === 401) {
-      forgetInstallationToken(installation, listed.token)
+    if (refused(listed?.response)) {
+      forgetInstallationToken(installation, listed!.token)
       listed = await list()
-      if (listed?.response?.status === 401) forgetInstallationToken(installation, listed.token)
+      if (refused(listed?.response)) forgetInstallationToken(installation, listed!.token)
     }
     if (!listed && gone === null) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
-    if (!listed || listed.response?.status === 401) {
+    if (!listed || refused(listed.response)) {
       // Recorded on the connection, so /status shows the relink and later asks stop minting for it.
       h.needsReauth(connection, gone ?? "GitHub refused a fresh installation token")
       return fail(409, "needs_reauth", "the GitHub App installation needs to be linked again")
@@ -207,9 +211,9 @@ export const githubRepos = async (
     })
     const hasNext = body.repositories.length >= 100 && (typeof body.total_count !== "number" || cursor.page * 100 < body.total_count)
     const next = hasNext
-      ? { installation: cursor.installation, page: cursor.page + 1 }
-      : cursor.installation + 1 < connections.length
-        ? { installation: cursor.installation + 1, page: 1 }
+      ? { connection: connection.id, page: cursor.page + 1 }
+      : at + 1 < connections.length
+        ? { connection: connections[at + 1]!.id, page: 1 }
         : null
     const current = h.state()
     if (!providerAllowed(policyOf(current), "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
