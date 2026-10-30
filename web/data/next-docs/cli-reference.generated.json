@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 755,
-    "mcp": 673
+    "verbs": 756,
+    "mcp": 674
   },
   "nouns": [
     {
@@ -278,6 +278,13 @@
           "id": "computerUseStop",
           "mcp": true,
           "mcpTool": "app_agent_stop_computer_use"
+        },
+        {
+          "command": "cmux agent stop-reading-aloud",
+          "title": "Stop Reading Aloud",
+          "id": "agentPane.stopReadingAloud",
+          "mcp": true,
+          "mcpTool": "app_agent_stop_reading_aloud"
         },
         {
           "command": "cmux agent stop-turn",

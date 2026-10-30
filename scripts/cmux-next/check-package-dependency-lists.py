@@ -37,9 +37,10 @@ Usage: scripts/cmux-next/check-package-dependency-lists.py [--fix] [--fix-import
   --json         print {"problems": [...], "missing": [{"target", "module"}]} on stdout
 
 The pre-push gate (scripts/cmux-next/prepush-gate.py) runs this check on a push that changes the CmuxNext
-package (2026-10-29: a63986a4 and e875485c each added a test import its target did not declare, straight to
-the branch, and "Package dependency lists sorted" was red on every pull request after them until #27173 and
-#27219).
+package, and cmux-next-package-deps-heal.yml runs it after every feat-cmux-next push, which a direct push
+reaches without a hook: on a red it opens a pull request made with --fix-imports (2026-10-29: a63986a4 and
+e875485c each added a test import its target did not declare, straight to the branch, and "Package
+dependency lists sorted" was red on every pull request after them until #27173 and #27219).
 """
 
 from __future__ import annotations
