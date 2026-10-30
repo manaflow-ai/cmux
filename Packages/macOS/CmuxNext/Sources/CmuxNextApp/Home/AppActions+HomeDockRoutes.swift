@@ -118,5 +118,5 @@ extension AppActions {
 extension HomeService {
     /// The docked Home's workspace in window `state` (classic off; cmux#27880: its own per window), for
     /// its sidebar's Home item; nil for classic.
-    func dockedHomeID(in state: WindowState) -> String? { dock.isClassic ? nil : services.windowHomes.home(in: state.id)?.id }
+    func dockedHomeID(in state: WindowState) -> String? { dock.isClassic ? nil : services?.windowHomes.home(in: state.id)?.id }
 }

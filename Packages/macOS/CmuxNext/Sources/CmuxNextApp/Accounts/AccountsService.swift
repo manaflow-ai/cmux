@@ -118,7 +118,7 @@ final class AccountsService: AccountsServices {
         return cloud.auth.activeTeam
     }
 
-    var teamBackend: (any AccountsTeamBackend)? { showcaseMock.map { $0 as any AccountsTeamBackend } ?? services.cloud.auth }
+    var teamBackend: (any AccountsTeamBackend)? { showcaseMock.map { $0 as any AccountsTeamBackend } ?? services?.cloud.auth }
 
     func linkedAccounts() async throws -> [LinkedAccount] {
         if let showcaseMock { return try await showcaseMock.linkedAccounts() }

@@ -300,7 +300,7 @@ extension HomeService {
             ?? homeStore.rows.lazy.flatMap(\.summary.participants).first { $0.id.rawValue == chief }?.displayName
             ?? directory.chiefs.first { $0.id == chief }?.name
         // The sidebar draws the default Chief (`agent_mux`) with no id.
-        var picture = services.characterPicture(of: chief == DaemonHomeSource.chief.id ? nil : chief), text: String?
+        var picture = services?.characterPicture(of: chief == DaemonHomeSource.chief.id ? nil : chief), text: String?
         switch chiefFaces[chief] {
         case .picture(let url): picture = url
         case .text(let own): text = own

@@ -80,8 +80,8 @@ struct AgentPaneDebugClickPageHostTests {
     @Test func aClickAndAKeyInTheChromiumPageWindowRecordThePersonsGestures() async throws {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
-                                              chromium: hosting))
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
+                                              webUI: .agentPaneTestHost(chromium: hosting), gestures: .testing()))
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         let paneWindow = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 400, height: 300), styleMask: [.borderless],
                                   backing: .buffered, defer: false)
