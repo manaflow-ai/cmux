@@ -550,7 +550,19 @@ export function useFolderTrustAsk(
       // A failed retry stays in its row/draft and keeps the question recoverable, as save did.
       setAsk({ cwd, state: "failed" });
     }
-  }, [ask, trusted, blockSend, sessionId, cwd, family, authorityEpoch, ownerEpoch, visitValue, sameVisit, sameAuthority]);
+  }, [
+    ask,
+    trusted,
+    blockSend,
+    sessionId,
+    cwd,
+    family,
+    authorityEpoch,
+    ownerEpoch,
+    visitValue,
+    sameVisit,
+    sameAuthority,
+  ]);
 
   const blocked: SendBlock | undefined = reading
     ? {}
@@ -633,7 +645,16 @@ export function useFolderTrustAsk(
         setReads((count) => count + 1);
         return true;
       },
-      [sessionId, cwd, family, authorityEpoch, sameAuthority, sameVisit],
+      [
+        sessionId,
+        cwd,
+        family,
+        authorityEpoch,
+        ownerEpoch,
+        visitValue,
+        sameAuthority,
+        sameVisit,
+      ],
     ),
   };
 }
