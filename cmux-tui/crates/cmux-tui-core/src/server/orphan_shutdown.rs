@@ -125,7 +125,8 @@ pub(super) fn is_owner_plugin_peer(mux: &Mux, peer_key: Option<&str>) -> bool {
     unsafe { libc::getpgid(pid) == group }
 }
 
-/// Journal plugins are Unix-only.
+/// No process-group check off Unix, so a plugin connection counts as a
+/// client there. The orphan watcher runs only for macOS DEV bundles.
 #[cfg(not(unix))]
 pub(super) fn is_owner_plugin_peer(_mux: &Mux, _peer_key: Option<&str>) -> bool {
     false
