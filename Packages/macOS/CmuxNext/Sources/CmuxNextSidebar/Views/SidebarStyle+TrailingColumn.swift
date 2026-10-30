@@ -11,10 +11,10 @@ extension SidebarStyle {
     /// The column slot's side: a row control's (the chevron's) size.
     static var trailingSlotSide: CGFloat { controlSize }
 
-    /// The one fixed inset between a row's content edge and its trailing accessory column. Keeping
-    /// this larger than the row's general text inset leaves the resize band's inside edge clear of
-    /// the full-size search button too; all row kinds and the footer use this same value.
-    static var trailingColumnInset: CGFloat { horizontalInset + Metrics.space1 }
+    /// The one additional fixed inset between a row's content edge and its trailing accessory
+    /// column. Callers pass row widths after the general horizontal inset, so that inset is not
+    /// repeated here. The extra grid step leaves the resize band clear of the full-size Search.
+    static var trailingColumnInset: CGFloat { Metrics.space1 }
 
     /// The x every trailing indicator centers on, in a row (or header) of `rowWidth`: the width up to
     /// the row's fill end (a band item, whose fill is inset by `horizontalInset`, passes its width
