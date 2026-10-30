@@ -412,7 +412,7 @@ export const SubagentTray = memo(function SubagentTray({
         detail={liveSession(item.session) ? doingDetail(t, item.session.doing, item.session.doingTool) : undefined}
         title={item.session.doing}
         kind={t("tray.kind.subagent")}
-          kindIcon={SUBAGENT_ICON}
+        kindIcon={SUBAGENT_ICON}
         chevron
         icon="agent.chat"
         status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}

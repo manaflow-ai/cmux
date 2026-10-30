@@ -1020,7 +1020,9 @@ const MessageRow = memo(
               <ReceivedActions
                 row={row}
                 text={row.incoming.message.text}
-                more={row.steer === "waiting" && <SteerWaitingActions promptId={row.steerPromptId} send={sendSteerNow} />}
+                more={
+                  row.steer === "waiting" && <SteerWaitingActions promptId={row.steerPromptId} send={sendSteerNow} />
+                }
               />
             }
             githubRepository={githubRepository}

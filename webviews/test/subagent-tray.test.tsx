@@ -656,7 +656,9 @@ describe("a tray line says what it is and what a click does", () => {
       expect(kind?.getAttribute("aria-label")).toBe("Subagent");
       expect(kind?.querySelector("svg")).not.toBeNull();
       // The working-state mark stays a spinner, before the subagent's icon.
-      expect(line.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner")).not.toBeNull();
+      expect(
+        line.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
+      ).not.toBeNull();
       expect(line.querySelector(".acpmux-summary-agent__name")?.textContent).toBe("Reviewer");
       expect(line.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
     } finally {

@@ -341,7 +341,9 @@ export function paintFindHighlights(
       // A member row drawn inside this one (`data-find-member`) counts its own matches, never twice.
       acceptNode: (node) =>
         node.parentElement?.closest("[data-find-skip]") ||
-        node.parentElement?.closest("[data-find-member][data-row-id]")?.closest("[data-row-id]:not([data-find-member])") === row
+        node.parentElement
+          ?.closest("[data-find-member][data-row-id]")
+          ?.closest("[data-row-id]:not([data-find-member])") === row
           ? NodeFilter.FILTER_REJECT
           : NodeFilter.FILTER_ACCEPT,
     });

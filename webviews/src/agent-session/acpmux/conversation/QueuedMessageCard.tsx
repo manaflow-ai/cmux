@@ -107,11 +107,7 @@ export function QueuedMessageCard({
   );
   return (
     <div className="cv-incoming" data-queued-message={promptId}>
-      {queued.lead && queued.heldByStop && (
-        <div className="cv-received__queued-head">
-          {t("message.heldByStop")}
-        </div>
-      )}
+      {queued.lead && queued.heldByStop && <div className="cv-received__queued-head">{t("message.heldByStop")}</div>}
       <IncomingMessageLine
         id={row.id}
         message={message}

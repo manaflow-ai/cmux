@@ -58,7 +58,9 @@ export function PendingMessagesCard({
     return first.incoming?.kind === "message" ? first.incoming.message.name : "";
   });
   const count =
-    senders.length === 1 ? t("message.waitingFromOne", { n }) : t("message.waitingFrom", { n, sessions: senders.length });
+    senders.length === 1
+      ? t("message.waitingFromOne", { n })
+      : t("message.waitingFrom", { n, sessions: senders.length });
   return (
     <div className="cv-pending" data-open={open || undefined}>
       {/* Find counts the messages' words, not the head's names. */}
@@ -96,7 +98,9 @@ export function PendingMessagesCard({
                   // holding the current match opens.
                   <div key={member.id} data-row-id={member.id} data-find-member="">
                     <FindReveal.Provider
-                      value={holdsMatch && reveal?.matchRowId === member.id ? { ...reveal, rowId: member.id } : undefined}
+                      value={
+                        holdsMatch && reveal?.matchRowId === member.id ? { ...reveal, rowId: member.id } : undefined
+                      }
                     >
                       {renderMessage(member)}
                     </FindReveal.Provider>

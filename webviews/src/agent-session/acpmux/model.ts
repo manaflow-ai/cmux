@@ -1470,7 +1470,10 @@ function measuredRowHeight(
     const senders = new Set<string>();
     let height = head;
     for (const member of row.pendingMessages.rows) {
-      const from = member.incoming?.kind === "message" ? (member.incoming.message.sessionId ?? member.incoming.message.name) : member.id;
+      const from =
+        member.incoming?.kind === "message"
+          ? (member.incoming.message.sessionId ?? member.incoming.message.name)
+          : member.id;
       if (!senders.has(from)) {
         senders.add(from);
         height += 22;

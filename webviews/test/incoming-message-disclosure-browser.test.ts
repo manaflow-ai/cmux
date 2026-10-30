@@ -425,7 +425,12 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
         fromAgent("Landed #24001; nightly is building.", "lint-lane", "child-1", "m-1"),
         prompt("Add retries to the fetch helper"),
         reply("Reading the helper now."),
-        record("queued", { text: "Docs are rebuilt for the 2.3 release notes.", promptId: "q-2", fromAgent: "docs-lane", position: 0 }),
+        record("queued", {
+          text: "Docs are rebuilt for the 2.3 release notes.",
+          promptId: "q-2",
+          fromAgent: "docs-lane",
+          position: 0,
+        }),
       ],
       "Reading the helper now.",
       true,

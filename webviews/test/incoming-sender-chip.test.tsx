@@ -104,7 +104,7 @@ test("a peer lane, found by its bare name, opens from its name; no Open chat, th
   expect(host.querySelector(".cv-disclosure__open")).toBeNull();
   expect(host.textContent).not.toContain(t("subsession.openChat"));
   expect(from?.textContent).toBe("chief-ui");
-  expect(open).toBe(from);
+  expect(from).toBe(open);
   expect(from?.closest("button.cv-disclosure__toggle")).toBeNull();
   await act(async () => open!.click());
   expect(opened).toEqual(["mux-chief-ui"]);

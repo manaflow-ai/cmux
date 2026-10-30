@@ -307,7 +307,11 @@ test("a delivered steer's ⋯ is in the same action group as Pin, with no Read a
       message={message}
       onOpen={() => {}}
       actions={
-        <ReceivedActions row={row as never} text={message.text} more={<SteerWaitingActions promptId="p-8" send={() => {}} />} />
+        <ReceivedActions
+          row={row as never}
+          text={message.text}
+          more={<SteerWaitingActions promptId="p-8" send={() => {}} />}
+        />
       }
     />,
   );
