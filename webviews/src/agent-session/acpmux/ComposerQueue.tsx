@@ -193,8 +193,10 @@ export function ComposerQueue({
   // layout"). The row opens down inside the list, which scrolls; the list fits its rows again once
   // nothing in it is hovered.
   const held = useRef(false);
-  const toggle = (id: string) => {
-    held.current = true;
+  const toggle = (id: string, hovered: boolean) => {
+    // Only a hovering pointer's click holds it: a key or a touch has no pointer on the list to
+    // leave it, and must never keep the list from fitting.
+    held.current = hovered;
     setOpen((current) => {
       const next = new Set(current);
       if (!next.delete(id)) next.add(id);
@@ -657,7 +659,11 @@ export function ComposerQueue({
           data-open={open.has(entry.id) ? "" : undefined}
           aria-expanded={open.has(entry.id)}
           onPointerEnter={(event) => titleWhenTruncated(event, entry.prompt)}
-          onClick={() => toggle(entry.id)}
+          onClick={(event) => {
+            const view = event.currentTarget.ownerDocument.defaultView;
+            const hovers = view?.matchMedia?.("(hover: hover)").matches !== false;
+            toggle(entry.id, event.detail > 0 && hovers && event.currentTarget.matches(":hover"));
+          }}
         >
           {/* WebKit does not clamp a button's own lines: the clamp is on its text. */}
           <span className="acpmux-queued-clamp">

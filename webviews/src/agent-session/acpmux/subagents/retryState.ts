@@ -170,17 +170,42 @@ export function isRetryContinuation(msg: { _meta?: { provenance?: unknown } } | 
 }
 
 /// acpmux's ask that the chat's agent resume a subagent that failed on a transient error (acpmux
-/// hub/subagent_retry.rs `retry_text`): which subagent, by its name and agent id, and the error.
-/// While it waits in the queue its row is a compact labelled line, the subagent's name after
-/// "Resume subagent" (ComposerQueue.tsx), never the text the agent reads with its agent id (Leo,
-/// 2026-10-30: "this looks weird and unrendered").
-export type SubagentRetryNotice = { name?: string; agentId: string; error?: string };
+/// hub/subagent_retry.rs `retry_text`): which subagent, by its name and agent id (at least one), and
+/// the error. While it waits in the queue its row is a compact labelled line, the subagent's name
+/// after "Resume subagent" (ComposerQueue.tsx), never the text the agent reads with its agent id
+/// (Leo, 2026-10-30: "this looks weird and unrendered").
+export type SubagentRetryNotice = { name?: string; agentId?: string; error?: string };
 
 /// `retry_text`'s words: `Your subagent "<name>" (agent id <id>) failed on a transient upstream
-/// error (<error>). Resume it …`, the name left out when acpmux has none. A queue listing's
-/// preview may cut it after the agent id.
-const RETRY_TEXT =
-  /^Your subagent (?:"([^"\n]*)" )?\(agent id ([^)\s]+)\) failed on a transient upstream error(?: \(([^\n]*?)\)\. Resume it)?/;
+/// error (<error>). Resume it …`, the name left out when acpmux has none.
+const RETRY_HEAD = /^Your subagent (?:"([^"\n]*)" )?\(agent id ([^)\s]+)\)/;
+const RETRY_TAIL = " failed on a transient upstream error";
+const RETRY_ERROR = /^ failed on a transient upstream error \(([^\n]*?)\)\. Resume it/;
+/// A queue listing's preview is the prompt's first 200 characters and "…": cut in the agent id, or in
+/// a long name.
+const CUT_IN_ID = /^Your subagent (?:"([^"\n]*)" )?\(agent id ([^)\s]*)…$/;
+const CUT_IN_NAME = /^Your subagent "([^"\n]*)…$/;
+
+/// The subagent, agent id and error `retry_text` wrote in `text`, a preview of it included.
+function retryWords(text: string): SubagentRetryNotice | undefined {
+  const head = RETRY_HEAD.exec(text);
+  if (head) {
+    const rest = text.slice(head[0].length);
+    const cut = rest.endsWith("…") && RETRY_TAIL.startsWith(rest.slice(0, -1));
+    if (!rest.startsWith(RETRY_TAIL) && !cut) return undefined;
+    return notice(head[1], head[2], RETRY_ERROR.exec(rest)?.[1]);
+  }
+  const inId = CUT_IN_ID.exec(text);
+  if (inId) return notice(inId[1], undefined);
+  const inName = CUT_IN_NAME.exec(text);
+  return inName ? notice(`${inName[1]}…`, undefined) : undefined;
+}
+
+function notice(name?: string, agentId?: string, error?: string): SubagentRetryNotice | undefined {
+  const [n, a, e] = [name?.trim(), agentId?.trim(), error?.trim()];
+  if (!n && !a) return undefined;
+  return { ...(n ? { name: n } : {}), ...(a ? { agentId: a } : {}), ...(e ? { error: e } : {}) };
+}
 
 /// The resume acpmux asked for, from a prompt's `subagent_retry` provenance (its agent id there)
 /// and its text, else from the text alone (a queue listing names no provenance); undefined for any
@@ -190,13 +215,10 @@ export function subagentRetryNotice(
   msg?: { _meta?: { provenance?: unknown } },
 ): SubagentRetryNotice | undefined {
   const provenance = msg?._meta?.provenance as { kind?: unknown; agentId?: unknown } | undefined;
-  const marked = provenance?.kind === "subagent_retry";
-  const words = RETRY_TEXT.exec(text.trimStart());
-  const agentId = (marked && typeof provenance.agentId === "string" && provenance.agentId) || words?.[2];
-  if (!agentId || (!marked && !words)) return undefined;
-  const name = words?.[1]?.trim();
-  const error = words?.[3]?.trim();
-  return { agentId, ...(name ? { name } : {}), ...(error ? { error } : {}) };
+  const words = retryWords(text.trimStart());
+  if (provenance?.kind !== "subagent_retry") return words;
+  const agentId = typeof provenance.agentId === "string" ? provenance.agentId : undefined;
+  return notice(words?.name, agentId || words?.agentId, words?.error);
 }
 
 /// What a row's Retry does: `daemon` asks acpmux, `ask` asks the chat's agent.

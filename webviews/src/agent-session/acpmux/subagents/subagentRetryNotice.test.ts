@@ -32,6 +32,22 @@ test("acpmux's resume prompt reads as its subagent's name, agent id and error", 
   });
 });
 
+test("a preview a long name cuts before the error, or in the agent id or the name, still names it", () => {
+  const long = "x".repeat(140);
+  const full = `Your subagent "${long}" (agent id abc123) failed on a transient upstream error (529). Resume it`;
+  const preview = (n: number) => `${full.slice(0, n)}…`;
+  // Cut in "failed on a transient upstream error".
+  expect(subagentRetryNotice(preview(full.indexOf(" failed") + 9))).toEqual({ name: long, agentId: "abc123" });
+  // Cut right after the agent id.
+  expect(subagentRetryNotice(preview(full.indexOf(" failed")))).toEqual({ name: long, agentId: "abc123" });
+  // Cut in the agent id: the name alone.
+  expect(subagentRetryNotice(preview(full.indexOf("abc123") + 3))).toEqual({ name: long });
+  // Cut in the name: as much of it as there is.
+  expect(subagentRetryNotice(preview(60))).toEqual({ name: `${full.slice(15, 60)}…` });
+  // Something else after the agent id is no resume.
+  expect(subagentRetryNotice(`Your subagent "a" (agent id abc123) is fine.`)).toBeUndefined();
+});
+
 test("the record's subagent_retry provenance names the agent when the words do not", () => {
   const msg = { _meta: { provenance: { kind: "subagent_retry", subagentId: "s/t2", agentId: "a8e1b6", attempt: 1 } } };
   expect(subagentRetryNotice("Resume the subagent please.", msg)).toEqual({ agentId: "a8e1b6" });
