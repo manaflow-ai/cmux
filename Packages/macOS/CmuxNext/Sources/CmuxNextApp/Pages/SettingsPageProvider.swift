@@ -86,10 +86,8 @@ final class SettingsPageProvider: PageProvider {
     var personBacksGesture: (@MainActor (TimeInterval) -> Bool)?
     /// Settings > Machines' "Dedicated agent machine" switch on a Cloud machine: the error to show, or nil.
     var setMachineVmHost: (@MainActor (String, Bool) async -> String?)?
-    /// The Touch ID or password confirm (LocalAuthentication `deviceOwnerAuthentication`) that every
-    /// turn-on of Full access or Dedicated agent machine needs (``widen(_:_:on:_:_:)``); nil, never.
+    /// Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs; nil, never.
     var ownerConfirm: (any DeviceOwnerAuthenticating)?
-    /// The confirm and write order of Full access and Dedicated agent machine (``widen(_:_:on:_:_:)``).
     let wideningGate = PageWideningGate()
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
     /// one click or key turns on one setting.
@@ -122,23 +120,9 @@ final class SettingsPageProvider: PageProvider {
         return .object(object)
     }
 
-    /// Settings' switches that widen what another machine may do here: a paired device's Full access and
-    /// a Cloud machine's Dedicated agent machine.
-    enum WideningSwitch {
-        case fullAccess, vmHost
-
-        func key(_ id: String) -> String { "\(self) \(id)" }
-
-        /// The confirm's reason, which macOS shows as "cmux is trying to <reason>."
-        var reason: String { self == .fullAccess ? RemoteStrings.fullAccessConfirmReason : RemoteStrings.vmHostConfirmReason }
-    }
-
-    /// SECURITY: an agent that drives this Mac's screen must not turn `widening` on for itself. An on needs
-    /// the person's own click or key in the Settings page, spent once (the host's record, never the page's
-    /// word), then Touch ID or the login password (``PageWideningGate``) whatever the click's source fields
-    /// say: a poster can set those, and cannot answer the confirm. The click is spent before the confirm,
-    /// so a script riding it cannot reuse it. An off takes any input and wins over every on asked before it.
-    func widen(_ widening: WideningSwitch, _ id: String, on: Bool, _ context: PageCallContext,
+    /// SECURITY: Full access and Dedicated agent machine turn on only with the person's own click or key in
+    /// this page, spent once, then Touch ID or the password (``PageWideningGate``); an off takes any input.
+    func widen(_ key: String, _ id: String, reason: String, on: Bool, _ context: PageCallContext,
                _ write: @escaping @MainActor (String, Bool) async -> String?) async throws -> String? {
         let refusal = PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
         if on {
@@ -146,8 +130,8 @@ final class SettingsPageProvider: PageProvider {
                   event != spentFullAccessGesture else { throw refusal }
             spentFullAccessGesture = event
         }
-        let confirm = ownerConfirm.map { owner in { @MainActor in await owner.authenticate(reason: widening.reason) } }
-        return try await wideningGate.set(widening.key(id), on: on, confirm: confirm, refusal: refusal) { await write(id, $0) }
+        let confirm = ownerConfirm.map { owner in { @MainActor in await owner.authenticate(reason: reason) } }
+        return try await wideningGate.set("\(key) \(id)", on: on, confirm: confirm, refusal: refusal) { await write(id, $0) }
     }
 
     /// A host the App wires in (nil in tests without an app), or the page's `cmux.page.unavailable`.
@@ -186,13 +170,9 @@ final class SettingsPageProvider: PageProvider {
             guard let id = params["id"]?.stringValue, let on = params["on"]?.boolValue else {
                 throw PageError.invalidParams("id and on are required")
             }
-            // SECURITY: turning Full access on lets that machine's chats edit files and run
-            // commands here without asking, so it needs the person's own click or key in the
-            // Settings page, spent once (the host's record, never the page's word): page script
-            // alone never turns it on. Turning it off only narrows what the machine may do, so it
-            // needs no gesture (a revoke always works, assistive technology included). An on then
-            // also needs Touch ID or the password (``widen(_:_:on:_:_:)``).
-            return try await widen(.fullAccess, id, on: on, context, Self.host(setDeviceFullAccess, "devices")).map { ["error": .string($0)] } ?? .object([:])
+            // SECURITY: on lets that machine's chats edit files and run commands here without asking (``widen``).
+            let reason = RemoteStrings.fullAccessConfirmReason
+            return try await widen("fullAccess", id, reason: reason, on: on, context, Self.host(setDeviceFullAccess, "devices")).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.devices.join_consent":
             guard let surface = params["surface"]?.stringValue, JoinConsentSurface(rawValue: surface) != nil,
                   let on = params["on"]?.boolValue else {
@@ -217,12 +197,9 @@ final class SettingsPageProvider: PageProvider {
             guard let id = params["id"]?.stringValue, let on = params["on"]?.boolValue else {
                 throw PageError.invalidParams("id and on are required")
             }
-            // Turning it on lets that machine take the VM boundary again when this app's own link
-            // asks for it (its remote chains then run without the sandbox), so, like Full access,
-            // only the person's own click or key in this page turns it on (spent once); off makes
-            // the machine keep the sandbox always, which only narrows, so it needs no gesture. An on
-            // then also needs Touch ID or the password (``widen(_:_:on:_:_:)``).
-            return try await widen(.vmHost, id, on: on, context, Self.host(setMachineVmHost, "machines")).map { ["error": .string($0)] } ?? .object([:])
+            // On lets that machine take the VM boundary again (its remote chains run without the sandbox): ``widen``.
+            let reason = RemoteStrings.vmHostConfirmReason
+            return try await widen("vmHost", id, reason: reason, on: on, context, Self.host(setMachineVmHost, "machines")).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
         case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState

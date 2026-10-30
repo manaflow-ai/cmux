@@ -203,7 +203,8 @@ import Testing
         case vmHost = "cmux.settings.machines.vm_host"
 
         var set: String { self == .fullAccess ? "device" : "vm" }
-        var widening: SettingsPageProvider.WideningSwitch { self == .fullAccess ? .fullAccess : .vmHost }
+        /// The gate's key for machine `id` (``SettingsPageProvider/widen(_:_:reason:on:_:_:)``).
+        func key(_ id: String) -> String { self == .fullAccess ? "fullAccess \(id)" : "vmHost \(id)" }
         var reason: String {
             self == .fullAccess ? RemoteStrings.fullAccessConfirmReason : RemoteStrings.vmHostConfirmReason
         }
@@ -377,7 +378,7 @@ import Testing
         h.page.setMachineVmHost = { _, on in await landing.write("vm", on, recorder) }
         for op in Switch.allCases {
             // on, then off while the on is in flight, then on again: on, off, on.
-            let key = op.widening.key("m1"), offs = h.page.wideningGate.offs[key, default: 0]
+            let key = op.key("m1"), offs = h.page.wideningGate.offs[key, default: 0]
             let first = try h.heldOn(op, pid: 0)
             requests.append(first)
             try #require(await landing.arrived(first))
@@ -396,7 +397,7 @@ import Testing
         }
         #expect(h.recorder.sets == ["device true", "device false", "device true", "vm true", "vm false", "vm true"])
         // on in flight, a second on queued, then an off: the queued on is dropped and off lands last.
-        let key = Switch.fullAccess.widening.key("m1"), offs = h.page.wideningGate.offs[key, default: 0]
+        let key = Switch.fullAccess.key("m1"), offs = h.page.wideningGate.offs[key, default: 0]
         let first = try h.heldOn(.fullAccess, pid: 0)
         requests.append(first)
         try #require(await landing.arrived(first))
