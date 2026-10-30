@@ -222,7 +222,8 @@ struct AgentPageFreezeTests {
         rig.tabs.aliases["tab_provisional"] = nil
         #expect(rig.tabs.existingView("tab_real") === view)
         // With no plan since the rekey, a push still finds the page.
-        try #require(view.model.transport.beforePageWork, "the rekeyed page lost its wake")()
+        let wake = try #require(view.model.transport.beforePageWork, "the rekeyed page lost its wake")
+        wake()
         #expect(!control.frozen, "a push did not wake the rekeyed page")
         #expect(rig.hibernation.frozen.isEmpty)
 
@@ -291,7 +292,8 @@ struct AgentPageFreezeTests {
         #expect(control.frozen)
         advance(rig, seconds: 31)
         #expect(control.calls == [true], "the page was frozen twice: \(control.calls)")
-        try #require(view.model.transport.beforePageWork, "the page lost its wake")()
+        let wake = try #require(view.model.transport.beforePageWork, "the page lost its wake")
+        wake()
         #expect(!control.frozen, "work for the page found it frozen again under its other key")
         advance(rig, seconds: 20)
         #expect(!control.frozen, "froze again before freezeHiddenTabs after the work")
