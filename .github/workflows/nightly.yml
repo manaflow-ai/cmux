@@ -1895,7 +1895,7 @@ jobs:
     outputs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.resume.outputs.version || steps.remote_daemon.outputs.version }}
-      cmux_tui_commit: ${{ steps.install_client.outputs.commit }}
+      cmux_tui_commit: ${{ steps.install_client.outputs.commit || steps.resume-client.outputs.commit }}
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # nightly-next: pick-nightly-build-runner's dedicated builder, else an idle owned
     # label, else the moving Blacksmith label; never one label with no fallback. Main's
@@ -1933,6 +1933,17 @@ jobs:
           SOURCE_RUN: ${{ inputs.nightly_next_unsigned_run }}
           SOURCE_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
         run: python3 scripts/ci/resume-unsigned-nightly.py restore --run-id "$SOURCE_RUN" --attempt "$SOURCE_ATTEMPT"
+
+      - name: Read resumed cmux-tui client commit
+        if: inputs.nightly_next_unsigned_run != ''
+        id: resume-client
+        run: |
+          set -euo pipefail
+          version="$(find unsigned-resume/app -type f -path '*/Contents/Resources/bin/cmux-tui.version' -print -quit)"
+          [[ -n "$version" && -f "$version" ]] || { echo "resumed unsigned app has no cmux-tui.version" >&2; exit 1; }
+          commit="$(awk -F= '$1 == "commit" { print $2; exit }' "$version")"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "resumed unsigned app has no valid cmux-tui commit" >&2; exit 1; }
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Retain resumed cmux-nightly-unsigned-app
         if: inputs.nightly_next_unsigned_run != ''
@@ -5967,7 +5978,7 @@ jobs:
       downloads: ${{ steps.notes.outputs.downloads }}
       feed_written: ${{ steps.upload_next_appcasts.outputs.feed_written }}
       feed_check: ${{ steps.feedcheck.outcome }}
-    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # The release App key remains scoped to this protected environment.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 120
