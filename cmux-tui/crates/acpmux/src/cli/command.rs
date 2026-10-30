@@ -115,6 +115,9 @@ pub enum Command {
         /// Label the session when it is created (repeatable `key=value`).
         #[arg(long = "tag", value_name = "K=V")]
         tags: Vec<String>,
+        /// Create it on exactly the harness SESSION ran (profile, preset, model, effort).
+        #[arg(long, value_name = "SESSION", conflicts_with_all = ["model", "preset", "effort"])]
+        harness_from: Option<String>,
     },
     /// Continue a session's work on another harness: prepare a reviewed
     /// first message for a new session there, then start or discard it.
@@ -1136,6 +1139,12 @@ pub struct NewArgs {
     /// Thinking effort: default, low, medium, high, xhigh, max (Codex adds ultra).
     #[arg(long, short)]
     pub effort: Option<String>,
+    /// Start on exactly the harness SESSION ran (profile, preset, model, effort), for a session
+    /// that takes over SESSION's work. A successor named by a `succeeds=` or `area=` tag, its
+    /// name (`NAME-2`) or --report-to is warned about when its harness differs, and refused
+    /// when it would start on the bare default where SESSION ran a named profile.
+    #[arg(long, value_name = "SESSION", conflicts_with_all = ["model", "preset", "effort"])]
+    pub harness_from: Option<String>,
     /// Optional first prompt.
     pub prompt: Vec<String>,
     /// Label the new session (repeatable `key=value`).
