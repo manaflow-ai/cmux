@@ -1049,6 +1049,7 @@ impl Hub {
             queue_moved: Notify::new(),
             moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
+            inbox_digests: StdMutex::new(HashMap::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),

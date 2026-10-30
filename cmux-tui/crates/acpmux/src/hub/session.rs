@@ -63,6 +63,9 @@ pub struct Session {
     pub(super) moving: StdMutex<Option<String>>,
     /// Prompts `restore_queues` rebuilt, `(promptId, turnId)`, until their run asks for its turn.
     pub(super) restored: StdMutex<Vec<(String, String)>>,
+    /// Inbox digests waiting for their turn, by prompt id: the messages each took, which its turn
+    /// takes over (`digest.rs` `take_joined`, `inbox_digest.rs`).
+    pub(super) inbox_digests: StdMutex<HashMap<String, Arc<super::digest::DigestTurn>>>,
     pub(super) stream: StdMutex<StreamState>,
     pub(super) permissions: StdMutex<permission_groups::PermissionState>,
     /// Bumped (under the `permissions` lock) whenever pending

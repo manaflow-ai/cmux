@@ -13,7 +13,9 @@
 //!   (`digest.rs` `Joined`), and a resend of it answers from the digest's turn
 //!   (`prompt_ledger.rs`). A digest refused or failed puts them back first (`requeue_joined`,
 //!   their `queued` records marked `requeued`), so none is lost: they wait again, held when a
-//!   failed turn held them or when the digest's own turn failed.
+//!   failed turn held them or when the digest's prompt reached its agent and failed. Its turn
+//!   takes them over as it starts (`take_joined`), so it puts them back as it puts back any
+//!   message that joined it.
 //! - A restart before the digest's turn started gives the messages back in its place and drops
 //!   it (`queue_waiting.rs` `Digests`); draining again makes a new one. After it started, its
 //!   turn is theirs: none runs again on its own. The digest's own `queued` record is logged
@@ -21,9 +23,9 @@
 //!   cut off.
 //! - When the chat's turn runs, below its turn cap (`turn_cap.rs`), and its agent steers, the
 //!   digest goes into that turn as ONE steer (its queue entry is marked as a steer, as Send now
-//!   marks one, `queue.rs` `steer_queued`); otherwise it waits at the head of the agent messages
-//!   in the queue, still behind the person's prompts, and runs as its own turn: no later agent
-//!   message joins it.
+//!   marks one, `queue.rs` `steer_queued`; past the cap by then, it waits as below); otherwise
+//!   it waits at the head of the agent messages in the queue, still behind the person's prompts
+//!   (held ones too), and runs as its own turn: no later agent message joins it.
 //! - `dryRun` returns the digest it would make and changes nothing.
 //!
 //! What stays queued: a message with anything but text (an image, an uploaded file, hidden
@@ -104,8 +106,8 @@ pub(crate) struct Rendered {
 }
 
 /// The digest `digest_id` of `parts`, in order: blocks and questions, results grouped by
-/// sender, then FYIs, one line each. Identical texts from one sender fold to the newest copy,
-/// marked "(×N)". Each part is headed by its sender and promptId. Blocks, questions and results
+/// sender, then FYIs, one line each. A sender is its address (`from`), not the name it shows.
+/// Identical texts from one sender fold to the newest copy, marked "(×N)". Each part is headed by its sender and promptId. Blocks, questions and results
 /// keep their whole text while the texts so far fit in [`DIGEST_MAX_BYTES`]; past that a part
 /// shows its first [`CUT_CHARS`] characters and where its full text is.
 pub(crate) fn render(digest_id: &str, parts: &[Part]) -> Rendered {
@@ -113,8 +115,9 @@ pub(crate) fn render(digest_id: &str, parts: &[Part]) -> Rendered {
     let mut order: Vec<&Part> = parts.iter().collect();
     order.sort_by_key(|p| p.received_at);
     // Each sender's text once: its newest copy, and how many came.
-    let key = |p: &Part| (p.from.clone(), p.from_name.clone(), p.text.clone());
-    let mut newest: HashMap<(String, String, String), (&Part, usize)> = HashMap::new();
+    // A sender is its address: a name it changed between two copies does not split them.
+    let key = |p: &Part| (p.from.clone(), p.text.clone());
+    let mut newest: HashMap<(String, String), (&Part, usize)> = HashMap::new();
     for &p in &order {
         let entry = newest.entry(key(p)).or_insert((p, 0));
         *entry = (p, entry.1.saturating_add(1));
@@ -152,19 +155,20 @@ pub(crate) fn render(digest_id: &str, parts: &[Part]) -> Rendered {
             body(&mut text, part);
         }
     }
-    // Senders in the order of their oldest result, folded ones included.
+    // Senders (addresses) in the order of their oldest result, folded ones included, each named
+    // as its newest result names it.
     let mut senders: Vec<(&str, &str)> = Vec::new();
     for part in order.iter().filter(|p| p.class == Class::Result) {
-        let sender = (part.from.as_str(), part.from_name.as_str());
-        if !senders.contains(&sender) {
-            senders.push(sender);
+        match senders.iter_mut().find(|(from, _)| *from == part.from) {
+            Some(sender) => sender.1 = part.from_name.as_str(),
+            None => senders.push((part.from.as_str(), part.from_name.as_str())),
         }
     }
     if !senders.is_empty() {
         text.push_str("\n\n## Results");
         for (from, name) in senders {
             text.push_str(&format!("\n\n### from {name}"));
-            for part in of(Class::Result).filter(|p| p.from == from && p.from_name == name) {
+            for part in of(Class::Result).filter(|p| p.from == from) {
                 let id = &part.prompt_id;
                 text.push_str(&format!("\n\n[result] promptId {id}{}\n", times(part)));
                 body(&mut text, part);
@@ -249,6 +253,16 @@ fn digestible(q: &QueuedPrompt) -> bool {
         && super::super::forum::slash_command(&run.blocks).is_none()
         && !crate::prompt_uploads::any(&run.blocks)
         && !super::super::subsession_guard::is_family_prompt(run.provenance.as_ref())
+}
+
+/// Where a digest goes in `queue`: behind the person's prompts (held ones too: a held prompt
+/// waits where it is and stops none behind it), a prompt sent now and an earlier digest, so
+/// draining moves none of them; ahead of the agent messages after them.
+pub(crate) fn place(queue: &[QueuedPrompt]) -> usize {
+    queue
+        .iter()
+        .rposition(|q| q.run.agent.is_none() || q.sent_now || is_digest(q.run.provenance.as_ref()))
+        .map_or(0, |i| i.saturating_add(1))
 }
 
 /// Whether the drain takes a waiting prompt: a digestible one whose task holds it, not one a
@@ -353,7 +367,6 @@ impl Hub {
         let (taken, rest): (Vec<QueuedPrompt>, Vec<QueuedPrompt>) =
             std::mem::take(&mut *queue).into_iter().partition(|q| takes(q));
         *queue = rest;
-        let held = taken.iter().any(|q| q.held);
         // All of them go back: a message a failed turn put back once is not dropped for the
         // digest's failure (`requeue_joined` puts a message back once).
         let back = taken.iter().cloned().map(|mut q| {
@@ -361,16 +374,10 @@ impl Hub {
             q
         });
         *digest.taken.lock().unwrap_or_else(|e| e.into_inner()) = back.collect();
-        // At the head of the agent messages: behind the person's prompts and a prompt sent now.
-        let at = queue
-            .iter()
-            .position(|q| {
-                q.held
-                    || (q.run.agent.is_some()
-                        && !q.sent_now
-                        && !is_digest(q.run.provenance.as_ref()))
-            })
-            .unwrap_or(queue.len());
+        // Its turn takes them over (`take_joined`).
+        let digests = &session.inbox_digests;
+        digests.lock().unwrap_or_else(|e| e.into_inner()).insert(digest_id.clone(), digest.clone());
+        let at = place(&queue);
         let blocks = vec![json!({"type": "text", "text": text})];
         let run = PromptRun {
             blocks: blocks.clone(),
@@ -448,14 +455,15 @@ impl Hub {
         };
         tokio::spawn(async move {
             let result = hub.run_prompt(&s, blocks, &who, false, opts).await;
+            s.inbox_digests.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
             if let Err(e) = &result {
                 // The messages it took go back first, so a stop between these records loses none
                 // (`queue_waiting.rs` `Digests`), and before its answer, so their waiting tasks
-                // wait again (`queue_slot`). Refused before its turn (it still waits), they go
-                // back as they were (held when a failed turn held them); after a turn that took
-                // it, held, as messages that joined a failed turn are (`requeue_joined`).
-                let unstarted = s.queue().iter().any(|q| q.prompt_id == id);
-                hub.requeue_joined(&s, &digest, !unstarted || held);
+                // wait again (`queue_slot`). A turn that took it put them back already, as it
+                // puts back messages that joined it (`take_joined`, `requeue_joined`): held only
+                // after its prompt reached the agent. Refused before that, they go back here as
+                // they were (held when a failed turn held them).
+                hub.requeue_joined(&s, &digest, false);
                 // Refused before its turn (as a restored prompt is, `resume_restored`): it leaves
                 // the queue, so the prompts behind it still run, and the log says why.
                 if hub.remove_queued(&s, &id) {

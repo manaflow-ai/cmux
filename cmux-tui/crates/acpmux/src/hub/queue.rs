@@ -371,19 +371,22 @@ impl Hub {
     ) -> Answer {
         let (control, trust_gate) = (run.control, run.trust_gate);
         let (prompt_id, provenance) = (Some(prompt_id.to_owned()), run.provenance.clone());
+        let digest = super::digest::inbox_digest::is_digest(provenance.as_ref());
         let opts = PromptOptions {
             prompt_id,
             control,
             trust_gate,
-            // An inbox digest whose turn ended first waits at the head of the agent messages,
-            // behind the person's prompts (`enqueue`), and stops no turn.
-            interrupt: !super::digest::inbox_digest::is_digest(provenance.as_ref()),
+            // An inbox digest whose turn ended first waits behind the person's prompts
+            // (`enqueue`), and stops no turn.
+            interrupt: !digest,
             provenance,
             agent: run.agent.clone(),
             class: run.class,
             display_parts: run.display_parts.clone(),
             full_access_device: run.full_access_device.clone(),
-            send_now: true,
+            // Send now is the person's; a digest is agents' messages, which a turn past its cap
+            // does not take (`turn_cap.rs`): it waits for the next turn.
+            send_now: !digest,
             ..Default::default()
         };
         Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
@@ -435,16 +438,11 @@ impl Hub {
         // Ahead of the prompts a failed turn holds: a prompt sent after the failure runs first.
         // The person's prompt goes ahead of every agent message waiting too (`digest.rs`), behind
         // the person's own and a prompt sent now.
-        // An inbox digest (`inbox_digest.rs`) goes at the head of the agent messages, behind any
-        // digest before it.
-        let is_digest = super::digest::inbox_digest::is_digest;
+        // An inbox digest goes behind the person's prompts, held ones too (`inbox_digest.rs`).
         let at = match p.agent {
-            Some(_) if is_digest(p.provenance) => queue.iter().position(|q| {
-                q.held
-                    || (q.run.agent.is_some()
-                        && !q.sent_now
-                        && !is_digest(q.run.provenance.as_ref()))
-            }),
+            Some(_) if super::digest::inbox_digest::is_digest(p.provenance) => {
+                Some(super::digest::inbox_digest::place(&queue))
+            }
             Some(_) => queue.iter().position(|q| q.held),
             None => queue.iter().position(|q| q.held || (q.run.agent.is_some() && !q.sent_now)),
         };

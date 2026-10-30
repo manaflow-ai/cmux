@@ -275,10 +275,21 @@ impl Hub {
         // A slash command (`/compact`) runs only as a turn's first words: it goes in alone. So does
         // a message with uploaded files: its turn reads and checks them (`prompt_uploads.rs`).
         // An inbox digest goes in as it was made (`inbox_digest.rs`): it leads none.
+        if inbox_digest::is_digest(head.provenance.as_ref()) {
+            // Its turn takes over the messages it took, so a failed turn puts them back as it
+            // puts back any that joined it: held only after its prompt reached the agent.
+            let made =
+                session.inbox_digests.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt_id);
+            if let Some(made) = made {
+                let taken =
+                    std::mem::take(&mut *made.taken.lock().unwrap_or_else(|e| e.into_inner()));
+                *digest.taken.lock().unwrap_or_else(|e| e.into_inner()) = taken;
+            }
+            return Vec::new();
+        }
         if head.agent.is_none()
             || super::forum::slash_command(&head.blocks).is_some()
             || crate::prompt_uploads::any(&head.blocks)
-            || inbox_digest::is_digest(head.provenance.as_ref())
         {
             return Vec::new();
         }
@@ -353,8 +364,8 @@ impl Hub {
     /// (`hold`) they are held: the chat's next completed turn or the retry wait releases them
     /// (`release_held_agent_messages`, `retry_held_agent_messages`). After a turn that never
     /// reached it (its agent could not start, or it was refused) they are not: like the prompts
-    /// behind it, each gets its own try. An agent that read them before failing may read them
-    /// twice.
+    /// behind it, each gets its own try. A message held before it was taken (an inbox digest
+    /// takes held ones) stays held. An agent that read them before failing may read them twice.
     pub(super) fn requeue_joined(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -374,7 +385,7 @@ impl Hub {
             for (i, mut q) in taken.iter().cloned().enumerate() {
                 *q.joined.lock().unwrap_or_else(|e| e.into_inner()) = None;
                 (q.held, q.steer, q.sent_now, q.restored, q.resume, q.requeued) =
-                    (hold, false, false, false, false, true);
+                    (q.held || hold, false, false, false, false, true);
                 queue.insert(i, q);
                 session.queued.fetch_add(1, Ordering::SeqCst);
             }
