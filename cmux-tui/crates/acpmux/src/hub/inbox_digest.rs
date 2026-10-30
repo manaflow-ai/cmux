@@ -107,9 +107,10 @@ pub(crate) struct Rendered {
 
 /// The digest `digest_id` of `parts`, in order: blocks and questions, results grouped by
 /// sender, then FYIs, one line each. A sender is its address (`from`), not the name it shows.
-/// Identical texts from one sender fold to the newest copy, marked "(×N)". Each part is headed by its sender and promptId. Blocks, questions and results
-/// keep their whole text while the texts so far fit in [`DIGEST_MAX_BYTES`]; past that a part
-/// shows its first [`CUT_CHARS`] characters and where its full text is.
+/// Identical texts from one sender fold to the newest copy, marked "(×N)". Each part is headed
+/// by its sender and promptId. Blocks, questions and results keep their whole text while the
+/// texts so far fit in [`DIGEST_MAX_BYTES`]; past that a part shows its first [`CUT_CHARS`]
+/// characters and where its full text is.
 pub(crate) fn render(digest_id: &str, parts: &[Part]) -> Rendered {
     // Oldest first; a stable sort keeps the queue's order between equal times.
     let mut order: Vec<&Part> = parts.iter().collect();
