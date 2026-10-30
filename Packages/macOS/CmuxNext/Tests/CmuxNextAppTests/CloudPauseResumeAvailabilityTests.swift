@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import Foundation
 import Testing
 
