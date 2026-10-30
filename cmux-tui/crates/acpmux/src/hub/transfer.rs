@@ -173,8 +173,11 @@ impl Hub {
             }
             ImportReservation { hub: self, id: meta.id.clone() }
         };
+        // A name the import or move gives is someone's (`acpmux ls` lists it); without one the
+        // chat keeps its bundle's name and whether that name was given.
         if let Some(n) = name {
             meta.name = n;
+            meta.name_given = true;
         } else if self.sessions.lock().unwrap().values().any(|s| s.meta().name == meta.name) {
             meta.name = self.unique_name(&meta.name);
         }
