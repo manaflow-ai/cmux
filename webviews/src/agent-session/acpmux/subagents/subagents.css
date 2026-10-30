@@ -453,8 +453,8 @@ button.cv-subagent > :last-child {
 @media (max-width: 240px) {
   .acpmux-running-tray {
     --acpmux-tray-time-width: 72px;
-    --acpmux-tray-status-width: 32px;
-    --acpmux-tray-stop-width: 20px;
+    --acpmux-tray-status-width: 12px;
+    --acpmux-tray-stop-width: 16px;
   }
   .acpmux-running-tray .acpmux-summary-row {
     gap: 4px;
@@ -465,6 +465,9 @@ button.cv-subagent > :last-child {
   }
   .acpmux-running-tray .acpmux-agent-line__stop-slot {
     right: 4px;
+  }
+  .acpmux-running-tray .acpmux-agent-line__status {
+    gap: 2px;
   }
 }
 /* A column that never scrolls itself (Leo 2026-10-25: the header "disappears for some reason at

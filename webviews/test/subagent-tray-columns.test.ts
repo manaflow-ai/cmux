@@ -204,6 +204,10 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         for (const width of [300, 240, 200]) {
           await page.setViewportSize({ width, height: 560 });
           const narrow = await measure();
+          const [narrowFirst, ...narrowRest] = narrow.rows;
+          expect(narrowRest.every((row) => row.status.left === narrowFirst!.status.left)).toBe(true);
+          expect(narrowRest.every((row) => row.time.right === narrowFirst!.time.right)).toBe(true);
+          expect(narrowRest.every((row) => row.stop.left === narrowFirst!.stop.left)).toBe(true);
           expect(narrow.rows.every((row) => row.name.width >= 60)).toBe(true);
           expect(narrow.rows.every((row) => row.summary.width >= 24)).toBe(true);
           expect(narrow.rows.every((row) => row.summary.right <= row.time.left + 0.5)).toBe(true);
