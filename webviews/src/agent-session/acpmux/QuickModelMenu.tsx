@@ -414,7 +414,14 @@ export function QuickModelMenu({
       pickRow({ ...model, effort: value });
     };
     return (
-      <div className="acpmux-quick-model-effort" key={valueOf(model)} data-effort-look={menu.effortLook ?? "joined"}>
+      <div
+        className="acpmux-quick-model-effort"
+        key={valueOf(model)}
+        data-effort-look={menu.effortLook ?? "joined"}
+        // The running row keeps its effort in view; every other row shows its levels only while
+        // it is hovered or focused (modelPicker.css), so the list reads as one row per model.
+        data-running={running ? "" : undefined}
+      >
         {name}
         <fieldset className="acpmux-quick-efforts" aria-label={`${model.name} · ${t("effort.title")}`}>
           <MenuRadioGroup value={running ? (effort?.current ?? "") : ""} onValueChange={pickEffort}>

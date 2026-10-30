@@ -3,7 +3,34 @@ import React, { useRef, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { QuickMenu } from "./QuickModelMenu";
 
-type Props = { look?: QuickMenu["effortLook"]; chat?: boolean; placement?: QuickMenu["harnessPlacement"] };
+type Props = {
+  look?: QuickMenu["effortLook"];
+  chat?: boolean;
+  placement?: QuickMenu["harnessPlacement"];
+  /// Codex's eight models, each with up to six levels, as Leo's 2026-10-29 screenshot showed them.
+  codex?: boolean;
+};
+
+const CODEX_LEVELS = ["low", "medium", "high", "xhigh", "max", "ultra"];
+const LEVEL_NAMES: Record<string, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra High",
+  max: "Max",
+  ultra: "Ultra",
+};
+const CODEX_MODELS = [
+  ["gpt-6.1-sol", "GPT-6.1 Sol", 6],
+  ["gpt-6-astra", "GPT-6 Astra", 6],
+  ["gpt-6.1-terra", "GPT-6.1 Terra", 6],
+  ["gpt-6-sol", "GPT-6 Sol", 6],
+  ["gpt-6-luna", "GPT-6 Luna", 5],
+  ["gpt-5.6-sol", "GPT-5.6 Sol", 6],
+  ["gpt-5.6-terra", "GPT-5.6 Terra", 6],
+  ["gpt-5.6-luna", "GPT-5.6 Luna", 5],
+  ["daybreak-blue", "Daybreak Blue", 6],
+] as const;
 
 export default componentEntry<Props>({
   id: "agent-pane.inline-model-effort",
@@ -16,12 +43,20 @@ export default componentEntry<Props>({
   load: () =>
     Promise.all([import("./QuickModelMenu"), import("./newTabComposer")]).then(
       ([{ QuickModelMenu }, { OnNewTab }]) =>
-        function InlineModelEffort({ look = "joined", chat = false, placement = "left" }: Props) {
+        function InlineModelEffort({ look = "joined", chat = false, placement = "left", codex = false }: Props) {
           const trigger = useRef<HTMLButtonElement | null>(null);
           const [open, setOpen] = useState(false);
-          const [model, setModel] = useState("opus");
-          const [effort, setEffort] = useState("high");
-          const models = [
+          const [model, setModel] = useState(codex ? "gpt-6.1-sol" : "opus");
+          const [effort, setEffort] = useState(codex ? "xhigh" : "high");
+          const levels = codex ? CODEX_LEVELS : ["low", "medium", "high", "max"];
+          const models = codex
+            ? CODEX_MODELS.map(([id, name, count]) => ({
+                id,
+                name,
+                family: "codex",
+                efforts: CODEX_LEVELS.slice(0, count),
+              }))
+            : [
             {
               id: "opus",
               name: "Opus 5.5",
@@ -34,8 +69,8 @@ export default componentEntry<Props>({
               family: "claude",
               efforts: ["low", "medium", "high"],
             },
-            { id: "haiku", name: "Haiku 5.5", family: "claude", efforts: [] },
-          ];
+                { id: "haiku", name: "Haiku 5.5", family: "claude", efforts: [] },
+              ];
           return (
             <OnNewTab.Provider value={!chat}>
               <div style={{ padding: 24, paddingTop: chat ? 460 : 24 }} data-model={model} data-effort={effort}>
@@ -54,12 +89,18 @@ export default componentEntry<Props>({
                     harnessPlacement: placement,
                     effort: {
                       current: effort,
-                      levels: ["low", "medium", "high", "max"].map((id) => ({ id, name: id })),
+                      levels: levels.map((id) => ({ id, name: codex ? LEVEL_NAMES[id]! : id })),
                       onPick: setEffort,
                     },
                     families: {
-                      current: "claude",
-                      list: [{ id: "claude", name: "Claude Code", mark: "claude", models, more: [] }],
+                      current: codex ? "codex" : "claude",
+                      list: codex
+                        ? [
+                            { id: "claude", name: "Claude Code", mark: "claude", models: [], more: [] },
+                            { id: "codex", name: "Codex", mark: "codex", models, more: [] },
+                            { id: "opencode", name: "OpenCode", models: [], more: [] },
+                          ]
+                        : [{ id: "claude", name: "Claude Code", mark: "claude", models, more: [] }],
                       onPick: (picked) => {
                         setModel(picked.id);
                         if (picked.effort) setEffort(picked.effort);
@@ -97,6 +138,21 @@ export default componentEntry<Props>({
       props: { chat: true },
       play: async (ctx) => {
         await ctx.click({ selector: "button[data-menu='model']" });
+      },
+    },
+    // Leo 2026-10-29's screenshot: Codex's eight models. One row each; only the running row (and a
+    // hovered one) shows its levels, on its own line.
+    codex: {
+      props: { codex: true, chat: true },
+      play: async (ctx) => {
+        await ctx.click({ selector: "button[data-menu='model']" });
+      },
+    },
+    "codex-hover": {
+      props: { codex: true, chat: true },
+      play: async (ctx) => {
+        await ctx.click({ selector: "button[data-menu='model']" });
+        await ctx.hover({ role: "menuitemradio", name: /^GPT-6 Astra/ });
       },
     },
     compact: {

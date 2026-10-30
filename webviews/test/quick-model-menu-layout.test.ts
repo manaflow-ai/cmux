@@ -128,7 +128,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   test("inline effort controls keep a narrow railed menu inside the viewport when switching harnesses", async () => {
     const page = await open("claude-many-harnesses-inline-effort", 320, 560);
     try {
-      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor();
+      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor({ state: "attached" });
       const menu = await bounds(page, ".acpmux-quick-menu");
       const rail = await bounds(page, ".acpmux-quick-rail");
       await page.getByRole("button", { name: "Codex", exact: true }).click();
@@ -136,7 +136,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         () =>
           document.querySelector(".acpmux-quick-rail-tab[aria-pressed=true]")?.getAttribute("aria-label") === "Codex",
       );
-      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor();
+      await page.locator(".acpmux-quick-model-effort .acpmux-quick-efforts").first().waitFor({ state: "attached" });
       const switched = await bounds(page, ".acpmux-quick-menu");
       const switchedRail = await bounds(page, ".acpmux-quick-rail");
       expect(switched.width).toBeLessThanOrEqual(296);
@@ -233,6 +233,51 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const search = await bounds(page, ".acpmux-quick-search");
       expect(search.height).toBe(row.height);
       expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  // Leo 2026-10-29, on #26521 giving every model a full row of levels under its name: "BRO WHAT KIND
+  // OF FUCKING DESIGN IS THIS????". One line per model; only the running row shows its levels until
+  // another row is hovered, and the levels share the model's line.
+  test("inline effort: one line per model, levels only on the running and hovered rows", async () => {
+    const page = await open("codex", 680, 900, "agent-pane.inline-model-effort");
+    try {
+      await page.locator(".acpmux-quick-model-effort").first().waitFor();
+      const shown = () =>
+        page.$$eval(".acpmux-quick-model-effort", (rows) =>
+          rows.map((row) => {
+            const levels = row.querySelector(".acpmux-quick-efforts")!;
+            const name = row.querySelector(".acpmux-quick-item")!.getBoundingClientRect();
+            const box = levels.getBoundingClientRect();
+            return {
+              name: row.querySelector(".acpmux-menu-label")?.textContent,
+              height: Math.round(row.getBoundingClientRect().height),
+              levels: getComputedStyle(levels).display !== "none",
+              sameLine: box.height === 0 || Math.abs(box.top + box.height / 2 - (name.top + name.height / 2)) <= 2,
+            };
+          }),
+        );
+      const rest = await shown();
+      expect(rest).toHaveLength(9);
+      expect(rest.filter((row) => row.levels).map((row) => row.name)).toEqual(["GPT-6.1 Sol"]);
+      for (const row of rest) {
+        expect(row.height).toBeLessThanOrEqual(30);
+        expect(row.sameLine).toBe(true);
+      }
+      const astra = page.locator(".acpmux-quick-model-effort", { hasText: "GPT-6 Astra" });
+      await astra.locator(".acpmux-quick-item").first().hover();
+      const hovered = await shown();
+      expect(hovered.filter((row) => row.levels).map((row) => row.name)).toEqual(["GPT-6.1 Sol", "GPT-6 Astra"]);
+      for (const row of hovered) {
+        expect(row.height).toBeLessThanOrEqual(30);
+        expect(row.sameLine).toBe(true);
+      }
+      // A level of the hovered row lands the model and the level together.
+      await astra.locator(".acpmux-quick-effort-segment", { hasText: /^High$/ }).click();
+      await page.waitForFunction(() => document.querySelector("[data-model]")?.getAttribute("data-model") === "gpt-6-astra");
+      expect(await page.locator("[data-model]").getAttribute("data-effort")).toBe("high");
     } finally {
       await page.close();
     }
