@@ -70,8 +70,19 @@ fn strip(input: &str) -> (String, bool) {
                     // A two-byte escape sequence (for example, ESC 7 or ESC c).
                     chars.next();
                 }
-                Some(next) if (' '..='/').contains(&next) => {
-                    // An escape sequence with intermediate bytes (0x20-0x2F), such as ESC ( B or ESC SP F.
+                // ESC SP takes only F, G, L, M or N (7- or 8-bit controls, conformance levels); any
+                // other ESC SP is a lone ESC before a space, which the text keeps.
+                Some(' ') => {
+                    let mut ahead = chars.clone();
+                    ahead.next();
+                    if ahead.next().is_some_and(|last| matches!(last, 'F' | 'G' | 'L' | 'M' | 'N'))
+                    {
+                        chars.next();
+                        chars.next();
+                    }
+                }
+                Some(next) if ('!'..='/').contains(&next) => {
+                    // An escape sequence with intermediate bytes, such as ESC ( B.
                     chars.next();
                     skip_through_final(&mut chars, '0'..='~');
                 }
