@@ -56,9 +56,46 @@ class ReleaseNotesTests(unittest.TestCase):
             "Tabs stay put.",
         )
         self.assertEqual(
-            notes.pr_description("## Changelog\n\nnone\n\n## Summary\n\nTabs stay put after restart." , "Tabs stay put"),
-            "Tabs stay put after restart.",
+            notes.pr_description("## Summary\n\nImplementation details.\n\n## Changelog\n\nnone", "Tabs stay put"),
+            "Tabs stay put.",
         )
+
+    def test_description_safety_and_sentence_boundaries(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        unsafe = (
+            "See https://private.example/changes for details.",
+            "See private.example/changes for details.",
+            "The run uses cosmic-gray.",
+            "The session is 01234567-89ab-cdef-0123-456789abcdef.",
+            "The session is aid-0123456789abcdef.",
+            "Tabs stay put after work in cmux-platform.",
+        )
+        for text in unsafe:
+            for heading in ("Summary\n", "Changelog\nFixed:"):
+                with self.subTest(text=text, heading=heading):
+                    description = notes.pr_description(f"## {heading} {text}", "Tabs stay put")
+                    self.assertEqual(description, "Tabs stay put.")
+            self.assertEqual(notes.pr_description("", text), "Fixes and improvements.")
+        for text in (
+            "Tabs restore e.g. pinned panes after restart.",
+            "Tabs restore i.e. reopen after restart.",
+            '"Tabs stay put."',
+            "“Tabs stay put.”",
+            'Choose "Keep tabs." after restart.',
+            "Choose “Keep tabs.” after restart.",
+            "Zoom stays at 1.5 after restart.",
+        ):
+            with self.subTest(text=text):
+                description = notes.pr_description(f"## Summary\n{text} More detail.")
+                self.assertEqual(description, text)
+                args = type("Args", (), {"short": "1.0.0-nightly.1", "date": "2026-10-30"})()
+                digest = notes.summary_whats_new_digest(args, [
+                    {"group": "fixed", "title": "Tabs stay put", "description": description}])
+                self.assertIsNotNone(digest)
+                self.assertEqual(digest["entries"][0]["summary"]["en"], text)
 
     def test_pr_body_timeout_returns_media_style_empty_fallback(self):
         import importlib.util
@@ -75,6 +112,27 @@ class ReleaseNotesTests(unittest.TestCase):
         with mock.patch.object(notes.subprocess, "run") as run:
             self.assertEqual(notes.pr_body(123, None, deadline=0), "")
             run.assert_not_called()
+
+    def test_pr_body_outage_obeys_shared_budget(self):
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        elapsed = 0
+
+        def timeout(*args, **kwargs):
+            nonlocal elapsed
+            elapsed += kwargs["timeout"]
+            raise notes.subprocess.TimeoutExpired("gh", kwargs["timeout"])
+
+        with mock.patch.object(notes.time, "monotonic", side_effect=lambda: elapsed), \
+                mock.patch.object(notes.subprocess, "run", side_effect=timeout) as run:
+            for number in range(200):
+                body = notes.pr_body(number, None, deadline=25)
+                self.assertEqual(notes.pr_description(body, "Tabs stay put"), "Tabs stay put.")
+            self.assertEqual(elapsed, 25)
+            self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list], [10, 10, 5])
 
     def test_backend_descriptions_are_internal_and_summary_digest_uses_description(self):
         import importlib.util

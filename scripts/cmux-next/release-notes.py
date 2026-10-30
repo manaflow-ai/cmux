@@ -182,9 +182,9 @@ UNSAFE_DESCRIPTION = re.compile(
     r"(?:\b(?:https?|file|ssh|git|ftp)://|deeplink/agent|\b(?:aid-[a-z0-9-]{8,}|"
     r"(?:session|agent)[_-](?:id[_-])?[a-z0-9-]{8,}|[a-f0-9]{16,}|"
     r"[0-9a-f]{8}-[0-9a-f-]{17,})\b|"
-    r"\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|dev|app|internal|local|lan|test|example)\b|"
+    r"\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b|"
     r"\b(?:cmux-platform|manaflow-ai/cmux|cosmic-gray|air-blue|big-red|huge-blue|"
-    r"blacksmith|gcp-[a-z0-9-]+)\b)",
+    r"blacksmith|cmux-lawrence|cmux\d+|(?:gcp|aws|cmuxs|austin)-[a-z0-9-]+)\b)",
     re.I,
 )
 ABBREVIATED_SENTENCE = re.compile(r"\b(?:e\.g|i\.e|etc|vs|dr|mr|mrs|ms|no)\.$", re.I)
@@ -222,11 +222,13 @@ def _first_sentence(text):
 def _safe_description(text):
     return bool(text) and not UNSAFE_DESCRIPTION.search(text)
 
+
 def _plain_line(text):
     text = MARKDOWN_LINK.sub(r"\1", text)
     text = INLINE_MARKUP.sub("", text)
     text = re.sub(r"\s+", " ", text).strip(" -")
-    if not text:
+    # Check before truncating: a period in a URL or identifier must not disguise unsafe copy.
+    if not _safe_description(text):
         return ""
     # A PR body can contain several prose sentences. Keep the first complete sentence so the
     # generated description is always one line and one sentence, before applying the length cap.
@@ -237,8 +239,9 @@ def _plain_line(text):
 
 def pr_description(body, fallback=""):
     """Extract one plain-language sentence from a PR body, without headings or markup."""
+    fallback = _plain_line(fallback) or ("Fixes and improvements." if fallback else "")
     if not body:
-        return _plain_line(fallback)
+        return fallback
     body = HTML_COMMENT.sub("", body.replace("\r", ""))
     lines = [line.strip() for line in body.splitlines()]
     section = None
@@ -251,12 +254,12 @@ def pr_description(body, fallback=""):
         if line.startswith("<!--") or not line:
             continue
         if section == "changelog":
+            if re.fullmatch(r"(?:none|n/a)[.!]?", line.lstrip("-*+ "), re.I):
+                return fallback
             match = CHANGELOG_LINE.match(line)
             if match:
                 description = _plain_line(match["text"])
-                if _safe_description(description):
-                    return description
-                break
+                return description or fallback
             if not line.startswith(("##", "###")):
                 candidates.append(line.lstrip("-*+ "))
         elif section == "summary":
@@ -265,8 +268,7 @@ def pr_description(body, fallback=""):
         text = _plain_line(candidate)
         if text and _safe_description(text) and not text.lower().startswith(("none", "generated with", "agent session")):
             return text
-    fallback = _plain_line(fallback)
-    return fallback if _safe_description(fallback) else ""
+    return fallback
 
 def internal_change(subject, paths=(), description=""):
     """Whether a change belongs under the collapsed Under the hood section."""
@@ -432,11 +434,12 @@ def pr_media_picture(data):
 def pr_body(pr, fixture, deadline=None):
     if fixture is not None:
         return fixture["bodies"].get(str(pr), "")
-    if deadline is not None and time.monotonic() >= deadline:
-        return ""
     timeout = PR_MEDIA_TIMEOUT
     if deadline is not None:
-        timeout = min(timeout, max(0.1, deadline - time.monotonic()))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return ""
+        timeout = min(timeout, remaining)
     try:
         result = subprocess.run(["gh", "api", f"repos/manaflow-ai/cmux/pulls/{pr}", "--jq", ".body // \"\""],
                                 capture_output=True, text=True, timeout=timeout)
@@ -540,13 +543,8 @@ def whats_new_digest(args, also=()):
 def sentence(text):
     """`text` as a whole sentence: the validator wants a summary to end one (WRITING.md)."""
     text = text.strip()
-    if not text or text[-1] in ".!?。！？":
-        return text
-    if text[-1] in DESCRIPTION_QUOTES:
-        if len(text) > 1 and text[-2] in ".!?。！？":
-            return text
-        return text[:-1] + "." + text[-1]
-    return text + "."
+    ending = text.rstrip(DESCRIPTION_QUOTES)
+    return text if not text or (ending and ending[-1] in ".!?。！？") else text + "."
 
 
 def summary_whats_new_digest(args, lines):
