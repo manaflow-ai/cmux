@@ -894,9 +894,9 @@ impl Peer {
                 .notices
                 .send((self.name.clone(), self.generation, PeerNotice::Disconnected(reason)))
                 .await;
-            tokio::select! {
-                _ = tokio::time::sleep(wait) => {}
-                _ = self.stop_signal.notified() => return,
+            // Sleep-aware, like the reconnect backoff: a wake past the saved deadline tries now.
+            if matches!(self.wait_backoff(wait).await, BackoffWait::Stopped) {
+                return;
             }
         }
         while !self.stop.load(Ordering::SeqCst) {
