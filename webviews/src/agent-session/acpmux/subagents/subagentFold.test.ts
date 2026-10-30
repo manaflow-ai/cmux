@@ -914,4 +914,28 @@ describe("an authoritative spawnAgent parent repairs agents already recorded", (
       ["grandchild", "child"],
     ]);
   });
+
+  test("a grandchild first met in the root's non-spawn collaboration keeps its recorded parent", () => {
+    const fold = new SubagentFold();
+    fold.setRoot("root-native");
+    spawnFrom(fold, "root-native", { subagents: [{ id: "child", parent: null }] });
+    // The root waits on a worker its child spawned; this window never held that spawn. Only a
+    // spawnAgent's sender is the parent of what it lists (Rust's codex_legacy): a wait's is not.
+    seq += 1;
+    const update = {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "wait-1",
+      _meta: { codex: { collaboration: { tool: "wait", senderThreadId: "root-native" } } },
+    };
+    const msg = {
+      method: "session/update",
+      params: { update, _meta: { acpmux: { subagents: [{ id: "grandchild", parent: "child" }] } } },
+    };
+    fold.reduce({ seq, at: seq * 1000, msg }, update);
+
+    expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([
+      ["child", null],
+      ["grandchild", "child"],
+    ]);
+  });
 });

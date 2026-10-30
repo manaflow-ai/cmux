@@ -32,7 +32,8 @@ type Daemon = {
 type Row = { subagents?: { id: string; parent: string | null }[] };
 type Shown = { summary?: unknown; rows?: Row[] };
 
-test("a root learned from a live session_changed repairs and never folds as a subagent", async () => {
+/// A pane on the mock daemon, with the helpers each case drives it through.
+async function openPane() {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
@@ -61,9 +62,17 @@ test("a root learned from a live session_changed repairs and never folds as a su
   // The snapshot's summary is a projection without the native id: read the pane's own summary.
   const root = () => (client as unknown as { summary?: { agentSessionId?: string } }).summary?.agentSessionId;
   const topLevel = () =>
-    (view.shown.rows ?? []).flatMap((row) => row.subagents ?? []).map(({ id: agent, parent }) => [agent, parent]);
+    (view.shown.rows ?? [])
+      .flatMap((row) => row.subagents ?? [])
+      .map(({ id: agent, parent }) => [agent, parent])
+      .sort(([a], [b]) => String(a).localeCompare(String(b)));
+  await until(() => view.shown.summary !== undefined);
+  return { client, daemon, id, until, changes, root, topLevel };
+}
+
+test("a root learned from a live session_changed repairs and never folds as a subagent", async () => {
+  const { client, daemon, id, until, changes, root, topLevel } = await openPane();
   try {
-    await until(() => view.shown.summary !== undefined);
     daemon.touch(id, { harness: "codex", agentSessionId: "root-1" });
     await until(() => root() === "root-1");
     changes([{ id: "child", parent: null }]);
@@ -80,9 +89,38 @@ test("a root learned from a live session_changed repairs and never folds as a su
     changes([{ id: "marker", parent: null }]);
     await until(() => topLevel().some(([agent]) => agent === "marker"));
 
-    expect(topLevel().sort(([a], [b]) => String(a).localeCompare(String(b)))).toEqual([
+    expect(topLevel()).toEqual([
       ["child", null],
       ["helper", null],
+      ["marker", null],
+    ]);
+  } finally {
+    client.close?.();
+  }
+});
+
+// Reopening a chat (or any rebuild) makes a new fold, which knows only the roots the session
+// summary names. A Codex chat's earlier native roots are in `retiredAgentSessionIds`: records from
+// before a restart that echoed an earlier root are folded with that root known, not as a subagent.
+test("a rebuild keeps every earlier native root the summary names a root", async () => {
+  const { client, daemon, id, until, changes, root, topLevel } = await openPane();
+  try {
+    // Written before acpmux knew either root: the first root echoed as a subagent, then the
+    // second as the child's.
+    changes([{ id: "root-1", parent: null }]);
+    changes([{ id: "child", parent: null }]);
+    changes([{ id: "root-2", parent: "child" }]);
+    await until(() => topLevel().some(([agent]) => agent === "child"));
+
+    // The summary names the current root and the earlier one; a record named the current root,
+    // so the pane folds its records again.
+    daemon.touch(id, { harness: "codex", agentSessionId: "root-2", retiredAgentSessionIds: ["root-1"] });
+    await until(() => root() === "root-2");
+    changes([{ id: "marker", parent: null }]);
+    await until(() => topLevel().some(([agent]) => agent === "marker"));
+
+    expect(topLevel()).toEqual([
+      ["child", null],
       ["marker", null],
     ]);
   } finally {
