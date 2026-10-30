@@ -78,7 +78,7 @@ struct AgentChatFromHomeTests {
             let oldWorkspace = oldContent.workspace
             let before = Set(services.daemon.store.workspaces.map(\.id))
 
-            window.state.page = .history
+            window.state.page = .page(.history)
             #expect(window.focusedPane != nil, "the transition keeps the old pane mounted briefly")
             #expect(services.registry.perform(
                 "palette.newAgentChat",
