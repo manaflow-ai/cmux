@@ -161,8 +161,8 @@
   color: inherit;
 }
 .find-pill__button[aria-pressed="true"]:active:not(:disabled) {
-  background: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 30%, transparent);
-  color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent))));
+  background: color-mix(in srgb, var(--agent-accent, var(--cmux-accent)) 30%, transparent) !important;
+  color: var(--agent-lit-glyph, var(--cmux-lit-glyph, var(--agent-accent, var(--cmux-accent)))) !important;
 }
 
 /* The replace row (the code editor's Replace): the capsule grows into a rounded panel of two rows. */

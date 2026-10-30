@@ -101,6 +101,16 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
           const page = await setup();
           try {
             const button = page.getByRole("button", { name, exact: true });
+            const selectedPaint = await button.evaluate(() => {
+              const probe = document.createElement("span");
+              probe.style.backgroundColor = "color-mix(in srgb, var(--cmux-accent) 30%, transparent)";
+              probe.style.color = "var(--cmux-accent)";
+              document.body.append(probe);
+              const style = getComputedStyle(probe);
+              const result = { background: style.backgroundColor, color: style.color };
+              probe.remove();
+              return result;
+            });
             await button.hover();
             const hovered = await paint(button);
             const box = await button.boundingBox();
@@ -108,7 +118,7 @@ await requireBrowserLane("find-import-pressed.test.tsx", async () => {
             const held = await paint(button);
             expect(held).not.toEqual(hovered);
             if (name === "Match case") {
-              expect(await button.evaluate((element) => getComputedStyle(element).color)).not.toBe(hovered.color);
+              expect({ background: held.background, color: held.color }).toEqual(selectedPaint);
             }
             expect(await button.boundingBox()).toEqual(box);
             await page.mouse.up();
