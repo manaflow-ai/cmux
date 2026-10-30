@@ -132,12 +132,20 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
 }
 
 /// `_acpmux/watch`: turns the watch on before it reads the list, so no change is missed.
+/// Another daemon's link reads only this daemon's own sessions: it drops every row mirrored
+/// from a peer (`peer.rs` `watch_sessions`), and with them big-red's list was 17 MB with
+/// tools on 2026-10-30, past the message limit, so no peer's handshake there finished.
 pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     crate::hub::session_pages::refuse_watch_filters(params)?;
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     let tools = with_tools(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
     conn.watch_all.store(on, Ordering::SeqCst);
+    if super::view::a_link(conn) {
+        let mut own = params.as_object().cloned().unwrap_or_default();
+        own.insert("localOnly".to_owned(), Value::Bool(true));
+        return sessions(hub, conn, &Value::Object(own)).await;
+    }
     sessions(hub, conn, params).await
 }
 
