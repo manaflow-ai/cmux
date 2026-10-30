@@ -15,6 +15,7 @@ mod permission;
 pub(crate) use permission::{answer_permission, answer_question};
 
 mod extra;
+mod fanout;
 pub(crate) mod launch;
 mod ls;
 pub use ls::LsArgs;

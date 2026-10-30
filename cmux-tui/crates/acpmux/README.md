@@ -344,6 +344,10 @@ acpmux ls --all --wide                                        # every session, e
 acpmux ls --live --host cosmic-gray                           # filters, text and --json alike (--host local: this machine)
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux ls --limit 20 --fields name,harness,model,status,cwd   # newest sessions, selected fields
+acpmux ls 'review-27*' [huge-blue/*] --fields name,status    # sessions whose name matches a glob (`host/glob` for one peer), on any host
+acpmux ls --tag area=acpmux --fields name,turn.activity       # a dotted field reads a nested value (tags.lane.reportsTo too)
+acpmux session info NAME --fields sessionId                   # one field prints its bare value; several print field<TAB>value; --json an object
+acpmux send --tag area=acpmux [--dry-run] "base is green"     # one --no-wait message to every non-closed session with the tag, on every host; skips your own
 acpmux ls --since 24h --limit 100 --json                     # sessions changed in the last day
 acpmux ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2

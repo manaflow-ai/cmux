@@ -20,6 +20,7 @@ pub const HELP: &str = "Examples:
   acpmux ls --status stuck        only stuck sessions (a filter hides nothing else)
   acpmux ls --live --host cosmic-gray   that host's live sessions (--host local: this machine)
   acpmux --json ls --fields name,state,peer   for scripts: the daemon's rows, unchanged
+  acpmux ls 'review-27*' --fields name,turn.activity   name globs (host/glob: one peer's); dotted fields
 
 STUCK is why a lane needs someone: permission, capacity, harness down, failed turn, stalled 12m.
 A peer that cannot be reached reads UNKNOWN; its sessions are last known. ls never starts a daemon.";
