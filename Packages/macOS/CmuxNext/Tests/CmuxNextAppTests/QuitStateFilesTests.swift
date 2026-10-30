@@ -24,6 +24,8 @@ struct QuitStateFilesTests {
     /// behind `gate`'s held save; `written()` says whether the draft is on disk.
     static func queuedDraft(in directory: URL, gate: DrainGate) -> (services: AppServices, written: () -> Bool) {
         let services = AppServices(environment: AppEnvironment.current([:]), agentPaneStateFiles: gate.files)
+        // No app object in this test process (`NSApp` is nil): the quit steps ask for the key window.
+        services.keyWindowSource = { nil }
         let url = directory.appending(path: AgentUnsentDrafts.fileName)
         let file = gate.files.at(url)
         gate.hold(file)
