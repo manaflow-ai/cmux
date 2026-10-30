@@ -221,6 +221,15 @@ extension AgentTabStore {
             guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
         }
+        tabs.paneWidth = { [weak services] key in
+            guard let services, let (_, pane) = services.locateTab(key) else { return nil }
+            return services.paneController(for: pane)?.view.bounds.width
+        }
+        tabs.selectInPane = { [weak services] key in
+            guard let services, let (tab, pane) = services.locateTab(key) else { return }
+            // Shown, and no keyboard focus moved: the chat keeps it (an unfocused subagent's tab, AgentBesidePlacement).
+            services.paneController(for: pane)?.selectWhenReportedKeepingFocus(surface: tab.surface)
+        }
         tabs.openInMainPane = { [weak services] chat, focus, open, created, finished in
             guard let services, let (_, pane) = services.locateTab(chat), let controller = services.paneController(for: pane),
                   let side = MainPaneLayout.side(from: controller, services: services) else { return nil }
@@ -293,7 +302,7 @@ extension AgentTabStore {
             host.linksHost = AgentTabStore.registryHost(of: daemon)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
-                services.cloud.auth.isSignedIn && services.cloud.configuration.linkSource == .legacy
+                AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource, isSignedIn: services.cloud.auth.isSignedIn)
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
             // it is sent, through any daemon (the legacy link's or the app link's own answer).
@@ -435,6 +444,6 @@ extension AgentTabStore {
         }
     }
     static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool) -> Bool {
-        linkSource == .legacy && isSignedIn
+        isSignedIn // on either link: CloudService.machineAPI serves a legacy and a Worker machine
     }
 }
