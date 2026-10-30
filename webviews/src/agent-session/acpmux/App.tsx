@@ -5051,11 +5051,6 @@ function AcpmuxPane() {
   // Folder-choice cancellation invalidates all refusals from sends that were in flight.
   // The direct client generation does not change when only the folder dialog is canceled.
   const trustCancelEpoch = useRef(0);
-  // onTrustRefused is a client-level callback with no send owner. Keep the canceled
-  // route marker until an explicit new send or client generation supersedes it.
-  const trustCanceledRoute = useRef<{ client: AcpmuxDirectClient; generation: number; epoch: number } | undefined>(
-    undefined,
-  );
   const pendingTrustRefusal = useRef<
     | {
         client: AcpmuxDirectClient;
@@ -5100,8 +5095,7 @@ function AcpmuxPane() {
   retryAfterTrust.current = trustAsk.retry;
   const cancelTrustResend = useCallback(() => {
     const client = directClient.current;
-    if (client)
-      trustCanceledRoute.current = { client, generation: client.trustGeneration, epoch: trustCancelEpoch.current };
+    client?.cancelTrustRefusals();
     trustCancelEpoch.current += 1;
     pendingTrustRefusal.current = undefined;
     trustAsk.cancelResend();
@@ -7748,8 +7742,6 @@ function AcpmuxPane() {
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
         client.onTrustRefused = (refusal, again) => {
           if (directClient.current !== client) return;
-          const canceled = trustCanceledRoute.current;
-          if (canceled && canceled.client === client && canceled.generation === client.trustGeneration) return;
           const shownSessionId = client.shownSession()?.sessionId;
           // A New Tab has no shown session while ensureSession is creating its first one. A
           // refusal in that window belongs to the client/generation that produced it; once a
@@ -7910,7 +7902,6 @@ function AcpmuxPane() {
           // A New Tab send may create/select its session inside ensureSession. Route a refusal by
           // the client's current selection generation rather than a render-time hook closure:
           // ensureSession can select before React has rendered the new chat.
-          trustCanceledRoute.current = undefined;
           const sendCancelEpoch = trustCancelEpoch.current;
           let sendOwner = {
             client,
@@ -7955,7 +7946,7 @@ function AcpmuxPane() {
                 // belongs to that selection (its Trust re-sends the prompt with this send's gesture).
                 const owner = switchSendOwners.get(switchPromptId);
                 switchSendOwners.delete(switchPromptId);
-                if (owner) sendOwner = owner;
+                if (owner) sendOwner = { ...owner, cancelEpoch: sendCancelEpoch };
                 return refused(error, (error as { handedBack?: unknown }).handedBack === true);
               },
             );
