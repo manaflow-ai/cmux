@@ -48,6 +48,11 @@ extension WindowManager {
         guard !rows.placing else { return }
         rows.placing = true
         defer { rows.placing = false }
+        // A placement that waited for its current row was for a workspace the daemon had: once that one is gone (closed,
+        // its create undone), nothing will place it.
+        for (id, pending) in pendingPlacements where pending.anchorWaitSince != nil && services.machines.workspace(id: id) == nil {
+            pendingPlacements[id] = nil
+        }
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
         let ready = pendingPlacementOrder.filter { live.contains($0) && services.machines.workspace(id: $0)?.0.isProvisional == false }
         // A placement waiting on its current row keeps its entry and its place in the order.
