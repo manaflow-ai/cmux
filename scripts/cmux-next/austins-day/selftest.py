@@ -11,6 +11,7 @@ python3; seconds). Not a CI test: run it yourself after a harness change (README
 - hog.py stops by itself at its deadline.
 """
 import json
+import re
 import os
 import subprocess
 import sys
@@ -545,6 +546,25 @@ class NamedSites(unittest.TestCase):
             with open(os.path.join(tmp, "s.txt")) as f:
                 text = f.read()
         self.assertIn("registry:terminal_registry_revision: total hold absent from the top 20, so at most 0.1 s", text)
+
+
+class ProcessKinds(unittest.TestCase):
+    def test_the_holder_sample_names_what_its_processes_run(self):
+        source = open(os.path.join(HERE, "driver.py")).read()
+        start = source.index("def connection_holders(")
+        end = source.index("def sampler(")
+        app = "/Users/Shared/cmux-capture/slots/1/lease-x/app/cmux DEV t.app"
+        namespace = {"re": re, "opts": type("O", (), {"app": app})(), "CLI": app + "/Contents/Resources/bin/cmux",
+                     "CLI_TUI": app + "/Contents/Resources/bin/cmux-tui", "cli": None, "client_list_entries": None,
+                     "HOLDERS_ERROR": [], "note": None, "json": json}
+        exec(compile(source[start:end], "driver.py", "exec"), namespace)
+        rows = [(1, 1, 1, app + "/Contents/Resources/bin/cmux --socket /tmp/s --json workspace list"),
+                (2, 1, 1, app + "/Contents/Resources/bin/cmux --socket /tmp/s --json workspace list"),
+                (3, 1, 1, app + "/Contents/Resources/bin/cmux __hook-append term_0123456789abcdef"),
+                (4, 1, 1, "/home/x/.local/share/cmux-tui/bin/cmux-tui-hook claude PreToolUse")]
+        out = namespace["connection_holders"](rows, ask_daemon=False)
+        self.assertEqual(out["processes"], {"hook_helper": 1, "cli": 3, "other_bundle": 0})
+        self.assertEqual(out["process_kinds"]["cli"], {"cmux workspace list": 2, "cmux __hook-append": 1})
 
 
 class LockDetail(unittest.TestCase):

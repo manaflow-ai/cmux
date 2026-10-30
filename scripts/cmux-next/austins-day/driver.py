@@ -329,16 +329,40 @@ def connection_holders(rows, ask_daemon=True):
         except (TypeError, ValueError):
             pass
     roles = {"hook_helper": 0, "cli": 0, "other_bundle": 0}
+    # What each role's processes are: their arguments after the binary, by count (the main-arm A/A of
+    # 2026-10-30 had a median of 48 'cli' processes with no agent CLI calls, and the role alone did not say
+    # what they run). From the same `ps` read: no extra command on the host.
+    kinds = {"hook_helper": {}, "cli": {}}
     for _, _, _, args in rows:
+        role = None
         if "cmux-tui-hook" in args or "__agent-hook" in args:
-            roles["hook_helper"] += 1
+            role = "hook_helper"
         elif args.startswith(CLI + " ") or args == CLI:
-            roles["cli"] += 1
+            role = "cli"
         elif args.startswith(opts.app + "/") and "--headless" not in args:
             roles["other_bundle"] += 1
+        if role:
+            roles[role] += 1
+            # The binary's name, then the command words without --socket VALUE, --json and ids.
+            rest = args[len(CLI):] if role == "cli" else args
+            words, skip = [], False
+            for w in rest.split():
+                if skip:
+                    skip = False
+                    continue
+                if w == "--socket":
+                    skip = True
+                    continue
+                if w == "--json" or re.match(r"^(term|ws|pane|tab|session|machine)_[0-9a-f]{8,}$", w):
+                    continue
+                words.append(w)
+            shape = ("cmux " if role == "cli" else "") + " ".join(words[:4])
+            shape = shape.replace(opts.app + "/", "<app>/")[:120]
+            kinds[role][shape] = kinds[role].get(shape, 0) + 1
     return {"list_code": code, "listed": len(clients) if clients is not None else None, "by_label": by_label,
             "max_age_s": {k: max((a for a in v if isinstance(a, (int, float))), default=None) for k, v in ages.items()},
-            "processes": roles}
+            "processes": roles,
+            "process_kinds": {role: dict(sorted(k.items(), key=lambda kv: -kv[1])[:8]) for role, k in kinds.items()}}
 
 
 def sampler():

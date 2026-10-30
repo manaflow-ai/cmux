@@ -19,6 +19,23 @@
    "not_tested": [
     "app request p99 ms"
    ]
+  },
+  "0": {
+   "date": "2026-10-30",
+   "build": "84c705adefd6cdc900e204ca (3ecd8020cb1)",
+   "host": "cmux24",
+   "harness": "8d4f9086cd9 (runs); valid through 9cfb9f54116 (no measuring change)",
+   "method": "paired t-interval 95 %, 5 rounds, ABBA order (same build in both arms)",
+   "metrics": {},
+   "position_effects": {},
+   "not_tested": [
+    "agent CLI p99 ms (no agent CLI calls in this arm)",
+    "app request p99 ms (no probe in this build)",
+    "workspace close p95/p99/not done (base did not show the failure)"
+   ],
+   "notes": [
+    "base round 1: one `ssh cmux24 date -u` by the harness owner at 20:22:09Z, at the start of its load (arm.json notes)"
+   ]
   }
  },
  "_doc": "A/A self-test record per scenario, keyed by the agent CLI rate (--cli-every): \"0\" the main arm (no agent CLI calls), \"3\" the assumed sensitivity arm. metrics: the metrics that failed; a summary marks them 'invalid (fails A/A)'. A scenario with no entry gets 'not A/A-checked' on every verdict."

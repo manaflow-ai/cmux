@@ -372,6 +372,14 @@ def run_metrics(run):
     # label, and of the live client processes by role; plus the refusals each client kind saw itself.
     holders = load(series.get("holders", []))
     labels = sorted({k for h in holders for k in (h.get("by_label") or {})})
+    kinds = {}
+    for h in holders:
+        for role, shapes in (h.get("process_kinds") or {}).items():
+            for shape, n in shapes.items():
+                kinds.setdefault(role, {}).setdefault(shape, []).append(n)
+    m["process_kinds_median"] = {role: {shape: statistics.median(ns + [0] * (len(holders) - len(ns)))
+                                        for shape, ns in sorted(shapes.items(), key=lambda kv: -sum(kv[1]))[:8]}
+                                 for role, shapes in kinds.items()}
     end_list = next((h for h in reversed(series.get("holders", [])) if h.get("phase") == "end" and h.get("listed") is not None), None)
     m["pool_holders_after_load"] = None if not end_list else {
         "listed": end_list.get("listed"), "by_label": end_list.get("by_label"), "max_age_s": end_list.get("max_age_s")}
