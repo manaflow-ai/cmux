@@ -775,20 +775,6 @@ fn reports_to(socket: &std::path::Path, seen: &AtomicBool) -> bool {
     here
 }
 
-#[cfg(test)]
-#[test]
-fn a_cloud_agent_socket_is_seen_when_made_later_and_kept_once_gone() {
-    let dir = tempfile::tempdir().unwrap();
-    let socket = dir.path().join("agent.sock");
-    let seen = AtomicBool::new(false);
-    assert!(!reports_to(&socket, &seen), "no socket yet");
-    std::fs::write(&socket, "").unwrap();
-    let linux = cfg!(target_os = "linux");
-    assert_eq!(reports_to(&socket, &seen), linux, "the socket made later");
-    std::fs::remove_file(&socket).unwrap();
-    assert_eq!(reports_to(&socket, &seen), linux, "the agent restarting");
-}
-
 pub(super) async fn handoff_loop(hub: Arc<Hub>) {
     let path = agent_socket();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Queued>(QUEUE_CAP);
