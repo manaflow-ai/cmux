@@ -55,7 +55,8 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
               AcpmuxSecretKey.canonicalDigest(request) == input.requestDigest,
               let normalized = AcpmuxPermissionPrompt.question(request),
               let harness = normalized["harness"] as? String, ["claude", "chief", "codex"].contains(harness),
-              let items = normalized["items"] as? [[String: Any]],
+              // Entries that are not objects are skipped, as acpmux skips them.
+              let items = (normalized["items"] as? [Any])?.compactMap({ $0 as? [String: Any] }),
               (1...AcpmuxPaneMethods.maximumAnswerItems).contains(items.count) else { throw .question }
         // Entries that are not objects are skipped, as acpmux and the question card skip them.
         guard let options = (request["options"] as? [Any])?.compactMap({ $0 as? [String: Any] }),
@@ -94,7 +95,10 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
             guard let allowsOther = boolean(item["allowsOther"], default: true),
                   let multiSelect = boolean(item["multiSelect"], default: false) else { return false }
             // A Claude prompt may be empty: the card keys its answer by it as given, as acpmux reads it.
-            guard let key = item[codex ? "id" : "prompt"] as? String, !codex || !key.isEmpty,
+            // A Codex id is matched trimmed by acpmux, so only its trimmed form answers it.
+            guard let raw = item[codex ? "id" : "prompt"] as? String,
+                  case let key = codex ? raw.trimmingCharacters(in: .whitespacesAndNewlines) : raw,
+                  !codex || !key.isEmpty,
                   key.utf8.count <= AcpmuxPaneMethods.maximumAnswerBytes, seen.insert(Data(key.utf8)).inserted,
                   let value = answers.first(where: { equalBytes($0.key, key) })?.value else { return false }
             let labels: [String]
