@@ -4144,9 +4144,9 @@ class OpenHeadFailoverSweepTests(unittest.TestCase):
                     reads = []
 
                     def flaky(run_id, original=original, reads=reads, stuck=stuck):
-                        # The cancel's guard read in cancel_plan() works; every read after the cancel fails.
+                        # The cancel's two guard reads in cancel_plan() work; every read after the cancel fails.
                         reads.append(run_id)
-                        if run_id == stuck["id"] and len([r for r in reads if r == run_id]) > 1:
+                        if run_id == stuck["id"] and len([r for r in reads if r == run_id]) > 2:
                             raise http.client.IncompleteRead(b"")
                         return original(run_id)
                     fake.run = flaky
@@ -4204,8 +4204,8 @@ class OpenHeadFailoverSweepTests(unittest.TestCase):
         self.assertEqual(len(settle), janitor.LOST_SETTLE_READS - 1)
         self.assertLessEqual(janitor.LOST_SETTLE_READS * janitor.LOST_SETTLE_INTERVAL_S, 120)
         reads = [path for method, path in fake.log if method == "GET" and path.endswith(f"/runs/{stuck['id']}")]
-        # The cancel's guard read, then LOST_SETTLE_READS reads for the cancel.
-        self.assertEqual(len(reads), 1 + janitor.LOST_SETTLE_READS)
+        # The cancel's two guard reads (before and after its jobs are read again), then LOST_SETTLE_READS reads.
+        self.assertEqual(len(reads), 2 + janitor.LOST_SETTLE_READS)
 
     def test_a_push_to_the_pr_while_the_cancel_settles_means_no_re_run_of_the_old_head(self):
         # The re-run would replay the old head's event and, through ci.yml's concurrency group, cancel the new
@@ -4359,6 +4359,24 @@ class OpenHeadFailoverSweepTests(unittest.TestCase):
             fake.unreadable_jobs.add(stuck["id"])
             results, failures = janitor.cancel_plan(fake, [candidate], jobs)
             self.assertIn("could not be read again", results[stuck["id"]])
+            self.assertEqual(fake.posts(), [])
+        with self.subTest(case="re-run between the run read and the jobs read"):
+            # The jobs listing is the latest attempt's: a re-run started in between lists jobs whose ids match
+            # nothing in the inventory, which would read as "nothing moved".
+            fake = FakeGitHub({stuck["id"]: dict(stuck)}, {stuck["id"]: [dict(unassigned_job(age=1), run_attempt=2)]})
+            results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+            self.assertEqual(results[stuck["id"]], "skipped (now attempt 2)")
+            self.assertEqual(fake.posts(), [])
+            fake = FakeGitHub({stuck["id"]: dict(stuck)}, jobs)
+            original = fake.jobs
+
+            def jobs_then_rerun(run_id, fake=fake, original=original):
+                listed = original(run_id)
+                fake.runs[run_id]["run_attempt"] += 1
+                return listed
+            fake.jobs = jobs_then_rerun
+            results, failures = janitor.cancel_plan(fake, [candidate], jobs)
+            self.assertEqual(results[stuck["id"]], "skipped (now attempt 2)")
             self.assertEqual(fake.posts(), [])
         with self.subTest(case="still lost"):
             fake = FakeGitHub({stuck["id"]: dict(stuck)}, jobs)
