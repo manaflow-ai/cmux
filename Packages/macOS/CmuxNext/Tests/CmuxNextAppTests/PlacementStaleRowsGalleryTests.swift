@@ -107,7 +107,7 @@ struct PlacementStaleRowsGalleryTests {
         let savedDocument = SidebarDocStore.current
         SidebarDocStore.current = nil // This fixture advertises personal order only, as the regression does.
         defer { SidebarDocStore.current = savedDocument }
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", daemonScript, mixed ? "1" : "0"])
+        let bridge = DaemonBridge.fakePython(["-c", daemonScript, mixed ? "1" : "0"])
         let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-placement-gallery-\(UUID().uuidString).sock", bridge: bridge),
                                           configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
         do {

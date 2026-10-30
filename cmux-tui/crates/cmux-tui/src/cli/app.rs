@@ -60,6 +60,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
     "keybinding",
     "ghostty",
     "errors",
+    "team",
 ];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
@@ -71,11 +72,13 @@ pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// `errors.list` reads the app's logs first (the app bounds it at 12 s).
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
 /// A run that waits for a person's answer in the app (an agent's cookie
-/// import shows a consent panel, then macOS asks for a password): the app
+/// import shows a consent panel, then macOS asks for a password; every team
+/// invite shows a confirmation): the app
 /// bounds it at 200 s (`ActionDescriptor.personDeadline`).
 pub(super) const PERSON_RUN_TIMEOUT: Duration = Duration::from_secs(210);
 /// The CLI names of the actions that wait for a person (`waits_for_person`).
-const PERSON_ACTIONS: &[&str] = &["browser import-cookies", "browser.importCookies"];
+const PERSON_ACTIONS: &[&str] =
+    &["browser import-cookies", "browser.importCookies", "team invite", "team.invite"];
 
 /// How long the CLI or `cmux mcp` waits for a waiting `action.run` of `action`.
 pub(in crate::cli) fn waiting_run_timeout(action: &str) -> Duration {

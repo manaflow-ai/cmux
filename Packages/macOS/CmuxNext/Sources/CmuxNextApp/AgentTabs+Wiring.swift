@@ -114,6 +114,10 @@ extension AgentTabStore {
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
         tabs.launchImages = services.launchImages
         tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
+        tabs.chiefFace = { [weak services, weak tabs] chief in
+            guard let services, let avatars = tabs?.agentAvatars else { return [:] }
+            return await services.home.agentPageFace(of: chief, avatars: avatars)
+        }
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
@@ -267,16 +271,16 @@ extension AgentTabStore {
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
+            host.linksHost = AgentTabStore.registryHost(of: daemon)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
                 services.cloud.auth.isSignedIn && services.cloud.configuration.linkSource == .legacy
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
-            // it is sent, through any daemon (an app-server link has none: no owner word).
-            let cloudLink: CloudMachineLink?? = services.machines.session(daemon.machineID).map(\.link)
-            let ownerLink = cloudLink.map { link -> AgentSessionAttachClient.OwnerLink in { await link?.ownerLink } }
+            // it is sent, through any daemon (the legacy link's or the app link's own answer).
+            let ownerLink = services.machines.session(daemon.machineID).map { AgentTabRemoteHost.ownerLink(appLink: $0.appLink, link: $0.link) }
             host.ownerLink = ownerLink
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
@@ -387,6 +391,7 @@ extension AgentTabStore {
             self?.agentAvatars?.remove(session)
             self?.agentAvatarChanged(session)
         }
+        model.onChiefFace = { [weak self] chief in await self?.chiefFace?(chief) ?? [:] }
     }
 
     /// Every agent page (tabs and standalone chats) asks for session `session`'s avatar again: a
