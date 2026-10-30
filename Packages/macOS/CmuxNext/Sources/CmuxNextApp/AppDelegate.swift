@@ -191,7 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts, let services {
                 Task { @MainActor in
                     await RecoveryNotice.show(store: drafts, in: window)
-                    await services.agentPaneStateLoss.showNotices(in: window, pairedSealCleared: services.iphone.pairedSealClearedForCutOff)
+                    await services.agentPaneStateLoss.showNotices(in: window, pairedSealCleared: { await services.iphone.pairedSealClearedForCutOff() })
                 }
             }
             CATransaction.setCompletionBlock { [weak self] in

@@ -193,13 +193,13 @@ public final class MobileHostPairedDevicesFile: Sendable {
     /// - Parameters:
     ///   - lastQuitCutOff: Whether the last quit's record names this file as cut off (asked on the
     ///     file's queue): it fails closed also when its marker could not be written.
-    ///   - writeMarker: Writes the marker at a quit deadline (default: an atomic empty file).
+    ///   - writeMarker: Writes the marker at a quit deadline (nil: an atomic empty file).
     public init(directory: URL, seal: any MobileHostPairingSealStore, lastQuitCutOff: @escaping @Sendable () -> Bool = { false },
-                writeMarker: @escaping @Sendable (URL) throws -> Void = { try Data().blockingWrite(to: $0, options: .atomic) }) {
+                writeMarker: (@Sendable (URL) throws -> Void)? = nil) {
         file = directory.appendingPathComponent(Self.fileName, isDirectory: false)
         cutOffMarker = directory.appendingPathComponent("paired-devices.cut-off", isDirectory: false)
         self.seal = seal
-        self.writeMarker = writeMarker
+        self.writeMarker = writeMarker ?? { try Data().blockingWrite(to: $0, options: .atomic) }
         queue.async { [self] in distrustIfCutOff(recorded: lastQuitCutOff()) }
     }
 
