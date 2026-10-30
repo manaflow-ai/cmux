@@ -224,6 +224,7 @@ import QuartzCore
         model.showsLocalMachine = host.model.showsLocalMachine
         model.groupHeaderDetails = host.model.groupHeaderDetails
         model.activeWorkspaceID = host.model.activeWorkspaceID
+        model.newWorkspaceShortcut = host.model.newWorkspaceShortcut // an empty space's hint names the effective shortcut
         container.frame = page.frame
         container.wantsLayer = true
         container.layer?.masksToBounds = true
