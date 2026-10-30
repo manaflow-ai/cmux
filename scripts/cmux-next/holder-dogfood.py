@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """GUI dogfood of the terminal holder model (perf lead, holder item 4), and its process and memory A/B.
 
-Launches a tagged Debug app with `CMUX_TUI_TERMINAL_HOST_MODEL=<model>` (bench_launch.py), then:
+Launches a tagged Debug app with `CMUX_NEXT_TUI_TERMINAL_HOST_MODEL=<model>` (bench_launch.py; the app strips
+inherited `CMUX_TUI_*` names and passes this knob to its daemon as `CMUX_TUI_TERMINAL_HOST_MODEL`,
+DaemonDiagnosticKnobs), then:
 
   light    the start session plus 3 new workspaces: terminal processes and RSS per terminal;
   stress   the STRESS session (perf-stress-session.py: 60 workspaces, 12-14 panes x 6 tabs, 10 busy
@@ -13,7 +15,8 @@ Launches a tagged Debug app with `CMUX_TUI_TERMINAL_HOST_MODEL=<model>` (bench_l
            Allow) into `head -c N | wc -c`: the program gets every byte;
   holder   SIGKILL of the holder while the app runs (holder model only): every shell lives, the busy
            terminals keep printing, input and new terminals work, a new holder runs;
-  relaunch quit the app (sessions kept) and launch it again: every terminal is back with its screen.
+  relaunch quit the app (quitKeepSessions) and launch it again on its saved session: every terminal is back
+           with its screen.
 
 Terminal state is read through the tag daemon's own socket (`--socket` of its headless cmux-tui, the
 commands the cmux-tui tests use: read-screen, send, terminal-resources, list-workspaces); app actions
@@ -206,12 +209,12 @@ class Dogfood:
             self.failed.append(name)
         return ok
 
-    def launch(self):
+    def launch(self, fresh=True):
         # Each model's run gets its own daemon state (sessions, terminal hosts): the run before it
         # (or another step's run of this tag) must not restore its terminals into this one's count.
-        # A relaunch within the run keeps it.
-        env = {"CMUX_TUI_TERMINAL_HOST_MODEL": self.opts.model, "CMUX_TUI_STATE_DIR": self.state_dir}
-        self.app = BenchApp(self.opts.app, out=self.opts.out, env=env, teardown=False)
+        # A relaunch within the run keeps it (`fresh=False`: BenchApp leaves the tag's saved session).
+        env = launch_env(self.opts.model, self.state_dir)
+        self.app = BenchApp(self.opts.app, out=self.opts.out, env=env, teardown=False, fresh_state=fresh)
         self.app.launch()
         self.daemon = wait(lambda: Daemon(self.opts.app), 60)
         if not isinstance(self.daemon, Daemon):
@@ -249,6 +252,8 @@ class Dogfood:
 
     # -- steps ---------------------------------------------------------------------------------
     def light(self):
+        """The light shape; in the holder model also whether its terminals run on a holder at all (an app
+        whose daemon never got the model runs every terminal on a host: the run measures nothing new)."""
         shown = 0
         for index in range(3):
             surface, _ = self.new_terminal(f"light-{index}", ["/bin/sh", "-c", f"echo light-{index}; exec cat"])
@@ -256,6 +261,9 @@ class Dogfood:
         surfaces = self.daemon.surfaces()
         record = cost("light", self.opts.model, self.daemon, surfaces)
         self.step("light", shown == 3 and record["terminals"] >= 3, terminals=record["terminals"], shown=shown)
+        if self.opts.model == "holder":
+            self.step("holder-model", record["holder_processes"] >= 1,
+                      holder_processes=record["holder_processes"], host_processes=record["host_processes"])
 
     def stress(self):
         stress = load_stress()
@@ -354,16 +362,26 @@ class Dogfood:
                   printing_after=len(still), typed=bool(typed), new_holder=new[:1])
 
     def relaunch(self, markers):
-        self.app.rpc("debug.quit", {}, timeout=10)
+        # Quit and keep the sessions (the terminals and the daemon run on; DebugQuit's quitWith). `debug.quit {}`
+        # only reports the quit sheet: the app ran on and the relaunch stopped at tag-in-use on every run.
+        reply = self.app.rpc("action.run", {"action": QUIT_KEEPING_SESSIONS, "origin": "script"}, timeout=20)
+        # The app may exit before it answers (the socket drops: `unreachable`); only the app's own refusal fails.
+        quit_error = None if isinstance(reply, dict) and reply.get("unreachable") else refusal(reply)
+        # A clean quit exits 0 by itself; a crash ends with a signal (a negative status) or another nonzero code.
         try:
-            self.app.process.wait(30)
+            status = self.app.process.wait(30)
         except Exception:  # noqa: BLE001 - the app this script started, by its pid
+            status = None
             self.app.process.terminate()
+            self.app.process.wait(15)
+        exited = status == 0
         daemon_pid = self.daemon.pid
-        self.launch()
+        self.launch(fresh=False)
         same_daemon = self.daemon.pid == daemon_pid
         found = {marker: any(marker in self.daemon.screen(s) for s in self.daemon.surfaces()) for marker in markers}
-        self.step("quit-relaunch", all(found.values()), same_daemon=same_daemon, markers=found)
+        # Kept sessions: the app quit (no refusal) and its daemon ran on, so the relaunch attached to the same one.
+        self.step("quit-relaunch", quit_error is None and exited and same_daemon and all(found.values()),
+                  same_daemon=same_daemon, quit_status=status, markers=found, quit_reply=quit_error)
 
     def run(self):
         teardown = TagTeardown(self.opts.app)
@@ -389,6 +407,16 @@ class Dogfood:
                 pass
             teardown.end()
         return 1 if self.failed else 0
+
+
+# Quit, leaving the terminals and the daemon running (DebugQuit `quitWith.keep_sessions`).
+QUIT_KEEPING_SESSIONS = "quitKeepSessions"
+
+
+def launch_env(model, state_dir):
+    """The app's launch environment for `model`: the app knob for the daemon's terminal host model (the app
+    unsets an inherited CMUX_TUI_TERMINAL_HOST_MODEL, LaunchIdentity.inheritedKeys) and the daemon state."""
+    return {"CMUX_NEXT_TUI_TERMINAL_HOST_MODEL": model, "CMUX_TUI_STATE_DIR": state_dir}
 
 
 def refusal(reply):

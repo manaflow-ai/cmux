@@ -6,6 +6,7 @@
 use super::person::{REASON, person_required, valid_key};
 use super::*;
 use crate::stderr::clean_stderr_line;
+use cmux_json::JsonSet as _;
 
 mod preset_bind;
 pub(crate) use preset_bind::StartGrant;
@@ -143,7 +144,7 @@ pub fn mode_person_required(
     };
     let mut data = json!({"reason": REASON, "mode": mode, "preset": preset});
     if local {
-        data["host"] = json!(host);
+        data.set("host", json!(host));
     }
     RpcError::new(-32000, message).with_data(data)
 }

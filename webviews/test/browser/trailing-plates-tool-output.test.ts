@@ -32,8 +32,10 @@ await requireBrowserLane("trailing-plates-tool-output.test.ts", async () => {
       await page.addInitScript(() => {
         localStorage.setItem("cmux.experiments", JSON.stringify({ "hover-actions": "all" }));
       });
+      // The frame emulates its own media (gallery/frame/media.ts): Reduce Motion there too, so the
+      // actions' fade in (transcript-hover-fade.test.ts) has nothing to wait for when they are read.
       await page.goto(
-        `http://127.0.0.1:${port}${galleryFrame("agent-pane.tool-group-overlap", { variant: "mixed", colorScheme: mode })}`,
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.tool-group-overlap", { variant: "mixed", colorScheme: mode, reducedMotion: 1 })}`,
       );
       await page.locator(".cv-tool.is-toggle").first().click();
       await page.locator(".cv-tool.is-toggle").filter({ hasText: "Read coordination.md" }).click();
@@ -45,6 +47,9 @@ await requireBrowserLane("trailing-plates-tool-output.test.ts", async () => {
       // Focus is deterministic in headless CI; :focus-within reveals the same actions without
       // depending on the pointer still being over the output box when styles are sampled.
       await button.focus();
+      // Reduce Motion still runs every transition, for 0.01ms (shared/desktop.css): the reveal's
+      // opacity reads 0 in the frame it starts. Read the actions once it has run.
+      await actions.evaluate((node) => Promise.all(node.getAnimations().map((animation) => animation.finished)));
       const style = await actions.evaluate((node) => {
         const computed = getComputedStyle(node);
         return {

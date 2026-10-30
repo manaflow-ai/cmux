@@ -248,6 +248,12 @@ pub struct SessionMeta {
     /// before the restart, and the wake's log says how long it slept.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub hibernated_ms: u64,
+    /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
+    /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
+    /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),
+    /// and `resolve` follows it there (`hub/locate.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_to: Option<Value>,
     /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the current Claude
     /// conversation: the one that started or forked it. A respawn on another profile (a failover)
     /// resumes only when that profile's store has the conversation, else starts fresh (E1).
@@ -357,6 +363,15 @@ pub struct SessionMeta {
     /// that retry. Never copied to a fork.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub subagent_retry_open: bool,
+    /// The session's own turn cap in ms (`hub/turn_cap.rs`): past it, other agents' messages
+    /// wait for the next turn. 0 turns it off; `None` takes the default its settings give
+    /// (`turn_cap::default_turn_cap_ms`). Set by the person only; never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_cap_ms: Option<u64>,
+    /// The turn the turn cap's notice went into (`hub/turn_cap.rs`), kept so a turn a restart
+    /// adopts gets no second one. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_cap_noticed: Option<String>,
 }
 
 /// Where a session sits in the tree of sessions that started each other
@@ -893,7 +908,14 @@ impl Store for MemoryStore {
                 let end = events.partition_point(|e| e.seq < before);
                 let mut window = Vec::new();
                 let mut lowest = None;
-                for e in events[..end].iter().rev().take_while(|e| e.seq > after).take(WINDOW) {
+                for e in events
+                    .get(..end)
+                    .unwrap_or_default()
+                    .iter()
+                    .rev()
+                    .take_while(|e| e.seq > after)
+                    .take(WINDOW)
+                {
                     lowest = Some(e.seq);
                     if !skip(e.dir.as_bytes(), e.kind.as_bytes()) {
                         window.push(e.clone());

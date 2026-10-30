@@ -208,8 +208,8 @@ pub(super) fn emulate(
         {
             let is_at = x == SETXATTRAT || x == REMOVEXATTRAT;
             let setting = [SYS_setxattr, SYS_lsetxattr, SETXATTRAT].contains(&x);
-            let name =
-                CString::new(copy_path(pid, a[if is_at { 3 } else { 1 }])?).map_err(|_| EINVAL)?;
+            let name = CString::new(copy_path(pid, if is_at { a[3] } else { a[1] })?)
+                .map_err(|_| EINVAL)?;
             let (data, flags) = if x == SETXATTRAT {
                 // Linux xattr_args: aligned u64 value, u32 size, u32 flags.
                 if a[5] < 16 {
@@ -219,12 +219,16 @@ pub(super) fn emulate(
                     return Err(E2BIG);
                 }
                 let data = bytes(pid, a[4], a[5] as usize)?;
-                if data[16..].iter().any(|b| *b != 0) {
+                if data.get(16..).unwrap_or_default().iter().any(|b| *b != 0) {
                     return Err(E2BIG);
                 }
                 let pointer = unsafe { data.as_ptr().cast::<u64>().read_unaligned() };
-                let size = u32::from_ne_bytes(data[8..12].try_into().map_err(|_| EINVAL)?);
-                let flags = i32::from_ne_bytes(data[12..16].try_into().map_err(|_| EINVAL)?);
+                let size = u32::from_ne_bytes(
+                    data.get(8..12).ok_or(EINVAL)?.try_into().map_err(|_| EINVAL)?,
+                );
+                let flags = i32::from_ne_bytes(
+                    data.get(12..16).ok_or(EINVAL)?.try_into().map_err(|_| EINVAL)?,
+                );
                 (Some(bytes(pid, pointer, size as usize)?), flags)
             } else if setting {
                 (Some(bytes(pid, a[2], a[3] as usize)?), a[4] as i32)
@@ -233,7 +237,7 @@ pub(super) fn emulate(
             };
             (
                 if is_at { a[0] as i32 } else { AT_FDCWD },
-                a[usize::from(is_at)],
+                if is_at { a[1] } else { a[0] },
                 if is_at {
                     a[2] as i32
                 } else if x == SYS_lsetxattr || x == SYS_lremovexattr {

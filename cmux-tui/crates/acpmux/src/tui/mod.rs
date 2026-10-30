@@ -11,6 +11,8 @@
 //!   y / n / 1-9  answer permission  Ctrl-q   quit (agents keep running)
 //!   (on a question, y opens the answer flow: digits pick, Enter confirms)
 
+use cmux_json::JsonSet as _;
+
 pub mod actions;
 mod answering;
 mod events;
@@ -501,7 +503,7 @@ impl App {
         tokio::spawn(async move {
             let mut params = json!({"sessionId": id, "limit": 3000});
             if let Some(after) = after_seq {
-                params["afterSeq"] = json!(after);
+                params.set("afterSeq", json!(after));
             }
             match client.request(method::MUX_ATTACH, params).await {
                 Ok(v) => {
