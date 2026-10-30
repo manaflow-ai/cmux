@@ -158,6 +158,9 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
             // flush writes whatever the screen shows.
             state.segment_digest = None;
         }
+        // Segment files go once full mode is off: their stored ends must not
+        // place a terminal's stream later (Full -> other -> Full).
+        store.segment_resume.lock().unwrap_or_else(PoisonError::into_inner).clear();
     }
     let dirty = store.take_dirty();
     let prune_pending = store.prune_pending.swap(false, std::sync::atomic::Ordering::AcqRel);
