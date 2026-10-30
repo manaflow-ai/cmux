@@ -23,6 +23,8 @@ final class SidebarResizeHandle: NSView {
     private var pointerHover: PointerHover?
     private var startX: CGFloat = 0
     private let line = CALayer()
+    /// The accent band on the edge while hovered or dragged (`DividerGlowBand`).
+    let glow = DividerGlowBand()
 
     /// Width of the line at rest (`sidebar.border`); 0 shows it only on
     /// hover or while dragging.
@@ -53,6 +55,7 @@ final class SidebarResizeHandle: NSView {
         wantsLayer = true
         line.opacity = 0
         layer?.addSublayer(line)
+        layer?.addSublayer(glow.layer)
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         setAccessibilityLabel(Strings.resize)
@@ -78,6 +81,7 @@ final class SidebarResizeHandle: NSView {
         let width = lineWidth
         line.frame = CGRect(x: edgeOffset - width / 2, y: 0, width: width, height: bounds.height)
         CATransaction.commit()
+        glow.place(along: line.frame, vertical: true)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -95,6 +99,7 @@ final class SidebarResizeHandle: NSView {
     /// here, and the relayout picks up the width.
     private func applyLineTheme() {
         performWithTheme { line.backgroundColor = Palette.separator.cgColor }
+        glow.applyTheme(self)
         needsLayout = true
     }
 
@@ -115,12 +120,21 @@ final class SidebarResizeHandle: NSView {
         pointerHover?.refresh()
     }
 
+    /// Removed mid-drag: the release never arrives here, so the drag (and its band) ends now.
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        super.viewWillMove(toSuperview: newSuperview)
+        if newSuperview == nil { isDragging = false }
+    }
+
     override func viewDidUnhide() {
         super.viewDidUnhide()
         pointerHover?.refresh()
     }
 
     private func updateLine() {
+        // Hover lights it only where the hairline would show on hover: beside the curved main pane
+        // the card's edge is the seam. A drag lights it everywhere.
+        glow.set(isDragging ? .dragging : isHovered && !Metrics.mainPaneCurved ? .hovered : .rest)
         let target: Float = isLineVisible ? 1 : 0
         guard line.opacity != target else { return }
         Motion.sidebar.set(line, "opacity", to: target, fade: .hover)

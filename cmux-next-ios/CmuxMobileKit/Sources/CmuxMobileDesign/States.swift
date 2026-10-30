@@ -12,6 +12,7 @@ public struct EmptyState: View {
     let primaryTitle: LocalizedStringKey?
     let isPrimaryLoading: Bool
     let primary: (() -> Void)?
+    let retry: (@MainActor () async -> Void)?
     let secondaryTitle: LocalizedStringKey?
     let secondary: (() -> Void)?
 
@@ -22,6 +23,7 @@ public struct EmptyState: View {
         primaryTitle: LocalizedStringKey? = nil,
         isPrimaryLoading: Bool = false,
         primary: (() -> Void)? = nil,
+        retry: (@MainActor () async -> Void)? = nil,
         secondaryTitle: LocalizedStringKey? = nil,
         secondary: (() -> Void)? = nil
     ) {
@@ -31,6 +33,7 @@ public struct EmptyState: View {
         self.primaryTitle = primaryTitle
         self.isPrimaryLoading = isPrimaryLoading
         self.primary = primary
+        self.retry = retry
         self.secondaryTitle = secondaryTitle
         self.secondary = secondary
     }
@@ -56,6 +59,9 @@ public struct EmptyState: View {
             if let primaryTitle, let primary {
                 PrimaryCapsule(primaryTitle, size: .inline, isLoading: isPrimaryLoading, action: primary)
                     .padding(.top, 20)
+            }
+            if let retry {
+                RetryButton(action: retry).padding(.top, 20)
             }
             if let secondaryTitle, let secondary {
                 TextCTA(secondaryTitle, action: secondary)

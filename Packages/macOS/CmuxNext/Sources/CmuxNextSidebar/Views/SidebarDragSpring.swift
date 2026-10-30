@@ -33,7 +33,12 @@ import QuartzCore
     /// The model frames change at once through the animator in a zero-length group, which also stops a
     /// move AppKit still runs on a view (a plain set does not, and AppKit would write over it). Nothing
     /// is left to run on the main thread per frame; the springs end on their own (`settlingTime`).
-    static func move<View: NSView>(_ moves: [(View, NSRect)], in host: NSView) {
+    /// `token`: the spring (`.move`, or a new row's `SidebarInsertMotion.token`). `travel`: when set, each view's edges
+    /// are drawn at most that many points from where they end (`SidebarInsertMotion.cap`), so a new row at the top moves
+    /// the rows below it by the nudge, not a row height; 0 moves nothing (the frames land at once). The cap holds for
+    /// what is drawn, not for each spring: the offset this batch's springs still carry (an insert 30 ms before) counts
+    /// toward it, and those springs give way to one that starts there, so two quick inserts never stack two nudges.
+    static func move<View: NSView>(_ moves: [(View, NSRect)], in host: NSView, _ token: MotionSpring = .move, travel: CGFloat? = nil) {
         // Out of a window nothing draws a spring (and none would end), and with movement off nothing moves: the
         // frames land at once, and a spring an earlier move left on any of these views ends with them (it would
         // keep carrying its offset over the frame, and keep the next snap from showing).
@@ -45,12 +50,28 @@ import QuartzCore
         }
         let moving = moves.filter { $0.0.frame != $0.1 }
         guard !moving.isEmpty else { return }
-        let starts = moving.map { view, _ in view.layer.map(start(of:)) }
+        // Where each view is drawn now: its model geometry, plus (under a cap) what this batch's springs still carry.
+        let sampled = CACurrentMediaTime()
+        let starts = moving.map { view, _ in
+            view.layer.map { layer in
+                let start = start(of: layer)
+                guard travel != nil else { return start }
+                let carried = inFlight(on: layer, at: sampled)
+                return (CGPoint(x: start.0.x + carried.0.x, y: start.0.y + carried.0.y),
+                        CGSize(width: start.1.width + carried.1.width, height: start.1.height + carried.1.height))
+            }
+        }
         Motion.withoutAnimation { for (view, frame) in moving { view.animator().frame = frame } }
+        // The springs start after the frame update, which can take a while at many rows, so none begins already advanced.
         let now = CACurrentMediaTime()
         for ((view, _), start) in zip(moving, starts) {
-            guard let layer = view.layer, let start else { continue }
-            addDelta(to: layer, position: start.0, size: start.1, now: now, key: batchKey)
+            guard let layer = view.layer, var start else { continue }
+            if let travel {
+                // One spring from where the view is drawn, capped, replaces the ones that carried it there.
+                stop([view])
+                start = capped(start, of: layer, travel: travel)
+            }
+            addDelta(to: layer, position: start.0, size: start.1, now: now, key: batchKey, token)
         }
     }
 
@@ -98,9 +119,40 @@ import QuartzCore
         return (shown.position, shown.bounds.size)
     }
 
-    /// `now`: the media time the spring starts at (one for a batch, `move(_:in:)`); `key`: the springs' key prefix.
+    /// The offset this batch's springs (`batchKey`) still add to `layer`'s position and size at media time `now`.
+    private static func inFlight(on layer: CALayer, at now: CFTimeInterval) -> (CGPoint, CGSize) {
+        var position = CGPoint.zero, size = CGSize.zero
+        let local = layer.convertTime(now, from: nil)
+        for key in layer.animationKeys() ?? [] where key.hasPrefix("\(batchKey).") {
+            guard let spring = layer.animation(forKey: key) as? CASpringAnimation, spring.isAdditive,
+                  let from = spring.fromValue as? NSValue else { continue }
+            let left = 1 - MotionPath.springProgress(spring, at: local - spring.beginTime)
+            if spring.keyPath == "position" {
+                position.x += from.pointValue.x * left
+                position.y += from.pointValue.y * left
+            } else if spring.keyPath == "bounds.size" {
+                size.width += from.sizeValue.width * left
+                size.height += from.sizeValue.height * left
+            }
+        }
+        return (position, size)
+    }
+
+    /// The start `start` (a layer's position and size) with each edge within `travel` points of the layer's model
+    /// geometry, its destination (`SidebarInsertMotion.cap`).
+    private static func capped(_ start: (CGPoint, CGSize), of layer: CALayer, travel: CGFloat) -> (CGPoint, CGSize) {
+        let anchor = layer.anchorPoint
+        func rect(_ position: CGPoint, _ size: CGSize) -> CGRect {
+            CGRect(x: position.x - anchor.x * size.width, y: position.y - anchor.y * size.height, width: size.width, height: size.height)
+        }
+        let near = SidebarInsertMotion.cap(rect(start.0, start.1), toward: rect(layer.position, layer.bounds.size), travel: travel)
+        return (CGPoint(x: near.minX + anchor.x * near.width, y: near.minY + anchor.y * near.height), near.size)
+    }
+
+    /// `now`: the media time the spring starts at (one for a batch, `move(_:in:)`); `key`: the springs' key prefix;
+    /// `token`: their spring.
     private static func addDelta(to layer: CALayer, position: CGPoint, size: CGSize, now: CFTimeInterval = CACurrentMediaTime(),
-                                 key: String = "drag") {
+                                 key: String = "drag", _ token: MotionSpring = .move) {
         serial &+= 1
         // The spring starts now, when it is added, not at the start of this run-loop turn: after a long main-thread
         // update in the same turn (a drag's first move builds its hit geometry, ~30 ms at 1,000 rows) the first frame
@@ -108,16 +160,20 @@ import QuartzCore
         let begin = layer.convertTime(now, from: nil)
         let dp = CGPoint(x: position.x - layer.position.x, y: position.y - layer.position.y)
         let ds = CGSize(width: size.width - layer.bounds.width, height: size.height - layer.bounds.height)
+        // The model is already at the destination. A compositor sample before the explicit
+        // begin time must carry the starting delta too, or it flashes the destination first.
         if dp != .zero {
-            let animation = Motion.sidebar.springAnimation(.move, "position", from: NSValue(point: dp), to: NSValue(point: .zero))
+            let animation = Motion.sidebar.springAnimation(token, "position", from: NSValue(point: dp), to: NSValue(point: .zero))
             animation.isAdditive = true
             animation.beginTime = begin
+            animation.fillMode = .backwards
             layer.add(animation, forKey: "\(key).position.\(serial)")
         }
         if ds != .zero {
-            let animation = Motion.sidebar.springAnimation(.move, "bounds.size", from: NSValue(size: ds), to: NSValue(size: .zero))
+            let animation = Motion.sidebar.springAnimation(token, "bounds.size", from: NSValue(size: ds), to: NSValue(size: .zero))
             animation.isAdditive = true
             animation.beginTime = begin
+            animation.fillMode = .backwards
             layer.add(animation, forKey: "\(key).size.\(serial)")
         }
     }
