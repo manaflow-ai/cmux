@@ -40,7 +40,7 @@ async fn a_conditional_stop_refuses_an_unadopted_host_and_a_plain_stop_still_end
 /// hide runs on.
 #[tokio::test]
 async fn a_conditional_stop_refuses_while_the_host_records_cannot_be_read() {
-    let flag = std::env::temp_dir().join(format!("amd-ifidlerec-{}", std::process::id()));
+    let flag = std::env::temp_dir().join(format!("amd-ifidle-records-flag-{}", std::process::id()));
     let flag_env = flag.to_string_lossy().into_owned();
     let env = [("ACPMUX_TEST_HOST_RECORDS_FAIL_FILE", flag_env.as_str())];
     let mut daemon = Daemon::with_env("ifidlerec", "approve-all", &env);
