@@ -536,7 +536,10 @@ function TurnFailure({
   // only way out; the card keeps exactly one.
   const codeRouter = useCodeRouterChoice(kind, route, retry !== undefined);
   const offerArm = experimentArm(codeRouterOffer);
-  const offerLeads = codeRouter !== undefined && offerArm === "primary";
+  // Never ahead of Sign in again: moving the chat (and retrying it there) before the person has signed
+  // in is not the way out the card leads with; in that case it follows the others, outlined.
+  const offerLeads = codeRouter !== undefined && offerArm === "primary" && !signInFirst;
+  const offerTrails = codeRouter !== undefined && (offerArm === "button" || (offerArm === "primary" && signInFirst));
   // CodeRouter's button fills only when it is the card's only way out: not beside Switch model, Retry,
   // Sign in again or Compact, which each lead.
   const offerFilled =
@@ -613,7 +616,7 @@ function TurnFailure({
           </button>
         )}
         {!switchFirst && switchButton}
-        {codeRouter && offerArm === "button" && (
+        {offerTrails && (
           <CodeRouterAction
             choice={codeRouter}
             retry={retry}
