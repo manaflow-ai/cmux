@@ -1066,9 +1066,15 @@ export function Composer({
     const draftText = unwrapped();
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
-    const placed = placeInline((field.current?.agentText(draftText) ?? draftText).trim(), attachments, {
+    const inText = placeInline((field.current?.agentText(draftText) ?? draftText).trim(), attachments, {
       dropped: (id) => pending.some((chip) => chip.id === id),
     });
+    // A slash command reads from the words' start, wherever the attachments sit: it goes first and
+    // its attachments after it, as from the strip, so the command and the host both still see it.
+    const words = withoutInlineTokens(inText.text, (id) => attachments.some((chip) => chip.id === id)).trim();
+    const placed = words.startsWith("/")
+      ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
+      : inText;
     const prompt = placed.text;
     const command = composerCommand(prompt, snapshot.summary?.harness, attachments.length);
     let owned = command?.kind === "cmux" ? command.command : undefined;
