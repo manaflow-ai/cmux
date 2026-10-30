@@ -179,7 +179,9 @@ final class CloudMachineSession {
             // The resume's refresh connects a record that turned live; a
             // refresh that failed leaves the record paused, so connect here.
             guard !disconnected, !machine.status.isLive else { return }
-            machine.status = .running
+            // Keep the raw record paused until reconciliation supplies the live record. The
+            // resume mutation may still be pending, and connect() must not be blocked by a
+            // synthetic running status that makes the later paused -> running edge disappear.
             connect()
         }
     }

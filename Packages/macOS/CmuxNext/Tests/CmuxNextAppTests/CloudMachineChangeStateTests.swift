@@ -105,6 +105,18 @@ struct CloudMachineChangeStateTests {
         session.disconnect()
     }
 
+    @Test func aResumeRefreshFailureKeepsTheRawPausedRecord() async {
+        let session = Self.session(status: .paused)
+        session.resumer = { [session] _ in
+            // CloudService's accepted resume leaves this optimistic status until a list settles it.
+            session.machine.pendingChange = .starting
+        }
+        session.attach()
+        for await resuming in ObservationStream({ session.resuming }) where !resuming { break }
+        #expect(session.machine.status == .paused)
+        session.disconnect()
+    }
+
     // MARK: The record
 
     @Test func everyBackendStatusKeepsItsOwnState() throws {
