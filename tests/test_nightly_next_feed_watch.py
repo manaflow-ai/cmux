@@ -200,6 +200,62 @@ class Response:
         return False
 
 
+class PartialOutageTests(unittest.TestCase):
+    """Helpers that swallow their own read failures (published_commit, ref_commit,
+    started) still make the run release health unknown once a read used every
+    retry: a failed tip-time read could otherwise let the guard call a stale feed fresh."""
+
+    def main_with(self, failing, guard):
+        def urlopen(request, timeout=None):
+            if any(fragment in request.full_url for fragment in failing):
+                raise urllib.error.HTTPError(request.full_url, 502, "Bad Gateway", {}, None)
+            if "/git/ref/heads/" in request.full_url:
+                return Response(json.dumps({"object": {"sha": "b" * 40}}).encode())
+            if "/releases/tags/" in request.full_url:
+                return Response(b'{"body": ""}')
+            return Response(b"{}")
+        stage = watch.Stage(False, 0.1, NOW, "Nothing waits.")
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = Path(tmp) / "summary.md"
+            with unittest.mock.patch.object(watch, "fetch_feed", lambda url: NEWEST_FEED), \
+                    unittest.mock.patch.object(watch.urllib.request, "urlopen", urlopen), \
+                    unittest.mock.patch("time.sleep"), \
+                    unittest.mock.patch.object(watch, "legacy_lag", lambda *a: (None, "current")), \
+                    unittest.mock.patch.object(watch, "oldest_waiting_push", lambda gh, sha, newest: None), \
+                    unittest.mock.patch.object(watch, "assess", lambda *a, **k: stage), \
+                    unittest.mock.patch.object(watch.GitHub, "runs", lambda self, *a, **k: []), \
+                    unittest.mock.patch.object(watch, "sync_issue", lambda *a: "synced"), \
+                    unittest.mock.patch.object(watch, "starvation_dispatch", lambda gh, *a, **k: guard(gh)), \
+                    unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t", "GITHUB_STEP_SUMMARY": str(summary)}), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                code = watch.main(["--repo", "o/r", "--dry-run"])
+            return code, summary.read_text() if summary.exists() else ""
+
+    def test_every_read_answering_is_healthy(self):
+        self.assertEqual(self.main_with([], lambda gh: "fresh"), (0, ""))
+
+    def test_an_exhausted_release_marker_read_is_unknown(self):
+        code, summary = self.main_with(["/releases/tags/nightly-next"], lambda gh: "fresh")
+        self.assertEqual(code, watch.RELEASE_HEALTH_UNKNOWN)
+        self.assertIn("/releases/tags/nightly-next", summary)
+
+    def test_an_exhausted_tip_time_read_is_unknown(self):
+        def guard(gh):
+            self.assertEqual(gh.ref_commit("feat-cmux-next"), ("b" * 40, None))
+            return "fresh"
+        code, summary = self.main_with(["/commits/"], guard)
+        self.assertEqual(code, watch.RELEASE_HEALTH_UNKNOWN)
+        self.assertIn("/commits/", summary)
+
+    def test_an_exhausted_job_read_is_unknown(self):
+        def guard(gh):
+            self.assertTrue(watch.started(gh, {"id": 9, "status": "queued"}, NOW))  # fails closed
+            return "running"
+        code, summary = self.main_with(["/actions/runs/9/jobs"], guard)
+        self.assertEqual(code, watch.RELEASE_HEALTH_UNKNOWN)
+        self.assertIn("/actions/runs/9/jobs", summary)
+
+
 class RetryTests(unittest.TestCase):
     """GitHub reads retry a transient failure a bounded number of times."""
 
