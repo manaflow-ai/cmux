@@ -255,7 +255,7 @@ function InboxRow({
         <span className="acpmux-home-inbox-text">
           <span className="acpmux-home-inbox-ask">{ask}</span>
           {item.detail && (
-            <span className="acpmux-home-inbox-detail" data-code={item.command ? "" : undefined}>
+            <span className="acpmux-home-inbox-detail" data-code={item.command ? "" : undefined} title={item.detail}>
               {item.detail}
             </span>
           )}
