@@ -218,8 +218,11 @@ export const githubRepos = async (
       // A 401 on the mint is GitHub refusing the App's own JWT, not the installation (as on the token path).
       const r = await githubRefusal(refusal, Date.now(), !("mint" in listed))
       if (r.kind === "relink") {
-        // Recorded on the connection, so /status shows the relink and later asks stop minting for it.
-        h.needsReauth(connection, r.detail)
+        // Recorded on the connection, so /status shows the relink and later asks stop minting for it;
+        // only while it is the version this listing started from: a relink that landed while GitHub
+        // answered is not undone by this stale refusal.
+        const now = h.state().connections[connection.id]
+        if (now?.status === "active" && now.updated_at === connection.updated_at && now.account?.key === connection.account?.key) h.needsReauth(connection, r.detail)
         return fail(409, "needs_reauth", "the GitHub App installation is gone or suspended; link GitHub again")
       }
       if (r.kind === "rate") return fail(429, "rate_limited", "GitHub is rate limiting this installation", r.retry)
