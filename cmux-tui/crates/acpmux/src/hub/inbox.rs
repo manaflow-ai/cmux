@@ -450,7 +450,7 @@ impl Hub {
         let text = prompt_text(blocks);
         let thread = thread_key(explicit, sender, &text);
         let (tx, mut rx) = tokio::sync::watch::channel(None);
-        let mut resent: Option<(Option<super::queue::Answer>, Option<String>)> = None;
+        let mut resent: Option<Option<super::queue::Answer>> = None;
         let mut withdrawn = false;
         let mut from_log = false;
         let fresh = {
@@ -487,7 +487,7 @@ impl Hub {
                     // answered with that notice's answer, as a resend of a logged prompt is
                     // (`logged_prompt`).
                     Some(item) => {
-                        resent = Some((item.answered.clone(), item.notice.clone()));
+                        resent = Some(item.answered.clone());
                         false
                     }
                     None => {
@@ -513,13 +513,11 @@ impl Hub {
             }
         };
         if from_log {
-            let logged = self.logged_inbox(session, prompt_id);
-            let mut done = logged.unwrap_or_else(|| json!({"stopReason": "end_turn"}));
-            merge_mux_meta(&mut done, json!({"duplicate": true, "noticed": true}));
+            let answer = self.logged_inbox_answer(session, prompt_id);
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "queued": false, "inbox": true, "duplicate": true}),
             );
-            return Ok(done);
+            return answer.unwrap_or_else(|| Ok(interrupted(prompt_id)));
         }
         if withdrawn {
             accept(
@@ -527,13 +525,10 @@ impl Hub {
             );
             return Ok(super::queue::withdrawn_reply(prompt_id, ""));
         }
-        if let Some((answered, notice)) = resent {
-            let answer = match answered {
-                Some(answer) => answer,
-                None => Ok(notice
-                    .and_then(|id| self.logged_prompt(session, &id))
-                    .unwrap_or_else(|| json!({"stopReason": "end_turn"}))),
-            };
+        if let Some(answered) = resent {
+            // Noticed, carried by no notice now and with no answer: a notice of the daemon before
+            // a restart carried it and never ended, as `logged_inbox` answers.
+            let answer = answered.unwrap_or_else(|| Ok(interrupted(prompt_id)));
             let answer = answer.map(|mut done| {
                 merge_mux_meta(&mut done, json!({"duplicate": true, "noticed": true}));
                 done
@@ -980,11 +975,27 @@ impl Hub {
         }
     }
 
-    /// A resent inbox message the log holds (`logged_prompt`): withdrawn, its notice's answer,
-    /// or `interrupted` when a notice carried it and the daemon stopped before it ended. None
-    /// while the inbox still holds it unanswered (`inbox_accept` answers then), or when the log
-    /// has no such message.
+    /// A resent inbox message the log holds (`logged_prompt`), as the prompt ledger answers a
+    /// logged prompt: [`Hub::logged_inbox_answer`], a failure as `status: "failed"`.
     pub(super) fn logged_inbox(&self, session: &Session, prompt_id: &str) -> Option<Value> {
+        Some(match self.logged_inbox_answer(session, prompt_id)? {
+            Ok(v) => v,
+            Err(e) => json!({
+                "stopReason": Value::Null,
+                "_meta": {"acpmux": {"promptId": prompt_id, "inbox": true, "duplicate": true, "status": "failed", "error": e}},
+            }),
+        })
+    }
+
+    /// The answer of a resent inbox message the log holds: withdrawn, its notice's answer (an
+    /// error too), or `interrupted` when a notice carried it and the daemon stopped before it
+    /// ended. None while the inbox still holds it unanswered (`inbox_accept` answers then), or
+    /// when the log has no such message.
+    pub(super) fn logged_inbox_answer(
+        &self,
+        session: &Session,
+        prompt_id: &str,
+    ) -> Option<super::queue::Answer> {
         let names = |m: &Value| {
             let ids = m.get("promptIds").and_then(Value::as_array);
             ids.is_some_and(|ids| ids.iter().any(|v| v.as_str() == Some(prompt_id)))
@@ -1007,27 +1018,20 @@ impl Hub {
             return None;
         }
         if removed {
-            return Some(super::queue::withdrawn_reply(prompt_id, ""));
+            return Some(Ok(super::queue::withdrawn_reply(prompt_id, "")));
         }
         let meta = json!({"promptId": prompt_id, "inbox": true, "duplicate": true});
         match answer {
-            Some(Ok(mut v)) => {
+            Some(answer) => Some(answer.map(|mut v| {
                 merge_mux_meta(&mut v, meta);
-                Some(v)
-            }
-            Some(Err(e)) => Some(json!({
-                "stopReason": Value::Null,
-                "_meta": {"acpmux": {"promptId": prompt_id, "inbox": true, "duplicate": true, "status": "failed", "error": e}},
+                v
             })),
             None => {
                 let held = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
                 if !noticed || held.items.iter().any(|i| i.prompt_id == prompt_id) {
                     return None;
                 }
-                Some(json!({
-                    "stopReason": Value::Null,
-                    "_meta": {"acpmux": {"promptId": prompt_id, "inbox": true, "duplicate": true, "status": "interrupted"}},
-                }))
+                Some(Ok(interrupted(prompt_id)))
             }
         }
     }
@@ -1150,6 +1154,15 @@ impl Hub {
             json!({"sessionId": target.id, "promptId": prompt_id, "threadId": key, "accepted": accepted}),
         )
     }
+}
+
+/// The answer of an inbox message whose notice went in under a daemon that stopped before it
+/// ended.
+fn interrupted(prompt_id: &str) -> Value {
+    json!({
+        "stopReason": Value::Null,
+        "_meta": {"acpmux": {"promptId": prompt_id, "inbox": true, "duplicate": true, "status": "interrupted"}},
+    })
 }
 
 /// An `inbox_answered` record's notice and answer.
