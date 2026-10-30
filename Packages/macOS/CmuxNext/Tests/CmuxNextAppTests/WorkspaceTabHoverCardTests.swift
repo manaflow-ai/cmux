@@ -7,6 +7,7 @@ import Testing
 @MainActor
 private final class HoverInteractionBody: NSView, HoverCardInteractiveBody {
     var keys: [UInt16] = []
+    func acceptsHoverCardMouse(at screenPoint: CGPoint, in panel: NSWindow) -> Bool { true }
     override var intrinsicContentSize: NSSize { NSSize(width: 140, height: 72) }
     func handleHoverCardKeyDown(_ event: NSEvent) -> Bool {
         guard event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty else { return false }
@@ -89,7 +90,7 @@ struct WorkspaceTabHoverCardTests {
         card.configure(WorkspaceHoverCardContent(title: "Project", icon: .terminal,
                        facts: [.init(icon: .folder, text: "Keep this detail", kind: "folder")]))
         card.tabList.configure(title: "project", tabs: [SidebarTab(id: TabID("tab"), title: "Tab")])
-        #expect(card.lines.contains("Tab"))
+        #expect(card.lines.contains { $0.hasPrefix("Tab") })
         #expect(!card.lines.contains("Keep this detail"))
         #expect(!card.isDetailsExpanded)
         card.detailsToggle.performClick(nil)

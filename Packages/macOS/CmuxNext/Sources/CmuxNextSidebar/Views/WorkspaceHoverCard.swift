@@ -340,7 +340,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// The shown status word, before its elapsed time.
     private var activityWord: String?
 
-    init(tabPlacement: TabPlacement = .afterStatus, tabLimit: Int = 4, tabDetails: Bool = true) {
+    init(tabPlacement: TabPlacement = .afterTitle, tabLimit: Int = 4, tabDetails: Bool = true) {
         self.tabPlacement = tabPlacement
         tabList = WorkspaceTabHoverCardView(rowHeight: tabDetails ? 36 : 26, rowLimit: tabLimit, showsFolder: tabDetails)
         super.init(frame: .zero)
@@ -450,7 +450,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
             .filter { !$0.isEmpty }.joined(separator: " ")]
         if !activityRow.isHidden { lines.append(activityLabel.stringValue) }
         if !statsRow.isHidden { lines.append(statsLabel.stringValue) }
-        lines += factViews.filter { !$0.isHidden }.map(\.shownText)
+        if !factsStack.isHidden { lines += factViews.filter { !$0.isHidden }.map(\.shownText) }
         if !timeline.isHidden { lines += timeline.lines }
         if !resourceRow.isHidden { lines.append(resourceRow.shownText) }
         if !customError.isHidden { lines.append(customError.stringValue) }
@@ -543,10 +543,11 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     func acceptsHoverCardMouse(at screenPoint: CGPoint, in panel: NSWindow) -> Bool {
-        let point = convert(panel.convertPoint(fromScreen: screenPoint), from: nil)
+        let point = superview?.convert(panel.convertPoint(fromScreen: screenPoint), from: nil) ?? .zero
         var hit = hitTest(point)
         while let view = hit {
-            if view === detailsToggle || view is WorkspaceTabHoverCardRow { return true }
+            if view === detailsToggle || view is WorkspaceTabHoverCardRow || view is NSControl { return true }
+            if view === customSlot, detailsExpanded { return true }
             hit = view.superview
         }
         return false
@@ -573,6 +574,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         }
         // The card always has status/details available for this workspace; keep
         // the control visible while collapsed so one click reveals them.
+        ageLabel.isHidden = !detailsExpanded || content?.age == nil
         detailsToggle.isHidden = content == nil
     }
 
@@ -666,7 +668,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         let row = WorkspaceHoverCardContent.resourceRow(report, history: cpuHistory)
         resourceShown = row != nil
         if let row { resourceRow.configure(row, image: NSImage.icon(.serverHealth, size: Self.iconSize)) }
-        resourceRow.isHidden = row == nil || !customSlot.isHidden
+        updateDetailsVisibility()
     }
 
     /// The card left its workspace: the next one's bars start empty.
@@ -695,6 +697,7 @@ extension WorkspaceHoverCardView {
     func applyColors() {
         tabList.applyColors()
         performWithTheme {
+            detailsToggle.contentTintColor = Palette.textSecondary
             titleLabel.textColor = Palette.textPrimary
             ageLabel.textColor = Palette.textSecondary
             activityLabel.textColor = Palette.textPrimary
