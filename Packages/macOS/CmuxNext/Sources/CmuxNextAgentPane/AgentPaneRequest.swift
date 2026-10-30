@@ -118,6 +118,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setAgentAvatar(String)
     /// `agent.avatar.remove {sessionId}`: Remove Avatar: the session's harness mark again.
     case removeAgentAvatar(String)
+    /// `chief.face {chief}`: the name and avatar Chief `chief` (a participant id, `agent_mux` or
+    /// `agent_…`) shows in the sidebar and Home, for a message it sent this chat (acpmux
+    /// `fromChief`, manaflow-ai/cmux#27914): `name`, and `src` (a small data URL) or `text`.
+    case chiefFace(String)
     /// `harness.symbol {name}`: a custom harness's SF Symbol icon as a template PNG `data:` URL
     /// (``HarnessSymbolImages``); a name this Mac cannot draw answers nothing.
     case harnessSymbol(String)
@@ -213,6 +217,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
+    /// `dictation.recording.upload {path}`: send a long recording the host gave the page to the
+    /// machine the chat runs on (``AgentPaneDictationUpload``).
+    case dictationRecordingUpload(path: String)
+    /// `dictation.recording.cancel {path}`: the chip's ×; the upload of `path` running now stops.
+    case dictationRecordingCancel(path: String)
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.
     case openFile(path: String, target: AgentPaneFileTarget)

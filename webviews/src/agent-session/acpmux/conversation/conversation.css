@@ -1851,17 +1851,15 @@ pre.cv-math-source {
 .cv-tool.is-strong {
   color: var(--cv-activity-text);
 }
-/* Tool calls are background activity: hover/focus restores the primary tone without changing
-   the row's geometry. */
-.cv-tool:hover,
+/* Tool calls are background activity: focus restores the primary tone without changing the
+   row's geometry. A step row draws nothing more on hover (Leo 2026-10-13, #20330: tool rows
+   "no longer change on hover"; agent-pane-step-rows.test.ts), so only focus lifts it. */
 .cv-tool:focus-within,
 .cv-worked:hover,
 .cv-worked:focus-visible {
   color: var(--cv-text);
 }
-.cv-tool:hover .cv-tool__chevron,
 .cv-tool:focus-within .cv-tool__chevron,
-.cv-tool:hover .cv-tool__detail,
 .cv-tool:focus-within .cv-tool__detail {
   color: var(--cv-text);
 }
@@ -4207,8 +4205,10 @@ a.cv-sha:focus-visible {
 }
 /* A row whose renderer draws nothing (a render update that joined an earlier card, a note whose
    payload never came) takes no room: the 34px floor and the gap under it were a blank band each,
-   between "Worked for" and the reply. The element selector outranks every row-kind padding. */
-article.acpmux-row:empty {
+   between "Worked for" and the reply. The element selector outranks every row-kind padding. Every
+   row holds its gap target (`.acpmux-row__gap`, App.tsx RowFrame), so such a row has no other child
+   rather than none at all (`:empty` stopped matching with #26704). */
+article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   min-height: 0;
   padding-bottom: 0;
 }
@@ -4263,8 +4263,12 @@ article.acpmux-row:empty {
 .cv-user__send-now:hover:not(:disabled) {
   color: var(--cv-text);
 }
-.cv-user__send-now:disabled {
-  opacity: 0.5;
+/* A waiting steer's Send now and X are drawn while it waits, with no hover fade and no dimming while
+   one is asked: they never blink as the turn runs or as the X's take-back is answered (Leo,
+   2026-10-29: "it fucking blinks with the fucking send now text"). */
+.cv-user__actions:has(.cv-user__pending) {
+  opacity: 1;
+  transition: none;
 }
 /* The X that takes a waiting steer back to edit (PendingSteer.tsx): a plain glyph, as muted as
    Send now's text, on the same centred line. */
@@ -4282,8 +4286,10 @@ article.acpmux-row:empty {
 .cv-user__take-back:hover:not(:disabled) {
   color: var(--cv-text);
 }
-.cv-user__take-back:disabled {
-  opacity: 0.5;
+/* What an X acpmux refused leaves in its place (PendingSteer.tsx): quiet text, spaced from Send now
+   and Copy as the X's glyph sat in its slot. */
+.cv-user__kept {
+  padding-inline: calc((var(--cv-footer-control-slot) - var(--cv-glyph-slot)) / 2);
 }
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */

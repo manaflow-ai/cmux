@@ -34,6 +34,16 @@ struct AgentPaneConnectActionTests {
         #expect(arguments == [[:]])
     }
 
+    @Test func refusedCloudCreationDoesNotLoseIntentToStandaloneSignIn() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, _ in ran.append(id); return false }
+        model.transport.gestures.record()
+        let reply = await model.respond(to: .runAction("newCloudMachine"))
+        #expect(reply["ok"] as? Bool != true)
+        #expect(ran == ["newCloudMachine"])
+    }
+
     /// Connect Phone… opens the Mobile Pairing page, on the person's gesture only.
     @Test func connectPhoneOpensMobilePairingOnAGesture() async {
         let model = AgentPaneModel(host: NoHost())
