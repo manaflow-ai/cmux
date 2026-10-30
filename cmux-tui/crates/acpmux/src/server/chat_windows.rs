@@ -119,6 +119,8 @@ pub(super) fn close(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("window must be a string"))?;
     let closed = lock(&conn.chat_windows.windows).by_name.remove(window).is_some();
+    // The task sees the last window gone and ends.
+    conn.chat_windows.wake.notify_one();
     Ok(json!({"window": window, "closed": closed}))
 }
 
@@ -146,6 +148,13 @@ fn start(hub: &Arc<Hub>, service: &Arc<ChatService>, conn: &Arc<Conn>) {
     crate::supervised::spawn_scoped(async move {
         let _live = live;
         loop {
+            {
+                let mut windows = lock(&conn.chat_windows.windows);
+                if windows.by_name.is_empty() {
+                    windows.task = false;
+                    return;
+                }
+            }
             tokio::select! {
                 () = conn.out.closed() => break,
                 next = changes.recv() => match next {
