@@ -475,9 +475,9 @@ impl CloudConversations {
     /// following `next_cursor`, while `budget` lasts and for at most
     /// `MAX_INBOX_PAGES` pages (`budget` counts from the start of the read). An entry a later page lists again (its
     /// activity moved it while the pages were read) is kept once, where it
-    /// was first listed. The first page's failure is the read's; a later
-    /// page's failure, the budget or the cap ends the read with the pages
-    /// already read (`next_cursor` then names where it stopped, else null).
+    /// was first listed. Any page's failure is the read's. The budget or the
+    /// cap ends the read with the pages already read (`next_cursor` then
+    /// names where it stopped, else null).
     pub fn inbox_list_all(
         &self,
         include_archived: bool,
@@ -492,11 +492,9 @@ impl CloudConversations {
             if page_index > 0 && started.elapsed() >= budget {
                 break;
             }
-            let page = match self.inbox_page(MAX_PAGE, include_archived, cursor.as_deref()) {
-                Ok(page) => page,
-                Err(error) if page_index == 0 => return Err(error),
-                Err(_) => break,
-            };
+            // Any page's failure is the read's: `home-inbox` answers `unavailable` and the
+            // app keeps its last rows, where a partial list would drop the rest.
+            let page = self.inbox_page(MAX_PAGE, include_archived, cursor.as_deref())?;
             if page_index == 0 {
                 revision = page.get("revision").cloned().unwrap_or(Value::String(String::new()));
             }

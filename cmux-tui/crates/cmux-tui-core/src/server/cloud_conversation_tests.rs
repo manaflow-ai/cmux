@@ -1136,9 +1136,9 @@ fn inbox_list_all_reads_every_page_once() {
 }
 
 /// A cursor the owner hands back unchanged ends the read instead of looping;
-/// a later page that fails keeps the pages read (and names where it stopped).
+/// any page that fails fails the read (the app then keeps its last rows).
 #[test]
-fn inbox_list_all_stops_on_a_stuck_cursor_and_keeps_pages_on_a_later_failure() {
+fn inbox_list_all_stops_on_a_stuck_cursor_and_fails_on_a_later_failure() {
     let (mux, client, backend) = cloud_mux();
     sign_in(&mux, client);
     let service = super::lease_user(&mux, client).unwrap();
@@ -1150,9 +1150,7 @@ fn inbox_list_all_stops_on_a_stuck_cursor_and_keeps_pages_on_a_later_failure() {
 
     backend.reply("/v1/read", 200, inbox_page(&["conv_c"], json!("k9"), "8"));
     backend.fail("/v1/read", "connection reset");
-    let partial = service.inbox_list_all(false, Duration::from_secs(60)).unwrap();
-    assert_eq!(listed_ids(&partial), ["conv_c"]);
-    assert_eq!(partial["next_cursor"], "k9");
+    assert!(service.inbox_list_all(false, Duration::from_secs(60)).is_err());
 
     // The first page's failure is the read's.
     backend.fail("/v1/read", "connection reset");

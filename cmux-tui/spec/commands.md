@@ -7680,7 +7680,7 @@ for the first page). `next_cursor` is null on the last page. One page per call,
 so every reply is one bounded read; a client reads the whole inbox by following
 `next_cursor`. `home-inbox`'s Cloud rows do: every page, at most 50, asking for
 no page after 8 s from the start of the read, an entry a later page lists again kept once where it was
-first listed; a later page's failure keeps the pages already read.
+first listed; any page's failure leaves the Cloud rows `unavailable`.
 
 ### cloud-requests-list
 
