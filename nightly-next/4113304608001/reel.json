@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4113304608001",
+  "notes": "notes/4113304608001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28449,
+      "title": "iOS: tighten error and setup copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28160,
+      "title": "acpmux: the owner's own daemon stops a chat started on its peer, and a refused Stop says why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28229,
+      "title": "carry of #28010: apply cloud machine status transitions safely",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
