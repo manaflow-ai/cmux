@@ -200,7 +200,7 @@ nonisolated struct RustRow: Codable {
         section = RustSectionID(row.section)
         group = row.group?.rawValue
         workspace = row.workspace?.rawValue
-        siblingIndex = row.siblingIndex
+        siblingIndex = row.dropIndex ?? row.siblingIndex
         parentIndex = row.parentIndex
         isLastInGroup = row.isLastInGroup
         isCollapsed = row.isCollapsed

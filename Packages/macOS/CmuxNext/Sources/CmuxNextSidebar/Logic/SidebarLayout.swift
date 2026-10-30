@@ -453,7 +453,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
             guard byFolder else {
                 let fold = SidebarDoneFoldID(section: section.id, group: nil)
-                let tree = Self.treeRows(nodes.map { $0.node }, tree: groupsSessions ? nil : o.sessionTree, filtering: filtering)
+                let tree = Self.treeRows(nodes.map { $0.node }, tree: (groupsSessions && section.machine != nil) ? nil : o.sessionTree, filtering: filtering)
                 let treeRow = Dictionary(tree.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
                 let drawn = Self.foldingDone(tree.map { ($0.index, $0.depth) },
                                              workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } }, fold: fold,

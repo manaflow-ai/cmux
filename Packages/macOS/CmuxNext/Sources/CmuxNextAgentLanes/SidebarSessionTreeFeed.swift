@@ -145,14 +145,20 @@ public final class SidebarSessionTreeFeed {
             return nil
         }
         var state = SidebarSessionTreeState()
-        let localHosts: Set<String> = localHost.map { Set(keys($0)) } ?? []
-        for (id, refs) in chats {
-            // Local agent tabs remain in the ordinary local list. Host grouping is
-            // reserved for fleet sessions, excluding this install and its aliases.
-            guard let ref = refs.first(where: { $0.session != nil && !localHosts.contains($0.host) }) else { continue }
-            let host = keys(ref.host).min() ?? ref.host
-            state.hosts[id] = host
-            state.hostNames[host] = state.hostNames[host] ?? ref.hostName ?? ref.host
+        // A missing local identity means we cannot distinguish this install from
+        // fleet peers. Leave host grouping off until the identity is known.
+        if let localHost {
+            let localHosts = Set(keys(localHost))
+            for (id, refs) in chats {
+                // Local agent tabs remain in the ordinary local list. Host grouping
+                // is reserved for fleet sessions, excluding this install and aliases.
+                guard let ref = refs.first(where: { $0.session != nil && !localHosts.contains($0.host) }) else { continue }
+                // Keep the tab's primary host as the fold identity; alias discovery
+                // must not rename a user's collapsed host bucket.
+                let host = ref.host
+                state.hosts[id] = host
+                state.hostNames[host] = state.hostNames[host] ?? ref.hostName ?? ref.host
+            }
         }
         var agentStates: [SidebarWorkspaceID: SidebarAgentState] = [:]
         var asks: Set<String> = []

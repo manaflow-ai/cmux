@@ -39,13 +39,18 @@ nonisolated extension SidebarLayout {
         let children = Self.treeChildren(ids, parents: parents)
         let nested = Set(children.values.joined())
         let roots = ids.indices.filter { !nested.contains($0) }
-        var hosts: [String: [Int]] = [:]
-        var rootHosts: [Int: String] = [:]
+        struct HostKey: Hashable {
+            let host: String
+            let section: SectionID
+        }
+        var hosts: [HostKey: [Int]] = [:]
+        var rootHosts: [Int: HostKey] = [:]
         for root in roots {
             guard rows[starts[root]].group == nil, let id = ids[root], let host = tree.hosts[id],
                   case .machine = rows[starts[root]].section else { continue }
-            rootHosts[root] = host
-            hosts[host, default: []].append(root)
+            let key = HostKey(host: host, section: rows[starts[root]].section)
+            rootHosts[root] = key
+            hosts[key, default: []].append(root)
         }
         let workspaceByID = Dictionary(sections.flatMap(\.workspaces).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         func agentState(_ index: Int) -> SidebarAgentState {
@@ -54,7 +59,7 @@ nonisolated extension SidebarLayout {
         }
         // Reordering only the workspace bundles leaves user groups, document items and section
         // blocks in their existing order. Each host is emitted at its first root's old position.
-        var emitted: Set<String> = []
+        var emitted: Set<HostKey> = []
         let byStart = Dictionary(starts.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
         var result: [SidebarRow] = []
         var y: CGFloat = 0
@@ -146,6 +151,27 @@ nonisolated extension SidebarLayout {
                         .contains(where: { ids[$0].map(SidebarRowKey.workspace) == gapTarget })
                 } == true
             }) { openGap() }
+        }
+        // The visual order is a projection, but the reducer still writes document
+        // positions. Keep row identity/siblingIndex for selection and give it the
+        // slot immediately before the next drawn sibling for drop resolution.
+        func siblingCount(_ row: SidebarRow) -> Int {
+            guard let section = sections.first(where: { $0.id == row.section }) else { return row.siblingIndex + 1 }
+            if let group = row.group,
+               let node = section.nodes.first(where: { $0.id == .group(group) }),
+               case let .group(value) = node { return value.members.count }
+            return section.nodes.count
+        }
+        for index in result.indices {
+            guard case .workspace = result[index].key else { continue }
+            let section = result[index].section
+            let group = result[index].group
+            let next = result[(index + 1)..<result.count].first {
+                if case .workspace = $0.key { return $0.section == section && $0.group == group }
+                return false
+            }
+            result[index].dropIndex = next.map { max(0, $0.siblingIndex - 1) }
+                ?? max(0, siblingCount(result[index]) - 1)
         }
         boundary(from: rows.last.map { $0.maxY + m.rowSpacing } ?? 0, to: totalHeight)
         var layout = SidebarLayout(rows: result, totalHeight: y,

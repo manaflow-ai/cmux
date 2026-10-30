@@ -608,4 +608,4 @@ Leo: "i feel like there's still a big mess of uncategorized stuff in the sidebar
 
 - Follow-up geometry: host regrouping keeps the drop gap attached to its logical insertion slot, retains section and chat-history boundary spacing, and shifts Earlier by the final visible family extent; Pinned remains above the first host header.
 
-- Dragging preserves the host projection and drop identity: synthetic headers remain during an open gap, and workspace rows retain their document section and sibling index. Fleet children of Pinned/custom rows stay in their own machine group, preserving the section boundary.
+- Dragging preserves the host projection and row identity: synthetic headers remain during an open gap, workspace rows retain their document section and sibling index, and the drop reducer maps each drawn neighbor to its underlying document slot. Fleet children of Pinned/custom rows stay in their own machine group, preserving the section boundary.
