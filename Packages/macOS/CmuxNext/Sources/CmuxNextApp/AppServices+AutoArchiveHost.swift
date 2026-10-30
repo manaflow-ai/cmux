@@ -10,5 +10,5 @@ extension AppServices: AutoArchiveHost {
     func autoArchivePolicy() -> AutoArchivePolicy { AutoArchivePolicy(styleName: settings?.snapshot.autoArchive.style.rawValue, idleDays: settings?.snapshot.autoArchive.idleDays) }
     func autoArchiveAsk(_ card: SidebarNoticeCard) async -> Bool { await machineAsks.ask(card) }
     func autoArchiveItem(workspace id: String) -> String? { SidebarDocWiring.item(workspace: id, machines) }
-    func autoArchiveToast(_ message: String, undo: @escaping @MainActor () -> Void) { CmuxToastCenter.shared.showUndo(message, id: "auto-archive", in: windows.active?.window ?? NSApp.mainWindow, undo: undo) }
+    func autoArchiveToast(_ message: String, undo: @escaping @MainActor () -> Void) { CmuxToastCenter.shared.showUndo(message, id: "auto-archive", in: windows.active?.window ?? NSApp?.mainWindow, undo: undo) }
 }

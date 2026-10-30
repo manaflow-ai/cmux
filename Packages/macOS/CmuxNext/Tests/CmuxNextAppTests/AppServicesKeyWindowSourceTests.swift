@@ -19,4 +19,25 @@ struct AppServicesKeyWindowSourceTests {
         #expect(services.windows.active == nil)
         #expect(services.keyWindowRole == nil)
     }
+
+    /// The same check when an earlier test in this process already made `NSApplication.shared` (then
+    /// `NSApp` is set and the trap cannot show): every lookup asks the source the composition root
+    /// passed, never the global application.
+    @Test func everyKeyWindowLookupAsksTheInjectedSource() {
+        let asks = KeyWindowAsks()
+        let services = AppServices(environment: AppEnvironment.current([:]), keyWindowSource: { asks.count += 1; return nil })
+        let windows = services.windows
+        var before = asks.count
+        #expect(windows.active == nil)
+        #expect(asks.count == before + 1, "windows.active did not ask the injected key-window source")
+        before = asks.count
+        #expect(services.keyWindowRole == nil)
+        #expect(asks.count == before + 1, "keyWindowRole did not ask the injected key-window source")
+    }
+}
+
+/// How many times a key-window source was asked.
+@MainActor
+private final class KeyWindowAsks {
+    var count = 0
 }
