@@ -240,7 +240,9 @@ fn abandon(mux: &Mux, share_id: &str, delete: bool) {
 fn done(mux: &Mux, share_id: &str, op: &Value) -> bool {
     change(mux, share_id, |s| {
         let before = s.pending_room_ops.len();
-        s.pending_room_ops.retain(|o| o != op);
+        // The room's DELETE answered: its guests are gone with it, so no kick waits.
+        let deleted = op["op"] == "delete";
+        s.pending_room_ops.retain(|o| o != op && !(deleted && o["op"] == "kick"));
         ((), s.pending_room_ops.len() != before)
     }).is_some()
 }
@@ -791,7 +793,11 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
         }
         let ids = all
             .iter()
-            .filter(|s| s.pending_room_ops.iter().any(|o| o["op"] == "delete"))
+            // Each active share gets its host socket again, each queued DELETE resumes.
+            .filter(|s| {
+                (s.state == ShareState::Active && s.room.is_some())
+                    || s.pending_room_ops.iter().any(|o| o["op"] == "delete")
+            })
             .map(|s| s.share_id.clone());
         Ok((ids.collect::<Vec<_>>(), changed))
     });

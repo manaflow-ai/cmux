@@ -406,10 +406,11 @@ impl LinkShares {
         self.with(directory, |shares, now| {
             if shares.len() >= MAX_SHARES {
                 // An ended share goes, unless its room still has to hear of it.
+                // A kick of an ended share is moot: its room ends with it.
                 shares.retain(|s| {
                     s.live().is_ok()
                         || s.state == ShareState::Provisioning
-                        || !s.pending_room_ops.is_empty()
+                        || s.pending_room_ops.iter().any(|o| o["op"] != "kick")
                 });
             }
             if shares.len() >= MAX_SHARES {
@@ -529,19 +530,46 @@ impl LinkShares {
 
     /// Closes every open share of `session` (its chat was closed or removed): the guests'
     /// connections close at the next `settle`, and a share with a room queues its `DELETE`.
+    /// The closure stands even when it cannot be written: the chat is gone, so its shares are
+    /// closed in memory (no guest reaches it, its rooms end) and the write is retried.
     fn close_chat(&self, directory: Option<&Path>, session: &str) {
-        let _ = self.with(directory, |shares, _| {
-            let mut changed = false;
-            for share in shares.iter_mut().filter(|s| s.session == session) {
-                if matches!(share.state, ShareState::Active | ShareState::Provisioning) {
-                    share.state = ShareState::Closed;
-                    if share.room.is_some() {
-                        share.pending_room_ops.push(json!({"op": "delete"}));
-                    }
-                    changed = true;
+        let mut slot = self.shares.lock().unwrap_or_else(|e| e.into_inner());
+        let shares = slot.get_or_insert_with(|| load(directory));
+        let start = shares.clone();
+        let mut changed = false;
+        for share in shares.iter_mut().filter(|s| s.session == session) {
+            if matches!(share.state, ShareState::Active | ShareState::Provisioning) {
+                share.state = ShareState::Closed;
+                if share.room.is_some()
+                    && !share.pending_room_ops.iter().any(|o| o["op"] == "delete")
+                {
+                    share.pending_room_ops.push(json!({"op": "delete"}));
                 }
+                changed = true;
             }
-            Ok(((), changed))
+        }
+        self.note_ended(&start, shares);
+        if changed && let Some(Err(error)) = self.save(directory, shares) {
+            eprintln!("cmux-tui: closed link shares not written, retrying: {error}");
+            drop(slot);
+            self.save_later(Duration::from_secs(1));
+        }
+    }
+
+    /// Writes the shares again after `wait`, doubling up to a minute until a write succeeds
+    /// (`close_chat`). Stops when the daemon is gone.
+    fn save_later(&self, wait: Duration) {
+        let weak = self.mux.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        self.timers.schedule(wait, move || {
+            let Some(mux) = weak.upgrade() else { return };
+            let shares = &mux.control_clients.agent_sessions.link_shares;
+            let directory = mux.session_state_directory();
+            let slot = shares.shares.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(all) = slot.as_ref() else { return };
+            if let Some(Err(_)) = shares.save(directory.as_deref(), all) {
+                drop(slot);
+                shares.save_later((wait * 2).min(Duration::from_secs(60)));
+            }
         });
     }
 
@@ -578,7 +606,7 @@ impl LinkShares {
                 !room_deletes.contains(&s.share_id)
                     && s.expires_at > now
                     && (matches!(s.state, ShareState::Active | ShareState::Provisioning)
-                        || !s.pending_room_ops.is_empty())
+                        || s.pending_room_ops.iter().any(|o| o["op"] != "kick"))
             })
             .map(|s| s.expires_at)
             .min();

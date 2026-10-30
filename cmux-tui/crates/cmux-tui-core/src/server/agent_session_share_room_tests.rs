@@ -937,3 +937,102 @@ fn closing_the_chat_closes_its_share_its_guests_and_its_room() {
     assert_eq!(state(&mut owner)["state"], "closed");
     room.none("another host socket", |s| matches!(s, Seen::Host { .. }));
 }
+
+#[test]
+fn a_restart_reopens_the_host_socket_of_an_active_bridged_share() {
+    let room = FakeRoom::start(&[]);
+    let root = std::env::temp_dir()
+        .join(format!("cmux-room-host-restart-{}", crate::workspace_registry::new_uuid_v4()));
+    let options = crate::SurfaceOptions::default();
+    let mux = Mux::open_persistent("host-restart", options.clone(), &root).unwrap();
+    let shares = shares_of(&mux);
+    let directory = mux.session_state_directory().unwrap();
+    let now = shares.now();
+    shares
+        .with(Some(&directory), |all, _| {
+            all.push(LinkShare {
+                share_id: "active-1".into(),
+                session: SESSION.into(),
+                surface: 1,
+                created_at: now,
+                expires_at: now.saturating_add(3_600_000),
+                uses_left: 1,
+                state: ShareState::Active,
+                secret_sha256: String::new(),
+                provision_key: None,
+                room: Some(json!({"url": room.url, "host_token": "kept-host-token"})),
+                pending_room_ops: Vec::new(),
+                guests: Vec::new(),
+            });
+            Ok(((), true))
+        })
+        .unwrap();
+    mux.shutdown();
+    drop(mux);
+
+    let mux = Mux::open_persistent("host-restart", options, &root).unwrap();
+    start_link_share_bridge(&mux, Some(&room.url));
+    let (_, bearer) = room.host();
+    assert_eq!(bearer, "kept-host-token");
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, _owner) = bridged("room-moot-kicks", &room);
+    let shares = shares_of(&mux);
+    let now = shares.now();
+    shares
+        .with(None, |all, _| {
+            all.extend((0..MAX_SHARES).map(|index| LinkShare {
+                share_id: format!("ended-{index}"),
+                session: SESSION.into(),
+                surface,
+                created_at: now,
+                expires_at: now.saturating_add(60_000),
+                uses_left: 0,
+                state: ShareState::Revoked,
+                secret_sha256: String::new(),
+                provision_key: None,
+                room: Some(json!({"url": room.url, "host_token": "t"})),
+                pending_room_ops: vec![json!({"op": "kick", "guest_id": "g"})],
+                guests: Vec::new(),
+            }));
+            Ok(((), false))
+        })
+        .unwrap();
+    assert!(shares.insert(None, SESSION.into(), surface, 60, 1, false).is_ok());
+    shares
+        .with(None, |all, _| {
+            all[0].pending_room_ops.push(json!({"op": "delete"}));
+            Ok(((), false))
+        })
+        .unwrap();
+    let id = shares.with(None, |all, _| Ok((all[0].share_id.clone(), false))).unwrap();
+    assert!(done(&mux, &id, &json!({"op": "delete"})));
+    let left = shares.with(None, |all, _| Ok((all[0].pending_room_ops.clone(), false))).unwrap();
+    assert!(left.is_empty(), "the DELETE's answer also drops the moot kick: {left:?}");
+}
+
+#[test]
+fn closing_the_chat_stands_when_its_write_fails() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-close-unsaved", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    let shares = shares_of(&mux);
+    shares.refuse_writes.store(true, Ordering::Relaxed);
+    crate::server::close_chat_shares(&mux, SESSION);
+    assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "closed"}));
+    room.request("DELETE");
+    let redeem = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":share["share_id"], "secret":share["secret"], "name":"Late",
+        "attempt_id":"attempt-late"}));
+    assert_code(&redeem, "share.closed");
+    shares.refuse_writes.store(false, Ordering::Relaxed);
+    assert_eq!(state(&mut owner)["state"], "closed");
+}
