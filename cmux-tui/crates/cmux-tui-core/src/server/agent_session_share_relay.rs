@@ -36,6 +36,8 @@ const MAX_DECIDED: usize = 16;
 /// Prompt states and client ids one relay remembers.
 const MAX_STATES: usize = 512;
 const MAX_CLIENTS: usize = 64;
+/// The room's asks a relay keeps until its attachment answers.
+const MAX_WAITING: usize = 64;
 
 /// What the room asked of one guest.
 pub(super) enum Ask {
@@ -47,7 +49,8 @@ pub(super) enum Ask {
 
 /// What a relay hands the host socket.
 pub(super) enum Out {
-    Frame(Value),
+    /// A frame of this guest's relay of this generation.
+    Frame(String, u64, Value),
     /// The relay of this guest and generation ended.
     Ended(String, u64),
 }
@@ -56,8 +59,9 @@ pub(super) enum Out {
 pub(super) struct Relay {
     pub(super) asks: mpsc::UnboundedSender<Ask>,
     pub(super) generation: u64,
-    /// The guest's browser sockets the room said are open.
-    pub(super) sockets: usize,
+    /// The guest's browser sockets the room said are open; `None` once their count is unknown
+    /// (a host `hello` names each guest once).
+    pub(super) sockets: Option<usize>,
 }
 
 /// Starts the relay of `guest_id` (on the bridge's runtime: the caller is one of its tasks).
@@ -91,9 +95,11 @@ pub(super) fn start(
         order: VecDeque::new(),
         clients: HashMap::new(),
         tick: 0,
+        attached: false,
+        waiting: VecDeque::new(),
     };
     tokio::spawn(run(BufReader::new(read), link, receiver));
-    Some(Relay { asks, generation, sockets: 1 })
+    Some(Relay { asks, generation, sockets: Some(1) })
 }
 
 async fn run(
@@ -111,11 +117,25 @@ async fn run(
                 Ok(Some(line)) => link.inbound(&line).await,
                 _ => false,
             },
+            // Until the attachment answers, the room's asks wait (one sent before it would be
+            // refused as not attached, and lost).
             ask = asks.recv() => match ask {
-                Some(ask) => link.ask(ask).await,
+                Some(ask) if link.attached => link.ask(ask).await,
+                Some(ask) => {
+                    if link.waiting.len() < MAX_WAITING {
+                        link.waiting.push_back(ask);
+                    }
+                    true
+                }
                 None => false,
             },
         };
+        while open
+            && link.attached
+            && let Some(ask) = link.waiting.pop_front()
+        {
+            open = link.ask(ask).await;
+        }
     }
     let _ = link.out.send(Out::Ended(link.guest_id.clone(), link.generation));
 }
@@ -148,6 +168,10 @@ struct Link {
     /// Prompt id to this guest's `client_id`.
     clients: HashMap<String, String>,
     tick: u64,
+    /// The attachment answered: the room's asks go to the daemon.
+    attached: bool,
+    /// The room's asks that came before the attachment answered, sent once it does.
+    waiting: VecDeque<Ask>,
 }
 
 impl Link {
@@ -162,7 +186,7 @@ impl Link {
     }
 
     fn emit(&self, frame: Value) {
-        let _ = self.out.send(Out::Frame(frame));
+        let _ = self.out.send(Out::Frame(self.guest_id.clone(), self.generation, frame));
     }
 
     /// One line from the daemon: a reply or an event of the guest's attachment.
@@ -192,6 +216,7 @@ impl Link {
                 self.call(attach, Pending::Attach).await
             }
             Pending::Attach => {
+                self.attached = true;
                 self.snapshot(frame.get("data").unwrap_or(&Value::Null));
                 let view = json!({"cmd": "agent-session-view", "surface": 0, "visible": true});
                 self.call(view, Pending::Ignore).await

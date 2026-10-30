@@ -1526,3 +1526,37 @@ fn reconnects_get_fresh_snapshots_and_a_kick_ends_the_guests_relay() {
     assert_eq!(fake.frame()["method"], "session/prompt");
     assert_eq!(room.next(conn, "prompt_state")["guest_id"], json!(bob));
 }
+
+/// A prompt the room sends right after `guest_joined` (before the relay's attachment answers)
+/// still reaches the daemon; after a host reconnect, one socket leaving does not end the relay of
+/// a guest whose socket count `hello` did not say.
+#[test]
+fn an_early_prompt_waits_for_the_attachment_and_a_hello_guest_outlives_one_left_socket() {
+    let room = FakeRoom::start(&[]);
+    let (fake, _mux, surface, mut owner) = bridged("relay-early", &room);
+    let (_share, [ann, _bob], conn) = two_guests(&room, &mut owner, surface);
+    room.send(json!({"v": 1, "t": "guest_joined", "guest_id": ann}));
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "early",
+        "text": "hello"}));
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let frame = fake.next_frame(deadline.saturating_duration_since(Instant::now()));
+        let frame = frame.expect("the early prompt reaches the daemon");
+        if frame["method"] == "session/prompt" {
+            break;
+        }
+    }
+    assert_eq!(room.next(conn, "prompt_state")["client_id"], "early");
+    // A host reconnect names Ann once, whatever her sockets.
+    room.shared.hello.lock().unwrap().push(json!({"guest_id": ann, "name": "Ann"}));
+    room.drop_host();
+    let (conn, _) = room.host();
+    assert_eq!(room.next(conn, "guests")["t"], "guests");
+    assert_eq!(room.next(conn, "snapshot")["to"], json!(ann));
+    while fake.next_frame(Duration::from_millis(300)).is_some() {}
+    room.send(json!({"v": 1, "t": "guest_left", "guest_id": ann}));
+    room.send(json!({"v": 1, "t": "guest_prompt", "guest_id": ann, "client_id": "after",
+        "text": "still here"}));
+    assert_eq!(fake.frame()["method"], "session/prompt");
+}

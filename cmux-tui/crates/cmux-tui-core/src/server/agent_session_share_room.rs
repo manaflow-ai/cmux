@@ -873,7 +873,12 @@ async fn session(
                 None => return None,
             },
             relayed = relayed.recv() => match relayed {
-                Some(relay::Out::Frame(frame)) => vec![frame],
+                Some(relay::Out::Frame(guest, generation, frame)) => {
+                    if !guests.current(&guest, generation) {
+                        continue;
+                    }
+                    vec![frame]
+                }
                 Some(relay::Out::Ended(guest, generation)) => {
                     guests.ended(&guest, generation);
                     continue;
@@ -913,27 +918,32 @@ impl Guests {
     fn room(&mut self, mux: &Arc<Mux>, share_id: &str, frame: &Value) {
         let guest = frame.get("guest_id").and_then(Value::as_str).unwrap_or_default();
         let ask = match frame.get("t").and_then(Value::as_str).unwrap_or_default() {
+            // `hello` names each connected guest once, not its sockets: their count is unknown.
             "hello" => {
                 self.relays.clear();
                 for guest in frame.get("guests").and_then(Value::as_array).into_iter().flatten() {
-                    self.open(
-                        mux,
-                        share_id,
-                        guest.get("guest_id").and_then(Value::as_str).unwrap_or_default(),
-                        0,
-                    );
+                    let guest = guest.get("guest_id").and_then(Value::as_str).unwrap_or_default();
+                    self.open(mux, share_id, guest, None);
                 }
                 return;
             }
-            // A guest's (re)connect gets a fresh snapshot.
+            // A guest's (re)connect gets a fresh snapshot; one more socket than before.
             "guest_joined" => {
-                let sockets = self.relays.remove(guest).map_or(0, |relay| relay.sockets);
+                let sockets = match self.relays.remove(guest) {
+                    Some(relay) => relay.sockets.map(|n| n.saturating_add(1)),
+                    None => Some(1),
+                };
                 return self.open(mux, share_id, guest, sockets);
             }
+            // The relay ends with the guest's last socket. Once the count is unknown (since a
+            // host `hello`) it stays until the guest's kick, the share's end or the next `hello`.
             "guest_left" => {
-                if let Some(relay) = self.relays.get_mut(guest) {
-                    relay.sockets = relay.sockets.saturating_sub(1);
-                    if relay.sockets == 0 {
+                if let Some(relay) = self.relays.get_mut(guest)
+                    && let Some(sockets) = relay.sockets
+                {
+                    let left = sockets.saturating_sub(1);
+                    relay.sockets = Some(left);
+                    if left == 0 {
                         self.relays.remove(guest);
                     }
                 }
@@ -964,8 +974,8 @@ impl Guests {
         }
     }
 
-    /// Starts the relay of a guest the daemon holds active.
-    fn open(&mut self, mux: &Arc<Mux>, share_id: &str, guest: &str, sockets: usize) {
+    /// Starts the relay of a guest the daemon holds active, with its sockets (`None`: unknown).
+    fn open(&mut self, mux: &Arc<Mux>, share_id: &str, guest: &str, sockets: Option<usize>) {
         if !view(mux, share_id).is_some_and(|v| v.active.iter().any(|g| g == guest)) {
             return;
         }
@@ -974,9 +984,14 @@ impl Guests {
         self.next = self.next.wrapping_add(1);
         let ids = (share_id, guest);
         if let Some(mut relay) = relay::start(mux, render, ids, self.next, self.out.clone()) {
-            relay.sockets = relay.sockets.saturating_add(sockets);
+            relay.sockets = sockets;
             self.relays.insert(guest.to_owned(), relay);
         }
+    }
+
+    /// Whether `generation` is `guest`'s current relay: a replaced relay's late frames are dropped.
+    fn current(&self, guest: &str, generation: u64) -> bool {
+        self.relays.get(guest).is_some_and(|relay| relay.generation == generation)
     }
 
     fn ended(&mut self, guest: &str, generation: u64) {
