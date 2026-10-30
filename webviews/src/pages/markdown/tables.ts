@@ -813,8 +813,9 @@ function normalizesAcrossCells(selection: Selection, next: Selection): boolean {
 export const tableTextSelectPlugin = $prose(() => {
   // Whether the primary button went down in a cell of this editor and is still down; `release`
   // ends it. A press can end without a mouseup reaching the page (released over another app or
-  // after a switch away), so blur, a key, and a move with the button up end it too, as does the
-  // editor's destroy: a stuck flag would drop a keyboard caret move out of a cross-cell selection.
+  // after a switch away), so the window's blur and a move with the button up end it too, as does
+  // the editor's destroy: a stuck flag would drop a keyboard caret move out of a cross-cell
+  // selection. A key does not: Shift or Cmd pressed mid-drag leaves the button down.
   let dragging = false;
   let release: (() => void) | undefined;
   return new Plugin({
@@ -842,7 +843,7 @@ export const tableTextSelectPlugin = $prose(() => {
             if (!window) return false;
             release?.();
             dragging = true;
-            const ends = ["mouseup", "dragstart", "keydown"] as const;
+            const ends = ["mouseup", "dragstart"] as const;
             const moved = (move: MouseEvent) => {
               if ((move.buttons & 1) === 0) stop();
             };
