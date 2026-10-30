@@ -83,8 +83,9 @@ use std::sync::OnceLock;
 
 pub(super) mod hint;
 mod peer_folder;
+pub(super) use hint::POLICY_REFUSED;
 pub(super) use hint::check;
-use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
+use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED};
 use peer_folder::{
     configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
 };
@@ -185,6 +186,7 @@ async fn check_inner(
     device: Option<&str>,
     m: &str,
     params: &mut Value,
+    policy_proved: bool,
 ) -> Result<(), RpcError> {
     // The mode rules below give an authenticated connection more (any mode
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
@@ -317,7 +319,7 @@ async fn check_inner(
     let mut deferred = None;
     if web {
         let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
-        match web_only(m, params, peer) {
+        match web_only(m, params, peer, policy_proved) {
             Err(e) if m == method::SESSION_NEW => deferred = Some(e),
             other => other?,
         }
@@ -684,8 +686,9 @@ fn no_reviewed_asking_mode() -> RpcError {
 /// What a Web (remote-origin) connection may never do; LocalApp and the
 /// unix socket may. The daemon cannot see user gestures: for LocalApp the
 /// native relay enforces a fresh gesture before it sends a policy that
-/// skips asking.
-fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
+/// skips asking. `policy_proved`: a policy raise the person proved for this
+/// one chat (`hub/person/policy_grant.rs`), whoever relays it.
+fn web_only(m: &str, params: &Value, peer: bool, policy_proved: bool) -> Result<(), RpcError> {
     let refused = |what: &str| {
         RpcError::invalid_params(format!(
             "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
@@ -737,6 +740,7 @@ fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
         {
             Err(policy_refused())
         }
+        method::MUX_SET_POLICY if policy_proved => Ok(()),
         method::MUX_SET_POLICY | "_acpmux/set_default_policy"
             if !policy_ok(params.get("policy")) =>
         {
