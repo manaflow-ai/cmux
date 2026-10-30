@@ -19,10 +19,15 @@ import Foundation
 
     public nonisolated init() {}
 
+    @MainActor public final class WritePermit {
+        private(set) var valid = true
+        func invalidate() { valid = false }
+    }
+
     /// Turns `key` on or off through `write` (the host's error, or nil); throws `refusal` for an on that
     /// is not confirmed or that an off overtook.
     public func set(_ key: String, on: Bool, confirm: (@MainActor () async -> Bool)?, refusal: PageError,
-                    write: @escaping @MainActor (Bool) async -> String?) async throws -> String? {
+                    write: @escaping @MainActor (Bool, WritePermit) async -> String?) async throws -> String? {
         if on {
             guard !confirming, let confirm else { throw refusal }
             let offsBefore = offs[key, default: 0]
@@ -39,15 +44,16 @@ import Foundation
     /// Runs one write for `key` after the ones asked before it. An on runs only if no off came in after
     /// it was asked (`after` is the off count it was asked under); otherwise it is refused.
     private func queued(_ key: String, on: Bool, after offsAsked: Int, refusal: PageError,
-                        _ write: @escaping @MainActor (Bool) async -> String?) async throws -> String? {
+                        _ write: @escaping @MainActor (Bool, WritePermit) async -> String?) async throws -> String? {
         let previous = writes[key]
+        let permit = WritePermit()
         // task-owner: one link of the write chain for one key; ends with its host write.
         let task = Task { @MainActor [weak self] () -> String?? in
             await previous?.value
             guard !Task.isCancelled, let self else { return .none }
             if on, self.offs[key, default: 0] != offsAsked { return .none }
-            guard !Task.isCancelled else { return .none }
-            return .some(await write(on))
+            guard !Task.isCancelled, permit.valid else { return .none }
+            return .some(await write(on, permit))
         }
         // task-owner: the chain's tail, which the next write for this key waits on; ends with `task`.
         writes[key] = Task { _ = await task.value }
@@ -55,6 +61,7 @@ import Foundation
             guard let answer = await task.value else { throw refusal }
             return answer
         }, onCancel: {
+            permit.invalidate()
             task.cancel()
         })
     }

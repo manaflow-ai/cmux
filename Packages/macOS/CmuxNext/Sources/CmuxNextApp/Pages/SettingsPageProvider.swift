@@ -137,7 +137,10 @@ final class SettingsPageProvider: PageProvider {
         } else {
             confirm = nil
         }
-        return try await wideningGate.set("\(key) \(id)", on: on, confirm: confirm, refusal: refusal) { await write(id, $0) }
+        return try await wideningGate.set("\(key) \(id)", on: on, confirm: confirm, refusal: refusal) { on, permit in
+            guard permit.valid else { return nil }
+            return await write(id, on)
+        }
     }
 
     /// A host the App wires in (nil in tests without an app), or the page's `cmux.page.unavailable`.
