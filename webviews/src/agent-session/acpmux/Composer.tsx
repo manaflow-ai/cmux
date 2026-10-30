@@ -1128,6 +1128,7 @@ export function Composer({
           for (const item of pending) cancel(item.id);
           const went = new Set(attachments.map((attachment) => attachment.id));
           box.current?.sent(went);
+          box.current?.released(pending.filter((chip) => chip.failed && !went.has(chip.id)).map((chip) => chip.id));
           setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
           setAttachError(undefined);
           plusDraft.current = undefined;
@@ -1154,6 +1155,7 @@ export function Composer({
         // By id: a chip patched after it went (its original's path arriving) is still the one sent.
         const went = new Set(attachments.map((attachment) => attachment.id));
         box.current?.sent(went);
+        box.current?.released(pending.filter((chip) => chip.failed && !went.has(chip.id)).map((chip) => chip.id));
         setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
         setAttachError(undefined);
         plusDraft.current = undefined;
@@ -1183,6 +1185,7 @@ export function Composer({
     const clear = (rest = "") => {
       const went = new Set(sent.map((attachment) => attachment.id));
       box.current?.sent(went);
+      box.current?.released(pending.filter((chip) => chip.failed && !went.has(chip.id)).map((chip) => chip.id));
       setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
       setAttachError(undefined);
       plusDraft.current = undefined;

@@ -197,6 +197,11 @@ export function useInlineAttachments(options: Options) {
         sentIds.current.add(id);
       }
     },
+    /// A failed pending chip stays available in the strip when its prompt is cleared externally;
+    /// release its inline placement without marking it sent, so Retry and remove remain reachable.
+    released(ids: Iterable<string>) {
+      for (const id of ids) placed.current.delete(id);
+    },
     /// A failed chip's Retry and a pasted chip's open, stable across renders so the chips keep still
     /// while the person types (InlineChip is memoized).
     retry: (id: string) => live.current.retry(id),

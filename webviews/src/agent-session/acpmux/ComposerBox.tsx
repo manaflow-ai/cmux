@@ -28,6 +28,9 @@ export type ComposerBoxHandle = {
   place(chips: readonly PendingAttachment[]): void;
   /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
   sent(ids: Iterable<string>): void;
+  /// Failed pending ids were left out of a prompt: release their inline placement so the strip can
+  /// still expose Retry and remove after the field is cleared.
+  released(ids: Iterable<string>): void;
 };
 
 export type ComposerBoxProps = {
@@ -174,6 +177,7 @@ export function ComposerBox({
       plainPaste: () => plainPaste.current(),
       place: (chips) => inline.place(chips, "paste"),
       sent: (ids) => inline.sent(ids),
+      released: (ids) => inline.released(ids),
     }),
     [inline],
   );
