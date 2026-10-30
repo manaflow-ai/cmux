@@ -394,7 +394,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     let memberWorkspace: (Int) -> SidebarWorkspace? = { if case let .workspace(ws) = members[$0] { ws } else { nil } }
                     let memberTree = Self.treeRows(Self.workspaceIDs(members), workspace: memberWorkspace, tree: o.sessionTree, filtering: filtering)
                     let memberTreeRow = Dictionary(memberTree.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
-                    let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
+                    // `treeRows` already applies the session-tree fold predicate. Reusing its
+                    // filtered order keeps descendants of collapsed/deep-folded parents out of
+                    // the drawn rows while retaining their roll-up metadata.
+                    let drawn = Self.foldingDone(memberTree.map { (index: $0.index, depth: $0.depth) },
                                                  workspace: memberWorkspace, fold: fold, options: o)
                     let foldedGap = Self.gapEntry(drawn, gap: o.gap, section: section.id, group: group.id, count: members.count)
                     for (position, (childIndex, depth)) in drawn.enumerated() {
