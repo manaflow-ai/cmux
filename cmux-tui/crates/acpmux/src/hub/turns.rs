@@ -764,7 +764,11 @@ impl Hub {
         // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
         let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
+        // Turn attestation takes this lock before reading and signing the live turn. Keeping
+        // the same ordering around the clear makes a request racing finish observe one side.
+        let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
+        drop(_order);
         session.queue_moved.notify_waiters();
         // Debug builds only: `ACPMUX_TEST_FINISH_HOLD_MS` holds a turn's end once its turn is
         // taken, as a slow end does (`tests/durable_agents.rs`). Bounded; release builds have no

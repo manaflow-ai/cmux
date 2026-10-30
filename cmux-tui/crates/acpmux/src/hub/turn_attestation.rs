@@ -15,6 +15,9 @@ impl Hub {
         if session.id != id {
             return Err(refused("turn_attestation.caller_mismatch"));
         }
+        // Finish takes this same ordering lock before clearing `session.turn`. Holding it
+        // while we copy the turn and issue the proof prevents a post-finish race.
+        let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         let (seq, turn_id) = session
             .turn
             .lock()
@@ -23,10 +26,6 @@ impl Hub {
             .map(|t| (t.turn_seq, t.turn_id.clone()))
             .filter(|(seq, _)| *seq > 0)
             .ok_or_else(|| refused("turn_attestation.not_live"))?;
-        // No turn lock while taking append_lock (other paths append while holding turn).
-        // Hold journal ordering through signing: an end cannot be recorded between the
-        // liveness check and issuance. A start not durably appended proves nothing.
-        let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         if session.purged.load(Ordering::SeqCst)
             || session.closing.load(Ordering::SeqCst)
             || !self.session_log_loaded(&session)

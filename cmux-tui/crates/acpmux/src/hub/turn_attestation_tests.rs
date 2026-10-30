@@ -86,6 +86,21 @@ fn turn_attestation_signs_enrolled_identity_and_existing_journal_sequence_only()
     session.turn.lock().unwrap().as_mut().unwrap().turn_seq = seq + 100;
     assert!(hub.issue_turn_attestation(&session.id, &enrolled, 60_000).is_err());
     session.turn.lock().unwrap().as_mut().unwrap().turn_seq = seq;
+    // finish_turn's first operation clears this live state under append_lock; an attestation
+    // requested after that point must fail even if the journal terminal record is delayed.
+    assert!(hub.take_turn(&session, "turn-test").is_some());
+    assert!(hub.issue_turn_attestation(&session.id, &enrolled, 60_000).is_err());
+    *session.turn.lock().unwrap() = Some(TurnInfo {
+        started_at: 1,
+        client: "test".into(),
+        prompt_preview: String::new(),
+        masked_preview: String::new(),
+        turn_id: "turn-test".into(),
+        prompt_id: "prompt-test".into(),
+        turn_seq: seq,
+        control: Control::Local,
+        doing: Default::default(),
+    });
     // Journal end wins even while the in-memory turn has not been cleared yet.
     hub.append(&session, "mux", "turn_result", json!({"turnId":"turn-test","turnSeq":seq}));
     assert!(hub.issue_turn_attestation(&session.id, &enrolled, 60_000).is_err());
