@@ -75,6 +75,7 @@ extension CloudMachine {
         self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
                   pauseReason: Self.nextPauseReason(value["pause_reason"] ?? value["pauseReason"]), idlePauseMinutes: minutes,
                   idlePause: idlePause, lastChangeFailure: Self.changeFailure(value["error"]))
+        createdBy = value["creator"]?.stringValue
     }
 
     /// The backend's `pause_reason` (`pauseReason` from an older app server): why cmux paused the

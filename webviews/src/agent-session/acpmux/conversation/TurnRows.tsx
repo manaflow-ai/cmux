@@ -17,7 +17,7 @@ import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
-import { awaitsPermission, messageGroupKey, toolGroups, type ToolGroup } from "./toolGroups";
+import { awaitsPermission, groupId, messageGroupKey, toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import type { RetryNote } from "../subagents/retryState";
 import { TurnActionsContext } from "./turnActions";
@@ -112,11 +112,11 @@ function groupNode(
     case "group":
       return (
         <ToolGroupRow
-          key={group.items[0]!.tool!.id || index}
+          key={groupId(group.items) || index}
           kind={group.kind}
           items={group.items}
           folded={folded}
-          disclosureKey={`group:${group.kind}:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
+          disclosureKey={`group:${group.kind}:${groupId(group.items) || `${rowId}:${index}`}`}
           thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
