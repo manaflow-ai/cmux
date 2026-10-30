@@ -63,18 +63,28 @@ public nonisolated enum CaptureBackdropPattern: Equatable, Sendable {
 /// names, so a translucent window or its glass shows nothing behind it in a snapshot; with the
 /// backdrop behind it the window's translucency and the blur of its glass show as on screen. It
 /// belongs to the app process and goes with it: it is never the desktop picture. It never takes a
-/// click, a key, the key or main role, or a place in the Window menu.
+/// click, a key, the key or main role, or a place in the Window menu. It is closed when it is
+/// replaced or taken away and when its target closes (``remove()``), so no window-server window
+/// outlives it.
 public final class CaptureBackdropPanel: NSPanel {
     public let pattern: CaptureBackdropPattern
     /// The window it is behind, which keeps it (``NSWindow/captureBackdrop``).
     public private(set) weak var target: NSWindow?
     /// The key under which its target window keeps it.
     static let retainKey = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+    /// Its target's close, which removes it. Stops when it is removed (``remove()``) or released;
+    /// it holds the panel weakly, so the target keeping the panel makes no cycle.
+    private var targetClose: MainActorObservation?
+    /// Whether ``remove()`` has run, so a second call does nothing.
+    private(set) var isRemoved = false
 
     init(pattern: CaptureBackdropPattern, image: NSImage?, frame: NSRect, target: NSWindow) {
         self.pattern = pattern
         self.target = target
         super.init(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        targetClose = MainActorObservation(NSWindow.willCloseNotification, object: target) { [weak self] in
+            self?.remove()
+        }
         isReleasedWhenClosed = false
         ignoresMouseEvents = true
         hidesOnDeactivate = false
@@ -89,6 +99,19 @@ public final class CaptureBackdropPanel: NSPanel {
 
     override public var canBecomeKey: Bool { false }
     override public var canBecomeMain: Bool { false }
+
+    /// Takes it away for good: stops watching its target, closes it (so the window server drops
+    /// its window), and has its target let go of it. Once only.
+    func remove() {
+        guard !isRemoved else { return }
+        isRemoved = true
+        targetClose = nil
+        // close() also takes it off screen.
+        close()
+        if let target, objc_getAssociatedObject(target, Self.retainKey) as? CaptureBackdropPanel === self {
+            objc_setAssociatedObject(target, Self.retainKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        }
+    }
 }
 
 extension NSWindow {
@@ -99,15 +122,16 @@ extension NSWindow {
     }
 
     /// Shows `pattern` just behind this window, covering its screen (so a move on that screen
-    /// keeps it covered; set it again after the window changes screens), and takes away the
-    /// backdrop it had and any whose window is gone; nil only takes them away. `image` is an
-    /// `.image` pattern's image (``CaptureBackdropPattern/imageData()``).
+    /// keeps it covered; set it again after the window changes screens), and takes away (closes)
+    /// the backdrop it had and any whose window is gone; nil only takes them away. Closing this
+    /// window takes its backdrop away too. `image` is an `.image` pattern's image
+    /// (``CaptureBackdropPattern/imageData()``).
     @discardableResult
     public func setCaptureBackdrop(_ pattern: CaptureBackdropPattern?, image: NSImage? = nil) -> CaptureBackdropPanel? {
-        (objc_getAssociatedObject(self, CaptureBackdropPanel.retainKey) as? CaptureBackdropPanel)?.orderOut(nil)
+        (objc_getAssociatedObject(self, CaptureBackdropPanel.retainKey) as? CaptureBackdropPanel)?.remove()
         objc_setAssociatedObject(self, CaptureBackdropPanel.retainKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         for panel in NSApp.windows.compactMap({ $0 as? CaptureBackdropPanel }) where panel.target == nil {
-            panel.orderOut(nil)
+            panel.remove()
         }
         guard let pattern else { return nil }
         let panel = CaptureBackdropPanel(pattern: pattern, image: image, frame: (screen?.frame ?? frame).union(frame), target: self)

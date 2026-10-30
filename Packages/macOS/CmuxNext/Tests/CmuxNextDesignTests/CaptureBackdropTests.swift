@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 @testable import CmuxNextDesign
 import Testing
 
@@ -125,6 +126,58 @@ import Testing
         #expect(Self.isNeutral(Self.pixel(bShot.image, at: center, points: size)), "B shows its checker, not A's stripes")
         let aShot = try #require(try await Self.settled(a) { Self.pixel($0.image, at: center, points: size)[3] == 255 }?.image)
         #expect(!Self.isNeutral(Self.pixel(aShot, at: center, points: size)), "A shows its stripes, not B's checker")
+    }
+
+    /// Replacing or taking away a backdrop closes the old panel, so repeated pattern changes leave no window-server
+    /// windows behind (review of 71131c81: the old panel was only ordered out and dropped).
+    @Test(.enabled("this host puts windows on screen") { await CaptureBackdropSnapshotTests.hostShowsWindows() })
+    func replacingOrRemovingABackdropClosesTheOldPanel() throws {
+        let window = Self.translucent(NSRect(x: 240, y: 240, width: 160, height: 160))
+        window.orderFrontRegardless()
+        defer { window.close() }
+        let first = try #require(window.setCaptureBackdrop(.checker))
+        let firstCloses = CloseCount(first)
+
+        let second = try #require(window.setCaptureBackdrop(.stripes))
+        #expect(firstCloses.count == 1, "replacing a backdrop closes the old panel")
+        #expect(first.isRemoved && !first.isVisible)
+        #expect(window.captureBackdrop === second)
+
+        let secondCloses = CloseCount(second)
+        window.setCaptureBackdrop(nil)
+        #expect(secondCloses.count == 1, "none closes the panel")
+        #expect(second.isRemoved && !second.isVisible)
+        #expect(objc_getAssociatedObject(window, CaptureBackdropPanel.retainKey) == nil, "the window lets go of it")
+        #expect(firstCloses.count == 1, "a removed panel is never closed again")
+    }
+
+    /// Closing the window a backdrop is behind removes and closes the backdrop, so a full-screen backdrop never stays
+    /// on screen after its window is gone (review of 71131c81).
+    @Test(.enabled("this host puts windows on screen") { await CaptureBackdropSnapshotTests.hostShowsWindows() })
+    func closingTheTargetWindowRemovesAndClosesItsBackdrop() throws {
+        let window = Self.translucent(NSRect(x: 240, y: 240, width: 160, height: 160))
+        window.orderFrontRegardless()
+        let backdrop = try #require(window.setCaptureBackdrop(.checker))
+        #expect(backdrop.isVisible)
+        let closes = CloseCount(backdrop)
+
+        window.close()
+        #expect(closes.count == 1, "the target's close closes its backdrop")
+        #expect(backdrop.isRemoved && !backdrop.isVisible)
+        #expect(window.captureBackdrop == nil)
+        #expect(objc_getAssociatedObject(window, CaptureBackdropPanel.retainKey) == nil, "the closed window lets go of it")
+    }
+
+    /// Counts a window's closes (`NSWindow.willCloseNotification`) while it is kept.
+    @MainActor private final class CloseCount {
+        private(set) var count = 0
+        private var observation: MainActorObservation?
+
+        init(_ window: NSWindow) {
+            observation = MainActorObservation(NSWindow.willCloseNotification, object: window) { [weak self] in
+                self?.count += 1
+            }
+        }
     }
 
     /// Grey (the checker under white) rather than a stripe's orange or blue.
