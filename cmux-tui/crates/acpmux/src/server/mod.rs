@@ -1905,6 +1905,10 @@ mod request_admission_tests {
 mod acp_list_tests;
 
 #[cfg(test)]
+#[path = "session_list_pages_tests.rs"]
+mod session_list_pages_tests;
+
+#[cfg(test)]
 mod nodelay_tests {
     use super::tune_ws_socket;
 
