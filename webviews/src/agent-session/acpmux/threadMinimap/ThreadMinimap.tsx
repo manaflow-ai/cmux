@@ -179,6 +179,9 @@ export function ThreadMinimap({
   /// text. The grace lets a pointer cross from the rail to its preview card without closing it.
   const [railRevealed, setRailRevealed] = useState(false);
   const railHideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /// The pointer is on the pane-edge strip: a blur elsewhere must not hide the rail under it, since
+  /// a still pointer sends no new enter to reveal it again.
+  const overStrip = useRef(false);
   const revealRail = () => {
     if (railHideTimer.current !== undefined) {
       clearTimeout(railHideTimer.current);
@@ -194,6 +197,7 @@ export function ThreadMinimap({
     const grace = reducedMotion() || document.hidden ? 0 : HOVER_INTENT.cardGrace;
     railHideTimer.current = setTimeout(() => {
       railHideTimer.current = undefined;
+      if (overStrip.current && !document.hidden) return;
       setRailRevealed(false);
       const active = rail.current?.ownerDocument.activeElement;
       const held = rail.current?.contains(active ?? null) || card.current?.contains(active ?? null);
@@ -204,20 +208,6 @@ export function ThreadMinimap({
       intend(null);
     }, grace);
   };
-  useEffect(() => {
-    // A page that hides mid-grace clears the pending timer and settles the rail hidden at once.
-    const onVisibility = () => {
-      if (!document.hidden || railHideTimer.current === undefined) return;
-      clearTimeout(railHideTimer.current);
-      railHideTimer.current = undefined;
-      setRailRevealed(false);
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      if (railHideTimer.current !== undefined) clearTimeout(railHideTimer.current);
-    };
-  }, []);
   /// The row keyboard focus is on.
   const [focused, setFocused] = useState<number | undefined>(undefined);
   /// The row the card shows (it stays while the pointer is in the card).
@@ -228,6 +218,25 @@ export function ThreadMinimap({
   const preview = useHoverIntent<"rail">({ delay: CARD_DELAY });
   const cardOpen = preview.shown !== null;
   const intend = preview.hover;
+  useEffect(() => {
+    // A page that hides mid-grace clears the pending timer and settles the rail hidden at once,
+    // its card with it, so a later strip hover cannot bring back a stale card.
+    const onVisibility = () => {
+      if (!document.hidden || railHideTimer.current === undefined) return;
+      clearTimeout(railHideTimer.current);
+      railHideTimer.current = undefined;
+      setRailRevealed(false);
+      intend(null);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [intend]);
+  useEffect(
+    () => () => {
+      if (railHideTimer.current !== undefined) clearTimeout(railHideTimer.current);
+    },
+    [],
+  );
   const dismiss = preview.dismiss;
   const [scrubbing, setScrubbing] = useState(false);
   const [, setBandMoves] = useState(0);
@@ -801,8 +810,12 @@ export function ThreadMinimap({
         className="acpmux-minimap__strip"
         aria-hidden="true"
         style={{ top: railTop, width: railVisible ? placement.left : stripWidth, height }}
-        onPointerEnter={revealRail}
+        onPointerEnter={() => {
+          overStrip.current = true;
+          revealRail();
+        }}
         onPointerLeave={(event) => {
+          overStrip.current = false;
           if (!within(rail.current, event.relatedTarget) && !within(card.current, event.relatedTarget))
             hideRailAfterGrace();
         }}
