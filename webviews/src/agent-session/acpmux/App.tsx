@@ -416,7 +416,7 @@ import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
-import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
+import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
@@ -2467,7 +2467,7 @@ export function VirtualTranscript({
   useLayoutEffect(() => noteQueue(), [sessionId, queueIds, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
-  const chatWidth = useChatWidth();
+  const { width: chatWidth, scale: chatScale } = useChatSizing();
   // The user's chat look (font, sizes, width; chatDisplay.ts): a new one measures every row again.
   const chatLook = useChatDisplay();
   const measuredLook = useRef(chatLook);
@@ -2492,8 +2492,9 @@ export function VirtualTranscript({
   }
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
-  const rowWidthRef = useRef(transcriptRowWidth(width, undefined, endReserve));
-  rowWidthRef.current = transcriptRowWidth(width, undefined, endReserve);
+  const scaledRowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth, chatLook, chatScale), endReserve);
+  const rowWidthRef = useRef(scaledRowWidth);
+  rowWidthRef.current = scaledRowWidth;
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   // Keyboard focus is a roving tab stop. A range is kept as stable row ids rather than DOM nodes
@@ -2902,7 +2903,7 @@ export function VirtualTranscript({
     const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId || lookChanged;
     if (rowHeights.current.registry !== registry || lookChanged)
       rowHeights.current = { registry, heights: new WeakMap() };
-    const rowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth, chatLook), endReserve);
+    const rowWidth = scaledRowWidth;
     const last = lastEstimate.current;
     const layout = layoutConversation(
       rows,
@@ -2915,7 +2916,7 @@ export function VirtualTranscript({
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, registry, sessionId, width, chatWidth, chatLook, endReserve]);
+  }, [rows, registry, sessionId, chatLook, scaledRowWidth]);
   const {
     rowId: prRow,
     report: reportPullRequestHost,
@@ -2924,7 +2925,7 @@ export function VirtualTranscript({
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
-    const rowWidth = transcriptRowWidth(width, undefined, endReserve);
+    const rowWidth = scaledRowWidth;
     const last = lastPlaced.current;
     // The ids flushed into `drawn` since the last placement; kept until `drawn` itself changes.
     const drawnChanged = drawn !== last?.drawn;
@@ -3009,7 +3010,7 @@ export function VirtualTranscript({
       held: last?.held ?? [],
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, registry, rows, sessionId, width, chatLook, endReserve]);
+  }, [estimated, drawn, registry, rows, sessionId, chatLook, scaledRowWidth]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
@@ -4327,7 +4328,7 @@ export function VirtualTranscript({
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}
-                      rowWidth={transcriptRowWidth(width, undefined, endReserve)}
+                      rowWidth={scaledRowWidth}
                       expanded={isExpanded}
                       observer={observer}
                       report={reportDrawn}
