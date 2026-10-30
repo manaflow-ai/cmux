@@ -7,6 +7,7 @@
 use crate::client::Client;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::future::Future;
 use std::sync::Arc;
@@ -95,7 +96,7 @@ where
                     "serverInfo": {"name": name, "version": env!("CARGO_PKG_VERSION")},
                 });
                 if let Some(text) = &instructions {
-                    reply["instructions"] = json!(text);
+                    reply.set("instructions", json!(text));
                 }
                 reply
             }
@@ -156,7 +157,7 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
         ),
         other => return error_result(format!("unknown tool: {}", other.unwrap_or_default())),
     };
-    request["sessionId"] = Value::String(session.to_owned());
+    request.set("sessionId", Value::String(session.to_owned()));
     match daemon.request(m, request).await {
         Ok(result) => {
             let text = if result["outcome"] == "cancelled" {

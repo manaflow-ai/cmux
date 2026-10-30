@@ -14,9 +14,10 @@ import CmuxNextCompat
 
     /// A menu from this strip is about to show: the trailing buttons stay
     /// while it is open, since the pointer leaves the strip for it.
-    func begin(_ menu: NSMenu) {
+    func begin(_ menu: NSMenu, fromNewTabButton: Bool = false) {
         end()
         strip?.buttonReveal.menuOpen = true
+        strip?.newTabButton.isMenuOpen = fromNewTabButton
         endObserver = MainActorObservation(NSMenu.didEndTrackingNotification, object: menu) { [weak self] in
             self?.end()
         }
@@ -28,6 +29,7 @@ import CmuxNextCompat
         endObserver = nil
         guard let strip, strip.buttonReveal.menuOpen else { return }
         strip.buttonReveal.menuOpen = false
+        strip.newTabButton.isMenuOpen = false
         if let window = strip.window, !strip.bounds.contains(strip.convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
             strip.buttonReveal.pointerInStrip = false
         }

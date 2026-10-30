@@ -161,7 +161,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             for await enabled in ObservationStream({ settings.snapshot.previewFeatures }) {
                 guard !enabled, let self,
                       let page = self.state.page,
-                      page == .page(.appStore) || page == .page(.changelog) else { continue }
+                      case .page(let id) = page, InternalPageTabStore.isPreviewPage(id) else { continue }
                 _ = self.leaveTopPage()
             }
         }
