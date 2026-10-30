@@ -51,12 +51,23 @@ let intake: Intake;
 /// What each send carried: the paths (or names) of its chips.
 let sent: string[][] = [];
 let send: () => void = () => {};
+/// The chat the composer shows, and whether a switch now carries its prompt (a harness switch).
+let chat = "chat-a";
+let carry = false;
+/// The chips the intake handed to another chat than the one shown.
+let handedOff: [string, string[]][] = [];
 
 /// A composer's intake and its send hold, as Composer.tsx wires them; a send reads the chips after
 /// the render that has them (a ref), as the composer's does.
 function Probe() {
-  intake = useAttachmentIntake({ allowImages: true, pasteTarget: () => undefined, scope: "chat-a" });
-  const hold = useSendWhenAttached(intake.loading, "chat-a", intake.unsettled);
+  intake = useAttachmentIntake({
+    allowImages: true,
+    pasteTarget: () => undefined,
+    scope: chat,
+    carries: () => carry,
+    elsewhere: (session, chips) => handedOff.push([session, chips.map((chip) => chip.path ?? chip.name)]),
+  });
+  const hold = useSendWhenAttached(intake.loading, chat, intake.unsettled);
   const staged = useRef<readonly ComposerAttachment[]>([]);
   staged.current = intake.attachments;
   const go = () => {
@@ -91,6 +102,9 @@ function upload() {
 
 async function fresh() {
   sent = [];
+  chat = "chat-a";
+  carry = false;
+  handedOff = [];
   await act(async () => root.render(<Probe />));
   await act(async () => intake.setAttachments([]));
 }
@@ -149,4 +163,22 @@ test("a failed upload leaves the chip with its note and Retry; the waiting send 
   expect(intake.attachments).toMatchObject([{ kind: "link", saved: true, path: remote }]);
   await act(async () => send());
   expect(sent).toEqual([[], [remote]]);
+});
+
+// Review of #26953 at 06aa3fc4: a switch that carries the prompt (a harness switch) moved the
+// pending recording to the new chat with it, so its copy on chat A's machine was staged in chat B.
+// The host's chip stays with the chat it was made for, and lands in that chat's kept chips.
+test("a switch that carries the prompt leaves the uploading recording with its own chat", async () => {
+  await fresh();
+  const host = upload();
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
+  chat = "chat-b";
+  carry = true;
+  await act(async () => root.render(<Probe />));
+  expect(intake.pending).toMatchObject([{ name: "Recording.wav", scope: "chat-a" }]);
+  await act(async () => host.answer({ path: remote }));
+  expect(intake.attachments).toEqual([]);
+  expect(handedOff).toEqual([["chat-a", [remote]]]);
+  await act(async () => send());
+  expect(sent).toEqual([[]]);
 });

@@ -133,6 +133,9 @@ export type PendingAttachment = {
   /// Streaming to the session's machine (a file of any size): a send goes without waiting for it,
   /// and it stays for the next prompt (Leo, 2026-10-25: "...prevent new things from happening").
   uploading?: boolean;
+  /// Made by the host for its chat (attachLater, a file on that chat's machine): it stays with that
+  /// chat, never carried to another with the prompt.
+  bound?: boolean;
 };
 
 /// What Retry needs of a pending chip: its file and how it came in.
@@ -189,8 +192,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   const live = useRef({ options, t });
   live.current = { options, t };
-  /// Each batch still being read, with the chat it belongs to (`scope`).
-  const batches = useRef(new Set<{ scope?: string }>());
+  /// Each batch still being read, with the chat it belongs to (`scope`). A `bound` one (attachLater:
+  /// a file on that chat's machine) stays with its chat when a switch carries the prompt.
+  const batches = useRef(new Set<{ scope?: string; bound?: boolean }>());
   /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
@@ -211,8 +215,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const from = lastScope.current;
     lastScope.current = scope;
     if (from === scope || (from !== undefined && !live.current.options.carries?.())) return;
-    for (const batch of batches.current) if (batch.scope === from) batch.scope = scope;
-    setPending((chips) => chips.map((chip) => (chip.scope === from ? { ...chip, scope } : chip)));
+    for (const batch of batches.current) if (batch.scope === from && !batch.bound) batch.scope = scope;
+    setPending((chips) => chips.map((chip) => (chip.scope === from && !chip.bound ? { ...chip, scope } : chip)));
   }, [scope]);
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
@@ -339,8 +343,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// again. Its × runs `stop` (the host stops sending) and drops whatever `make` answers later.
   const [attachLater] = useState(
     () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string, stop?: () => void) => {
-      const batch = { scope: live.current.options.scope };
-      const chip: PendingAttachment = { id: crypto.randomUUID(), name, image: false, scope: batch.scope };
+      const batch = { scope: live.current.options.scope, bound: true };
+      const chip: PendingAttachment = { id: crypto.randomUUID(), name, image: false, scope: batch.scope, bound: true };
       sources.current.set(chip.id, { make, name, failure, stop });
       batches.current.add(batch);
       flushSync(() => setPending((chips) => [...chips, chip]));
