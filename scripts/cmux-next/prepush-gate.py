@@ -87,6 +87,7 @@ touch (base <sha>)". The reason is printed; say it in your report.
 from __future__ import annotations
 
 import argparse
+import ast
 import collections
 import concurrent.futures
 import fcntl
@@ -129,7 +130,9 @@ MANIFEST_SOURCES = (PKG + "/Sources/", PKG + "/Tests/")
 DEPS_CHECK = "Package dependency lists sorted"
 # Its finding that a baseline import is gone, and the hint line it prints under any finding.
 STALE_BASELINE = ": IMPORT_BASELINE lists "
+STALE_PAIR = re.compile(r": IMPORT_BASELINE lists (.+?), which is declared or gone now")
 DEPS_HINT = "One dependency per line"
+DEPS_CHECKER = "scripts/cmux-next/check-package-dependency-lists.py"
 
 # (CI step name, command, path prefixes that make it run). {root} is the tree, {pkg} its CmuxNext
 # package, {s} its scripts/cmux-next. Mirrors the job's steps; tests/test_cmux_next_prepush_gate.py
@@ -398,6 +401,45 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
         trees.append(dest)
     return trees[0], trees[1]
 
+
+
+def _literal(node: ast.AST, names: dict[str, str] | None = None):
+    """The value of IMPORT_BASELINE's expression, read without running it: strings, tuples, `+`, frozenset()/tuple()
+    and a generator of f-strings over a literal tuple (how the checker writes CmuxNextAppTests' rows)."""
+    names = names or {}
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return tuple(_literal(e, names) for e in node.elts)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _literal(node.left, names) + _literal(node.right, names)
+    if isinstance(node, ast.Name) and node.id in names:
+        return names[node.id]
+    if isinstance(node, ast.JoinedStr):
+        return "".join(_literal(v.value if isinstance(v, ast.FormattedValue) else v, names) for v in node.values)
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("frozenset", "tuple")
+            and len(node.args) == 1 and not node.keywords):
+        return tuple(_literal(node.args[0], names))
+    if (isinstance(node, ast.GeneratorExp) and len(node.generators) == 1 and not node.generators[0].ifs
+            and isinstance(node.generators[0].target, ast.Name)):
+        var = node.generators[0].target.id
+        return tuple(_literal(node.elt, names | {var: item}) for item in _literal(node.generators[0].iter, names))
+    raise ValueError(ast.dump(node))
+
+
+def pushed_import_baseline(repo: Path, head: str) -> frozenset[str] | None:
+    """The pushed head's IMPORT_BASELINE (the dependency check's), parsed and never executed; None when unreadable.
+    The hook runs the installed checker, whose baseline is the one before the push: a push that declares a pair and
+    drops its line (the cleanup the checker asks for) would be told to drop a line it already dropped."""
+    try:
+        source = git(repo, "show", f"{head}:{DEPS_CHECKER}").decode("utf-8")
+        for node in ast.parse(source).body:
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name) and node.targets[0].id == "IMPORT_BASELINE"):
+                return frozenset(_literal(node.value))
+    except (subprocess.CalledProcessError, SyntaxError, UnicodeDecodeError, ValueError, TypeError):
+        return None
+    return None
 
 # ---------------------------------------------------------------- findings
 
@@ -887,12 +929,26 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                         + "\n".join(head_out.splitlines()[-5:]))
                 if os.environ.get("CMUX_PREPUSH_GATE_DEBUG"):
                     log(f"--- {name} (head exit {head_code})\n{head_out}")
-                if name == DEPS_CHECK and name not in trees_for:
-                    # Trees of the changed files only: a module no file there imports may still be imported by an
-                    # untouched one, so "IMPORT_BASELINE lists ...: drop its line" needs the whole package to be true.
-                    kept = [r for r in records(head_out) if STALE_BASELINE not in r]
-                    head_out = "\n".join(kept)
-                    head_code = 0 if all(r.startswith(DEPS_HINT) for r in kept) else head_code
+                if name == DEPS_CHECK:
+                    # Missing imports come from the installed checker; which baseline lines are stale is the pushed
+                    # head's call: its IMPORT_BASELINE may already have dropped a line the installed one still has.
+                    # Dropping a pair from the pushed baseline never hides a missing import, which the installed
+                    # checker still reports. And with trees of the changed files only (no manifest change) a module
+                    # no file there imports may still be imported by an untouched one, so "drop its line" needs the
+                    # whole package to be true.
+                    pushed = pushed_import_baseline(repo, head) if name in trees_for else None
+
+                    def stale_elsewhere(record: str) -> bool:
+                        if STALE_BASELINE not in record:
+                            return False
+                        if name not in trees_for:
+                            return True
+                        match = STALE_PAIR.search(record)
+                        return pushed is not None and match is not None and match.group(1) not in pushed
+                    kept = [r for r in records(head_out) if not stale_elsewhere(r)]
+                    if len(kept) != len(records(head_out)):
+                        head_out = "\n".join(kept)
+                        head_code = 0 if all(r.startswith(DEPS_HINT) for r in kept) else head_code
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
                 fresh = new_records(base_out, head_out, name_base, name_head)
