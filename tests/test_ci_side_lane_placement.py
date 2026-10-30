@@ -441,8 +441,9 @@ class Decide(unittest.TestCase):
 
 class AutofixActionExportsRoute(unittest.TestCase):
     """Review of #27201 at 8a5fe9af: action exports need a logged-in session. Attempt 1 and a person's re-run take
-    the owned session/gui label; a rescue bot's re-run leaves that queue for Blacksmith macOS, never
-    vars.MACOS_RUNNER_26, which may name a generic owned pool with no session."""
+    the owned gui label; a rescue bot's re-run leaves that queue for Blacksmith macOS, never
+    vars.MACOS_RUNNER_26, which may name a generic owned pool with no session. They have no placement, so they
+    never name the session label, whatever vars.CI_SESSION_LABEL says (cmux#24295's 90-minute waits)."""
 
     def context(self, attempt: str, actor: str) -> dict:
         context = github_context("pull_request", ref="refs/pull/1/merge", CI_PR_POOL_OWNED="1",
@@ -451,7 +452,7 @@ class AutofixActionExportsRoute(unittest.TestCase):
                                  event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
         return context
 
-    def test_the_owned_session_label_on_attempt_1_and_a_persons_rerun_blacksmith_for_the_rescue(self):
+    def test_the_owned_gui_label_on_attempt_1_and_a_persons_rerun_blacksmith_for_the_rescue(self):
         for name in ("cmux-next-pr-autofix.yml", "cmux-next-base-autofix.yml"):
             runs_on = yaml.safe_load((WORKFLOWS / name).read_text())["jobs"]["action-exports"]["runs-on"]
             with self.subTest(workflow=name):
@@ -462,7 +463,8 @@ class AutofixActionExportsRoute(unittest.TestCase):
                         self.assertEqual(evaluate(runs_on, self.context(attempt, bot)), FALLBACK, (bot, attempt))
                 session = self.context("2", "teamleaderleo")
                 session["vars"]["CI_SESSION_LABEL"] = "1"
-                self.assertEqual(evaluate(runs_on, session), SESSION)
+                self.assertEqual(evaluate(runs_on, session), GUI)
+                self.assertNotIn(SESSION, runs_on)
 
 
 LIGHT_SIDE = "glaeda-side-light-xcode-26.6"

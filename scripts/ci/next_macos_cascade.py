@@ -280,6 +280,12 @@ class Seen:
     # Queue counts are a separate unit from oldest waits. GUI/session placement weighs them against
     # online runners; the side-route dead-end check above keeps reading wait durations.
     owned_queued: Mapping[str, int] = dataclasses.field(default_factory=dict)
+    # The owned labels the janitor found unserved (queue_janitor.py's `unserved`, starved_labels.unserved()): a
+    # job queued on the label and none running or started on it within starved_labels.STARVED_AFTER. A label
+    # whose runners are online and busy elsewhere looks like room by its counts, yet starts nothing:
+    # glaeda-session-std-xcode-26.6 held cmux#24295's daemon tests 90 minutes on 2026-10-29 that way, with
+    # five runners online and the queue shorter than them (role_room() in side_lane_placement.py reads this).
+    unserved: frozenset[str] = frozenset()
 
 
 def _fresh(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tuple[float, Mapping[str, Any]] | None:
@@ -331,8 +337,12 @@ def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
              for label in pools if str(label).startswith("glaeda-") and _field(pools, str(label), "queued")}
     owned_queued = {str(label): _field(pools, str(label), "queued")
                     for label in pools if str(label).startswith("glaeda-") and _field(pools, str(label), "queued")}
+    # A key names every fleet label a job asked for, joined with "+" (starved_labels.fleet_key()); only a
+    # one-label key says that label itself starts nothing.
+    unserved = frozenset(str(key) for key in snapshot.get("unserved") or ()
+                         if isinstance(key, str) and key.startswith("glaeda-") and "+" not in key)
     return Seen(waits=waits, age=age, reserved={k: v for k, v in reserved.items() if v}, owned=owned,
-                owned_queued=owned_queued)
+                owned_queued=owned_queued, unserved=unserved)
 
 
 def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
