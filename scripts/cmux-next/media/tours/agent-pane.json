@@ -6,7 +6,9 @@
      "optional": "agent backend unavailable on this runner"},
     {"title": "Queue a second chat", "cmux": ["agent", "new-chat"], "wait": 2,
      "optional": "agent backend unavailable on this runner"},
-    {"title": "Tab into the session rail so a prompt tick shows keyboard focus", "rpc": {"method": "debug.key", "params": {"key": "tab", "target": "page"}}, "wait": 1.5,
+    {"title": "Tab into the session rail", "rpc": {"method": "debug.key", "params": {"key": "tab", "target": "page"}}, "wait": 0.8,
+     "optional": "agent backend unavailable on this runner"},
+    {"title": "Move keyboard focus to a prompt tick", "rpc": {"method": "debug.key", "params": {"key": "down", "target": "page"}}, "wait": 1.5,
      "optional": "agent backend unavailable on this runner"}
   ]
 }
