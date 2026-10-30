@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
 
 /// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per acpmux
