@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 import Dispatch
 
@@ -14,6 +15,20 @@ nonisolated struct EventSourceProcess: Equatable, Sendable {
 /// The executable path of each process that posts key and mouse events to the app, by pid, for
 /// ``AgentPanePersonInput`` and ``PersonInputCheck``.
 ///
+/// The key path makes no system call (P-MAIN S5): ``path(of:)`` reads this table under its lock and
+/// nothing else. A pid not in the table yet answers nil (the checks' safe default: not the person's)
+/// at once, and its process is read on this table's own queue: the start time and the path, once per
+/// process. The person's own input (the HID system, pid 0) never reaches the table.
+///
+/// A pid the kernel gives to a new process: each entry is one process (pid and start time), and an
+/// exit watch on its pid, armed before the read, removes it when that process ends. The watch runs on
+/// the same serial queue as the read, so an exit always comes after the entry it removes. A pid is
+/// given again only after its process has ended and been reaped and the kernel's pid counter has come
+/// round to it, so the next event from that pid misses and is read again.
+///
+/// Bound: one entry and one kernel exit watch per live process that posted an event to the app; each
+/// leaves with its process (R9: no constant cap; the bound is the live processes).
+///
 /// One table per app, built in the composition root (`AppServices.eventSources`) and passed through `init`;
 /// tests build their own.
 public nonisolated final class EventSourceProcesses: Sendable {
@@ -29,6 +44,19 @@ public nonisolated final class EventSourceProcesses: Sendable {
     private let resolve: Resolve
     private let watchExit: WatchExit
     private let queue: DispatchQueue
+    private let state = Mutex(State())
+
+    private nonisolated struct State {
+        var entries: [pid_t: Entry] = [:]
+        var nextWatch: UInt64 = 0
+    }
+
+    private nonisolated enum Entry {
+        /// Read on the queue now; events meanwhile take the safe default and post no second read.
+        case reading
+        /// The process the pid names until `watch` (its exit watch) removes it.
+        case read(EventSourceProcess, watch: UInt64, cancel: @Sendable () -> Void)
+    }
 
     /// The app's table: the kernel's answers, read on its own queue.
     public convenience init() {
@@ -44,16 +72,61 @@ public nonisolated final class EventSourceProcesses: Sendable {
         self.queue = queue
     }
 
-    /// The executable path of the process `pid` names; nil when unknown. Reads the kernel on the caller's thread.
-    func path(of pid: pid_t) -> String? {
-        resolve(pid)?.path
+    /// The executable path of the process `pid` names, from the table only; nil when it is not read
+    /// yet (the read is then posted to the queue, once) or names no process. No system call, no wait.
+    func path(of pid: pid_t) -> String? { // perf-hot: 1us key-dispatch (every key- and mouse-down a process posts)
+        let (path, post): (String?, Bool) = state.withLock { state in
+            switch state.entries[pid] {
+            case let .read(process, _, _): return (process.path, false)
+            case .reading: return (nil, false)
+            case nil:
+                state.entries[pid] = .reading
+                return (nil, true)
+            }
+        }
+        if post { queue.async { self.read(pid) } }
+        return path
     }
 
     /// The process the table holds for `pid` (tests and logs).
-    func cached(_ pid: pid_t) -> EventSourceProcess? { nil }
+    func cached(_ pid: pid_t) -> EventSourceProcess? {
+        state.withLock { state in
+            guard case let .read(process, _, _) = state.entries[pid] else { return nil }
+            return process
+        }
+    }
 
     /// Returns once every read and exit queued before the call has been applied (tests).
-    func settled() async {}
+    func settled() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
+    }
+
+    /// On the queue: arms the exit watch, then reads the process. Armed first, so the exit of the
+    /// process read here (or of an earlier one with this pid) runs after this item and removes the entry.
+    private func read(_ pid: pid_t) {
+        let watch = state.withLock { state in
+            state.nextWatch &+= 1
+            return state.nextWatch
+        }
+        let cancel = watchExit(pid, queue) { [weak self] in self?.exited(pid, watch: watch) }
+        guard let process = resolve(pid) else {
+            // No process: nothing kept, so a later event from this pid reads again.
+            state.withLock { _ = $0.entries.removeValue(forKey: pid) }
+            cancel()
+            return
+        }
+        state.withLock { $0.entries[pid] = .read(process, watch: watch, cancel: cancel) }
+    }
+
+    /// On the queue: the process watch `watch` was armed for ended; its entry leaves.
+    private func exited(_ pid: pid_t, watch: UInt64) {
+        let cancel: (@Sendable () -> Void)? = state.withLock { state in
+            guard case let .read(_, armed, cancel) = state.entries[pid], armed == watch else { return nil }
+            state.entries[pid] = nil
+            return cancel
+        }
+        cancel?()
+    }
 
     /// The kernel's answer: the start time, the path, and the start time again, so both name one process.
     static let system: Resolve = { pid in
@@ -66,7 +139,7 @@ public nonisolated final class EventSourceProcesses: Sendable {
     private static func startTime(_ pid: pid_t) -> UInt64? {
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        // blocking-allow: the same read the person checks made per event before this seam; the next commit moves it onto the table's own queue
+        // blocking-allow: runs only in the table's read, on its own serial queue (com.cmuxterm.next.event-source-processes), never on main; CmuxNextCompat has no system-call seam
         guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
         return info.pbi_start_tvsec &* 1_000_000 &+ info.pbi_start_tvusec
     }
