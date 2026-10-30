@@ -104,6 +104,7 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
               protocolVersion: 1,
               transport: "mock",
               newSession: !started,
+              ...(surface ? { surface } : {}),
               ...(draft ? { draft } : {}),
             }),
           },
@@ -245,12 +246,14 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
     // Leo (10-28): "when I updated, it removed my draft in one of the composer things".
     test("Start Agent's panel hands its typed text to the host, and gets it back after an update", async () => {
       const page = await newChat({ surface: "quick" });
+      await page.locator('.acpmux-shell[data-surface="quick"]').waitFor();
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("compare the two retry policies");
       expect(await lastUnsent(page, "compare the two retry policies")).toBe("compare the two retry policies");
       await page.close();
 
       const relaunched = await newChat({ draft: "compare the two retry policies", surface: "quick" });
+      await relaunched.locator('.acpmux-shell[data-surface="quick"]').waitFor();
       await relaunched.getByText("compare the two retry policies").waitFor();
       await relaunched.close();
     });
