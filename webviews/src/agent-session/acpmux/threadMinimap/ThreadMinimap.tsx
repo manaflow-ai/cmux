@@ -1131,6 +1131,7 @@ const Tick = memo(function Tick({
       active
       data-tick={index}
       className="acpmux-minimap__tick"
+      data-focus-ring="tick"
       data-tone={active ? "active" : current ? "current" : "rest"}
       data-bookmarked={marked || undefined}
       style={{ "--acpmux-minimap-row": index } as React.CSSProperties}

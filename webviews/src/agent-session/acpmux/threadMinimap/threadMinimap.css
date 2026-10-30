@@ -93,7 +93,11 @@
   contain: layout paint;
 }
 .acpmux-minimap__tick:focus-visible {
-  outline: 1.5px solid var(--agent-text);
+  --cmux-focus-ring-width: 1.5px;
+  --cmux-focus-ring-color: var(--agent-text);
+  /* shared agent-session styles suppress generic button outlines with !important; this rail owns
+     its compact focus treatment and marks the control with data-focus-ring="tick". */
+  outline: 1.5px solid var(--agent-text) !important;
   outline-offset: -1.5px;
   border-radius: var(--acpmux-inspector-row-radius, 4px);
 }
