@@ -62,6 +62,8 @@ export type BillingDbRows = {
   customers: Array<Record<string, unknown>>;
   subscriptions: Array<Record<string, unknown>>;
   inserted: Array<Record<string, unknown>>;
+  /** Runs before an insert is recorded; throw to simulate a constraint conflict. */
+  beforeInsert?: (values: Record<string, unknown>) => void;
 };
 
 export function emptyBillingDbRows(): BillingDbRows {
@@ -92,9 +94,9 @@ export function stubBillingDb(rows: () => BillingDbRows) {
   return {
     select: () => ({ from: (table: unknown) => chain(table) }),
     insert: () => ({
-      values: (values: Record<string, unknown>) => {
+      values: async (values: Record<string, unknown>) => {
+        rows().beforeInsert?.(values);
         rows().inserted.push(values);
-        return Promise.resolve();
       },
     }),
     update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
