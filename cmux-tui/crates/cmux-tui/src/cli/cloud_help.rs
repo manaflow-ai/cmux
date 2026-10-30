@@ -321,7 +321,7 @@ const GROUPS: &[Group] = &[
             verb("publication-list", "", "List publications", "公開設定を一覧表示"),
             verb(
                 "provision-api",
-                "{target} --port PORT [--api-key-name NAME]",
+                "{target} --port PORT [--name NAME]",
                 "Publish a machine port as an API and create a key",
                 "マシンのポートを API として公開し、キーを作成",
             ),
@@ -333,7 +333,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "api-key-revoke",
-                "--path PUBLICATION --api-key KEY_ID --confirm",
+                "--path PUBLICATION --key KEY_ID --confirm",
                 "Revoke a publication's API key",
                 "公開設定の API キーを失効",
             ),
