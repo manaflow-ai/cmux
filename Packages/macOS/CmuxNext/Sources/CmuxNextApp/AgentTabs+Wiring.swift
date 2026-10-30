@@ -274,9 +274,11 @@ extension AgentTabStore {
                 AgentTabStore.cloudCredentialTransferIsAvailable(linkSource: services.cloud.configuration.linkSource, isSignedIn: services.cloud.auth.isSignedIn)
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
             // trust only on the Cloud API's owner answer on the link the call goes over, checked as
-            // it is sent, through any daemon (an app-server link has none: no owner word).
-            let cloudLink: CloudMachineLink?? = services.machines.session(daemon.machineID).map(\.link)
-            let ownerLink = cloudLink.map { link -> AgentSessionAttachClient.OwnerLink in { await link?.ownerLink } }
+            // it is sent, through any daemon (the legacy link's or the app link's own answer).
+            let ownerLink = services.machines.session(daemon.machineID).map { cloud -> AgentSessionAttachClient.OwnerLink in
+                if let appLink = cloud.appLink { return { await appLink.ownerLink } }
+                return { [link = cloud.link] in await link?.ownerLink }
+            }
             host.ownerLink = ownerLink
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
