@@ -5,7 +5,7 @@ public import AppKit
 /// title 4.5:1 on its fill. It draws a focus ring in `Palette.focusRing` around itself while it has
 /// keyboard focus (outside the fill, so it shows on a solid one too).
 @MainActor
-public final class CmuxDialogButtonView: NSButton {
+public final class CmuxDialogButtonView: ClickableButton {
     public private(set) var button: CmuxDialogButton
     /// The key that presses this button, drawn after its title (u2647); nil draws none.
     public let keyHint: CmuxDialogKeyHint?
