@@ -501,6 +501,19 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("runs-on: macos", json.dumps(job))
         self.assertIn("ubuntu", job["runs-on"])
 
+    def test_the_consumer_job_cannot_fail_so_the_mac_job_always_has_its_fallback(self):
+        # action-exports needs pushed-exports with no status function: a failed pushed-exports would
+        # skip the Mac job. Every step continues on error, and the steps' limits fit inside the job's.
+        job = AUTOFIX["jobs"]["pushed-exports"]
+        for step in job["steps"]:
+            with self.subTest(step=step.get("name") or step.get("uses")):
+                self.assertTrue(step.get("continue-on-error"))
+                self.assertIn("timeout-minutes", step)
+        self.assertLess(sum(step["timeout-minutes"] for step in job["steps"]), job["timeout-minutes"])
+        # A hit whose exports did not upload is a miss: the Mac job regenerates.
+        self.assertEqual(job["outputs"]["hit"], "${{ steps.lookup.outputs.hit == 'true' && (steps.lookup.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}")
+        self.assertIn("pushed-exports", AUTOFIX["jobs"]["action-exports"]["needs"])
+
     def test_autofix_uses_the_pack_as_this_commits_exports(self):
         job = AUTOFIX["jobs"]["autofix"]
         self.assertIn("pushed-exports", job["needs"])

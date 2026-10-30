@@ -189,15 +189,21 @@ jobs:
     needs: action-areas
     if: needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 55
+    timeout-minutes: 62
     permissions:
       contents: read
+    # Every step is continue-on-error and the lookup's own limit is under the job's, so this job
+    # always succeeds and the Mac job (which needs it) runs on any miss. A hit counts only once its
+    # changed exports are uploaded: a failed upload is a miss too.
     outputs:
-      hit: ${{ steps.lookup.outputs.hit }}
+      hit: ${{ steps.lookup.outputs.hit == 'true' && (steps.lookup.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
       exports: ${{ steps.lookup.outputs.exports }}
       made_at: ${{ steps.lookup.outputs.made_at }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        id: checkout
+        continue-on-error: true
+        timeout-minutes: 3
         with:
           persist-credentials: false
 
@@ -217,6 +223,7 @@ jobs:
 
       - name: Take this push's packed exports
         id: lookup
+        if: steps.checkout.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 50
         env:
@@ -231,7 +238,10 @@ jobs:
             --out "$RUNNER_TEMP/action-exports" --wait 2700 --base-tier "$BASE_TIER" --skip "$SKIP_REASON" | tee -a "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        id: upload
         if: steps.lookup.outputs.hit == 'true' && steps.lookup.outputs.exports == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
         with:
           name: action-exports
           path: ${{ runner.temp }}/action-exports
