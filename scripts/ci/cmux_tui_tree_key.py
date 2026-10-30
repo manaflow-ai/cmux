@@ -16,7 +16,9 @@ INPUTS = ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt"
 # leaves out the classic `ghostty` gitlink, which no cmux-tui binary builds
 # from since 0c9d74bc3ea. Fetch reads v2 then v1; publication writes both
 # until the v1 write stops (B2); v1 is deleted with the submodule (B3).
-KEY_VERSIONS = ("v1", "v2")
+# v2-legacy preserves the original v2 algorithm for artifacts published before
+# docs-only pushes started inheriting the runtime key.
+KEY_VERSIONS = ("v1", "v2", "v2-legacy")
 V1_ONLY_INPUTS = frozenset({("gitlink", "ghostty")})
 # In a partial clone a missing object is fetched from the promisor remote, one
 # fetch per lookup; a revision the checkout lacks pegged a Mac for 19 minutes
