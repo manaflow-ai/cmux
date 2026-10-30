@@ -20,7 +20,8 @@ struct NewRowLateStartTests {
     import json, sys, threading
     print('{"ok":true}', file=sys.stderr, flush=True)
     rows, panes, lock = [], {}, threading.Lock()
-    caps = ['terminal-placement-env-v1', 'terminal-env-v1', 'rows-v1', 'row-client-keys-v1']
+    # As cmux-tui advertises them (server/capabilities.rs): the app sends a row's client keys under split-client-keys-v1.
+    caps = ['terminal-placement-env-v1', 'terminal-env-v1', 'rows-v1', 'split-client-keys-v1', 'row-client-keys-v1']
     def write(line):
         with lock:
             print(json.dumps(line), flush=True)
