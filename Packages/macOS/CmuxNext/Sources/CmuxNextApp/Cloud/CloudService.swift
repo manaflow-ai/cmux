@@ -395,6 +395,10 @@ final class CloudService {
     /// after the account's machines were dropped (sign-out, another account),
     /// or after this app added or removed a machine, is stale.
     @ObservationIgnored private var listGeneration = 0
+    /// Orders every read of machine records (a list, Machine Status's one record) by when it was asked.
+    @ObservationIgnored private var recordReads = 0
+    /// Per machine, the read whose record it holds: an older read's answer that lands later changes nothing.
+    @ObservationIgnored private var recordReadApplied: [String: Int] = [:]
 
     /// Fetches `/api/vm` and reconciles sessions: new live machines connect,
     /// gone machines disconnect, records update in place. A stale list (see
@@ -407,6 +411,7 @@ final class CloudService {
         lastRefresh = .now
         listGeneration += 1
         let generation = listGeneration
+        let read = beginRecordRead()
         let account = listAccount
         do {
             let list: [CloudMachine]
@@ -423,7 +428,7 @@ final class CloudService {
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
-            reconcile(list)
+            reconcile(list, read: read)
             hasLoadedMachines = true
             loadedAccount = account
             listLoadedAt = .now
@@ -460,13 +465,19 @@ final class CloudService {
         return loadedAt.duration(to: now) < age
     }
 
-    private func reconcile(_ list: [CloudMachine]) {
+    /// Takes the ticket of a machine-record read, before it is sent (``apply(_:to:read:)``).
+    func beginRecordRead() -> Int {
+        recordReads += 1
+        return recordReads
+    }
+
+    func reconcile(_ list: [CloudMachine], read: Int) {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
-                apply(machine, to: session)
+                apply(machine, to: session, read: read)
             } else {
                 addSession(machine)
             }
@@ -480,13 +491,18 @@ final class CloudService {
                 Task { try? await codexBroker.revoke(machineID: machineID, scope: scope) }
             }
             creations.machineRemoved(session.machineID)
+            recordReadApplied[session.machineID] = nil
             machines.remove(session.machineID)?.disconnect()
         }
     }
 
     /// A fresh record for `session` (a list refresh, or Machine Status reading one machine): a
     /// machine that stopped being live suspends its link, and one that turned live connects.
-    func apply(_ machine: CloudMachine, to session: CloudMachineSession) {
+    /// `read` (``beginRecordRead()``): a record from a read asked before the one the session
+    /// holds changes nothing, so answers that land out of order run no stale transition.
+    func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int) {
+        guard read > recordReadApplied[machine.id, default: 0] else { return }
+        recordReadApplied[machine.id] = read
         let wasLive = session.machine.status.isLive
         session.machine = machine
         if wasLive, !machine.status.isLive {
@@ -530,6 +546,7 @@ final class CloudService {
         listGeneration += 1
         for creation in creations.all { creations.end(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
+        recordReadApplied = [:]
         machines.cloudLimits = nil
         hasLoadedMachines = false
         listLoadedAt = nil
