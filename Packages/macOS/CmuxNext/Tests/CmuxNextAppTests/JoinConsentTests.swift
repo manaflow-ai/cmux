@@ -712,8 +712,8 @@ import Testing
     /// mouse-down's dispatch or inside it, and Allow's action runs in the mouse-up's dispatch (HQ#5121: a
     /// click on the displayed Allow on a GUI fleet Mac found no mouse-down held). The person's click on Allow
     /// grants there, once, with a drag while held and however often Allow's action is pressed inside it. A
-    /// mouse-up the check refuses, one on Deny, another event between the two halves of the click and a
-    /// press after the click grant nothing.
+    /// mouse-up the check refuses, one on Deny, another event between the two halves of the click, a click
+    /// begun while Allow was disabled and a press after the click grant nothing.
     @Test(arguments: [false, true]) func thePersonsClickOnAllowGrantsWhenItsMouseUpIsDispatchedOnItsOwn(nested: Bool) async throws {
         _ = NSApplication.shared
         let fake = Fake()
@@ -765,6 +765,8 @@ import Testing
         try click(allow, deny, true, {}) { allow.performClick(nil) } // pressed on Allow, released on Deny
         _ = allow.accessibilityPerformPress() // after the click, its mouse-up still current
         try click(allow, allow, true, { other(.rightMouseDown) }) { allow.performClick(nil) } // another event between
+        allow.isEnabled = false // begun while Allow is disabled (a write in flight), released once it is enabled again
+        try click(allow, allow, true, { allow.isEnabled = true }) { allow.performClick(nil) }
         for _ in 0..<50 { await Task.yield() }
         #expect(fake.writes.isEmpty && model.ask != nil)
         try click(allow, allow, true, { other(.leftMouseDragged) }) { // pressed while held, then on the mouse-up

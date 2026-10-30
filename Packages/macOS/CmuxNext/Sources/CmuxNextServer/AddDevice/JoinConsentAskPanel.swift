@@ -14,10 +14,11 @@ public final class JoinConsentAskPanel: NSPanel {
     public var isPersonEvent: @MainActor (NSEvent) -> Bool = { _ in false }
     /// The event the app is handling now (tests set it).
     var eventInHand: @MainActor () -> NSEvent? = { NSApp.currentEvent }
-    /// The person's own mouse-down that began the click going on now, held until the click ends: AppKit
-    /// may hand a button the mouse-up in its tracking loop, inside the mouse-down's dispatch, or (the
-    /// displayed, non-activating sheet) dispatch the mouse-up as an event of its own (HQ#5121).
-    private var personDown: NSEvent?
+    /// The person's own mouse-down that began the click going on now, with the Allow button enabled when it
+    /// came, held until the click ends: AppKit may hand a button the mouse-up in its tracking loop, inside
+    /// the mouse-down's dispatch, or (the displayed, non-activating sheet) dispatch the mouse-up as an event
+    /// of its own (HQ#5121). A click begun while Allow was disabled holds none.
+    private var personDown: (event: NSEvent, allow: NSView)?
     /// The last mouse-up that answered Allow: each click answers once.
     private var spentUp: (number: Int, time: TimeInterval)?
 
@@ -53,7 +54,8 @@ public final class JoinConsentAskPanel: NSPanel {
     func dispatch(_ event: NSEvent, _ body: () -> Void) {
         switch event.type {
         case .leftMouseDown:
-            personDown = isPersonEvent(event) ? event : nil
+            personDown = nil
+            if let allow = content.allow, allow.isEnabled, isPersonEvent(event) { personDown = (event, allow) }
             body()
             if let up = eventInHand(), up.type == .leftMouseUp { endClick(up) }
         case .leftMouseDragged, .pressure:
@@ -77,13 +79,14 @@ public final class JoinConsentAskPanel: NSPanel {
     }
 
     /// SECURITY: whether `up` ends a click on `button` that is the person's own, taken once: the sheet
-    /// holds the person's mouse-down on the button, and `up` is the person's mouse-up on the same button,
-    /// not one taken before. A click another process (or DEBUG automation) posts, a click begun or ended
-    /// on anything else, and a click already taken find none.
+    /// holds the person's mouse-down on the button, taken while that same button was shown and enabled, and
+    /// `up` is the person's mouse-up on it, not one taken before. A click another process (or DEBUG
+    /// automation) posts, a click begun while Allow was disabled or on a button since rebuilt, a click begun
+    /// or ended on anything else, and a click already taken find none.
     func takePersonClick(on button: NSView, up: NSEvent) -> Bool {
-        guard let down = personDown, up.type == .leftMouseUp, isPersonEvent(up),
-              up.windowNumber == windowNumber, down.windowNumber == windowNumber,
-              up.timestamp >= down.timestamp else { return false }
+        guard let held = personDown, held.allow === button, up.type == .leftMouseUp, isPersonEvent(up) else { return false }
+        let down = held.event
+        guard up.windowNumber == windowNumber, down.windowNumber == windowNumber, up.timestamp >= down.timestamp else { return false }
         let inside = { (event: NSEvent) in button.bounds.contains(button.convert(event.locationInWindow, from: nil)) }
         guard inside(down), inside(up) else { return false }
         if let spent = spentUp, spent.number == up.eventNumber, spent.time == up.timestamp { return false }
