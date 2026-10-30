@@ -46,16 +46,16 @@ function Panel({ selected }: { selected?: string }) {
     () => selected,
   );
   return (
-    <div ref={panel} tabIndex={0} id="panel">
+    <div ref={panel} id="panel">
       <div ref={body} id="body">
         <section className="acpmux-diff-file" data-path="a.ts">
-          <button type="button" data-viewed-toggle="" id="viewed-a" />
+          <button type="button" data-viewed-toggle="" id="viewed-a" aria-label="Viewed a" />
         </section>
         <section className="acpmux-diff-file" data-path="a.ts" id="a-second-edit">
-          <button type="button" data-viewed-toggle="" id="viewed-a2" />
+          <button type="button" data-viewed-toggle="" id="viewed-a2" aria-label="Viewed a2" />
         </section>
         <section className="acpmux-diff-file" data-path="b.ts">
-          <button type="button" data-viewed-toggle="" id="viewed-b" />
+          <button type="button" data-viewed-toggle="" id="viewed-b" aria-label="Viewed b" />
         </section>
       </div>
     </div>
