@@ -4602,6 +4602,16 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-received__reply:focus-visible {
   color: var(--cv-text);
 }
+/* Over the first of the messages queued behind the turn (QueuedMessageCard.tsx): a Stop-held
+   message's quiet lead note. Its 18px line is included in model.ts's pending-group estimate. */
+.cv-received__queued-head {
+  padding-inline-start: 4px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  line-height: 18px;
+  white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
+}
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
 .cv-waiting {

@@ -1481,7 +1481,11 @@ function measuredRowHeight(
         senders.add(from);
         height += 22;
       }
-      height += measuredRowHeight(member, Math.max(80, width - 24), cache, false, false, sessionId) - MESSAGE_GAP;
+      // A Stop-held queued message's lead note sits above its received line. Keep the
+      // virtualized group estimate in sync with `.cv-received__queued-head`'s 18px line.
+      const heldLead = member.queuedMessage?.lead && member.queuedMessage.heldByStop ? 18 : 0;
+      height +=
+        heldLead + measuredRowHeight(member, Math.max(80, width - 24), cache, false, false, sessionId) - MESSAGE_GAP;
     }
     return height;
   }
