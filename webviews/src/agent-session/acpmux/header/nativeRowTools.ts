@@ -49,6 +49,9 @@ export interface NativeRowNeedsYou {
   items: readonly NeedsYouItem[];
   mode: NeedsYouMode;
   actions: NeedsYouActions;
+  /// Native actions have no DOM row to own the rejection state, so the header feeds it back here.
+  failure?: { itemId: string; action: "answer" | "ask"; reason?: string };
+  onFailure?: (item: NeedsYouItem, action: "answer" | "ask", error: unknown) => void;
 }
 export interface NativeRowExtras {
   worktree?: { value: HeaderWorktree; ops: WorktreeOps };
@@ -247,7 +250,9 @@ function needsYouBinding(extra: NativeRowNeedsYou, t?: Translate): RowToolBindin
         ),
         enabled: true,
       });
-      runs.set(id, () => void extra.actions.answer(item, choice).catch(() => undefined));
+      runs.set(id, () =>
+        void extra.actions.answer(item, choice).catch((error) => extra.onFailure?.(item, "answer", error)),
+      );
     }
     const goId = `needsYou:${itemKey}:goToSource`;
     children.push({ id: goId, label: menuLabel(t?.("needsYou.goToSource") ?? "Go to source"), enabled: true });
@@ -255,13 +260,19 @@ function needsYouBinding(extra: NativeRowNeedsYou, t?: Translate): RowToolBindin
     if (capabilities.askAbout) {
       const askId = `needsYou:${itemKey}:askAbout`;
       children.push({ id: askId, label: menuLabel(t?.("needsYou.askAbout") ?? "Ask about this"), enabled: true });
-      runs.set(
-        askId,
-        () =>
-          void extra.actions
-            .ask(item, sideQuestionPrompt(item, t?.("needsYou.askSeed") ?? "What is going on here?"))
-            .catch(() => undefined),
+      runs.set(askId, () =>
+        void extra.actions
+          .ask(item, sideQuestionPrompt(item, t?.("needsYou.askSeed") ?? "What is going on here?"))
+          .catch((error) => extra.onFailure?.(item, "ask", error)),
       );
+    }
+    if (extra.failure?.itemId === item.id) {
+      const label = extra.failure.reason
+        ? extra.failure.reason
+        : extra.failure.action === "ask"
+          ? (t?.("needsYou.askFailed") ?? "Ask failed")
+          : (t?.("needsYou.answerFailed") ?? "Answer failed");
+      children.push({ id: `needsYou:${itemKey}:failure`, label: menuLabel(label), enabled: false });
     }
     return {
       id: `needsYou:${itemKey}`,

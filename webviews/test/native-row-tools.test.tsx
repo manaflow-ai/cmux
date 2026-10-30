@@ -378,6 +378,35 @@ test("native Needs You compact policy and same-target replacements use the DOM a
   expect(calls.at(-1)).toBe("go:two");
 });
 
+test("native Needs You surfaces rejected answer and ask actions while keeping retry enabled", async () => {
+  const h = nativeHarness();
+  const item = ask("failure");
+  let rejectAnswer!: (error: Error) => void;
+  let rejectAsk!: (error: Error) => void;
+  const actions = {
+    answer: async () => new Promise((_, reject) => (rejectAnswer = reject)),
+    ask: async () => new Promise((_, reject) => (rejectAsk = reject)),
+    goTo: () => {},
+  };
+  await h.render({ nativeNeedsYou: { items: [item], mode: "pinned", actions } });
+  const answer = h.tool("needsYou").menu![0]!.children!.find((entry) => entry.id.includes(":answer:"))!;
+  await act(async () => h.invoke("needsYou", answer.id));
+  await act(async () => rejectAnswer(new Error("answer refused")));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(h.tool("needsYou").menu![0]!.children).toContainEqual(
+    expect.objectContaining({ label: "answer refused", enabled: false }),
+  );
+  expect(h.tool("needsYou").menu![0]!.children!.some((entry) => entry.id.includes(":answer:") && entry.enabled)).toBe(true);
+
+  const askItemId = h.tool("needsYou").menu![0]!.children!.find((entry) => entry.id.includes(":askAbout"))!.id;
+  await act(async () => h.invoke("needsYou", askItemId));
+  await act(async () => rejectAsk(new Error("ask refused")));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(h.tool("needsYou").menu![0]!.children).toContainEqual(
+    expect.objectContaining({ label: "ask refused", enabled: false }),
+  );
+});
+
 test("component descriptors meet the Swift decoder's text and global menu limits", async () => {
   const h = nativeHarness();
   const swift = readFileSync(

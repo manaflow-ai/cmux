@@ -23,6 +23,7 @@ import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools } from "./headerQuickTools";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
 import type { NativeRowNeedsYou } from "./nativeRowTools";
+import type { NeedsYouItem } from "../needsYou/model";
 import { onOpenNeedsYou } from "../needsYou/links";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
@@ -220,6 +221,19 @@ export function ChatHeaderTools({
   const worktree = useWorktree(folder, readStatus, statusKey);
   const worktreeOps = useWorktreeOps(worktree, folder, onApplyWorktree, onRemoveWorktree);
   const pullRequestOps = usePullRequestOps(pullRequest, onMergePullRequest);
+  const [needsYouFailure, setNeedsYouFailure] = useState<NativeRowNeedsYou["failure"]>();
+  const nativeNeedsYouForTools = nativeNeedsYou
+    ? {
+        ...nativeNeedsYou,
+        failure: needsYouFailure,
+        onFailure: (item: NeedsYouItem, action: "answer" | "ask", error: unknown) =>
+          setNeedsYouFailure({
+            itemId: item.id,
+            action,
+            ...(error instanceof Error && error.message ? { reason: error.message } : {}),
+          }),
+      }
+    : undefined;
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
@@ -339,7 +353,7 @@ export function ChatHeaderTools({
     {
       worktree: worktree ? { value: worktree, ops: worktreeOps } : undefined,
       pullRequest: pullRequest && pullRequestChip !== false ? { value: pullRequest, ops: pullRequestOps } : undefined,
-      needsYou: nativeNeedsYou,
+      needsYou: nativeNeedsYouForTools,
     },
     t,
   );
