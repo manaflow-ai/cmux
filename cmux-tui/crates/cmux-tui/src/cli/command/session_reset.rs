@@ -98,16 +98,16 @@ pub(in crate::cli) fn run_session_reset_state(
                     cmux_tui_core::diagnostics::drop_session_hook_queues(&socket)
                         .map_err(|error| error.to_string())
                 });
-            let mut result = json!({
-                "session": plan.session,
-                "removed_session_state": reset.removed_session_state,
-                "removed_terminal_hosts": reset.removed_terminal_hosts,
-            });
-            match hook_queue {
-                Ok(dropped) => result["dropped_hook_events"] = json!(dropped),
-                Err(error) => result["hook_queue_error"] = json!(error),
-            }
-            super::super::wire::print_local_success(&result, output)
+            let (hook_queue_key, hook_queue_value) = match hook_queue {
+                Ok(dropped) => ("dropped_hook_events", json!(dropped)),
+                Err(error) => ("hook_queue_error", json!(error)),
+            };
+            let mut result = serde_json::Map::new();
+            result.insert("session".to_owned(), json!(plan.session));
+            result.insert("removed_session_state".to_owned(), json!(reset.removed_session_state));
+            result.insert("removed_terminal_hosts".to_owned(), json!(reset.removed_terminal_hosts));
+            result.insert(hook_queue_key.to_owned(), hook_queue_value);
+            super::super::wire::print_local_success(&serde_json::Value::Object(result), output)
         }
         Err(error) => {
             let advice = reset_failure_advice(&error);

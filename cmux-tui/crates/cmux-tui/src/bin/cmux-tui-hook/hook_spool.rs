@@ -102,7 +102,7 @@ impl Spool {
         file.seek(SeekFrom::Start(offset))?;
         let mut line = Vec::new();
         let read = BufReader::new(&mut file)
-            .take(MAX_MESSAGE_BYTES as u64 + 1)
+            .take((MAX_MESSAGE_BYTES as u64).saturating_add(1))
             .read_until(b'\n', &mut line)?;
         Ok((read > 0).then(|| (line, offset.saturating_add(read as u64))))
     }
