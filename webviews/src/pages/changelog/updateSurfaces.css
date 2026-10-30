@@ -5,7 +5,9 @@
    frost and specular rim, the wallpaper bent at the rounded rim, no shadow. Opaque under Reduce
    Transparency. Glass on purpose, never an opaque fill (Leo 2026-10-20: "we want a lot of glass...
    I hate opaque"): the card reads because the sidebar gives it its own room
-   (SidebarCardSlotMotion), so no list row sits behind it. */
+   (SidebarCardSlotMotion), so no list row sits behind it. In the sidebar the host draws the glass
+   natively (CardSurfaceView under the page, surface.css) and this paints nothing; the glass here is
+   the gallery's and any page that shows the card itself. */
 .wn-card {
   position: relative;
   padding: 10px 12px;

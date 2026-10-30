@@ -144,13 +144,29 @@ public struct HomeSidebarModel: Hashable, Sendable {
         pinned = needle.isEmpty ? pinnedRows.map { item($0, true) } : []
         self.rows = needle.isEmpty ? rest.map { item($0, false) } : pinnedRows.map { item($0, true) } + rest.map { item($0, false) }
         // People the user has no DM with yet: by name in a search, else the whole team.
-        let dmPeers = Set(rows.filter { $0.kind == .direct }.flatMap { $0.summary.participants.map(\.id) })
+        let dms = rows.filter { $0.kind == .direct }
+        let dmPeers = Set(dms.flatMap { $0.summary.participants.map(\.id) })
         guard !needle.isEmpty else {
             people = []
-            teammates = contacts.filter { $0.source == .team && $0.id != me && !dmPeers.contains($0.id) }
+            // One name is one person in the list (the user, 2026-10-29: "there are 2 austins now?"):
+            // a teammate with a second account (a work and a personal sign-in in one team) gets no row
+            // beside the DM or the row of the first. New Message's search still finds each account.
+            var listed = Set(dms.flatMap { $0.summary.participants.filter { $0.id != me }.map { Self.nameKey($0.displayName) } })
+            // The Worker's "Member" (a Stack member with no name) names nobody: each such row stays.
+            teammates = contacts.filter {
+                let key = Self.nameKey($0.name)
+                return $0.source == .team && $0.id != me && !dmPeers.contains($0.id) && (key == "member" || listed.insert(key).inserted)
+            }
             return
         }
         people = contacts.filter { !dmPeers.contains($0.id) && $0.name.localizedStandardContains(needle) }
+    }
+}
+
+extension HomeSidebarModel {
+    /// A display name as the list compares people: case, width and accents aside, spaces trimmed.
+    static func nameKey(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
     }
 }
 

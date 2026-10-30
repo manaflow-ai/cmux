@@ -19,6 +19,7 @@
 
 use super::*;
 use crate::config::HarnessKind;
+use cmux_json::JsonSet as _;
 
 /// The longest `from` (serialized) a guarded finish records.
 const MAX_FROM: usize = 4 << 10;
@@ -206,9 +207,9 @@ pub(super) fn guarded_record(rec: &mut EventRecord, control: Control) {
     if matches!(rec.kind.as_str(), "queued" | "queue_updated" | "turn_started")
         && rec.msg.is_object()
     {
-        rec.msg["control"] = json!(control.as_str());
+        rec.msg.set("control", json!(control.as_str()));
         if control == Control::Web {
-            rec.msg["trustGate"] = json!(true);
+            rec.msg.set("trustGate", json!(true));
         }
     }
 }

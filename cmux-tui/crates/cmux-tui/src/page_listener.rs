@@ -16,6 +16,7 @@ use cmux_tui_core::server::{WebSocketAccess, WebSocketServer};
 use serde_json::{Value, json};
 
 use crate::websocket_credential::{self, CredentialFile};
+use cmux_json::JsonSet as _;
 
 /// A bound listener and, for a minted credential, its file.
 pub(crate) type Listener = (WebSocketServer, Option<CredentialFile>);
@@ -93,7 +94,7 @@ impl PageListener {
                 *file = Some(websocket_credential::write(&self.socket, addr, token)?);
             }
             let mut reply = endpoint(addr, false);
-            reply["origins"] = json!(state.origins);
+            reply.set("origins", json!(state.origins));
             return Ok(reply);
         }
         let mux =
@@ -125,7 +126,7 @@ impl PageListener {
         state.token = Some(token);
         state.origins = access.origins;
         let mut reply = endpoint(addr, true);
-        reply["origins"] = json!(state.origins);
+        reply.set("origins", json!(state.origins));
         Ok(reply)
     }
 }

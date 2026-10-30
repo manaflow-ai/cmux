@@ -291,6 +291,7 @@ pub(crate) mod creating_input;
 mod loss_causes;
 mod orphan_hosts;
 mod pending_terminals;
+mod startup_record;
 mod terminal_adoption;
 pub(crate) mod terminal_archive;
 mod terminal_catalog_index;
@@ -621,6 +622,8 @@ pub struct Mux {
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_fold: Mutex<()>,
     agent_message_pump: agent_message_pump::AgentMessagePump,
+    #[cfg(unix)]
+    agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -660,6 +663,9 @@ pub struct Mux {
     /// Periodic checkpoint, segment sealing and incremental vacuum worker
     /// (mux/journal_maintenance.rs); `None` for an in-memory session.
     journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
+    /// The maintenance worker's stop and journal-change wake; every
+    /// published journal event marks it.
+    journal_maintenance_control: Arc<journal_maintenance::JournalMaintenanceControl>,
     journal_hook_dispatcher_started: AtomicBool,
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
@@ -710,6 +716,9 @@ pub struct Mux {
     /// Lets a start's adoption threads go before the owner says ready: a
     /// creation the crash interrupted waits on its host's adoption.
     startup_adoptions_released: AtomicBool,
+    /// The laps of this owner's open (registry, restore, adoption), until
+    /// the owner's start takes them for `startup-timings.jsonl`.
+    startup_timings: Mutex<Option<crate::startup_timings::StartupTimings>>,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.

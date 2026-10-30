@@ -203,6 +203,34 @@ def comments(repo: str, number: int) -> list[dict]:
         raise train.TrainError(str(error)) from None
 
 
+# The runner's own setup steps, inside which glaeda's job-started hook admits or refuses a job,
+# and its own last step.
+SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
+RUNNER_STEPS = SETUP_STEPS | {"Complete job"}
+# A compile is re-run off an owned Mac only from attempt 1: attempt 2 takes Blacksmith.
+RERUN_ATTEMPTS = 2
+
+
+def refused_on_owned(job: dict | None) -> bool:
+    """The compile ran on an owned (glaeda-*) label and never reached its own steps.
+
+    Failed or cancelled before any step of its own ran: no steps (a lost runner), a
+    failed setup step (a refusal at job start), or only the runner's own steps (a runner
+    lost after setup). A Blacksmith job, or one that failed in
+    the compile, is the candidate's own result.
+    """
+    if not job or not any(str(label).startswith("glaeda-") for label in job.get("labels") or []):
+        return False
+    if job.get("conclusion") not in ("failure", "cancelled"):
+        return False
+    steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+    ran = [step for step in steps if step.get("name") not in RUNNER_STEPS
+           and step.get("conclusion") not in (None, "skipped")]
+    # Failed or cancelled with none of its own steps run: refused at setup, or the runner was lost
+    # after setup succeeded (only the runner's steps are listed).
+    return not ran
+
+
 class GitHubBuilder:
     """Push each candidate to refs/heads/nightly-train/<run>/<n> and run
     nightly-next-train.yml mode `build` there; read its gate job."""
@@ -211,6 +239,8 @@ class GitHubBuilder:
         self.repo, self.run_id, self.poll, self.sleep = repo, run_id, poll_seconds, sleep
         self.count = 0
         self.refs: list[str] = []
+        # run id -> the attempt whose refused compile was re-run.
+        self.rerun_asked: dict[int, int] = {}
 
     def _start(self, commit: str) -> str:
         self.count += 1
@@ -225,9 +255,30 @@ class GitHubBuilder:
         runs = [r for r in data.get("workflow_runs", []) if r.get("head_sha") == commit]
         return runs[0] if runs else None
 
-    def _gate(self, run_id: int) -> bool:
+    def _gate_job(self, run_id: int) -> dict | None:
         data = json.loads(gh("api", f"repos/{self.repo}/actions/runs/{run_id}/jobs?filter=latest&per_page=100"))
-        return any(j.get("name") == GATE_JOB and j.get("conclusion") == "success" for j in data.get("jobs", []))
+        return next((j for j in data.get("jobs", []) if j.get("name") == GATE_JOB), None)
+
+    def _rerun_off_owned(self, run: dict, job: dict | None) -> bool:
+        """Re-run a compile an owned Mac refused or never ran, once; True when it was asked.
+
+        pick-train-runner offers an owned label only while a runner is idle, so one can still
+        be refused at "Set up runner" or lose its runner. The re-run of failed jobs keeps the
+        pick and its attempt, so the compile then takes the moving Blacksmith label.
+        """
+        attempt = int(run.get("run_attempt") or 1)
+        if self.rerun_asked.get(run["id"]) == attempt:
+            return True  # asked already; GitHub has not started the new attempt yet
+        if not refused_on_owned(job) or attempt >= RERUN_ATTEMPTS:
+            return False
+        try:
+            gh("run", "rerun", str(run["id"]), "--failed", "--repo", self.repo)
+        except train.TrainError as error:
+            print(f"warning: could not re-run {run.get('html_url')} off the owned Mac: {error}", file=sys.stderr)
+            return False
+        self.rerun_asked[run["id"]] = attempt
+        print(f"{run.get('html_url')}: the owned Mac did not run the compile; re-run on Blacksmith")
+        return True
 
     def build(self, commits: list[tuple[str, str]], deadline: float) -> dict[str, bool | None]:
         refs = {commit: self._start(commit) for commit, _ in commits}
@@ -242,7 +293,10 @@ class GitHubBuilder:
                     print(f"warning: {error}", file=sys.stderr)
                     continue
                 if run and run.get("status") == "completed":
-                    results[commit] = self._gate(run["id"])
+                    job = self._gate_job(run["id"])
+                    if not (job and job.get("conclusion") == "success") and self._rerun_off_owned(run, job):
+                        continue
+                    results[commit] = bool(job) and job.get("conclusion") == "success"
                     print(f"{ref}: {'green' if results[commit] else 'red'} ({run.get('html_url')})")
                     del pending[commit]
         return results
