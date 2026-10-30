@@ -686,12 +686,14 @@
 @media (prefers-reduced-motion: no-preference) {
   .cv-user__actions,
   .cv-received-actions,
+  .cv-received__hover,
   .cv-reply-actions,
   .acpmux-turnSummary .cv-turn-actions {
     transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
   }
   .cv-user:hover .cv-user__actions,
   .cv-received:hover .cv-received-actions,
+  .cv-received > .cv-disclosure__line:hover .cv-received__hover,
   .acpmux-assistant:hover .cv-reply-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
   .acpmux-turnSummary:hover .cv-turn-actions {
@@ -699,6 +701,7 @@
   }
   .cv-user__actions:focus-within,
   .cv-received-actions:focus-within,
+  .cv-received__hover:focus-within,
   .cv-reply-actions:focus-within,
   .acpmux-turnSummary:focus-visible .cv-turn-actions,
   .acpmux-turnSummary .cv-turn-actions:focus-within {
@@ -728,8 +731,13 @@
 }
 .cv-received:hover .cv-received-actions,
 .cv-received-actions:focus-within,
-.cv-received-actions:has([aria-haspopup="menu"][aria-expanded="true"]) {
+.cv-received-actions:has([aria-haspopup="menu"][aria-expanded="true"]),
+.cv-received-actions:has([aria-haspopup="menu"][data-popup-open]) {
   opacity: 1;
+}
+.cv-received-actions :is([aria-haspopup="menu"][aria-expanded="true"], [aria-haspopup="menu"][data-popup-open]) {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
 }
 /* Retry sends a prompt again: under every prompt (Leo's spec, as Claude's), at the end of another
    agent's message only on the last ended turn's (VirtualTranscript marks its row; MessageActions.tsx). */
@@ -1064,7 +1072,13 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-table-tools {
-    transition: opacity 120ms ease-out;
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-table-block:hover .cv-table-tools {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-table-tools:focus-within {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
   }
 }
 .cv-table-block:hover .cv-table-tools,
@@ -1700,10 +1714,18 @@ pre.cv-math-source {
 :is(.cv-worked, .cv-activity) .cv-command__bg {
   animation: none;
   opacity: 0;
-  transition: opacity var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out);
 }
 :is(.cv-worked, .cv-activity):hover .cv-command__bg {
   opacity: 1;
+}
+/* It fades as a message's hover row does (#23769): in after a beat, out quickly. */
+@media (prefers-reduced-motion: no-preference) {
+  :is(.cv-worked, .cv-activity) .cv-command__bg {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  :is(.cv-worked, .cv-activity):hover .cv-command__bg {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
 }
 /* Its row drops the transcript row's 34px floor and bottom padding (.acpmux-row), so it is the
    last footer's 32px and its estimate's (model.ts fallbackRowHeight). */
@@ -2092,8 +2114,49 @@ pre.cv-math-source {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* No output yet (a command that has printed nothing): no box. */
+.cv-shell__body:empty {
+  display: none;
+}
+/* Past eight lines the output scrolls inside an eight-line box (the lane under them added, never
+   taken out), so a long or streaming output never pushes the transcript down; its bottom edge fades
+   only while more lies under it (moreBelow.ts), hard once scrolled to the end. */
 .cv-shell__body[data-preview="cut"] {
-  max-height: calc(8lh + 8px + var(--cv-lane, 0px));
+  max-height: calc(8lh + var(--cv-lane, 0px));
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+/* The command, in a block of its own over its output (ShellBlock.tsx ShellCommand): its words in
+   their code colors (shellHighlight.ts), always wrapped, each line hanging under its start; a
+   hairline divides it from the output. The "$ " prompt is not the command's text: a selection's
+   copy leaves it out. */
+.cv-shell__command {
+  margin: 6px 0 0;
+  color: var(--cv-text);
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--cv-font-size) * 12 / 14);
+  line-height: calc(var(--cv-font-size) * 18 / 14);
+  font-family: var(--cv-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cv-shell__command .cv-line {
+  display: block;
+  min-height: 1lh;
+  padding-inline-start: 2ch;
+  text-indent: -2ch;
+}
+.cv-shell__command:has(+ .cv-shell__body:not(:empty)) {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--cv-card-ring);
+}
+.cv-shell__command + .cv-shell__body {
+  margin-top: 8px;
+}
+.cv-shell__prompt {
+  color: var(--cv-text-dim);
+  user-select: none;
 }
 .cv-shell__exit {
   margin-top: 6px;
@@ -2383,7 +2446,13 @@ pre.cv-math-source {
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-sent-actions {
-    transition: opacity 120ms ease-out;
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-message:hover .cv-sent-actions {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-sent-actions:focus-within {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
   }
 }
 .cv-message:hover .cv-sent-actions,
@@ -2426,7 +2495,7 @@ pre.cv-math-source {
 }
 .cv-received > .cv-disclosure__line:hover,
 .cv-received > .cv-disclosure__line:focus-within,
-.cv-received > .cv-disclosure__line:has([aria-haspopup="menu"][aria-expanded="true"]) {
+.cv-received > .cv-disclosure__line:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   background: color-mix(in srgb, var(--cv-text) 6%, transparent);
 }
 .cv-received .cv-disclosure__toggle {
@@ -2463,7 +2532,7 @@ pre.cv-math-source {
 }
 .cv-received > .cv-disclosure__line:hover .cv-received__hover,
 .cv-received__hover:focus-within,
-.cv-received__hover:has([aria-haspopup="menu"][aria-expanded="true"]) {
+.cv-received__hover:has([aria-haspopup="menu"]:is([aria-expanded="true"], [data-popup-open])) {
   opacity: 1;
   pointer-events: auto;
 }
@@ -2696,6 +2765,19 @@ a.cv-sha:focus-visible {
 .cv-tool-output__actions:focus-within {
   opacity: 1;
 }
+/* They fade as a message's hover row does (#23769): in after a beat under the pointer, at once from
+   the keyboard, out quickly. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-tool-output__actions {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-tool-output__box:hover .cv-tool-output__actions {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-tool-output__actions:focus-within {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+  }
+}
 /* A tool-call block's body (BlockParts.tsx): past eight lines its first ones fade out at the bottom
    (Show all N lines opens it), and an unwrapped line running past the right edge fades out there
    while more of it lies past (sideways.ts). A fade, never a hard edge; no transition, so it shows
@@ -2722,6 +2804,11 @@ a.cv-sha:focus-visible {
 }
 :is(.cv-edit-diff__body, .cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-preview="cut"] {
   --cv-fade-bottom: 28px;
+}
+/* A shell body scrolled to its end (moreBelow.ts) has a hard bottom edge. It comes after the shared
+   fade above: the two selectors weigh the same, so the later one wins. */
+.cv-shell__body[data-preview="cut"]:not([data-more-below]) {
+  --cv-fade-bottom: 0px;
 }
 :is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-more-right] {
   --cv-fade-right: 32px;
@@ -3671,7 +3758,11 @@ a.cv-sha:focus-visible {
    (.ui-glass, ui/glass/glass.css): the lens bends the wallpaper across the whole disc, under the
    glass's rim in its own ring tone and a soft shadow; Plain glass keeps the look from before the
    lens (the page at 72% through the shared blur), and Reduce Transparency makes it opaque. Its
-   arrow stays static while a reply streams below. It fades in and out with the pane's motion tokens. */
+   arrow stays static while a reply streams below. It fades in and out with the pane's motion tokens,
+   in place: it never slides, so the frames of its fade all draw it on the same pixels (Leo
+   2026-10-28: "I don't want to see that fucking, like, jump to bottom button be jumping around").
+   The 6px rise it once faded in with moved its box on each of the fade's frames, read as a jump the
+   moment the reader scrolled up. */
 .acpmux-jump-latest {
   position: absolute;
   left: 50%;
@@ -3690,7 +3781,7 @@ a.cv-sha:focus-visible {
   color: var(--agent-text);
   opacity: 0;
   pointer-events: none;
-  transform: translate3d(-50%, 6px, 0);
+  transform: translate3d(-50%, 0, 0);
 }
 /* appearance.borders none clears the rim in place, as it clears the composer's and the popups'. */
 :root[data-borders="none"] .acpmux-jump-latest {
@@ -3699,7 +3790,6 @@ a.cv-sha:focus-visible {
 .acpmux-jump-latest[data-shown] {
   opacity: 1;
   pointer-events: auto;
-  transform: translate3d(-50%, 0, 0);
 }
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-jump-latest {
   --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
@@ -3729,9 +3819,7 @@ a.cv-sha:focus-visible {
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-jump-latest {
-    transition:
-      opacity var(--agent-motion-out) var(--agent-ease-out),
-      transform var(--agent-motion-out) var(--agent-ease-out);
+    transition: opacity var(--agent-motion-out) var(--agent-ease-out);
   }
   .acpmux-jump-latest[data-shown] {
     transition-duration: var(--agent-motion-in);
@@ -4237,6 +4325,22 @@ article.acpmux-row:empty {
 .cv-received:hover .cv-received__reply,
 .cv-received:focus-within .cv-received__reply {
   opacity: 1;
+}
+/* Reply and the queue tag (below) fade with the line's hover row (.cv-received-actions, #23769): in
+   after a beat under the pointer, at once from the keyboard, out quickly. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-received__reply,
+  .cv-received .cv-received__queued {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-received:hover .cv-received__reply,
+  .cv-received:hover .cv-received__queued {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
+  .cv-received:focus-within .cv-received__reply,
+  .cv-received:focus-within .cv-received__queued {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+  }
 }
 .cv-received__reply:hover,
 .cv-received__reply:focus-visible {

@@ -1,3 +1,4 @@
+import { PullRequestDock } from "../summary/PullRequestDock";
 // The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
 // the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
 // draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover), a
@@ -307,15 +308,18 @@ export function SentActions({ text }: { text: string }) {
 /// same group, never a second one beside it. No read receipt: the message is the agent's to read.
 export function ReceivedActions({ row, text, more }: { row: AcpmuxRow; text: string; more?: ReactNode }) {
   return (
-    <span className="cv-received-actions">
-      <MessageFooterRow>
-        <MessageTime at={row.at} className="cv-user__time" />
-        <MessageCopy text={text} />
-        <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
-        <PinButton rowId={row.id} />
-        {more}
-      </MessageFooterRow>
-    </span>
+    <>
+      <span className="cv-received-actions">
+        <MessageFooterRow>
+          <MessageTime at={row.at} className="cv-user__time" />
+          <MessageCopy text={text} />
+          <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
+          <PinButton rowId={row.id} />
+          {more}
+        </MessageFooterRow>
+      </span>
+      <PullRequestDock />
+    </>
   );
 }
 
@@ -334,6 +338,7 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <MessageMore rowId={row.id} />
       </span>
       <MessageTime at={row.at} className="cv-turn-time" />
+      <PullRequestDock />
     </div>
   );
 }

@@ -254,6 +254,19 @@ test("an agent's waiting message: its line, no Read after this turn, a message's
   expect(calls.at(-1)).toBe("remove a1");
 });
 
+test("queued message actions stay revealed for either open-menu marker", async () => {
+  await card(agent(1), []);
+  const slot = host.querySelector<HTMLElement>(".cv-received__hover")!;
+  const trigger = slot.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+  expect(getComputedStyle(slot).opacity).toBe("0");
+  for (const marker of ["aria-expanded", "data-popup-open"]) {
+    trigger.setAttribute(marker, "true");
+    expect(getComputedStyle(slot).opacity).toBe("1");
+    trigger.removeAttribute(marker);
+    expect(getComputedStyle(slot).opacity).toBe("0");
+  }
+});
+
 test("several queued messages carry no Read after this turn, the first one included", async () => {
   const rows = queuedMessageRows([agent(4), agent(5), agent(6)] as never);
   await show(
