@@ -168,10 +168,13 @@ enum CloudHandlers {
     }
 
     /// The first workspace `store` lists, nil when it lists none. A daemon's connection is up
-    /// before its first tree is applied (right after a resume), and an empty list then is not
-    /// "none": the read waits for the tree, up to `limit`, so an open never makes a second workspace.
+    /// before its first tree is applied (right after a resume), and the list then is the last
+    /// connection's, not "none": the read waits for this connection's tree (`liveTreeEpoch`), up to
+    /// `limit`, so an open never makes a second workspace.
     static func existingWorkspace(in store: DaemonStore, within limit: Duration = .seconds(10)) async -> String? {
-        if !store.isLoaded { _ = await CloudMove.holds(within: limit) { store.isLoaded } }
+        if store.liveTreeEpoch != store.connectionEpoch {
+            _ = await CloudMove.holds(within: limit) { store.liveTreeEpoch == store.connectionEpoch }
+        }
         return store.workspaces.first?.id
     }
 
