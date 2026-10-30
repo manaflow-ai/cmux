@@ -2996,11 +2996,39 @@ def _force_cancel(github: "GitHub", orphan: Orphan, why: str) -> str:
     return f"force-cancelled ({why})"
 
 
+def _job_key(job: Mapping[str, Any]) -> Any:
+    return job.get("id") or (job.get("name"), job.get("created_at"))
+
+
+def open_head_jobs_moved(before: Sequence[Mapping[str, Any]], now: Sequence[Mapping[str, Any]]) -> str | None:
+    """Why a lost run at an open PR's head may no longer be cancelled, from its jobs read again just before.
+
+    The plan judged the sweep's job inventory, which can be minutes old: a lost job that took a runner since
+    is running valid work at the PR's head, and cancelling it would interrupt that work. None when every job
+    the inventory showed unassigned still is, at least one still is, and none has failed since."""
+    lost = {_job_key(job) for job in before if unassigned(job)}
+    if not lost:
+        return "no lost job in the inventory"
+    for job in now:
+        if _job_key(job) in lost and not unassigned(job):
+            return f"job {job.get('name')!r} took a runner since the inventory"
+    if not any(unassigned(job) for job in now):
+        return "no job is still unassigned"
+    if any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in now):
+        return "a job failed since the inventory"
+    return None
+
+
 def cancel_plan(
     github: "GitHub",
     candidates: Sequence[Candidate],
+    jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
 ) -> tuple[dict[int, str], int]:
-    """Cancel planned runs, treating GitHub's uncancellable-run race as benign."""
+    """Cancel planned runs, treating GitHub's uncancellable-run race as benign.
+
+    A lost run at an open pull request's head (`open_head`) has its jobs read again first and is cancelled
+    only while its lost jobs are still unassigned (open_head_jobs_moved(), against `jobs_by_run`, the
+    sweep's inventory); one whose jobs cannot be read again is left alone."""
     results: dict[int, str] = {}
     failures = 0
     for candidate in candidates:
@@ -3022,6 +3050,15 @@ def cancel_plan(
             failures += 1
             results[run_id] = f"failed: {error}"
             continue
+        if candidate.open_head:
+            try:
+                moved = open_head_jobs_moved((jobs_by_run or {}).get(run_id, ()), github.jobs(run_id))
+            except RuntimeError as error:
+                results[run_id] = f"skipped (its jobs could not be read again at the open PR head: {error})"
+                continue
+            if moved:
+                results[run_id] = f"skipped ({moved})"
+                continue
         try:
             github.cancel(run_id)
             results[run_id] = "cancelled"
@@ -3891,7 +3928,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     results: dict[int, str] = {}
     failures = 0
     if not args.dry_run:
-        results, failures = cancel_plan(github, plan.to_cancel())
+        results, failures = cancel_plan(github, plan.to_cancel(), jobs_by_run)
 
     def save_lost_reruns(entries: Sequence[Mapping[str, Any]]) -> None:
         if snapshot is not None and args.pool_load:
