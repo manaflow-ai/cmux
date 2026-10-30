@@ -22,7 +22,7 @@ import CmuxNextCompat
 /// The host sends again only what it recorded from a frame the page rules let through; the page
 /// can never set `resend` itself (``AcpmuxPaneMethods/knownParams``). The pane's Retry sends a
 /// prompt again under its promptId: the relay marks that a resend when it sent the id to the same
-/// daemon before in this run (``sentBefore(daemon:promptId:)``). Chats on another machine are
+/// daemon before in this run (``record(daemon:promptId:owner:_:)``). Chats on another machine are
 /// not kept (their daemon is not this Mac's). The file is read once and written in order, never
 /// on the main thread; a record is on disk before its frame is sent.
 public nonisolated final class AgentPanePromptJournal: Sendable {
@@ -94,7 +94,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         /// Connections that ended: they record and claim nothing more.
         var ended: Set<UUID> = []
         /// The daemon and promptId of each prompt the relay sent in this run (never on disk), marked
-        /// once its record is on disk. Never trimmed: a failed row keeps its Retry for the whole
+        /// in the record that sends it (never by one whose write failed). Never trimmed: a failed row keeps its Retry for the whole
         /// run, and a forgotten id would go unmarked. One person's prompts in one run stay small.
         var sent: Set<String> = []
         var generation = 0
@@ -132,15 +132,31 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
     /// (the pane's Retry) included. Nothing of the record is in memory before it is on disk, so no
     /// other change ever sees, claims or writes a record that did not reach the disk.
     func record(_ entry: Entry, owner: UUID) throws(NotWritten) -> Bool {
-        guard entry.params.utf8.count <= Self.maximumParamsBytes else {
-            Self.logger.info("agent pane prompt not journaled: too large")
-            return false
-        }
-        return try written.withLock { last throws(NotWritten) -> Bool in
+        try record(daemon: entry.daemon, promptId: entry.promptId, owner: owner) { _ in entry } ?? false
+    }
+
+    /// ``record(_:owner:)`` for the relay: `build` is told whether prompt `promptId` went to
+    /// `daemon` before in this run (the pane's Retry, which goes as a resend) and returns its
+    /// entry, nil when it does not go. The prompt is marked sent in the same step once it goes
+    /// (kept, or not journaled), never when its record was not written; records run one at a
+    /// time, so two connections sending the same prompt see each other's mark.
+    func record(daemon: String, promptId: String, owner: UUID,
+                _ build: (_ sentBefore: Bool) -> Entry?) throws(NotWritten) -> Bool? {
+        let key = Self.key(daemon, promptId)
+        return try written.withLock { last throws(NotWritten) -> Bool? in
+            guard let entry = build(state.withLock { $0.sent.contains(key) }) else { return nil }
+            guard entry.params.utf8.count <= Self.maximumParamsBytes else {
+                Self.logger.info("agent pane prompt not journaled: too large")
+                state.withLock { _ = $0.sent.insert(key) }
+                return false
+            }
             // What the journal would hold with the record; the state is not changed yet.
             let proposed = state.withLock { state -> (entries: [Entry], pendingTrust: [PendingTrust])? in
                 load(&state)
-                guard !state.ended.contains(owner) else { return nil }
+                guard !state.ended.contains(owner) else {
+                    state.sent.insert(key)
+                    return nil
+                }
                 var with = state
                 Self.apply(entry, owner: owner, to: &with)
                 return (with.entries, with.pendingTrust)
@@ -152,6 +168,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             // On disk: it goes into the state as it is now (other changes may have come in
             // meanwhile), and that is written too when it differs from what was.
             let (generation, entries, pendingTrust, kept) = state.withLock { state in
+                state.sent.insert(key)
                 let kept = !state.ended.contains(owner)
                 if kept { Self.apply(entry, owner: owner, to: &state) }
                 state.generation += 1
@@ -229,18 +246,6 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             state.pendingTrust.removeAll { $0.folder == folder && $0.daemon == key }
             return state.pendingTrust.count != before
         }
-    }
-
-    /// True when the relay sent prompt `promptId` to `daemon` before in this run: the pane's
-    /// Retry, which goes as a resend. Only a send whose record was kept counts
-    /// (``noteSent(daemon:promptId:)``), so a refused one never makes a later send a resend.
-    func sentBefore(daemon: String, promptId: String) -> Bool {
-        state.withLock { $0.sent.contains(Self.key(daemon, promptId)) }
-    }
-
-    /// The relay sends prompt `promptId` to `daemon`: its record is kept (or it is not journaled).
-    func noteSent(daemon: String, promptId: String) {
-        state.withLock { _ = $0.sent.insert(Self.key(daemon, promptId)) }
     }
 
     /// acpmux acknowledged or answered the prompt, or it never went: it is not sent again. On disk

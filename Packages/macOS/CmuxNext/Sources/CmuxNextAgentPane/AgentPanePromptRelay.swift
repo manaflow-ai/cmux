@@ -50,28 +50,28 @@ nonisolated struct AgentPanePromptRelay: Sendable {
         let promptId = named.isEmpty ? UUID().uuidString.lowercased() : named
         var rewrite = named.isEmpty
         acpmux["promptId"] = promptId
-        if journal.sentBefore(daemon: daemon, promptId: promptId) {
-            acpmux["resend"] = true
-            rewrite = true
-        }
-        if rewrite {
-            meta["acpmux"] = acpmux
-            params["_meta"] = meta
-            object["params"] = params
-            guard let rewritten = AcpmuxRequestIds.encode(object), box.replace(withJSON: rewritten) else { return nil }
-        }
-        guard let paramsText = AcpmuxRequestIds.encode(params) else { return nil }
-        let kept: Bool
+        let kept: Bool?
         do {
-            kept = try journal.record(AgentPanePromptJournal.Entry(daemon: daemon, sessionId: session, promptId: promptId,
-                                                                   params: paramsText, at: journal.now()),
-                                      owner: owner)
+            kept = try journal.record(daemon: daemon, promptId: promptId, owner: owner) { sentBefore in
+                if sentBefore {
+                    acpmux["resend"] = true
+                    rewrite = true
+                }
+                if rewrite {
+                    meta["acpmux"] = acpmux
+                    params["_meta"] = meta
+                    object["params"] = params
+                    guard let rewritten = AcpmuxRequestIds.encode(object), box.replace(withJSON: rewritten) else { return nil }
+                }
+                guard let paramsText = AcpmuxRequestIds.encode(params) else { return nil }
+                return AgentPanePromptJournal.Entry(daemon: daemon, sessionId: session, promptId: promptId,
+                                                    params: paramsText, at: journal.now())
+            }
         } catch {
             Self.logger.error("agent pane prompt not sent: its journal record was not written")
             throw .promptNotKept
         }
-        journal.noteSent(daemon: daemon, promptId: promptId)
-        guard kept else { return nil }
+        guard kept == true else { return nil }
         let forget = forget
         if let relayID { ids.whenAnswered(relayID) { forget(promptId) } }
         return promptId
