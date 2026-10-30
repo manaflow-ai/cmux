@@ -830,6 +830,16 @@
       "allow": 4,
       "why": "cp/fix-server-helper-sources: CmuxNextCompatCore is the seam module the privileged server helper compiles whole without CmuxNextCompat (swift-atomics, the detector), so the Mac build's helper phase never compiles a hand-picked Compat file list again. Its four escapes are not main-thread blocking: Process.runOnOwnThread's process.run() moved unchanged from CmuxNextCompat/Threading (a seam folder the rule exempts) and runs on the dedicated thread it makes; RunningCodeSigningTeam's three Security calls each run inside the blockingCall its caller passes (the app's SigningTeamInstall passes CmuxNextCompat's checked blockingCall(.systemCall), so the detector still sees each; the helper passes CmuxThreading's). Chrome: the same ScopedBlockingCall seam in a lower component (base/threading/scoped_blocking_call.h).",
       "applied_sha": "c24aa209aad98ccedfbbba5bba660ac5c660c0be"
+    },
+    {
+      "date": "2026-10-30",
+      "row": "app_lines",
+      "allow": 62,
+      "why": "P0 Cmd-D fix (port of feat #28331): the create-and-wait changes live in the App's own controllers (the pendingCreate chain and the creates that join it, PaneSplitCancelled handling, trackRollingBack of a refused create, the creation-hold end log, the pane-not-ready hook wiring); moving them out is the follow-up STATUS item 810 (owner a2c6445561ebeab90, due 2026-11-06). Allowed by cmux-ad item 727.",
+      "author": "a2c6445561ebeab90",
+      "owner": "a2c6445561ebeab90",
+      "receipt": "Review (independent review subagent, Claude Opus 5.5, app-lines exception): SHIP at b52e9f706052f4a5b99a79b827cfb9614369ca47",
+      "expiry": "2026-11-06"
     }
   ],
   "escape_reviews": [
