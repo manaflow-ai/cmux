@@ -156,7 +156,9 @@ extension AgentPaneModel {
                                              primary: AgentPanePrimaryRoot(answered: true, candidates: []), home: replyLinks.home)
         }
         let session = sessionId.flatMap { transport.sessions.contains($0) ? transport.sessions.folder(of: $0) : nil }
-        return AgentPaneReplyPaths.Scope(local: true, roots: roots() + transport.addedRoots, session: session,
+        // The person's retained recording drops (``AgentPaneDroppedPaths/retainedPaths``): exact
+        // files, never their folders, so a chip's drag and open still reach them (as `file.open`).
+        return AgentPaneReplyPaths.Scope(local: true, roots: roots() + transport.addedRoots + droppedPaths.retainedPaths, session: session,
                                          primary: primaryRootChoice(), home: replyLinks.home)
     }
 

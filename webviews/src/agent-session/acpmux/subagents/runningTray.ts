@@ -161,7 +161,9 @@ function doneLine(agent: Subagent, endedAt: number, cache: DoneLineCache, made: 
 
 const isWorkflow = (agent: Subagent) => agent.kind === "workflow";
 
-/// What a workflow's card draws, as a key: its name, state, times, size and each agent's state.
+/// What a workflow's card draws, as a key: its name, state, times, size and each agent's live
+/// presentation fields. Keeping the message/action fields here makes the card update in place as
+/// workflow events arrive; WorkflowCard itself never scans the transcript.
 function cardKey(node: Subagent): string {
   const agents = node.workflowAgents instanceof Map ? [...node.workflowAgents.values()] : [];
   return [
@@ -172,7 +174,28 @@ function cardKey(node: Subagent): string {
     node.startedAt,
     node.endedAt ?? "",
     node.agents?.started ?? "",
-    agents.map((agent) => `${agent.index}:${agent.state ?? ""}`).join(","),
+    node.agents?.done ?? "",
+    node.agents?.failed ?? "",
+    node.agents?.queued ?? "",
+    node.tokens ?? "",
+    node.action ?? "",
+    node.phases?.map((phase) => `${phase.index}:${phase.title}`).join(",") ?? "",
+    agents
+      .map((agent) =>
+        [
+          agent.index,
+          agent.state ?? "",
+          agent.action ?? "",
+          agent.result ?? "",
+          (agent as typeof agent & { lastMessage?: string }).lastMessage ?? "",
+          agent.model ?? "",
+          agent.tokens ?? "",
+          agent.startedAt ?? "",
+          agent.elapsedMs ?? "",
+          agent.phaseIndex ?? "",
+        ].join(":"),
+      )
+      .join(","),
   ].join("\u0000");
 }
 

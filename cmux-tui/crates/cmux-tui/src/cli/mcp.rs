@@ -14,6 +14,8 @@
 //! comma-separated allowlist, the Chief's turns) lists exactly those tools
 //! and refuses every other call, from a script too.
 
+use cmux_json::JsonSet as _;
+
 mod action_tools;
 mod agent_dispatch_tools;
 mod agent_events_tool;
@@ -29,6 +31,7 @@ mod messages;
 mod placement;
 mod render_tool;
 mod schema;
+mod settings_tools;
 mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
@@ -624,6 +627,8 @@ impl<B: Backend> Server<B> {
         tools.push(agent_events_tool::descriptor());
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
+        tools
+            .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -839,6 +844,9 @@ impl<B: Backend> Server<B> {
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });
         }
+        if let Some(tool) = settings_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
+        }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {
                 Ok(params) => {
@@ -1025,10 +1033,10 @@ fn fit(mut value: Value) -> Result<Value, Value> {
     {
         let keep = items.len() / 2;
         items.truncate(keep);
-        value["truncated"] = json!(true);
-        value["returned"] = json!(keep);
+        value.set("truncated", json!(true));
+        value.set("returned", json!(keep));
         if let Some(offset) = value.get("offset").and_then(Value::as_u64) {
-            value["next_offset"] = json!(offset + keep as u64);
+            value.set("next_offset", json!(offset + keep as u64));
         }
         if size(&value) <= MAX_RESULT_BYTES {
             return Ok(value);
@@ -1052,7 +1060,7 @@ fn fit(mut value: Value) -> Result<Value, Value> {
 fn envelope(error: Value, state: &str, idempotency_key: Option<&str>) -> Value {
     let mut envelope = json!({ "error": error, "state": state });
     if let Some(key) = idempotency_key {
-        envelope["idempotency_key"] = json!(key);
+        envelope.set("idempotency_key", json!(key));
     }
     envelope
 }
