@@ -179,7 +179,7 @@ public struct SidebarMapping {
             progress: progress(workspace, tabs: tabs),
             tabs: zip(tabs, statuses.tabs).map { tab, state in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
-                let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
+                let title = Self.shortenedPath(tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
                 var listed = SidebarTab(id: TabID(tab.id), title: title,
                                         kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
                                         brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
@@ -439,6 +439,23 @@ public struct SidebarMapping {
         })
         guard kinds.count <= 1 else { return .mixed }
         return kinds.first ?? .terminal
+    }
+
+    /// A terminal tab titled by its own folder (an untitled shell shows its folder, `TabItemMapping.title`, and some
+    /// shells title it so) reads as its prompt writes it: this Mac's home and another computer's home both as `~`.
+    /// A title naming another path (a program's), a name the person gave the tab and an agent's tab stay as they are.
+    /// Another computer's folder never matched this Mac's home, so a Cloud shell's tab read `/home/cmux` (Leo
+    /// 2026-10-29: "why is there all this weird stuff at the bottom of the sidebar"); as `~`, the tab line then names
+    /// it "Terminal" (`SidebarTabLine.cleanName`), the workspace row already saying the machine and the folder.
+    static func shortenedPath(_ title: String, of tab: TabModel, shorten: (String) -> String) -> String {
+        // A terminal running an agent (`tab.agent`, its hooks' report) is the agent's tab, not a shell's.
+        guard tab.agentSession == nil, tab.agent == nil, tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
+              let cwd = tab.cwd, Self.trimmingSlash(title) == Self.trimmingSlash(cwd) else { return title }
+        return shorten(Self.trimmingSlash(cwd))
+    }
+
+    private static func trimmingSlash(_ path: String) -> String {
+        path.count > 1 && path.hasSuffix("/") ? String(path.dropLast()) : path
     }
 
     /// A folder of another computer (SSH, Cloud) as its shell prompt writes it: its account's
