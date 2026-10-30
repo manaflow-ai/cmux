@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -8,8 +9,9 @@ struct AgentPaneShellCompletionProcessTests {
     @Test func theShellsWholeOutputComesBackAtTheEndOfThePipe() async throws {
         // More than one pipe buffer, written in pieces, so the handler runs several times.
         let script = "printf 'candidate\\n'; /usr/bin/head -c 200000 /dev/zero | /usr/bin/tr '\\0' x"
+        let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.test-complete-output", priority: .userBlocking)
         let output = try await CompletionProcess.run(path: "/bin/sh", arguments: ["/bin/sh", "-c", script], environment: [:],
-                                                     folder: NSTemporaryDirectory(), timeout: .seconds(20))
+                                                     folder: NSTemporaryDirectory(), timeout: .seconds(20), launcher: launcher)
         #expect(output.count == "candidate\n".utf8.count + 200_000)
         #expect(output.starts(with: Data("candidate\n".utf8)))
     }
