@@ -46,7 +46,7 @@ nonisolated enum AgentPaneTabRowTools {
             visibleText = nil
         }
         return PaneTabRowTool(id: id, symbol: symbol, label: label, enabled: enabled, toggled: toggled,
-                              text: visibleText, badge: badge, menu: menu)
+                              badge: badge, menu: menu, text: visibleText)
     }
 
     private nonisolated static func menu(_ raw: Any?, depth: Int, totalMenuItems: inout Int) -> [PaneTabRowMenuItem]? {
@@ -89,7 +89,7 @@ nonisolated enum AgentPaneTabRowTools {
             url = nil
         }
         return PaneTabRowMenuItem(id: id, label: label, enabled: enabled, checked: checked, role: role,
-                                  url: url, children: children)
+                                  children: children, url: url)
     }
 
     private nonisolated static func text(_ value: Any?) -> String? {

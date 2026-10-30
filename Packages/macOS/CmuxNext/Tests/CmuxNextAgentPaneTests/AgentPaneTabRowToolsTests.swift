@@ -86,7 +86,9 @@ import Testing
         #expect(AgentPaneTabRowTools.list([raw]) == nil)
         raw["text"] = String(repeating: "x", count: 33)
         #expect(AgentPaneTabRowTools.list([raw]) == nil)
-        raw["text"] = String(repeating: "é", count: 65)
+        raw["text"] = String(repeating: "a\u{301}", count: 32)
+        #expect(try #require(AgentPaneTabRowTools.list([raw])).first?.text == raw["text"] as? String)
+        raw["text"] = String(repeating: "a\u{301}\u{302}\u{303}", count: 32)
         #expect(AgentPaneTabRowTools.list([raw]) == nil)
     }
 
@@ -113,6 +115,9 @@ import Testing
         item["url"] = "https://example.com/" + String(repeating: "x", count: 2040)
         raw["menu"] = [item]
         #expect(AgentPaneTabRowTools.list([raw]) == nil)
+        item["url"] = "https://example.com/" + String(repeating: "x", count: 2020)
+        raw["menu"] = [item]
+        #expect(try #require(AgentPaneTabRowTools.list([raw])).first?.menu.first?.url == item["url"] as? String)
     }
 
     @Test func boundsTotalMenuItemsWhilePreservingNormalPayloads() {

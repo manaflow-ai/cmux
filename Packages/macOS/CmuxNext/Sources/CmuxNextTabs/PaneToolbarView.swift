@@ -38,6 +38,8 @@ public final class PaneToolbarView: NSView {
     /// Runs a pinned button's action (its catalog id).
     public var onPerform: ((String) -> Void)?
     public var onNativeTool: ((String, String?) -> Void)?
+    /// Owner-checked URL selection, paired with the tab-row event publication.
+    public var onNativeToolURL: ((String, String?, URL) -> Void)?
     /// Opens a validated native menu URL. Injectable for tests; production uses AppKit's workspace.
     public var openURL: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
     /// The tab bar's frame in the superview: hovering it reveals the controls too.
@@ -170,8 +172,9 @@ public final class PaneToolbarView: NSView {
     private func menu(for tool: PaneTabRowTool) -> NSMenu? {
         let menu = NSMenu(title: tool.label)
         let invoke = onNativeTool
+        let invokeURL = onNativeToolURL
         menu.autoenablesItems = false
-        for item in tool.menu { menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke)) }
+        for item in tool.menu { menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke, invokeURL: invokeURL)) }
         return menu
     }
 
@@ -180,6 +183,7 @@ public final class PaneToolbarView: NSView {
     /// The same invoker path keeps the page event identical to a direct press.
     public func nativeOverflowItems() -> [NSMenuItem] {
         let invoke = onNativeTool
+        let invokeURL = onNativeToolURL
         layoutSubtreeIfNeeded()
         return zip(nativeItems, nativeButtons).compactMap { tool, button in button.isHidden ? tool : nil }.map { tool in
             let row = NSMenuItem(title: tool.text ?? tool.label, action: nil, keyEquivalent: "")
@@ -197,7 +201,7 @@ public final class PaneToolbarView: NSView {
             if !tool.menu.isEmpty {
                 let submenu = NSMenu(title: tool.label)
                 submenu.autoenablesItems = false
-                tool.menu.forEach { submenu.addItem(menuItem($0, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke)) }
+                tool.menu.forEach { submenu.addItem(menuItem($0, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke, invokeURL: invokeURL)) }
                 row.submenu = submenu
             }
             return row
@@ -205,7 +209,7 @@ public final class PaneToolbarView: NSView {
     }
 
     private func menuItem(_ item: PaneTabRowMenuItem, tool: PaneTabRowTool, ancestorsEnabled: Bool,
-                          invoke: ((String, String?) -> Void)?) -> NSMenuItem {
+                          invoke: ((String, String?) -> Void)?, invokeURL: ((String, String?, URL) -> Void)?) -> NSMenuItem {
         let row = NSMenuItem(title: item.label, action: #selector(NativeMenuInvoker.run), keyEquivalent: "")
         let enabled = ancestorsEnabled && item.enabled
         row.isEnabled = enabled
@@ -215,16 +219,17 @@ public final class PaneToolbarView: NSView {
         }) {
             guard item.children.isEmpty else { return }
             if let rawURL = item.url, let url = URL(string: rawURL) {
-                self?.openURL(url)
+                invokeURL?(tool.id, item.id, url)
+            } else {
+                invoke?(tool.id, item.id)
             }
-            invoke?(tool.id, item.id)
         }
         row.target = invoker
         row.representedObject = invoker
         if !item.children.isEmpty {
             let submenu = NSMenu(title: item.label)
             submenu.autoenablesItems = false
-            item.children.forEach { submenu.addItem(self.menuItem($0, tool: tool, ancestorsEnabled: enabled, invoke: invoke)) }
+            item.children.forEach { submenu.addItem(self.menuItem($0, tool: tool, ancestorsEnabled: enabled, invoke: invoke, invokeURL: invokeURL)) }
             row.submenu = submenu
         }
         return row
@@ -237,9 +242,9 @@ public final class PaneToolbarView: NSView {
         guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
         let inset = Self.edgeInset(height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2))
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
-        let reservedWidth = CGFloat(max(0, max(count - allButtons.count, 0))) * TitlebarBandButton.side
+        let reservedWidth = CGFloat(max(0, count - allButtons.count)) * TitlebarBandButton.side
         let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
-        return NSSize(width: max(buttonWidth, reservedWidth) + gaps + (hasMore ? TitlebarBandButton.side : 0) + inset,
+        return NSSize(width: buttonWidth + reservedWidth + gaps + inset,
                       height: NSView.noIntrinsicMetric)
     }
 
@@ -265,10 +270,10 @@ public final class PaneToolbarView: NSView {
         var cursor = bounds.width - y - CGFloat(trailingSlot) * (side + gap)
         for index in allButtons.indices.reversed() {
             let button = allButtons[index]
-            let available = max(0, cursor - y)
+            let available = max(0, cursor)
             let width = min(widths[index], available)
             let x = cursor - width
-            button.isHidden = available < side || (index < items.count && items[index].alwaysVisible && !creationFits)
+            button.isHidden = x < 0 || (index < items.count && items[index].alwaysVisible && !creationFits)
             button.frame = NSRect(x: max(0, x), y: y, width: max(side, width), height: side)
             cursor = x - gap
         }

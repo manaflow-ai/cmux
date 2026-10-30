@@ -135,24 +135,41 @@ import Testing
         #expect(view.nativeOverflowItems().isEmpty)
     }
 
+    @Test func iconAndOverflowFitAtTheirIntrinsicWidth() {
+        let icon = PaneTabRowTool(id: "icon", symbol: "checkmark", label: "Icon")
+        let view = PaneToolbarView(frame: .zero)
+        view.show(more: true, lit: false, nativeItems: [icon])
+        let width = view.intrinsicContentSize.width
+        view.frame.size.width = width
+        view.layoutSubtreeIfNeeded()
+        #expect(view.nativeButtons.first?.isHidden == false)
+        #expect(view.nativeOverflowItems().isEmpty)
+    }
+
     @Test func menuURLOpensOnceAndStaleOwnerCannotInvokeIt() throws {
         let url = "https://example.com/pull/123"
         let item = PaneTabRowMenuItem(id: "open", label: "Open", url: url)
         let tool = PaneTabRowTool(id: "review", symbol: "checkmark", label: "Review", menu: [item])
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 300, height: 30))
         view.show(more: false, lit: false, nativeItems: [tool])
+        var owner = "first"
         var opened: [URL] = []
         var invoked: [(String, String?)] = []
         view.openURL = { opened.append($0) }
-        view.onNativeTool = { invoked.append(($0, $1)) }
+        view.onNativeToolURL = { id, menuID, openedURL in
+            guard owner == "first" else { return }
+            view.openURL(openedURL)
+            invoked.append((id, menuID))
+        }
         let menu = try #require(view.nativeButtons.first?.pressMenu?())
         let row = try #require(menu.items.first)
         #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
         #expect(opened == [try #require(URL(string: url))])
         #expect(invoked.map { [$0.0, $0.1 ?? ""] } == [["review", "open"]])
 
+        owner = "second"
         view.show(more: false, lit: false,
-                  nativeItems: [PaneTabRowTool(id: "other", symbol: "checkmark", label: "Other", menu: [item])])
+                  nativeItems: [tool])
         #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
         #expect(opened.count == 1)
         #expect(invoked.count == 1)

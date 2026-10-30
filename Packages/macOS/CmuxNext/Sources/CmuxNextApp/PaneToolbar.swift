@@ -119,6 +119,11 @@ final class PaneToolbar {
             guard let model, owner?.model === model, model.tabRow.nativeToolsEnabled else { return }
             model.onTabRowToolInvoked?(id, menuItemID)
         }
+        view.onNativeToolURL = { [weak model, weak owner] id, menuItemID, url in
+            guard let model, owner?.model === model, model.tabRow.nativeToolsEnabled else { return }
+            view.openURL(url)
+            model.onTabRowToolInvoked?(id, menuItemID)
+        }
         update(target: state.behind ? target : state.target, kind: state.behind ? kind : state.kind,
                zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds, nativeItems: state.nativeItems, nativeEnabled: state.nativeEnabled)
     }
