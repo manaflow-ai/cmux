@@ -858,3 +858,20 @@ test("late root seeding promotes children of a root that never had its own row",
 
   expect(fold.all().map(({ id, parent }) => [id, parent])).toEqual([["child", null]]);
 });
+
+test("late root seeding keeps a promoted child where it started, out of a later batch", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "root-native", parent: null }] });
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "child", parent: "root-native" }] });
+  const childAt = seq * 1000;
+  fold.closeBatch();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "later", parent: null }] });
+  fold.takeRows();
+  fold.setRoot("root-native");
+
+  const rows = fold.takeRows();
+  const withChild = rows.find((row) => row.subagents?.some(({ id }) => id === "child"));
+  expect(withChild?.at).toBe(childAt);
+  expect(withChild?.subagents?.map(({ id }) => id)).toEqual(["child"]);
+  expect(rows.some((row) => row.subagents?.some(({ id }) => id === "later"))).toBe(false);
+});
