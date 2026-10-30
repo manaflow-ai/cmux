@@ -107,6 +107,9 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     };
     let _ = stream.set_read_timeout(Some(SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
+    if reads_tabs(&plan) {
+        declare_tab_kinds(&mut reader);
+    }
     if let Some(capability) = required_server_capability(&plan) {
         match require_server_capability(&mut reader, global, capability) {
             Ok(()) => {}
@@ -302,6 +305,40 @@ pub(super) fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
             let _ = stream.shutdown(Shutdown::Both);
         })
         .is_ok()
+}
+
+/// Whether `plan` reads tab rows, which show an agent chat tab as one only to a connection
+/// that declared the conversation tab kinds (`declare_tab_kinds`).
+pub(super) fn reads_tabs(plan: &RequestPlan) -> bool {
+    use cmux_tui_core::resource::ResourceOperation;
+    matches!(
+        &plan.operation,
+        WireOperation::Typed(
+            ResourceOperation::TabList | ResourceOperation::TabGet | ResourceOperation::SessionSnapshot
+        )
+    )
+}
+
+/// Declares the conversation tab kinds on this connection (raw `set-client-info`), so the
+/// daemon shows an agent chat tab as `content_kind: conversation` with its
+/// `extra.conversation.agent_session` (host, session) instead of rewriting it to the plain
+/// `browser` at `about:blank` an older reader expects (#27934). Best effort: a daemon that
+/// does not answer leaves the rows as they were, and the request that follows reports any
+/// transport failure itself.
+pub(super) fn declare_tab_kinds(reader: &mut BufReader<Box<dyn transport::Stream>>) {
+    let Ok(request_id) = random_request_id() else { return };
+    let request = json!({"id": request_id, "cmd": "set-client-info",
+                         "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"]});
+    let Ok(mut encoded) = serde_json::to_vec(&request) else { return };
+    encoded.push(b'\n');
+    if reader.get_mut().write_all(&encoded).and_then(|_| reader.get_mut().flush()).is_err() {
+        return;
+    }
+    while let Ok(Some(response)) = read_envelope(reader, false) {
+        if response.get("id").and_then(Value::as_str) == Some(request_id.as_str()) {
+            return;
+        }
+    }
 }
 
 fn required_server_capability(plan: &RequestPlan) -> Option<&'static str> {

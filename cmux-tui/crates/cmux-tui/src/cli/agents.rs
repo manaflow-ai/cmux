@@ -546,6 +546,7 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         .cloned()
         .unwrap_or_else(|| json!([]));
     merge_app_tabs(&mut tabs, topology, workspace_ids.as_ref());
+    let browsers = chat_free_browsers(daemon_value.as_ref(), &tabs);
     let focus = topology
         .and_then(|value| value.get("focus"))
         .filter(|value| focus_in_scope(value, workspace_ids.as_ref()))
@@ -560,7 +561,7 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         "panes": daemon_value.as_ref().and_then(|value| value.get("panes")).cloned().unwrap_or_else(|| json!([])),
         "tabs": tabs,
         "terminals": daemon_value.as_ref().and_then(|value| value.get("terminals")).cloned().unwrap_or_else(|| json!([])),
-        "browsers": daemon_value.as_ref().and_then(|value| value.get("browsers")).cloned().unwrap_or_else(|| json!([])),
+        "browsers": browsers,
         "focus": focus,
         "selection": selection(topology, daemon_value.as_ref(), workspace_ids.as_ref()),
         "sources": {
@@ -590,6 +591,28 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         );
     }
     snapshot
+}
+
+/// The daemon's browsers, without the `about:blank` page that backs each agent chat tab: such a
+/// tab is listed as a chat (`content_kind: conversation`, its `extra.conversation`), not a
+/// browser (#27934).
+fn chat_free_browsers(daemon: Option<&Value>, tabs: &Value) -> Value {
+    let chats: HashSet<&str> = tabs
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|tab| tab["content_kind"] == "conversation")
+        .filter_map(|tab| tab["id"].as_str())
+        .collect();
+    let browsers = daemon.and_then(|value| value.get("browsers")).and_then(Value::as_array);
+    Value::Array(
+        browsers
+            .into_iter()
+            .flatten()
+            .filter(|browser| !browser["tab_id"].as_str().is_some_and(|tab| chats.contains(tab)))
+            .cloned()
+            .collect(),
+    )
 }
 
 fn has_resource_focus(value: &Value) -> bool {

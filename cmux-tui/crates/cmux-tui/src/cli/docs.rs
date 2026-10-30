@@ -224,7 +224,8 @@ pub(super) const GUIDES: &[Guide] = &[
         id), tab, pane and workspace. Drive a chat of this cmux session (never your own): `cmux \
         agents chat send CHAT -- TEXT` (agents_chat_send, an agent message), `chat read CHAT \
         --after N` (agents_chat_read), `chat state CHAT` (agents_chat_state: status, running, \
-        pending permissions), `chat interrupt CHAT` (agents_chat_interrupt, stops its turn) and \
+        pending permissions), `chat set CHAT [--model M] [--mode M]` (agents_chat_set), `chat \
+        interrupt CHAT` (agents_chat_interrupt, stops its turn) and \
         `chat continue CHAT [TEXT]` (a nudge). Wait for its answer with agents_wait or read on \
         from next_after. See a pane or tab: `cmux pane screenshot --target pane_ID --out PATH` or \
         `cmux tab screenshot --target tab_ID --out PATH` (browser pages come out blacked out; a \

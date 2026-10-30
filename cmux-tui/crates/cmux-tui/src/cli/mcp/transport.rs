@@ -108,6 +108,10 @@ pub(super) fn resource(
         })?;
     let _ = stream.set_read_timeout(Some(wire::SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
+    // Agent chat tabs read as chats, with their session (#27934).
+    if wire::reads_tabs(&plan) {
+        wire::declare_tab_kinds(&mut reader);
+    }
     if !prefixes.is_empty() {
         let params = plan.params.as_object_mut().expect("validated params object");
         let route = ["machine", "session"]
