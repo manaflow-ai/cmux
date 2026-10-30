@@ -129,7 +129,7 @@ import Testing
     /// nothing newer than it (the feed serves an older good build): it is dropped, and the newest
     /// good build is fetched instead.
     @Test func aClickNeverInstallsAPulledStagedBuild() async throws {
-        let (h, installs) = Self.make(newer: false, pulled: ["300"])
+        let (h, installs) = Self.make(newer: false, held: false, downloadsAsk: false, pulled: ["300"])
         h.updater.installClicked()
         #expect(await eventually { h.sparkle.cancels == 1 }, "the click installed pulled build 300")
         #expect(h.sparkle.backgroundChecks == 1)

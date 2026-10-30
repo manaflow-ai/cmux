@@ -57,6 +57,9 @@ public final class PulledBuildWatch {
     /// Every build seen on the pulled list since launch: the Updated card leaves them out when it counts the newer
     /// builds ("2 builds behind newest"), and the updater never installs one.
     public private(set) var pulledBuilds: [String] = []
+    /// Whether the most recent refresh got at least one list successfully. A failed read cannot
+    /// prove that a staged build is safe to install.
+    public private(set) var lastReadSucceeded = false
     /// The daemons' state roots for the rollback's store check (set by the App).
     @ObservationIgnored public var stateDirectories: () -> [URL?] = { [nil] }
     /// Runs after every read of the list (set by the updater).
@@ -97,12 +100,15 @@ public final class PulledBuildWatch {
         let urls = PulledBuild.listURLs(feedURL: feedURL()), fetch = fetch, build = build
         let task = Task { [weak self] in
             var read: [PulledBuild] = []
+            var succeeded = false
             for url in urls {
                 guard let data = await fetch(url) else { continue }
+                succeeded = true
                 read += PulledBuild.decode(data)
             }
             guard let self else { return }
             self.refreshTask = nil
+            self.lastReadSucceeded = succeeded
             // A pulled build stays pulled for the life of this process: a read that fails, in whole
             // or for one of its lists, never forgets one (the feed never un-pulls a build).
             var all = self.pulledBuilds

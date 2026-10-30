@@ -76,8 +76,24 @@ final class StagedUpdateRefresh {
     /// `install` runs. A second click while the feed is read joins the first.
     func beforeInstall(updater: UpdaterService, install: @escaping @MainActor () -> Void) {
         guard pendingClick == nil else { return }
-        guard updater.disabledReason == nil, isCancellable(updater), let staged = updater.stagedBuild(), !staged.isEmpty else {
+        guard updater.disabledReason == nil, let staged = updater.stagedBuild(), !staged.isEmpty else {
             return install()
+        }
+        // A driver that cannot cancel its installer must still prove that the staged build was not
+        // pulled. Installing before that read would violate the pulled-build invariant.
+        guard isCancellable(updater) else {
+            pendingClick = (staged, install)
+            let pulled = updater.pulledWatch.refresh()
+            clickTimer.schedule(after: Self.clickProbeDeadline) { @MainActor [weak self, weak updater] in
+                guard let self, let updater else { return }
+                self.settleUncancellable(answered: false, updater: updater)
+            }
+            Task { @MainActor [weak self, weak updater] in
+                await pulled.value
+                guard let self, let updater else { return }
+                self.settleUncancellable(answered: true, updater: updater)
+            }
+            return
         }
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
         pendingClick = (staged, install)
@@ -93,6 +109,20 @@ final class StagedUpdateRefresh {
             guard let self, let updater else { return }
             self.settleClick(answered: failure == nil, updater: updater)
         }
+    }
+
+    private func settleUncancellable(answered: Bool, updater: UpdaterService) {
+        guard let (staged, install) = pendingClick else { return }
+        pendingClick = nil
+        clickTimer.cancel()
+        guard updater.stagedBuild() == staged else { return install() }
+        let pulled = updater.pulledWatch.isPulled(staged) || updater.droppedPulled.contains(staged)
+        guard !pulled, answered, updater.pulledWatch.lastReadSucceeded else {
+            updater.log.append("install click: staged build \(staged) could not be proven safe to install")
+            updater.presentUpdateUI?()
+            return
+        }
+        install()
     }
 
     /// The feed answered (or its deadline passed): the first of the two decides the click.
