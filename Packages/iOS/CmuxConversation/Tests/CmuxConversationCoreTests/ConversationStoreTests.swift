@@ -296,7 +296,12 @@ import Testing
         #expect(store.messages.compactMap(\.seq) == Array(1...100))
     }
 
-    @Test func olderPageLandingDuringRecoveryTakesTheRecoveredRevision() async throws {
+    /// An older page asked for before a lagged reconnect carries what the
+    /// server had then. Whether it lands while recovery is fetching or after
+    /// recovery applied (recovery leaves rows above its window to the pager),
+    /// it must never bring back a message unsent while disconnected.
+    @Test(arguments: [false, true])
+    func olderPageAskedBeforeReconnectNeverLandsStaleRows(landsAfterRecovery: Bool) async throws {
         let backend = ScriptedBackend(total: 100)
         let store = ConversationStore(backend: backend, pageSize: 20)
         defer { store.stop() }
@@ -316,16 +321,59 @@ import Testing
         backend.total = 101
         let newest = PreparationGate()
         defer { newest.open() }
-        backend.nextHistoryGate = newest
+        if !landsAfterRecovery { backend.nextHistoryGate = newest }
         store.apply(.connected(info: backend.info, meID: "me", lagged: true))
-        try await waitUntil { backend.historyCount == 3 }
-        // The stale older page lands mid-recovery; recovery must still apply the unsend.
-        older.open()
+        if landsAfterRecovery {
+            try await waitUntil { store.message(id: "m101") != nil }
+            older.open()
+        } else {
+            try await waitUntil { backend.historyCount == 3 }
+            older.open()
+            // Let the stale reply reach the store before recovery's does.
+            try await Task.sleep(for: .milliseconds(50))
+            newest.open()
+            try await waitUntil { store.message(id: "m101") != nil }
+        }
         try await waitUntil { store.message(id: "m61") != nil }
-        newest.open()
-        try await waitUntil { store.message(id: "m101") != nil }
         #expect(store.message(id: "m70")?.unsentAt == unsent.unsentAt)
+        #expect(store.message(id: "m70")?.text == "")
         #expect(store.messages.compactMap(\.seq) == Array(61...101))
+    }
+
+    /// A delivery receipt is not a newer revision of the message: a live
+    /// receipt during recovery keeps its delivery, and the recovered edit or
+    /// unsend still applies.
+    @Test(arguments: [false, true])
+    func reconnectAppliesAuthoritativeChangeAfterALiveDeliveryReceipt(unsent: Bool) async throws {
+        let backend = ScriptedBackend(total: 30)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        // My message 24 was edited or unsent while disconnected.
+        var changed = backend.makeMessage(seq: 24, sender: "me")
+        changed.text = unsent ? "" : "Edited while disconnected"
+        if unsent { changed.unsentAt = Date(timeIntervalSince1970: 2000) }
+        backend.setHistoryMessage(changed)
+        backend.total = 31
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+
+        // A read receipt for the copy still on screen arrives live.
+        var receipt = backend.makeMessage(seq: 24, sender: "me")
+        receipt.delivery = .read(nil)
+        store.apply(.message(receipt, eventSeq: 1))
+        #expect(store.message(id: "m24")?.delivery == .read(nil))
+        gate.open()
+        try await waitUntil { store.message(id: "m31") != nil }
+        let result = try #require(store.message(id: "m24"))
+        #expect(result.text == changed.text)
+        #expect(result.unsentAt == changed.unsentAt)
+        #expect(result.delivery == .read(nil))
     }
 
     @Test func reconnectRefreshesMissedEditsThroughoutRetainedHistory() async throws {
