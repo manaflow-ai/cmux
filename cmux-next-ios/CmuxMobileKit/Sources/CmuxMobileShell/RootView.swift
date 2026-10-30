@@ -740,7 +740,9 @@ private struct FeedTabContent: View {
 
     var body: some View {
         @Bindable var shell = shell
-        CmuxMobileFeed.FeedScreen(path: $shell.feedPath) { SidebarToolbarItem(sidebar: shell.sidebar) }
+        CmuxMobileFeed.FeedScreen(path: $shell.feedPath, reconnect: {
+            await shell.live?.reconnectFeeds()
+        }) { SidebarToolbarItem(sidebar: shell.sidebar) }
     }
 }
 

@@ -5,7 +5,9 @@
 //! running this build (the daemon step installs it only when it restarts the
 //! daemon). A Mac is moved to the build of the cmux that connects to it (the
 //! app's peer updates, `host update`), and a cmux Cloud VM by cmux Cloud
-//! (`cmux link machine update --to-bundled`); neither changes here.
+//! (`cmux link machine update --to-bundled`); neither changes here. A Cloud
+//! VM whose daemon is acpmux's own `acpmux.service` (a fleet lane host,
+//! `hosts::cloud_vm_check`) is not cmux's to move, so it gets the timer.
 
 use super::hosts;
 use crate::cli::host_steps::{Step, StepResult, StepState};
@@ -56,11 +58,12 @@ pub(super) fn probe_script() -> String {
     let off = hosts::NO_AUTO_UPDATE;
     let cloud = hosts::CLOUD_VM_MARK;
     let cloud_dir = cloud.rsplit_once('/').map_or("/", |(dir, _)| dir);
+    let cloud_check = hosts::cloud_vm_check();
     let service = hosts::UPDATE_SERVICE;
     let timer = hosts::UPDATE_TIMER;
     format!(
         r#"echo {MARK}begin; au_o=$(uname -s) && echo "{MARK}os=$au_o"
-if [ -e {cloud} ]; then echo {MARK}cloud; elif [ -e {cloud_dir} ] && [ ! -x {cloud_dir} ]; then echo {MARK}cloud-unknown; fi; [ ! -e {home}/{off} ] || echo {MARK}off
+{cloud_check}if [ -n "$acpmux_cloud" ]; then echo {MARK}cloud; elif [ -e {cloud} ]; then :; elif [ -e {cloud_dir} ] && [ ! -x {cloud_dir} ]; then echo {MARK}cloud-unknown; fi; [ ! -e {home}/{off} ] || echo {MARK}off
 if au_e=$(systemctl --user show-environment 2>/dev/null); then echo {MARK}systemd; set -f; au_ok=1
 [ ! -e {home} ] || [ -x {home} ] || au_ok=
 au_m=; au_i=$IFS; IFS='

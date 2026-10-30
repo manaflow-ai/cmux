@@ -47,6 +47,8 @@ import Testing
     }
 
     #if os(iOS)
+    // AgentChatSurface is iOS only; the store tests above also run in macOS `swift test`.
+
     /// The bubble's path: the composer gets the message, focused, and nothing is sent.
     @Test func bubbleEditFillsAndFocusesTheComposer() {
         let (source, store, turn) = lastTurn()
