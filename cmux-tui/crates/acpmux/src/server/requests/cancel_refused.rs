@@ -34,17 +34,16 @@ pub(super) fn row_turn(row: &Value) -> Option<String> {
 }
 
 fn notice(session_id: Value, e: &RpcError, peer: Option<&str>, turn: Option<&str>) -> Value {
-    let mut v = json!({"sessionId": session_id, "message": e.message});
-    if let Some(reason) = reason(e) {
-        v["reason"] = Value::from(reason);
+    let mut v = serde_json::Map::new();
+    v.insert("sessionId".into(), session_id);
+    v.insert("message".into(), Value::from(e.message.as_str()));
+    let optional = [("reason", reason(e)), ("peer", peer), ("turnId", turn)];
+    for (field, value) in optional {
+        if let Some(value) = value {
+            v.insert(field.into(), Value::from(value));
+        }
     }
-    if let Some(peer) = peer {
-        v["peer"] = Value::from(peer);
-    }
-    if let Some(turn) = turn {
-        v["turnId"] = Value::from(turn);
-    }
-    v
+    Value::Object(v)
 }
 
 /// How many refusals (one per chat and turn) wait for room at once on one connection.
