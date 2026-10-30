@@ -515,7 +515,7 @@ extension CaptureSceneRegistry {
         controller.sidebar.restore(width: 300, hidden: false)
         endCloudMachineDisconnected()
         var shown = false
-        defer { if !shown { endCloudMachineDisconnected() } }
+        defer { if !shown { endCloudMachineDisconnected(always: true) } }
         // Machine headers draw only with a section per computer.
         DesignSettings.shared.sidebarSections.groupsByComputer = true
         for machine in Self.endedLinkMachines {
@@ -571,10 +571,11 @@ extension CaptureSceneRegistry {
     /// Takes a shown cloud-machine-disconnected picture away: the machines, and the grouping setting
     /// it turned on, back to the settings' own value (as `DebugCloudMachineFixture` derives it). No
     /// saved state: `debug.scene.render` makes a new registry each call, so a picture is shown while
-    /// its machines are listed.
-    func endCloudMachineDisconnected() {
+    /// its machines are listed. `always`: the scene's own failure, which ends it even when something
+    /// (a Cloud reconcile) already took the machines away and the setting is still forced on.
+    func endCloudMachineDisconnected(always: Bool = false) {
         let ids = Self.endedLinkMachines.map(\.id)
-        guard ids.contains(where: { services.machines.session($0) != nil }) else { return }
+        guard always || ids.contains(where: { services.machines.session($0) != nil }) else { return }
         for id in ids { services.machines.remove(id)?.disconnect() }
         services.windows.reconcileMembership()
         DesignSettings.shared.sidebarSections.groupsByComputer = (services.settings?.snapshot.sidebarSections ?? .defaults).groupsByComputer
