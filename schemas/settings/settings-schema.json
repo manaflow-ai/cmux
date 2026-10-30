@@ -836,6 +836,7 @@
               "agentPane.showContextUsage",
               "agentPane.showDictation",
               "agentPane.spellChecking",
+              "agentPane.subagentPanes",
               "agentPane.attachmentView",
               "agentPane.scrollToBottomOnSend",
               "agentPane.showMachineLoadWarnings",
@@ -86815,6 +86816,56 @@
       "title" : {
         "key" : "settings.agentPane.spellChecking",
         "text" : "Check Spelling While Typing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.subagentPanes.help",
+        "text" : "Each subagent a chat starts opens in a split beside the chat. Off, subagents show in the chat."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.subagentPanes",
+      "keywords" : [
+        "subagent",
+        "subagents",
+        "pane",
+        "panes",
+        "split",
+        "agent",
+        "chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "subagentPanes"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.subagentPanes",
+        "text" : "Open Subagents in Panes"
       },
       "validation" : "portable"
     },

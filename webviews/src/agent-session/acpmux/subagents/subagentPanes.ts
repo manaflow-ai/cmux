@@ -4,12 +4,15 @@
 // subagent's view (a `revealTurn` of `subagent:<id>`). A host that opens none (the gallery, the
 // floating chat, an older app) shows the subagent in this pane instead.
 //
-// A chat pane opens a pane by itself for each subagent its chat starts while the pane shows it,
-// only once the user turned that on (the summary card's switch, kept in localStorage). It is off
-// by default: agent work starts many subagents, and a split for each crowded the workspace. A
-// click on a subagent still opens its pane. The subagents a chat already had when the pane first
-// showed it open none: they are history.
-import { useEffect, useRef, useSyncExternalStore } from "react";
+// Subagents open in panes only once the user turned that on: `agentPane.subagentPanes` in
+// cmux.json, which the summary card's switch writes through the host (composerSettings.ts). It is
+// off by default: agent work starts many subagents, and a split for each crowded the workspace.
+// While it is off, a click on a subagent (a group line, a card row, the
+// agents pill) shows it in the chat's own pane. While it is on, a click opens its pane, and a chat
+// pane opens one by itself for each subagent its chat starts while the pane shows it. The
+// subagents a chat already had when the pane first showed it open none: they are history.
+import { useEffect, useRef } from "react";
+import { setSubagentPanes, useComposerSettings } from "../composerSettings";
 import type { AcpmuxRow } from "../model";
 import { subagentsIn } from "./subagentRows";
 
@@ -20,40 +23,28 @@ export const SUBAGENT_REVEAL = "subagent:";
 export const revealedSubagent = (value: string) =>
   value.startsWith(SUBAGENT_REVEAL) ? value.slice(SUBAGENT_REVEAL.length) || undefined : undefined;
 
-const KEY = "cmux.acpmux.subagentPanes";
+/// Where the switch lived before it was a cmux.json setting: the page's storage, which an agent
+/// pane keeps only until the app quits.
+const LEGACY_KEY = "cmux.acpmux.subagentPanes";
 /// A subagent that started this long before the pane showed its chat still counts as new: the
 /// snapshot that names it can trail its start.
 const HISTORY_SLACK_MS = 3_000;
-const listeners = new Set<() => void>();
-const read = () => {
-  try {
-    return globalThis.localStorage?.getItem(KEY) === "on";
-  } catch {
-    return false;
-  }
-};
 
-const setAutoOpen = (next: boolean) => {
-  try {
-    if (next) globalThis.localStorage?.setItem(KEY, "on");
-    else globalThis.localStorage?.removeItem(KEY);
-  } catch {
-    // No storage: the choice holds until the page reloads.
-  }
-  for (const listener of listeners) listener();
-};
-
-/// Whether new subagents open in panes of their own (off unless turned on).
+/// Whether subagents open in panes of their own (`agentPane.subagentPanes`, off unless turned on).
 export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
-  const on = useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    read,
-    read,
-  );
-  return [on, setAutoOpen];
+  return [useComposerSettings().subagentPanes, setSubagentPanes];
+}
+
+/// Moves a switch turned on in the page's storage, before it was a cmux.json setting, into the
+/// setting once (the host writes it); the storage forgets it.
+export function adoptStoredSubagentPanes() {
+  try {
+    if (globalThis.localStorage?.getItem(LEGACY_KEY) !== "on") return;
+    globalThis.localStorage.removeItem(LEGACY_KEY);
+  } catch {
+    return;
+  }
+  setSubagentPanes(true);
 }
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -66,6 +57,24 @@ export async function openSubagentPane(call: Call, id: string, focus: boolean): 
   } catch {
     return false;
   }
+}
+
+/// Shows subagent `id`: in a pane of its own (focused with `focus`) only while `panes` (the switch)
+/// is on and this is the chat's pane (`inSubagentPane` false), else in this pane (`here`) when the
+/// person asked (`focus`; a subagent's pane always shows it). A host that opens no pane shows it
+/// here too when the person asked. Settles once it has shown it.
+export async function showSubagent(
+  call: Call,
+  id: string,
+  focus: boolean,
+  options: { panes: boolean; inSubagentPane: boolean; here: (id: string) => void },
+): Promise<void> {
+  if (options.inSubagentPane || !options.panes) {
+    if (focus || options.inSubagentPane) options.here(id);
+    return;
+  }
+  const opened = await openSubagentPane(call, id, focus);
+  if (!opened && focus) options.here(id);
 }
 
 /// Opens a pane for each subagent the chat `sessionId` starts from now on (its own, not nested

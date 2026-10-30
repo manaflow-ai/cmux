@@ -88477,6 +88477,268 @@
         }
       }
     },
+    "settings.agentPane.subagentPanes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الوكلاء الفرعيين في أجزاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori podagente u oknima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn underagenter i ruder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagenten in Bereichen öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Subagents in Panes"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir subagentes en paneles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir les sous-agents dans des sous-fenêtres"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri i subagenti in riquadri"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェントをペインで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកភ្នាក់ងាររងក្នុងផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트를 창에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne underagenter i ruter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwieraj podagenty w panelach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir subagentes em painéis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открывать субагентов в панелях"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดเอเจนต์ย่อยในบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt ajanları bölmelerde aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкривати субагентів у панелях"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở tác tử phụ trong khung"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在窗格中打开子代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在窗格中開啟子代理"
+          }
+        }
+      }
+    },
+    "settings.agentPane.subagentPanes.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتح كل وكيل فرعي تبدؤه المحادثة في جزء مقسوم بجانبها. عند الإيقاف، تظهر الوكلاء الفرعيون في المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svaki podagent koji chat pokrene otvara se u podjeli pored chata. Kada je isključeno, podagenti se prikazuju u chatu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver underagent, en chat starter, åbnes i en opdeling ved siden af chatten. Slået fra vises underagenter i chatten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Subagent, den ein Chat startet, öffnet sich in einer Teilung neben dem Chat. Aus: Subagenten erscheinen im Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each subagent a chat starts opens in a split beside the chat. Off, subagents show in the chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada subagente que inicia un chat se abre en una división junto al chat. Desactivado, los subagentes se muestran en el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque sous-agent lancé par une conversation s’ouvre dans une division à côté de celle-ci. Désactivé, les sous-agents s’affichent dans la conversation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni subagente avviato da una chat si apre in una divisione accanto alla chat. Se disattivato, i subagenti vengono mostrati nella chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットが開始した各サブエージェントを、チャットの横の分割で開きます。オフの場合、サブエージェントはチャット内に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងាររងនីមួយៗដែលការជជែកចាប់ផ្ដើម បើកក្នុងផ្ទាំងបំបែកនៅក្បែរការជជែក។ ពេលបិទ ភ្នាក់ងាររងបង្ហាញក្នុងការជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅이 시작한 각 하위 에이전트를 채팅 옆 분할 창에서 엽니다. 끄면 하위 에이전트가 채팅 안에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver underagent en chat starter, åpnes i en deling ved siden av chatten. Av: underagenter vises i chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Każdy podagent uruchomiony przez czat otwiera się w podziale obok czatu. Gdy wyłączone, podagenci są pokazywani w czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada subagente que um chat inicia abre em uma divisão ao lado do chat. Desativado, os subagentes aparecem no chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый субагент, запущенный чатом, открывается в разделении рядом с чатом. Если выключено, субагенты показываются в чате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ย่อยแต่ละตัวที่แชทเริ่มจะเปิดในส่วนแบ่งข้างแชท เมื่อปิด เอเจนต์ย่อยจะแสดงในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir sohbetin başlattığı her alt ajan, sohbetin yanında bir bölmede açılır. Kapalıyken alt ajanlar sohbette gösterilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кожен субагент, якого запускає чат, відкривається в розділенні поруч із чатом. Якщо вимкнено, субагенти показуються в чаті."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mỗi tác tử phụ mà cuộc trò chuyện khởi chạy sẽ mở trong một vùng chia bên cạnh cuộc trò chuyện. Khi tắt, tác tử phụ hiển thị trong cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天启动的每个子代理都会在聊天旁边的拆分窗格中打开。关闭时，子代理显示在聊天中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天啟動的每個子代理都會在聊天旁邊的分割窗格中開啟。關閉時，子代理會顯示在聊天中。"
+          }
+        }
+      }
+    },
     "settings.agentPane.scrollToBottomOnSend": {
       "extractionState": "manual",
       "localizations": {

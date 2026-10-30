@@ -177,6 +177,14 @@ const openSummary = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-card .acpmux-summary-agents"));
 };
 
+/** Turns on the summary card's Open subagents in panes switch: only then does a click open a pane. */
+const panesOn = async (ctx: PlayContext) => {
+  await openSummary(ctx);
+  const toggle = ctx.find({ selector: ".acpmux-summary-autoopen input" }) as HTMLInputElement;
+  if (!toggle.checked) await ctx.click({ selector: ".acpmux-summary-autoopen input" });
+  await ctx.waitFor(() => toggle.checked);
+};
+
 /** The card's row for subagent `name`. */
 const cardRow = (ctx: PlayContext, name: string) =>
   [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-summary-card .acpmux-summary-agent")].find(
@@ -489,10 +497,12 @@ export default agentPaneEntry({
       play: openSummary,
     },
     "pane-open": {
-      note: "With a host that opens subagent panes: a group line asks the app for the subagent's pane right of the chat, focused; this pane keeps the chat.",
+      note: "With Open subagents in panes on and a host that opens them: a group line asks the app for the subagent's pane right of the chat, focused; this pane keeps the chat.",
       snapshot: CODEX,
       native: { "chat.subagentPane": { opened: true } },
       play: async (ctx) => {
+        await panesOn(ctx);
+        await ctx.click({ selector: ".acpmux-summary-button" });
         await openGroup(2)(ctx);
         await ctx.click({ role: "button", name: "Open Read b" });
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] }).cmuxGalleryLog;
@@ -505,11 +515,11 @@ export default agentPaneEntry({
       },
     },
     "card-open-pane": {
-      note: "A card row with a host that opens subagent panes: the app shows that subagent's pane; the card stays.",
+      note: "A card row with Open subagents in panes on: the app shows that subagent's pane; the card stays.",
       snapshot: CODEX,
       native: { "chat.subagentPane": { opened: true } },
       play: async (ctx) => {
-        await openSummary(ctx);
+        await panesOn(ctx);
         await ctx.click({ selector: '.acpmux-summary-agent[title="Read a"]' });
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: PaneCall[] }).cmuxGalleryLog;
         await ctx.waitFor(() =>

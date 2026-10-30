@@ -43,7 +43,7 @@ extension SettingsSchema {
         // The edited-files card (looks only).
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
 .union(["agentPane.zoom"]) // display-only agent surface zoom
-        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring and mic (looks only)
+        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring and mic (looks only), subagent splits
         .union(HomeSettingsSchema.agentSettableKeys) // the Chief chat's bubble style (looks only)
 
     private static let agentSettableTable: Set<String> = [

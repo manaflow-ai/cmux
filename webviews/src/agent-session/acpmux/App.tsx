@@ -248,7 +248,8 @@ import { useWorkflowTranscript } from "./summary/useWorkflowTranscript";
 import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
 import { WorkflowSideTab } from "./summary/WorkflowSideTab";
 import {
-  openSubagentPane,
+  adoptStoredSubagentPanes,
+  showSubagent as showSubagentIn,
   revealedSubagent,
   useAutoOpenSubagents,
   useOpenNewSubagents,
@@ -1043,6 +1044,8 @@ const changesSource: ChangesSource = {
 // The composer's Hide and Show (composerChrome.tsx) persist through the host, which pushes the
 // setting back to every page and on the next launch.
 registerComposerHost((method, show) => callNative(method, { show }));
+// A switch turned on before Open subagents in panes was a cmux.json setting moves into it.
+adoptStoredSubagentPanes();
 registerAttachmentViewHost((view) => callNative("pane.setAttachmentView", { view }));
 registerChatDisplayHost((key, value) => void callNative("pane.setDisplay", { key, value }).catch(() => undefined));
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
@@ -6864,18 +6867,23 @@ function AcpmuxPane() {
     [canBackground, snapshot.isWorking, snapshot.rows],
   );
   const backgroundHint = !quick && canBackground && snapshot.isWorking ? runInBackground : undefined;
-  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`), or in
-  /// this pane when this is a subagent's pane or the host opens none.
-  const showSubagent = useCallback((id: string, focus = true) => {
-    if (subagentPane.current) return setSubagentView(id);
-    // The pane the app opens is a new tab on this chat's own session (subagentPanes.ts). Hand the
-    // chat over first, as openOwnTab does before `chat.openTab`, so that tab draws it from the
-    // host's kept tail (tailCache.ts) before its own attach answers, instead of opening blank.
-    directClient.current?.handOverCurrentTail();
-    void openSubagentPane(callNative, id, focus).then((opened) => {
-      if (!opened && focus) setSubagentView(id);
-    });
-  }, []);
+  const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
+  /// Shows subagent `id`: in a pane of its own right of the chat (focused with `focus`) once the
+  /// summary card's switch is on, else in this pane (subagents/subagentPanes.ts).
+  const showSubagent = useCallback(
+    (id: string, focus = true) => {
+      // The pane the app opens is a new tab on this chat's own session (subagentPanes.ts). Hand the
+      // chat over first, as openOwnTab does before `chat.openTab`, so that tab draws it from the
+      // host's kept tail (tailCache.ts) before its own attach answers, instead of opening blank.
+      if (autoOpenSubagents && !subagentPane.current) directClient.current?.handOverCurrentTail();
+      void showSubagentIn(callNative, id, focus, {
+        panes: autoOpenSubagents,
+        inSubagentPane: subagentPane.current,
+        here: setSubagentView,
+      });
+    },
+    [autoOpenSubagents],
+  );
   const showWorkflowAgent = useCallback(
     (agent: WorkflowAgent) => {
       const workflow = workflows.find((entry) => entry.agents.some((candidate) => candidate.id === agent.id));
@@ -6884,7 +6892,6 @@ function AcpmuxPane() {
     },
     [workflows, showSubagent],
   );
-  const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   useOpenNewSubagents(
     quick || subagentPane.current ? undefined : shownSessionId,
     snapshot.rows,

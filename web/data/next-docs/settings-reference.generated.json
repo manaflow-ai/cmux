@@ -131,6 +131,14 @@
           "group": "Agent Chat"
         },
         {
+          "key": "agentPane.subagentPanes",
+          "title": "Open Subagents in Panes",
+          "help": "Each subagent a chat starts opens in a split beside the chat. Off, subagents show in the chat.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.zoom",
           "title": "Agent Chat Zoom",
           "help": "The display size for agent chat. Cmd-0 resets it.",

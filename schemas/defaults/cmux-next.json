@@ -255,6 +255,7 @@
     "setting.agentPane.showDictation": true,
     "setting.agentPane.showMachineLoadWarnings": true,
     "setting.agentPane.spellChecking": false,
+    "setting.agentPane.subagentPanes": false,
     "setting.agentPane.zoom": 1,
     "setting.agents.chats.discovery": true,
     "setting.agents.chats.enabled": true,

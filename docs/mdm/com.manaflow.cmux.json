@@ -200,6 +200,12 @@
       "title" : "Check Spelling While Typing",
       "type" : "boolean"
     },
+    "agentPane.subagentPanes" : {
+      "default" : false,
+      "description" : "Each subagent a chat starts opens in a split beside the chat. Off, subagents show in the chat.",
+      "title" : "Open Subagents in Panes",
+      "type" : "boolean"
+    },
     "agentPane.zoom" : {
       "default" : 1,
       "description" : "The display size for agent chat. Cmd-0 resets it.",

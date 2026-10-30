@@ -25,6 +25,9 @@
 // `escapeDoublePress` is Debug Settings' "Esc stops a turn on a double press" (Swift
 // AgentPaneTunables.escapeStopDoublePress, on by default; no cmux.json key): on, Esc on an empty
 // composer stops a running turn only on the second press inside the window (escapeStop.ts).
+// `subagentPanes` is `agentPane.subagentPanes` in cmux.json (off by default): subagents open in panes
+// of their own right of the chat (subagents/subagentPanes.ts). The summary card's switch sets it
+// at once and asks the host to write it (`pane.subagentPanes`), which pushes it back.
 // `showMachineLoadWarnings` is the user setting for the Computer menu's cached host-health detail.
 import { useSyncExternalStore } from "react";
 
@@ -44,6 +47,7 @@ export type ComposerSettings = {
   harnessSwitch: boolean;
   escapeDoublePress: boolean;
   showMachineLoadWarnings: boolean;
+  subagentPanes: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -59,6 +63,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   harnessSwitch: false,
   escapeDoublePress: true,
   showMachineLoadWarnings: true,
+  subagentPanes: false,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -70,7 +75,8 @@ type ComposerFlag =
   | "harnessSwitch"
   | "scrollToBottomOnSend"
   | "escapeDoublePress"
-  | "showMachineLoadWarnings";
+  | "showMachineLoadWarnings"
+  | "subagentPanes";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -92,6 +98,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     harnessSwitch: flag("harnessSwitch"),
     escapeDoublePress: flag("escapeDoublePress"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
+    subagentPanes: flag("subagentPanes"),
   };
 }
 
@@ -153,9 +160,10 @@ declare global {
 }
 if (typeof window !== "undefined") window.cmuxAcpmuxComposer = setComposerSettings;
 
-/// The host's write of a composer setting with `show`.
+/// The host's write of a composer setting with `show`: `pane.showContextUsage`,
+/// `pane.showDictation`, `pane.setScrollToBottomOnSend` or `pane.subagentPanes`.
 type ComposerHost = (
-  method: "pane.showContextUsage" | "pane.showDictation" | "pane.setScrollToBottomOnSend",
+  method: "pane.showContextUsage" | "pane.showDictation" | "pane.setScrollToBottomOnSend" | "pane.subagentPanes",
   show: boolean,
 ) => unknown;
 let composerHost: ComposerHost | undefined;
@@ -232,4 +240,15 @@ export function setScrollToBottomOnSend(show: boolean) {
       if (write === scrollWrite) publishComposerSettings({ scrollToBottomOnSend: confirmedScrollToBottomOnSend });
     },
   );
+}
+
+/// Turns opening subagents in panes on or off in every page, and asks the host to persist it
+/// (`agentPane.subagentPanes`).
+export function setSubagentPanes(on: boolean) {
+  setComposerSettings({ subagentPanes: on });
+  try {
+    void Promise.resolve(composerHost?.("pane.subagentPanes", on)).catch(() => undefined);
+  } catch {
+    // The page keeps the switch; the host's next push corrects it.
+  }
 }

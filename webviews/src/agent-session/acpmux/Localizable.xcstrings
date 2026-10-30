@@ -170188,133 +170188,133 @@
       }
     },
     "summary.subagents.openPanes" : {
-      "comment" : "Agent pane: the summary card's switch (summary/SubagentStatusList.tsx)",
+      "comment" : "Agent pane: the summary card's switch: on, a click on a subagent and each new one open in a pane of their own; off, they show in the chat (summary/SubagentStatusList.tsx)",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "فتح الوكلاء الفرعيين الجدد في أجزاء"
+            "value" : "فتح الوكلاء الفرعيين في أجزاء"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Otvori nove podagente u oknima"
+            "value" : "Otvori podagente u oknima"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Åbn nye underagenter i ruder"
+            "value" : "Åbn underagenter i ruder"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Neue Subagenten in Bereichen öffnen"
+            "value" : "Subagenten in Bereichen öffnen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Open new subagents in panes"
+            "value" : "Open subagents in panes"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Abrir subagentes nuevos en paneles"
+            "value" : "Abrir subagentes en paneles"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ouvrir les nouveaux sous-agents dans des sous-fenêtres"
+            "value" : "Ouvrir les sous-agents dans des sous-fenêtres"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Apri i nuovi subagenti in riquadri"
+            "value" : "Apri i subagenti in riquadri"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "新しいサブエージェントをペインで開く"
+            "value" : "サブエージェントをペインで開く"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បើកភ្នាក់ងាររងថ្មីក្នុងផ្ទាំង"
+            "value" : "បើកភ្នាក់ងាររងក្នុងផ្ទាំង"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "새 하위 에이전트를 창에서 열기"
+            "value" : "하위 에이전트를 창에서 열기"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Åpne nye underagenter i ruter"
+            "value" : "Åpne underagenter i ruter"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Otwieraj nowe podagenty w panelach"
+            "value" : "Otwieraj podagenty w panelach"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Abrir novos subagentes em painéis"
+            "value" : "Abrir subagentes em painéis"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Открывать новых субагентов в панелях"
+            "value" : "Открывать субагентов в панелях"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เปิดเอเจนต์ย่อยใหม่ในบานหน้าต่าง"
+            "value" : "เปิดเอเจนต์ย่อยในบานหน้าต่าง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Yeni alt ajanları bölmelerde aç"
+            "value" : "Alt ajanları bölmelerde aç"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Відкривати нових субагентів у панелях"
+            "value" : "Відкривати субагентів у панелях"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mở tác tử phụ mới trong khung"
+            "value" : "Mở tác tử phụ trong khung"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "在窗格中打开新的子代理"
+            "value" : "在窗格中打开子代理"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "在窗格中開啟新的子代理"
+            "value" : "在窗格中開啟子代理"
           }
         }
       }

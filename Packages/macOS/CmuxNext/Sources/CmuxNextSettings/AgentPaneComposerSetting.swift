@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// webviews/src/agent-session/acpmux/composerSettings.ts):
 ///
 /// ```jsonc
-/// "agentPane": { "showContextUsage": true, "showDictation": true, "spellChecking": false, "attachmentView": "inline", "scrollToBottomOnSend": true, "showMachineLoadWarnings": true }
+/// "agentPane": { "showContextUsage": true, "showDictation": true, "spellChecking": false, "attachmentView": "inline", "scrollToBottomOnSend": true, "showMachineLoadWarnings": true, "subagentPanes": false }
 /// ```
 ///
 /// `showContextUsage`: the context usage ring beside the model. The ring's right-click hides it,
@@ -20,6 +20,9 @@ import CmuxNextDesign
 /// arrive below it. A reader at the bottom still follows streaming output.
 /// `showMachineLoadWarnings`: the Computer menu adds cached high-load or low-memory details to
 /// remote machine rows. It is on by default and does not start another health poller.
+/// `subagentPanes`: subagents open in agent panes of their own right of the chat, and a click on
+/// one opens its pane; off (the default), they show in the chat. The summary card's Open subagents
+/// in panes switch writes it (webviews/src/agent-session/acpmux/subagents/subagentPanes.ts).
 ///
 /// `reasoningSlider` is not a cmux.json key: the Debug Settings toggle `agent.reasoningSlider`
 /// (CmuxNextAgentPane AgentPaneTunables, DEV and NIGHTLY, off by default) sets it, and it rides the
@@ -33,6 +36,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public static let attachmentViewPath = ["agentPane", "attachmentView"]
     public static let scrollToBottomOnSendPath = ["agentPane", "scrollToBottomOnSend"]
     public static let showMachineLoadWarningsPath = ["agentPane", "showMachineLoadWarnings"]
+    public static let subagentPanesPath = ["agentPane", "subagentPanes"]
 
     public var showContextUsage = true
     public var showDictation = true
@@ -40,6 +44,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var attachmentView = AgentPaneAttachmentView.inline
     public var scrollToBottomOnSend = true
     public var showMachineLoadWarnings = true
+    public var subagentPanes = false
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
     /// The Debug Settings visual choice (`agent.reasoningSliderStyle`); never parsed from cmux.json.
@@ -49,7 +54,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, showDictation, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, subagentPanes, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
@@ -58,6 +63,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "attachmentView": .string(attachmentView.rawValue),
             "scrollToBottomOnSend": .bool(scrollToBottomOnSend),
             "showMachineLoadWarnings": .bool(showMachineLoadWarnings),
+            "subagentPanes": .bool(subagentPanes),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
@@ -85,6 +91,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             if descriptor.path == spellCheckingPath { setting.spellChecking = flag }
             if descriptor.path == scrollToBottomOnSendPath { setting.scrollToBottomOnSend = flag }
             if descriptor.path == showMachineLoadWarningsPath { setting.showMachineLoadWarnings = flag }
+            if descriptor.path == subagentPanesPath { setting.subagentPanes = flag }
         }
         return setting
     }
@@ -128,6 +135,14 @@ nonisolated enum AgentPaneComposerSettingsSchema {
                 keywords: ["spell", "spelling", "grammar", "misspelling", "composer", "suggestions", "typing"]
             ),
             SettingDescriptor(
+                AgentPaneComposerSetting.subagentPanesPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.agentPane.subagentPanes", "Open Subagents in Panes"),
+                help: SettingsText.keyed("settings.agentPane.subagentPanes.help",
+                                         "Each subagent a chat starts opens in a split beside the chat. Off, subagents show in the chat."),
+                kind: .toggle, default: .bool(AgentPaneComposerSetting.fallback.subagentPanes),
+                keywords: ["subagent", "subagents", "pane", "panes", "split", "agent", "chat"]
+            ),
+            SettingDescriptor(
                 AgentPaneComposerSetting.attachmentViewPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.agentPane.attachmentView", "Attachment View"),
                 help: SettingsText.keyed("settings.agentPane.attachmentView.help",
@@ -160,12 +175,14 @@ nonisolated enum AgentPaneComposerSettingsSchema {
         ]
     }
 
-    /// The visual composer choices agents may change; send behavior remains a user-only choice.
+    /// The composer choices agents may change (looks, and whether subagents open in splits); send
+    /// behavior remains a user-only choice.
     static var agentSettableKeys: Set<String> {
         Set([AgentPaneComposerSetting.showContextUsagePath,
              AgentPaneComposerSetting.showDictationPath,
              AgentPaneComposerSetting.spellCheckingPath,
              AgentPaneComposerSetting.attachmentViewPath,
-             AgentPaneComposerSetting.showMachineLoadWarningsPath].map { $0.joined(separator: ".") })
+             AgentPaneComposerSetting.showMachineLoadWarningsPath,
+             AgentPaneComposerSetting.subagentPanesPath].map { $0.joined(separator: ".") })
     }
 }
