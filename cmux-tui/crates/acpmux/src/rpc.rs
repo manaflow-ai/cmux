@@ -286,6 +286,9 @@ pub mod method {
     pub const MUX_STEER_WITHDRAW: &str = "_acpmux/steer_withdraw";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
+    /// `acpmux session inbox NAME --digest`: the agent messages waiting go in as one digest
+    /// (`hub/inbox_digest.rs`).
+    pub const MUX_INBOX_DIGEST: &str = "_acpmux/inbox_digest";
     /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
     pub const MUX_SEND_QUEUE: &str = "_acpmux/send_queue";
     pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";
@@ -547,6 +550,9 @@ pub mod method {
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
+    /// A persisted session-to-session message, projected separately so chat clients can render
+    /// incoming and outgoing bubbles without decoding the generic event stream.
+    pub const MUX_MESSAGE: &str = "_acpmux/message";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";
     pub const MUX_PERMISSION_PENDING: &str = "_acpmux/permission_pending";
     /// To watchers when a harness profile source changed and the catalog

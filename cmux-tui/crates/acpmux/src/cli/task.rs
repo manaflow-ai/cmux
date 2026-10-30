@@ -72,20 +72,28 @@ pub struct ResultArgs {
 #[derive(Subcommand)]
 /// Task briefs that coordinate work across sessions.
 pub enum BriefsCmd {
+    /// List briefs: id, status, title.
     #[command(alias = "list")]
     Ls {
+        /// Only briefs with this status.
         #[arg(long)]
         status: Option<String>,
+        /// At most this many.
         #[arg(long, default_value_t = 100)]
         limit: usize,
     },
+    /// Send more instructions to the session working a brief.
     Steer {
         brief_id: String,
+        /// The text, or `-` to read it from stdin.
         text: Vec<String>,
     },
+    /// Report a brief's result.
     Report {
         brief_id: String,
+        /// The summary, or `-` to read it from stdin.
         summary: Vec<String>,
+        /// The brief's new status.
         #[arg(long, default_value = "reported")]
         status: String,
     },

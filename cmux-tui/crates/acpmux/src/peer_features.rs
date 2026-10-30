@@ -51,6 +51,19 @@ impl Peer {
         self.session_auth.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that its prompt acceptances name the message
+    /// they kept (`capabilities::SESSION_MESSAGES`).
+    pub fn supports_session_messages(&self) -> bool {
+        self.session_messages.load(Ordering::SeqCst)
+    }
+
+    /// Integration-test stand-in for a peer from before `session-messages-v1`: until the next
+    /// handshake, as though it had not listed it.
+    #[doc(hidden)]
+    pub fn forget_session_messages_for_tests(&self) {
+        self.session_messages.store(false, Ordering::SeqCst);
+    }
+
     /// The link is up and its handshake finished: a caller's request may go out on it, as
     /// `request_on` checks.
     pub fn ready(&self) -> bool {

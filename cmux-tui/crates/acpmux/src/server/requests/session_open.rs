@@ -20,6 +20,9 @@ pub(super) fn load(
     params: &Value,
 ) -> Result<Value, RpcError> {
     let s = resolved_session(hub, resolved, params)?;
+    // Before the attach: a message the live stream sends during the replay is not
+    // replayed again, nor one replayed sent live (`MessageNotices`).
+    conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).reopen(None, &s.id);
     attach(hub, conn, &s.id);
     // One record at a time, the first 100,000 as before: the log is never held whole.
     let mut left = 100_000usize;
@@ -31,6 +34,25 @@ pub(super) fn load(
                 method::SESSION_UPDATE,
                 json!({"sessionId": s.id, "update": {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}}, "_meta": {"acpmux": {"seq": rec.seq, "at": rec.at, "replay": true}}}),
             ));
+        } else if rec.dir == "mux" && rec.kind == "_acpmux/message" {
+            // Once, whether the live stream or this replay sends it first.
+            let fresh = conn
+                .message_notices
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .replay(None, &s.id, rec.seq);
+            // Another daemon's link, served as Peer or added with the dashboard token
+            // (`view::a_link`), takes the event envelope, so its hub keeps the sequence
+            // and replays it after a reconnect: its hub reads no compact notice.
+            // Person/app clients keep the compact notice they already consume.
+            if fresh && super::super::view::a_link(conn) {
+                conn.send(&Message::notification(
+                    method::MUX_EVENT,
+                    super::super::event_value(&s.id, &rec),
+                ));
+            } else if fresh {
+                conn.send(&Message::notification(method::MUX_MESSAGE, rec.msg.clone()));
+            }
         } else if rec.dir == "in"
             && !rec.kind.ends_with(".replay")
             && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
@@ -59,6 +81,8 @@ pub(super) fn resume(
     params: &Value,
 ) -> Result<Value, RpcError> {
     let s = resolved_session(hub, resolved, params)?;
+    // This connection's own reopen, as for a load: it hears the chat's messages again, live.
+    conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).reopen(None, &s.id);
     attach(hub, conn, &s.id);
     Ok(opened(hub, &s))
 }
