@@ -90,7 +90,14 @@ public struct DaemonStartup: Sendable {
             var identity: DaemonIdentity?
             do {
                 DaemonLaunchTimings.shared.mark("daemon.connect_start")
-                identity = try await connection.start()
+                // The service owns this startup task. If teardown cancels it before the
+                // connection is adopted, close the attempt so its endpoint provider cannot
+                // keep launching a daemon after shutdown has joined the service task.
+                identity = try await withTaskCancellationHandler {
+                    try await connection.start()
+                } onCancel: {
+                    Task { await connection.close() }
+                }
                 DaemonLaunchTimings.shared.mark("daemon.handshake_end")
             } catch {
                 await connection.closeAndWait()
