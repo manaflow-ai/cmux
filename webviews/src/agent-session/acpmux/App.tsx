@@ -389,7 +389,8 @@ import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
-import { chatImages, type ChatImage } from "./conversation/chatImages";
+import type { ChatImage } from "./conversation/chatImages";
+import { viewerImages } from "./summary/chatGallery";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
@@ -694,10 +695,65 @@ function writeSnapshot(): void {
   snapshotSave.next = undefined;
   if (!next) return;
   try {
-    sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify(next));
+    sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify({ ...next, sessions: savedSessions(next) }));
   } catch {
     // Painting remains live when storage is unavailable or full.
   }
+}
+
+/// Whether the shown chat's turn ended between two renders (App.tsx `pane.tabState`): the same chat
+/// went idle, or its client counted an end. Only the same chat counts; switching away from a working
+/// chat is no turn end. A turn that started and ended between two renders (a hidden page's batch,
+/// drawn as one render) shows in `turnsEnded` alone; a new client counts from 0, so any change to a
+/// count above 0 is an end.
+export type TurnState = { session?: string; working: boolean; turnsEnded?: number };
+export function turnEndedBetween(last: TurnState, next: TurnState): boolean {
+  if (last.session !== next.session) return false;
+  if (last.working && !next.working) return true;
+  return next.turnsEnded !== undefined && next.turnsEnded > 0 && next.turnsEnded !== last.turnsEnded;
+}
+
+/// The reload copy keeps the newest SAVED_SESSIONS chats of the list, and the shown chat with its
+/// parent and its own sub-sessions and forks at any age. The whole list (3,055 chats on a busy
+/// Mac) was serialized on every write and went past sessionStorage's 5 MB, so the copy was lost;
+/// the live list replaces this one as soon as the watch reads it.
+export const SAVED_SESSIONS = 200;
+const savedList: { sessions?: readonly AcpmuxSessionEntry[]; shown?: string; saved: AcpmuxSessionEntry[] } = {
+  saved: [],
+};
+export function savedSessions(snapshot: AcpmuxSnapshot): AcpmuxSessionEntry[] {
+  const { sessions, sessionId: shown } = snapshot;
+  if (sessions.length <= SAVED_SESSIONS) return sessions;
+  // A streaming reply writes with the list unchanged: it is chosen again only when it changes. Each
+  // snapshot maps the list into a new array of the same cached entries (direct.ts `sessionEntries`),
+  // so the entries are compared, not the array.
+  const last = savedList.sessions;
+  if (
+    savedList.shown === shown &&
+    last?.length === sessions.length &&
+    (last === sessions || sessions.every((entry, index) => entry === last[index]))
+  )
+    return savedList.saved;
+  const at = (entry: AcpmuxSessionEntry) => entry.activityAt ?? entry.updatedAt ?? 0;
+  const newest = new Set(
+    sessions
+      .map((entry, index) => ({ at: at(entry), index }))
+      .sort((a, b) => b.at - a.at)
+      .slice(0, SAVED_SESSIONS)
+      .map(({ index }) => index),
+  );
+  const own = sessions.find((entry) => entry.sessionId === shown);
+  const kin = new Set([own?.parentId, own?.spawnedBy, own?.startedBy]);
+  const related = (entry: AcpmuxSessionEntry) =>
+    shown !== undefined &&
+    (entry.sessionId === shown ||
+      kin.has(entry.sessionId) ||
+      entry.parentId === shown ||
+      entry.spawnedBy === shown ||
+      entry.startedBy === shown);
+  const saved = sessions.filter((entry, index) => newest.has(index) || related(entry));
+  Object.assign(savedList, { sessions, shown, saved });
+  return saved;
 }
 export function saveSnapshot(next: AcpmuxSnapshot): void {
   snapshotSave.next = next;
@@ -714,9 +770,16 @@ function cachedSnapshot(): AcpmuxSnapshot {
     const value = JSON.parse(sessionStorage.getItem("cmux.acpmux.snapshot") ?? "null");
     if (value?.type === "snapshot" && Array.isArray(value.rows) && Array.isArray(value.sessions)) {
       acpmuxPerf.markAgent("snapshotPaint");
-      // `connection`, `drewKeptTail` and `chatRead` are facts about a live client, and this one is
+      // `connection`, `drewKeptTail`, `chatRead` and `turnsEnded` are facts about a live client, and this one is
       // restored: no client has drawn anything yet, so this document's first paint is its own to report.
-      return { ...emptySnapshot(), ...value, connection: "connecting", drewKeptTail: undefined, chatRead: undefined };
+      return {
+        ...emptySnapshot(),
+        ...value,
+        connection: "connecting",
+        drewKeptTail: undefined,
+        chatRead: undefined,
+        turnsEnded: undefined,
+      };
     }
   } catch {
     // A corrupt or unavailable session store must never block the pane.
@@ -6328,12 +6391,10 @@ function AcpmuxPane() {
   turnRowsRef.current = snapshot.rows;
   // The image viewer holds the chat's images from when it opened; another chat closes it.
   const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
-  const openImage = useCallback((src: string, alt: string, path?: string) => {
-    const images = chatImages(turnRowsRef.current);
-    const index = images.findIndex((image) => image.src === src);
-    if (index < 0) setImageView({ images: [{ src, alt, path }], index: 0 });
-    else setImageView({ images: images.map((image, i) => (i === index && path ? { ...image, path } : image)), index });
-  }, []);
+  const openImage = useCallback(
+    (src: string, alt: string, path?: string) => setImageView(viewerImages(turnRowsRef.current, src, alt, path)),
+    [],
+  );
   useEffect(() => setImageView(undefined), [snapshot.sessionId]);
   // A queued prompt's image, read from acpmux by its id (ComposerQueue's thumbnails).
   const readQueuedImage = useCallback(
@@ -9412,17 +9473,21 @@ function AcpmuxPane() {
   }, [quick, snapshot.sessionId]);
   // A turn's end asks the App for the chat's pull request again (cx-ncc.77.1): the agent may have
   // created it or pushed to it, and the chip should not wait for its next read.
-  // Only the same chat going idle counts; switching away from a working chat is no turn end.
-  const wasWorking = useRef({ session: snapshot.sessionId, working: snapshot.isWorking });
+  // Which ends count: `turnEndedBetween`.
+  const wasWorking = useRef({
+    session: snapshot.sessionId,
+    working: snapshot.isWorking,
+    turnsEnded: snapshot.turnsEnded,
+  });
   useEffect(() => {
-    const last = wasWorking.current;
-    const ended = last.session === snapshot.sessionId && last.working && !snapshot.isWorking;
-    wasWorking.current = { session: snapshot.sessionId, working: snapshot.isWorking };
+    const next = { session: snapshot.sessionId, working: snapshot.isWorking, turnsEnded: snapshot.turnsEnded };
+    const ended = turnEndedBetween(wasWorking.current, next);
+    wasWorking.current = next;
     if (ended && !quick)
       void callNative("pane.tabState", { refresh: true })
         .then(setHeaderState)
         .catch(() => undefined);
-  }, [snapshot.sessionId, snapshot.isWorking, quick]);
+  }, [snapshot.sessionId, snapshot.isWorking, snapshot.turnsEnded, quick]);
   // A floating chat's panel that held this chat before the page loaded (a tab moved there, a reload)
   // says so once; later changes are pushed, and a reread per chat could land after a newer push.
   useEffect(() => {

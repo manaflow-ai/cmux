@@ -36,6 +36,8 @@ mod digest;
 pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
+#[cfg(test)]
+mod first_work_tests;
 mod fork;
 pub(crate) use fork::offers_fork;
 mod fork_at;
@@ -49,6 +51,9 @@ mod health_view;
 pub(super) mod idle;
 mod idle_census;
 pub(crate) use idle_census::LaunchServers;
+pub use idle_census::Sidecar;
+#[cfg(unix)]
+pub(crate) use idle_census::host_census;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
@@ -195,6 +200,8 @@ mod trust_wait;
 mod turn_attestation;
 mod turn_git;
 mod turn_usage;
+mod usage_view;
+pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
@@ -451,6 +458,8 @@ pub struct Hub {
     pub(super) events: list_guard::Events,
     /// The shared, paced full session list (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
+    pub(crate) usage_stats: usage_view::UsageCache,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -588,6 +597,9 @@ pub struct Hub {
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a chat's first work once it holds it (`inbox.rs`), before its turn.
+    #[cfg(test)]
+    pub(super) first_work_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
@@ -716,6 +728,7 @@ impl Hub {
             inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
+            usage_stats: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
@@ -783,6 +796,8 @@ impl Hub {
             cancel_write_seam: Arc::new(Default::default()),
             #[cfg(test)]
             prompt_start_seam: Default::default(),
+            #[cfg(test)]
+            first_work_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -1574,7 +1589,11 @@ impl Hub {
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
-        self.touch(session);
+        // What its harness spent, read after a turn (`usage_view.rs`), is bookkeeping: it never
+        // keeps the chat's agent awake.
+        if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
+            self.touch(session);
+        }
         let stored = match self.store.append(&session.id, &record) {
             Ok(()) => true,
             Err(e) => {
