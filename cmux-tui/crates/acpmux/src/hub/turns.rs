@@ -389,6 +389,14 @@ impl Hub {
                 .await;
             }
         };
+        #[cfg(test)]
+        if _first_work.is_some() {
+            let seam = self.first_work_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((arrived, release)) = seam {
+                let _ = arrived.send(());
+                let _ = release.await;
+            }
+        }
         // An inbox notice steers in only while the turn is under its cap and no prompt waits
         // (`inbox.rs`), checked again here at dispatch.
         let notice_held = steer

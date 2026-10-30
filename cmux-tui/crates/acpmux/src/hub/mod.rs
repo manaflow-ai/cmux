@@ -589,6 +589,9 @@ pub struct Hub {
     /// Tests only: pause an admitted prompt before its logical turn is installed.
     #[cfg(test)]
     pub(super) prompt_start_seam: full_access_bound::WriteSeam,
+    /// Tests only: pause a chat's first work once it holds it (`inbox.rs`), before its turn.
+    #[cfg(test)]
+    pub(super) first_work_seam: full_access_bound::WriteSeam,
     /// Tests only: delay a Stop before its notification reaches the child writer.
     #[cfg(test)]
     pub(super) cancel_write_seam: Arc<full_access_bound::WriteSeam>,
@@ -786,6 +789,8 @@ impl Hub {
             cancel_write_seam: Arc::new(Default::default()),
             #[cfg(test)]
             prompt_start_seam: Default::default(),
+            #[cfg(test)]
+            first_work_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),

@@ -1,6 +1,7 @@
 //! A chat's first work (`inbox.rs` `first_work`): the sender of the message that runs as its
 //! first prompt is its delegator, even when another agent's message comes into the inbox while
-//! that prompt waits to start, or joins its turn (`digest.rs`).
+//! that prompt waits to start, or joins its turn (`digest.rs`), or a person's prompt runs first.
+//! No notice runs before it.
 
 use super::*;
 use std::time::Duration;
@@ -37,6 +38,8 @@ fn send(
         prompt_id: Some(prompt_id.to_owned()),
         provenance: Some(provenance),
         agent: Some(from.to_owned()),
+        // What the sender cannot go on without: it wakes an idle chat (`inbox.rs` `wakes`).
+        class: Some(crate::prompt_class::PromptClass::Block),
         inbox,
         ..PromptOptions::default()
     };
@@ -58,7 +61,7 @@ fn pause_start(
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_message_the_inbox_takes_before_the_first_work_starts_is_not_the_delegator() {
     let (hub, s) = chat().await;
-    let (arrived, release) = pause_start(&hub);
+    let (arrived, release) = pause(&hub.prompt_start_seam);
     let first = send(&hub, &s, "s-coord", "p-brief", "do the thing", true);
     tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
     assert!(s.turn().is_none(), "the first work has not started its turn");
@@ -82,7 +85,7 @@ async fn a_message_the_inbox_takes_before_the_first_work_starts_is_not_the_deleg
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_message_that_joins_the_first_works_turn_is_not_the_delegator() {
     let (hub, s) = chat().await;
-    let (arrived, release) = pause_start(&hub);
+    let (arrived, release) = pause(&hub.prompt_start_seam);
     let first = send(&hub, &s, "s-coord", "p-brief", "do the thing", true);
     tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
 
@@ -101,5 +104,51 @@ async fn a_message_that_joins_the_first_works_turn_is_not_the_delegator() {
     let joined = tokio::time::timeout(WAIT, other).await.unwrap().unwrap().unwrap();
     assert_eq!(joined["stopReason"], "end_turn", "{joined}");
     assert_eq!(s.meta().turn_count, 1, "the second message joined the first turn");
+    assert_eq!(s.meta().delegator.as_deref(), Some("s-coord"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_blocker_that_comes_before_the_first_work_queues_waits_for_it() {
+    let (hub, s) = chat().await;
+    let (arrived, release) = pause(&hub.first_work_seam);
+    let first = send(&hub, &s, "s-coord", "p-brief", "do the thing", true);
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+
+    // A blocker goes to the inbox; past the wake's debounce no notice has taken the chat's turn.
+    let other = send(&hub, &s, "s-other", "p-other", "stuck on this", true);
+    let inboxed = async {
+        while s.inbox.lock().unwrap().items.is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    tokio::time::timeout(WAIT, inboxed).await.expect("the inbox takes the blocker");
+    tokio::time::sleep(Duration::from_millis(inbox::WAKE_DEBOUNCE_MS + 1_500)).await;
+    assert!(s.turn().is_none(), "a notice took the chat's turn before its first work");
+
+    release.send(()).unwrap();
+    let done = tokio::time::timeout(WAIT, first).await.unwrap().unwrap().unwrap();
+    assert_eq!(done["stopReason"], "end_turn", "{done}");
+    let all = turns(&hub, &s);
+    assert_eq!(all.first(), Some(&json!("p-brief")), "{all:?}");
+    assert_eq!(s.meta().delegator.as_deref(), Some("s-coord"));
+    other.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_persons_prompt_before_the_first_work_queues_leaves_its_sender_the_delegator() {
+    let (hub, s) = chat().await;
+    let (arrived, release) = pause(&hub.first_work_seam);
+    let first = send(&hub, &s, "s-coord", "p-brief", "do the thing", true);
+    tokio::time::timeout(WAIT, arrived).await.unwrap().unwrap();
+
+    // The person's prompt takes the chat's first turn; the first work runs as the next.
+    let mine = hub.prompt(&s, vec![json!({"type": "text", "text": "mine"})], "test", false);
+    let mine = tokio::time::timeout(WAIT, mine).await.unwrap().unwrap();
+    assert_eq!(mine["stopReason"], "end_turn", "{mine}");
+
+    release.send(()).unwrap();
+    let done = tokio::time::timeout(WAIT, first).await.unwrap().unwrap().unwrap();
+    assert_eq!(done["stopReason"], "end_turn", "{done}");
+    assert_eq!(s.meta().turn_count, 2);
     assert_eq!(s.meta().delegator.as_deref(), Some("s-coord"));
 }
