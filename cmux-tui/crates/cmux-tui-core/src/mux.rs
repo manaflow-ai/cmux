@@ -577,6 +577,10 @@ pub struct Mux {
     resource_mutation_metrics: Mutex<Option<ResourceMutationMetrics>>,
     #[cfg(test)]
     resource_projection_before_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    /// Runs in a live roster fold between its committed tail read and its
+    /// apply (`advance_agent_roster`), so a test can append meanwhile.
+    #[cfg(test)]
+    agent_roster_fold_after_read: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]

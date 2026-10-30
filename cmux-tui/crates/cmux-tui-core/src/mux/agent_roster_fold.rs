@@ -300,6 +300,13 @@ impl Mux {
                         return None;
                     }
                 };
+                #[cfg(test)]
+                {
+                    let hook = self.agent_roster_fold_after_read.lock().unwrap().clone();
+                    if let Some(hook) = hook {
+                        hook();
+                    }
+                }
                 for record in &records {
                     let changes = host.roster.apply(&RosterEvent::from_record(record));
                     // Hooks already use the durable projector, which decides

@@ -163,3 +163,121 @@ fn a_hook_that_changes_no_projection_takes_no_registry_lock() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The live roster fold reads the committed journal tail without the
+/// registry lock (1e). Another agent event commits between the fold's read
+/// and its apply (forced at the fold's test seam). The fold must neither
+/// skip nor repeat a record: after every fold, the roster equals a fresh
+/// replay of the whole journal.
+#[test]
+fn a_live_roster_fold_with_an_interleaved_append_equals_a_fresh_replay() {
+    use crate::journal_reducers::{AgentRoster, RosterEvent};
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let session = "fold-interleave";
+    let root = std::env::temp_dir()
+        .join(format!("cmux-fold-interleave-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux(session, &root);
+    let first = mux.new_workspace(None, None).unwrap();
+    let second = mux.new_workspace(None, None).unwrap();
+    let first_id = first.terminal_public_id().cloned().unwrap();
+    let second_id = second.terminal_public_id().cloned().unwrap();
+    append_journal_hook(&mux, &first_id, "SessionStart", Some("fold-a"));
+    append_journal_hook(&mux, &second_id, "SessionStart", Some("fold-b"));
+
+    let records_of = |terminal: &TerminalPublicId| -> i64 {
+        let pattern = format!("%{}%", terminal.as_str());
+        mux.registry_connection
+            .read_committed(|connection| {
+                Ok(connection.query_row(
+                    "SELECT COUNT(*) FROM session_journal WHERE subjects_json LIKE ?1",
+                    [pattern.as_str()],
+                    |row| row.get::<_, i64>(0),
+                )?)
+            })
+            .expect("a persistent registry has a reader")
+            .unwrap()
+    };
+    let fired = Arc::new(AtomicBool::new(false));
+    let (spawned_tx, spawned_rx) = std::sync::mpsc::channel();
+    {
+        let fired = fired.clone();
+        let hook_mux = Arc::downgrade(&mux);
+        let second_id = second_id.clone();
+        *mux.agent_roster_fold_after_read.lock().unwrap() = Some(Arc::new(move || {
+            if fired.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            let Some(mux) = hook_mux.upgrade() else { return };
+            // Commit another agent's event now, between this fold's read and
+            // its apply; wait (on the journal commit signal) until it is
+            // committed.
+            let pattern = format!("%{}%", second_id.as_str());
+            let count = || -> i64 {
+                mux.registry_connection
+                    .read_committed(|connection| {
+                        Ok(connection.query_row(
+                            "SELECT COUNT(*) FROM session_journal WHERE subjects_json LIKE ?1",
+                            [pattern.as_str()],
+                            |row| row.get::<_, i64>(0),
+                        )?)
+                    })
+                    .unwrap()
+                    .unwrap()
+            };
+            let before = count();
+            let appending = mux.clone();
+            let terminal = second_id.clone();
+            let thread = std::thread::spawn(move || {
+                append_journal_hook(&appending, &terminal, "UserPromptSubmit", Some("fold-b"));
+            });
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut epoch = mux.journal_event_epoch.lock().unwrap();
+            while count() == before {
+                let left = deadline.saturating_duration_since(Instant::now());
+                assert!(!left.is_zero(), "the interleaved append never committed");
+                epoch = mux.journal_event_changed.wait_timeout(epoch, left).unwrap().0;
+            }
+            drop(epoch);
+            let _ = spawned_tx.send(thread);
+        }));
+    }
+
+    let before_second = records_of(&second_id);
+    append_journal_hook(&mux, &first_id, "UserPromptSubmit", Some("fold-a"));
+    assert!(fired.load(Ordering::SeqCst), "the live fold reached its seam");
+    spawned_rx.recv_timeout(Duration::from_secs(10)).unwrap().join().unwrap();
+    assert!(records_of(&second_id) > before_second, "the interleaved event is committed");
+    *mux.agent_roster_fold_after_read.lock().unwrap() = None;
+    mux.catch_up_agent_roster();
+
+    let head = mux.workspace_registry.lock().unwrap().session_journal_head().unwrap();
+    let mut fresh = AgentRoster::default();
+    let mut cursor = 0;
+    while cursor < head {
+        let (records, reached) = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_without_output_after(cursor, head, 512)
+            .unwrap();
+        for record in &records {
+            fresh.apply(&RosterEvent::from_record(record));
+        }
+        if reached <= cursor {
+            break;
+        }
+        cursor = reached;
+    }
+    let live = mux.agent_roster.lock().unwrap();
+    assert_eq!(live.cursor, head, "the live roster folded through the journal head");
+    assert_eq!(
+        live.roster.snapshot(),
+        fresh.snapshot(),
+        "the live fold skipped or repeated a record"
+    );
+    drop(live);
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
