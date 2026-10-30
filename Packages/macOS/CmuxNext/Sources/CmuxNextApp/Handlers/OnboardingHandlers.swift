@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextBrowser
 import CmuxNextCookieImport
 import CmuxNextDesign
