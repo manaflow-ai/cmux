@@ -88,79 +88,9 @@ pub(crate) static TEST_REPLAYING: std::sync::atomic::AtomicU64 =
 
 /// Logs one wire message. The `u64` is the agent host entry it logs, when
 /// the agent runs under a host (`hostSeq` on the record).
-/// Returns None when the record cannot be stored (its log failed), else the
-/// ticket its write is known by: an agent host entry is acknowledged only once
-/// its ticket is written ([`WriteTicket::written`]).
-pub type Tap = Arc<dyn Fn(Direction, &Message, Option<u64>) -> Option<WriteTicket> + Send + Sync>;
-
-/// When a tapped message's record, and every record of its session before it, is on disk: the
-/// session's last record when the tap returned, and the store's progress for that session
-/// (`store/log_writer.rs`; None for a store that writes before it returns).
-pub struct WriteTicket {
-    seq: u64,
-    progress: Option<tokio::sync::watch::Receiver<crate::store::Progress>>,
-}
-
-impl WriteTicket {
-    pub fn new(
-        seq: u64,
-        progress: Option<tokio::sync::watch::Receiver<crate::store::Progress>>,
-    ) -> Self {
-        Self { seq, progress }
-    }
-
-    /// A message that is stored as soon as it is handed over (a test's or a probe's tap).
-    pub fn done() -> Self {
-        Self { seq: 0, progress: None }
-    }
-
-    /// The ticket that covers both: the one that waits on the store for the later record.
-    fn later(self, other: Self) -> Self {
-        match (&self.progress, &other.progress) {
-            (None, _) => other,
-            (Some(_), None) => self,
-            (Some(_), Some(_)) if other.seq >= self.seq => other,
-            _ => self,
-        }
-    }
-
-    /// Waits until the ticket's records are on disk. False when its log failed, or the store
-    /// ended first: the entry is then never acknowledged, and the host keeps it.
-    pub async fn written(self) -> bool {
-        let Some(mut rx) = self.progress else { return true };
-        loop {
-            let p = *rx.borrow_and_update();
-            if p.failed {
-                return false;
-            }
-            if p.covers(self.seq) {
-                return true;
-            }
-            if rx.changed().await.is_err() {
-                return false;
-            }
-        }
-    }
-}
-
-/// One logged host entry for a link's ack task (`ChildAgent::ack_entries`): its sequence, the
-/// ticket of its record's write, whether it is the host's Exit, and (debug builds only, the
-/// `ACPMUX_TEST_ACK_FAILS_ONCE` seam) whether its acknowledgement fails.
-struct AckItem {
-    h: u64,
-    ticket: WriteTicket,
-    exit: bool,
-    fails: bool,
-}
-
-/// Why a link's ack task stopped: a record never reached the disk (the link is broken: open
-/// requests stay open and the next request reattaches), or the link closed or an
-/// acknowledgement failed (the link stopped).
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum AckEnd {
-    Unwritten,
-    Stopped,
-}
+/// Returns whether the record reached the store; an agent host entry is
+/// acknowledged only then.
+pub type Tap = Arc<dyn Fn(Direction, &Message, Option<u64>) -> bool + Send + Sync>;
 
 /// Tap methods for an agent host's stderr and exit entries, so they are
 /// logged in entry order before the entry is acknowledged.
@@ -1950,66 +1880,55 @@ impl ChildAgent {
         true
     }
 
-    /// Read `link`'s entries: log each and act on it. Its acknowledgement waits for its record
-    /// to be on disk, on the link's ack task (`ack_entries`): the reader goes on with the next
-    /// entry meanwhile, and one ack covers every entry written by then.
+    /// Read `link`'s entries: log each, act on it, then acknowledge it.
     fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
         let reader = self.clone();
         self.supervise("agent.host-entries", Fatal, ShutdownBehavior::Skip, async move {
             let Some(hosted) = reader.hosted.as_ref() else { return };
-            let (acks, ack_rx) = mpsc::unbounded_channel();
-            // Bounded by the host: it stops reading its harness once its unacknowledged entries
-            // pass `agent_host::DEFAULT_BUFFER_CAP`.
-            let mut acker = tokio::spawn(reader.clone().ack_entries(link.clone(), ack_rx));
             let mut entries = link.entries.lock().await;
-            // Some once the reader stops before the link closed: an entry not logged, or the
-            // acknowledgements stopped (a record not written, or an ack that failed) while the
-            // socket still looks open.
-            let early = loop {
-                let next = tokio::select! {
-                    end = &mut acker => break Some(end.unwrap_or(AckEnd::Stopped)),
-                    next = entries.recv() => next,
-                };
-                let Some((h, entry)) = next else { break None };
+            while let Some((h, entry)) = entries.recv().await {
                 let is_exit = matches!(entry, crate::agent_host::Entry::Exit { .. });
                 #[cfg(debug_assertions)]
-                let fails = ack_fails_once(&entry);
+                let ack_fails = ack_fails_once(&entry);
                 #[cfg(not(debug_assertions))]
-                let fails = false;
-                let Some(ticket) = reader.on_host_entry(h, entry, &hosted.inbound).await else {
+                let ack_fails = false;
+                if !reader.on_host_entry(h, entry, &hosted.inbound).await {
                     // Not stored: never acknowledge it or anything after it.
                     // Open requests stay open; the next request reattaches.
                     tracing::warn!(agent = %reader.name, "agent host entry {h} not logged; acks stop");
-                    acker.abort();
-                    break Some(AckEnd::Unwritten);
-                };
-                hosted.logged.send_replace(h);
-                if acks.send(AckItem { h, ticket, exit: is_exit, fails }).is_err() {
-                    break None;
-                }
-            };
-            drop(acks);
-            let end = match early {
-                Some(end) => end,
-                None => acker.await.unwrap_or(AckEnd::Stopped),
-            };
-            if end == AckEnd::Unwritten {
-                if !reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
+                    if !reader.mark_link_unheard(hosted, &link, &hosted.broken).await {
+                        return;
+                    }
+                    // Debug builds only: `ACPMUX_TEST_LINK_BROKEN_DELAY_MS` holds the notice of a
+                    // broken link before it is sent, as a busy inbound loop does, so the daemon's
+                    // integration tests can reattach the link first. Bounded; release builds have
+                    // no seam.
+                    #[cfg(debug_assertions)]
+                    if let Some(ms) = std::env::var("ACPMUX_TEST_LINK_BROKEN_DELAY_MS")
+                        .ok()
+                        .and_then(|v| v.parse::<u64>().ok())
+                    {
+                        tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+                    }
+                    let _ =
+                        hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
                     return;
                 }
-                // Debug builds only: `ACPMUX_TEST_LINK_BROKEN_DELAY_MS` holds the notice of a
-                // broken link before it is sent, as a busy inbound loop does, so the daemon's
-                // integration tests can reattach the link first. Bounded; release builds have
-                // no seam.
-                #[cfg(debug_assertions)]
-                if let Some(ms) = std::env::var("ACPMUX_TEST_LINK_BROKEN_DELAY_MS")
-                    .ok()
-                    .and_then(|v| v.parse::<u64>().ok())
-                {
-                    tokio::time::sleep(std::time::Duration::from_millis(ms.min(10_000))).await;
+                hosted.logged.send_replace(h);
+                if is_exit {
+                    // Written before anyone hears of the exit: a daemon that
+                    // ends the agent and exits at once still acks the Exit.
+                    let acked = link.ack_written(h, EXIT_ACK_BUDGET).await;
+                    hosted.exited.store(true, Ordering::SeqCst);
+                    hosted.exit.notify_waiters();
+                    if acked.is_err() {
+                        break;
+                    }
+                    continue;
                 }
-                let _ = hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
-                return;
+                if ack_fails || link.ack(h).await.is_err() {
+                    break;
+                }
             }
             #[cfg(debug_assertions)]
             reader_stop_hold().await;
@@ -2030,70 +1949,14 @@ impl ChildAgent {
         });
     }
 
-    /// Acknowledges `link`'s entries as their records reach the disk, in order: each batch of
-    /// entries waiting is one ack, after the latest ticket among them is written. An Exit is
-    /// acknowledged before anyone hears of the exit (`exited`, `exit`). Returns why it stopped:
-    /// a record not written (`Unwritten`), or the link closed or an ack failed (`Stopped`).
-    async fn ack_entries(
-        self: Arc<Self>,
-        link: Arc<crate::agent_host::link::Link>,
-        mut rx: mpsc::UnboundedReceiver<AckItem>,
-    ) -> AckEnd {
-        let Some(hosted) = self.hosted.as_ref() else { return AckEnd::Stopped };
-        // An entry whose ack fails (the debug seam) is never folded into the batch before it:
-        // that batch is acknowledged first, as one entry at a time would be.
-        let mut held: Option<AckItem> = None;
-        loop {
-            let mut item = match held.take() {
-                Some(item) => item,
-                None => match rx.recv().await {
-                    Some(item) => item,
-                    None => return AckEnd::Stopped,
-                },
-            };
-            while !item.exit && !item.fails {
-                let Ok(next) = rx.try_recv() else { break };
-                if next.fails {
-                    held = Some(next);
-                    break;
-                }
-                item = AckItem {
-                    h: next.h,
-                    ticket: item.ticket.later(next.ticket),
-                    exit: next.exit,
-                    fails: false,
-                };
-            }
-            if !item.ticket.written().await {
-                let h = item.h;
-                tracing::warn!(agent = %self.name, "agent host entry {h} not written; acks stop");
-                return AckEnd::Unwritten;
-            }
-            if item.exit {
-                // Written before anyone hears of the exit: a daemon that
-                // ends the agent and exits at once still acks the Exit.
-                let acked = link.ack_written(item.h, EXIT_ACK_BUDGET).await;
-                hosted.exited.store(true, Ordering::SeqCst);
-                hosted.exit.notify_waiters();
-                if acked.is_err() {
-                    return AckEnd::Stopped;
-                }
-                continue;
-            }
-            if item.fails || link.ack(item.h).await.is_err() {
-                return AckEnd::Stopped;
-            }
-        }
-    }
-
-    /// Log one host entry, then act on it. Returns the ticket of its record's write (it may be
-    /// acknowledged once written), or None when it could not be stored.
+    /// Log one host entry, then act on it. Returns whether its record was
+    /// stored (only then may it be acknowledged).
     async fn on_host_entry(
         &self,
         h: u64,
         entry: crate::agent_host::Entry,
         inbound: &mpsc::Sender<Inbound>,
-    ) -> Option<WriteTicket> {
+    ) -> bool {
         use crate::agent_host::{Entry, TapDir};
         // Debug builds only: `ACPMUX_TEST_UNLOGGED_ONCE=TEXT` fails to log the first host entry
         // whose text holds TEXT, once per process, as a full disk does: the link breaks and the
@@ -2106,7 +1969,7 @@ impl ChildAgent {
                 _ => None,
             };
             if msg.is_some_and(|m| m.contains(&text)) && !FIRED.swap(true, Ordering::SeqCst) {
-                return None;
+                return false;
             }
         }
         match entry {
@@ -2115,10 +1978,10 @@ impl ChildAgent {
                     let d = if dir == TapDir::In { Direction::In } else { Direction::Out };
                     (self.tap)(d, &m, Some(h))
                 }
-                Err(_) => Some(WriteTicket::done()),
+                Err(_) => true,
             },
             Entry::In { msg } => {
-                let Ok(m) = Message::from_value(msg) else { return Some(WriteTicket::done()) };
+                let Ok(m) = Message::from_value(msg) else { return true };
                 let host_incarnation =
                     self.hosted.as_ref().map(|host| host.link().record.incarnation.clone());
                 let needs_durable_cancel = matches!(
@@ -2130,7 +1993,7 @@ impl ChildAgent {
                 // The incarnation-bearing marker is this entry's durable
                 // checkpoint. Store it before acknowledging the cancellation.
                 if needs_durable_cancel {
-                    let Message::Notification { method, params } = &m else { return None };
+                    let Message::Notification { method, params } = &m else { return false };
                     let (done, persisted) = oneshot::channel();
                     if inbound
                         .send(Inbound::Notification {
@@ -2144,21 +2007,20 @@ impl ChildAgent {
                         .await
                         .is_err()
                     {
-                        return None;
+                        return false;
                     }
                     if !persisted.await.unwrap_or(false) {
-                        return None;
+                        return false;
                     }
                 }
                 // The incarnation-bearing durable marker owns a cancellation's
                 // checkpoint. Its delayed raw copy must never advance a new host.
                 let raw_seq = (!needs_durable_cancel).then_some(h);
-                // A retired agent's /context answer is dropped unlogged (`tap_live`): nothing of
-                // it waits on the disk.
-                let ticket = match self.tap_live(&m, || (self.tap)(Direction::In, &m, raw_seq)) {
-                    None => return Some(WriteTicket::done()),
-                    Some(ticket) => ticket?,
-                };
+                match self.tap_live(&m, || (self.tap)(Direction::In, &m, raw_seq)) {
+                    None => return true,
+                    Some(false) => return false,
+                    Some(true) => {}
+                }
                 match m {
                     Message::Response { id, result, error } => {
                         let answer = match error {
@@ -2188,7 +2050,7 @@ impl ChildAgent {
                     }
                     Message::Notification { method, params } => {
                         if needs_durable_cancel {
-                            return Some(ticket);
+                            return true;
                         }
                         let _ = inbound
                             .send(Inbound::Notification {
@@ -2202,17 +2064,21 @@ impl ChildAgent {
                             .await;
                     }
                 }
-                Some(ticket)
+                true
             }
             Entry::Err { line } => {
                 let note = Message::notification(HOST_STDERR, serde_json::json!({"text": line}));
-                let ticket = (self.tap)(Direction::In, &note, Some(h))?;
+                if !(self.tap)(Direction::In, &note, Some(h)) {
+                    return false;
+                }
                 let _ = inbound.send(Inbound::Stderr(line, Some(h))).await;
-                Some(ticket)
+                true
             }
             Entry::Exit { code } => {
                 let note = Message::notification(HOST_EXIT, serde_json::json!({"code": code}));
-                let ticket = (self.tap)(Direction::In, &note, Some(h))?;
+                if !(self.tap)(Direction::In, &note, Some(h)) {
+                    return false;
+                }
                 // Not alive from here: no turn may set the session ready on
                 // a harness that is gone while the ack is still being written.
                 // What its host had for it is never written now (its link settled it).
@@ -2225,11 +2091,11 @@ impl ChildAgent {
                 }
                 drop(p);
                 // `exited` and the exit notify follow the Exit entry's ack
-                // (`ack_entries`), so a terminate that waits on them never
+                // (`start_reader`), so a terminate that waits on them never
                 // returns before the host knows its Exit is logged.
                 let _ =
                     inbound.send(Inbound::Exited { pid: self.pid, code, host_seq: Some(h) }).await;
-                Some(ticket)
+                true
             }
         }
     }
@@ -2378,7 +2244,7 @@ mod fence_tests {
             serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/env", "python3", fake]}))
                 .unwrap();
         let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
+        let tap: Tap = Arc::new(|_, _, _| true);
         let agent = ChildAgent::spawn(
             "fake",
             &profile,
@@ -2425,7 +2291,7 @@ mod fence_tests {
         let argv = serde_json::json!({"argv": ["/bin/sh", "-c", script]});
         let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
         let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
+        let tap: Tap = Arc::new(|_, _, _| true);
         let agent = ChildAgent::spawn(
             "kept",
             &profile,
@@ -2464,7 +2330,7 @@ mod fence_tests {
         let argv = serde_json::json!({"argv": ["/bin/sh", "-c", script]});
         let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
         let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
+        let tap: Tap = Arc::new(|_, _, _| true);
         let agent = ChildAgent::spawn(
             "stuck",
             &profile,
@@ -2502,7 +2368,7 @@ mod fence_tests {
         let argv = serde_json::json!({"argv": ["/bin/sh"]});
         let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
         let (inbound, mut rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
+        let tap: Tap = Arc::new(|_, _, _| true);
         let tr =
             crate::claude_stdio::Translator::new("acp-1".into(), "default", "haiku", "default");
         let command = Some(("/bin/sh".to_owned(), vec!["-c".to_owned(), script]));
@@ -2561,7 +2427,7 @@ mod fence_tests {
             serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/env", "python3", fake]}))
                 .unwrap();
         let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
+        let tap: Tap = Arc::new(|_, _, _| true);
         let agent = ChildAgent::spawn(
             "fake",
             &profile,
@@ -2607,7 +2473,7 @@ mod fence_tests {
         let argv = serde_json::json!({"argv": ["/bin/sh"]});
         let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
         let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
+        let tap: Tap = Arc::new(|_, _, _| true);
         let tr =
             crate::claude_stdio::Translator::new("acp-1".into(), "default", "haiku", "default");
         let command = Some(("/bin/sh".to_owned(), vec!["-c".to_owned(), "exit 0".to_owned()]));
@@ -2642,7 +2508,7 @@ mod fence_tests {
         let argv = serde_json::json!({"argv": ["/bin/sh"]});
         let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
         let (inbound, _rx) = mpsc::channel(16);
-        let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
+        let tap: Tap = Arc::new(|_, _, _| true);
         let tr =
             crate::claude_stdio::Translator::new("acp-1".into(), "default", "haiku", "default");
         let command =

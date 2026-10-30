@@ -233,7 +233,7 @@ impl Hub {
         if (entry.model.clone(), entry.effort.clone()) == before {
             return;
         }
-        if let Err(e) = self.save_config(&cfg) {
+        if let Err(e) = cfg.save() {
             tracing::warn!(harness = %meta.harness, "pick not saved to config.json: {e}");
         }
         // The pick is now the harness's `start` in `_acpmux/harnesses`: pages already open (a

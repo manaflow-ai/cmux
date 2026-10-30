@@ -84,7 +84,7 @@ impl Hub {
         let report_epoch = session.floor.report_epoch.load(Ordering::SeqCst);
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
-        Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| {
+        Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
             // The sign of work is published before a tool call's end can bring the stalled
             // deadline nearer and wake the reaper (`stalled_turn.rs`).
             if matches!(dir, Direction::In) && from_the_model(msg) {
@@ -115,7 +115,7 @@ impl Hub {
                     if method == crate::agent::HOST_STDERR =>
                 {
                     let text = params.as_ref().and_then(|p| p.get("text")).cloned();
-                    let stored = tap_hub
+                    return tap_hub
                         .append_logged(
                             &tap_session,
                             "mux",
@@ -124,7 +124,6 @@ impl Hub {
                             host_seq,
                         )
                         .1;
-                    return tap_hub.ticket(&tap_session, stored);
                 }
                 (Direction::In, Message::Notification { method, params })
                     if method == crate::agent::HOST_EXIT =>
@@ -141,7 +140,7 @@ impl Hub {
                     tap_session.harness_turn.store(false, Ordering::SeqCst);
                     // Its workflows ran in the agent's process: they end with it.
                     tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
-                    let stored = tap_hub
+                    return tap_hub
                         .append_logged(
                             &tap_session,
                             "mux",
@@ -154,7 +153,6 @@ impl Hub {
                             host_seq,
                         )
                         .1;
-                    return tap_hub.ticket(&tap_session, stored);
                 }
                 (Direction::In, Message::Notification { method, params }) => {
                     let mut kind = method.clone();
@@ -165,10 +163,9 @@ impl Hub {
                     let context = method == RAW_CONTROL_RESPONSE
                         && params.as_ref().is_some_and(crate::claude_stdio::is_context_answer);
                     if (method == RAW_STREAM_EVENT && !timing) || context {
-                        // Kept nowhere: the entry counts as logged once the records before
-                        // it are, so the host drops it.
+                        // Kept nowhere: the entry counts as logged, so the host drops it.
                         tap_hub.touch(&tap_session);
-                        return tap_hub.ticket(&tap_session, true);
+                        return true;
                     }
                     if method.starts_with("claude.") {
                         // Claude Code's turn, its own ones too (`Session::harness_turn`).
@@ -188,9 +185,7 @@ impl Hub {
                         // prompt (`--replay-user-messages`) carries its model-sized copies.
                         let mut line = params.clone().unwrap_or(Value::Null);
                         crate::model_copies::scrub_logged(&mut line);
-                        let stored =
-                            tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
-                        return tap_hub.ticket(&tap_session, stored);
+                        return tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
                         if let Some(su) = params
@@ -215,10 +210,9 @@ impl Hub {
                 {
                     let mut line = params.clone().unwrap_or(Value::Null);
                     crate::model_copies::scrub_logged(&mut line);
-                    let stored = tap_hub
+                    return tap_hub
                         .append_logged(&tap_session, "out", "claude.stdin", line, host_seq)
                         .1;
-                    return tap_hub.ticket(&tap_session, stored);
                 }
                 (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
                 (Direction::Out, Message::Response { .. }) => ("out", "response".to_owned()),
@@ -300,18 +294,7 @@ impl Hub {
             {
                 tap_hub.observe_subagents(&tap_session, events);
             }
-            tap_hub.ticket(&tap_session, logged)
-        })
-    }
-
-    /// The tap's answer for a message of `session`: None when its record was not stored, else
-    /// the ticket covering every record of the session so far (`agent::WriteTicket`).
-    fn ticket(&self, session: &Session, stored: bool) -> Option<crate::agent::WriteTicket> {
-        stored.then(|| {
-            crate::agent::WriteTicket::new(
-                session.seq.load(Ordering::SeqCst),
-                self.store.progress(&session.id),
-            )
+            logged
         })
     }
 }

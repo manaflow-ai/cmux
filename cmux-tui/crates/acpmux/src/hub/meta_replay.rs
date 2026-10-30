@@ -1,12 +1,11 @@
 //! A session's settings a client changed come back after a crash from the event log, the source
 //! of truth (2026-10-29, the same bug class as trains 333 and 338's lost queue edit: an answered
-//! change came back undone). The session record (`session.json`) is written by one background
-//! thread (`meta_writer.rs`, with an fsync); a request does not wait for it (20-50 ms against
-//! the 2 ms op budget). Each change also appends its record to the log, so at start the
-//! settings are the saved record plus the log records after its `lastSeq`, applied in order
-//! ([`apply`], from `Hub::catch_up`): a level rebuilt from one source, never an event replayed
-//! twice into a different state (applying a record the saved record already holds sets the
-//! same value again).
+//! change came back undone). The session record (`session.json`) can be behind its log after a
+//! hard stop (`Hub::catch_up`: the log ran ahead of the saved record). Each change also appends
+//! its record to the log, so at start the settings are the saved record plus the log records
+//! after its `lastSeq`, applied in order ([`apply`], from `Hub::catch_up`): a level rebuilt from
+//! one source, never an event replayed twice into a different state (applying a record the saved
+//! record already holds sets the same value again).
 //!
 //! The settings: the name (`renamed`), the generated title (`titled`), the tags (`tags`, with
 //! their expiry since this change), the permission policy (`policy`) and rules (`rules`), and the

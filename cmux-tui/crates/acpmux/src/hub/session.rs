@@ -139,7 +139,7 @@ pub struct Session {
     pub(super) applied: StdMutex<Applied>,
     /// Set once the session is purged, so late events do not recreate its
     /// files while the directory is being removed.
-    pub(super) purged: std::sync::Arc<AtomicBool>,
+    pub(super) purged: AtomicBool,
     /// Wakes a watched transcript's follower (`watch.rs`) when the watch ends: a take-over,
     /// a close or a purge.
     pub(super) watch_end: tokio::sync::Notify,

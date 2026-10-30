@@ -92,6 +92,11 @@ impl StartModeState {
             .ok()
     }
 
+    fn save(&self, path: &Path) -> anyhow::Result<()> {
+        let bytes = serde_json::to_vec_pretty(self)?;
+        crate::config::write_atomic(path, &bytes)
+    }
+
     /// Counts a change when the setting is not what it was at the last look.
     /// The first look counts nothing.
     fn observe(&mut self) {
@@ -146,15 +151,11 @@ impl Hub {
         if state.full_access_off() && !before.full_access_off() {
             self.start_mode_state.1.send_modify(|n| *n += 1);
         }
-        // Written on the config writer's thread (`config_writer.rs`): callers may hold the
-        // config lock, and a push must not wait for the disk.
         if (loaded || *state != before)
             && let Some(path) = path
+            && let Err(e) = state.save(path)
         {
-            match serde_json::to_vec_pretty(&*state) {
-                Ok(bytes) => self.config_writer.queue(path.to_owned(), bytes),
-                Err(e) => tracing::warn!("{FILE} not saved: {e:#}"),
-            }
+            tracing::warn!("{FILE} not saved: {e:#}");
         }
         (before, state.clone())
     }

@@ -260,8 +260,6 @@ async fn a_last_permission_mode_an_older_build_saved_is_ignored() {
     daemon.reload_catalog().await.unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
     drop(app);
-    // A restart reads config.json: what the writer holds goes first.
-    daemon.flush_writes();
     drop(daemon);
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
@@ -311,8 +309,6 @@ async fn a_managed_value_the_app_pushes_beats_the_file_and_config() {
     assert_eq!(app.chat(&dir, "codex").await.1, "ask");
     drop(app);
     drop(socket);
-    // A restart reads config.json: what the writer holds goes first.
-    daemon.flush_writes();
     drop(daemon);
 
     // A restarted daemon keeps the forced value before the app pushes again,

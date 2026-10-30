@@ -1534,7 +1534,7 @@ async fn dispatch_request(
                 let mut cfg = hub.config.write().await;
                 cfg.permission_policy = policy;
                 hub.permission_defaults_changed();
-                hub.save_config(&cfg)
+                cfg.save()
                     .map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
             }
             // deny-all is a lockdown: every chat without a policy of its own follows it.
@@ -1694,7 +1694,7 @@ async fn dispatch_request(
                         *entry = merged;
                     }
                 }
-                if let Err(e) = hub.save_config(&cfg) {
+                if let Err(e) = cfg.save() {
                     return Err(RpcError::internal(format!("save config: {e}")));
                 }
             }
@@ -2030,7 +2030,7 @@ async fn dispatch_request(
             // `acpmux session queue clear --from-agents`: only while it is another agent's
             // message, checked as it leaves, so an edit meanwhile keeps the person's prompt.
             let agents_only = params.get("fromAgentsOnly").and_then(Value::as_bool) == Some(true);
-            let w = hub.withdraw_queued(&s, prompt_id, editor, agents_only).await?;
+            let w = hub.withdraw_queued(&s, prompt_id, editor, agents_only)?;
             let mut reply = json!({"sessionId": s.id, "promptId": prompt_id,
                 "removed": w == crate::hub::Withdrawn::Removed});
             if agents_only {

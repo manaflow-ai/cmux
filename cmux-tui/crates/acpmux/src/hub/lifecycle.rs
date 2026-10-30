@@ -280,10 +280,13 @@ impl Hub {
         };
         let (session, created_stops) = session;
         let creation_guard = CreationGuard::new(self.clone(), session.clone(), created_stops);
-        // On the record writer's thread (`meta_writer.rs`): two fsyncs no longer stand between
-        // the request and its reply. It is written well before the reply, which follows the
-        // agent's start; a disk error is logged there instead of failing the create.
-        self.save_meta(&session);
+        if let Err(e) = self.store.save(&session.meta()) {
+            self.sessions.lock_or_recover().remove(&id);
+            self.child_tags.forget(&id);
+            // A list built meanwhile showed it (`list_guard.rs`).
+            self.events.changed();
+            return Err(RpcError::internal(e.to_string()));
+        }
         // The chat's route is bound once the session exists and before its
         // harness starts, so its first spawn already runs on it (route_switch.rs).
         if let Some(route_id) = &route {
@@ -1449,7 +1452,7 @@ impl Hub {
                     notify.notify_one();
                 }
             }
-            Some(crate::agent::WriteTicket::done())
+            true
         });
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
         let cwd = crate::daemon::spawn_blocking(crate::protected_folders::unattended_cwd)

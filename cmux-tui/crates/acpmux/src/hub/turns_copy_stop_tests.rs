@@ -121,15 +121,9 @@ async fn a_delayed_compaction_cancel_cannot_cancel_the_next_turn() {
         )
     };
     let before_metadata = s.seq.load(std::sync::atomic::Ordering::SeqCst);
-    assert!(
-        tap(crate::agent::Direction::In, &update("compaction", "running"), Some(7001)).is_some()
-    );
-    assert!(
-        tap(crate::agent::Direction::In, &update("compaction", "completed"), Some(7002)).is_some()
-    );
-    assert!(
-        tap(crate::agent::Direction::In, &update("compaction_summary", ""), Some(7003)).is_some()
-    );
+    assert!(tap(crate::agent::Direction::In, &update("compaction", "running"), Some(7001)));
+    assert!(tap(crate::agent::Direction::In, &update("compaction", "completed"), Some(7002)));
+    assert!(tap(crate::agent::Direction::In, &update("compaction_summary", ""), Some(7003)));
     let metadata = hub.events(&s.id, before_metadata, 100).unwrap();
     assert!(metadata.iter().any(|e| e.kind == "compaction"
         && e.msg.pointer("/params/update/state") == Some(&json!("running"))));
@@ -160,7 +154,7 @@ async fn a_delayed_compaction_cancel_cannot_cancel_the_next_turn() {
     assert!(result.iter().any(|m| m.params().and_then(|p| p.pointer("/update/sessionUpdate"))
         == Some(&json!("usage_update"))));
     for (index, msg) in boundary.iter().chain(result.iter()).enumerate() {
-        assert!(tap(crate::agent::Direction::In, msg, Some(7010 + index as u64)).is_some());
+        assert!(tap(crate::agent::Direction::In, msg, Some(7010 + index as u64)));
         if msg.method() == Some(method::SESSION_UPDATE) {
             hub.on_update(&s, msg.params(), false);
         }
@@ -174,7 +168,7 @@ async fn a_delayed_compaction_cancel_cannot_cancel_the_next_turn() {
     // A real API message still refreshes usage after the fence.
     let genuine = remote.inbound(&json!({"type":"stream_event","event":{"type":"message_delta","usage":{"input_tokens":250,"output_tokens":2}}})).await;
     for msg in &genuine {
-        assert!(tap(crate::agent::Direction::In, msg, Some(7020)).is_some());
+        assert!(tap(crate::agent::Direction::In, msg, Some(7020)));
         hub.on_update(&s, msg.params(), false);
     }
     assert_eq!(s.meta().usage.unwrap()["used"], 250);

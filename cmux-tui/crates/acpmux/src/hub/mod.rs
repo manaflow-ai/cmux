@@ -65,12 +65,10 @@ pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
-mod config_writer;
 mod hosts;
 mod lifecycle;
 mod log_load;
 mod meta_replay;
-pub(crate) mod meta_writer;
 mod retention;
 pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
@@ -417,11 +415,7 @@ pub struct Hub {
     /// The process's supervisor: every hub task runs under it (`crate::supervised`).
     pub(crate) supervisor: crate::supervised::Supervisor,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
-    pub(super) store: Arc<dyn Store>,
-    /// Writes session records off the request path (`meta_writer.rs`).
-    pub(super) meta_writer: meta_writer::MetaWriter,
-    /// Writes `config.json` and `start-mode.json` off the request path (`config_writer.rs`).
-    pub(super) config_writer: config_writer::ConfigWriter,
+    pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
@@ -718,11 +712,8 @@ impl Hub {
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
-        let store: Arc<dyn Store> = Arc::from(store);
         let hub = Arc::new(Self {
             config: RwLock::new(config),
-            meta_writer: meta_writer::MetaWriter::start(store.clone(), &supervisor),
-            config_writer: config_writer::ConfigWriter::start(&supervisor),
             supervisor,
             wireguard,
             store,
@@ -1171,7 +1162,7 @@ impl Hub {
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
-            purged: Arc::new(AtomicBool::new(false)),
+            purged: AtomicBool::new(false),
             watch_end: Notify::new(),
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
@@ -1423,16 +1414,6 @@ impl Hub {
         (record, stored)
     }
 
-    /// Saves `cfg` to its file (`Config::save`) through the config writer
-    /// (`config_writer.rs`): the bytes are made here, the disk write runs on its thread. An error
-    /// is the config's own (it does not serialize); a disk error is logged by the writer.
-    pub(crate) fn save_config(&self, cfg: &Config) -> Result<()> {
-        if let Some((path, bytes)) = cfg.disk_bytes()? {
-            self.config_writer.queue(path, bytes);
-        }
-        Ok(())
-    }
-
     pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
         self.permission_policy_changed(session, "rules", |m| {
             m.permission_rules = rules.clone();
@@ -1592,18 +1573,20 @@ impl Hub {
     /// the turn, a tag) would write its record back after the purge deleted it, and the next daemon
     /// start loaded it as a closed session: the Chief's compactor, which purges each node's session
     /// when the node is built, left about 450 of them in two hours (2026-10-20).
-    ///
-    /// The write itself runs on the record writer's thread (`meta_writer.rs`): this takes the
-    /// snapshot and returns, with no disk access.
     pub(super) fn save_meta(&self, session: &Session) {
         if session.purged.load(Ordering::SeqCst) {
             return;
         }
-        let (meta, version) = {
-            let meta = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            (meta.clone(), self.meta_writer.next_version())
-        };
-        self.meta_writer.queue(&*self.store, meta, version, session.purged.clone());
+        let meta = session.meta();
+        if let Err(e) = self.store.save(&meta) {
+            tracing::warn!(session = %session.id, "save meta failed: {e}");
+        }
+        // The purge ran between the check and the save: delete it again.
+        if session.purged.load(Ordering::SeqCst)
+            && let Err(e) = self.store.delete(&session.id)
+        {
+            tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
+        }
     }
 
     /// Sets `session`'s status. A stopped (closed) session stays closed: only a close writes

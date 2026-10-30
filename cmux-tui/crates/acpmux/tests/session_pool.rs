@@ -453,8 +453,8 @@ async fn wait_best_effort(pid: &Value, want: bool, what: &str) {
     }
 }
 
-/// Test polling: wait until `session`'s log shows it came from the pool (the
-/// log writer's thread writes it after the reply).
+/// Test polling: wait until `session`'s log shows it came from the pool (it may be
+/// written after the reply).
 async fn wait_taken(daemon: &Daemon, session: &str) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !taken(daemon, session) {
