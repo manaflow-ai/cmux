@@ -612,3 +612,236 @@ async fn a_screenshots_copy_is_logged_neither_written_to_claude_nor_echoed_back(
         assert!(!logged.contains(&data[200..300]), "{} was logged", copy.display());
     }
 }
+
+/// This stand-in advertises normal/strict modes. Explicitly declare only its
+/// strict mode as asking; production Codex mode policy remains untouched.
+fn web_upload_hub() -> Arc<Hub> {
+    home();
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "fake"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "ask",
+        "webAskingModes": {"fake": ["strict"]}
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// A dashboard sends its own original across a real peer link in bounded chunks,
+/// then names that upload in a prompt. The former 8 MiB UI and 15 MiB RPC limits
+/// must not truncate or refuse this 12 MiB source.
+#[tokio::test]
+async fn web_staged_original_crosses_peer_boundary_without_inline_overflow() {
+    let b = web_upload_hub();
+    let dir = std::env::temp_dir().join(format!("web-upload-peer-{}", v7()));
+    let auth = PeerAuth::create(&dir).unwrap();
+    let token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&dir)).unwrap();
+    let listener = bind_ws("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(serve_ws_with(
+        b.clone(),
+        listener,
+        "tok".into(),
+        WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
+    ));
+    let mut local = client(&b, Origin::Local);
+    let made = local
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(),
+        "mcpServers": [], "_meta": {"acpmux": {"name": "web-upload-far", "policy": "ask"}}}),
+        )
+        .await;
+    let session = made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}"));
+    let modes = &made["result"]["modes"]["availableModes"];
+    assert!(
+        modes.as_array().is_some_and(|items| items.iter().any(|m| m["id"] == "strict")),
+        "{made}"
+    );
+    let set = local
+        .call(method::SESSION_SET_MODE, json!({"sessionId": session, "modeId": "strict"}))
+        .await;
+    assert!(
+        set.get("error").is_none(),
+        "the local owner selects the advertised asking mode: {set}"
+    );
+    let a = hub();
+    a.add_peer(
+        "web-upload-peer",
+        &format!("ws://127.0.0.1:{port}"),
+        Some("tok".into()),
+        Some(token),
+        true,
+    )
+    .await
+    .unwrap();
+    let mut web = client(&a, Origin::Web);
+    let target = "web-upload-peer/web-upload-far";
+    let bytes = png(12 * 1024 * 1024 + 1, 29);
+    let begin = web
+        .call(
+            method::MUX_FILE_PUT_BEGIN,
+            json!({"sessionId": target,
+        "fileName": "original.png", "size": bytes.len(), "forPrompt": true}),
+        )
+        .await;
+    assert!(begin.get("error").is_none(), "Web prompt upload must begin: {begin}");
+    let upload = begin["result"]["uploadId"].as_str().unwrap();
+    let owner = begin["result"]["ownerToken"].as_str().unwrap();
+    for (i, part) in bytes.chunks(CHUNK).enumerate() {
+        let sent = web
+            .call(
+                method::MUX_FILE_PUT_CHUNK,
+                json!({"sessionId": target,
+            "uploadId": upload, "ownerToken": owner, "offset": i * CHUNK, "data": b64(part)}),
+            )
+            .await;
+        assert!(sent.get("error").is_none(), "{sent}");
+    }
+    let done = web
+        .call(
+            method::MUX_FILE_PUT_FINISH,
+            json!({"sessionId": target,
+        "uploadId": upload, "ownerToken": owner, "fileName": "original.png", "size": bytes.len()}),
+        )
+        .await;
+    assert!(done.get("error").is_none(), "{done}");
+    let path = home().join("uploads").join(session).join(upload).join("original.png");
+    assert_eq!(sha(&std::fs::read(&path).unwrap()), sha(&bytes));
+    let mut reference = image_ref(upload, "original.png");
+    reference["_meta"]["acpmux"]["upload"]["owned"] = json!(owner);
+    // Also exercises a second resolution, as a queued/held prompt does at its turn.
+    let mut resolved = vec![reference.clone()];
+    acpmux::prompt_uploads::resolve(session, true, &mut resolved).unwrap();
+    acpmux::prompt_uploads::resolve_off_runtime(session, true, &mut resolved).await.unwrap();
+    assert!(
+        !serde_json::to_string(&resolved).unwrap().contains(owner),
+        "write/delete capability must not reach the agent"
+    );
+    let response =
+        web.call(method::SESSION_PROMPT, prompt(target, &v7(), "see", vec![reference])).await;
+    assert!(response.get("error").is_none(), "{response}");
+    assert_eq!(response["result"]["peer"], "web-upload-peer", "{response}");
+    assert!(web.largest < 1024 * 1024, "largest dashboard frame was {}", web.largest);
+    assert!(web.text.contains("resource_link:"), "{}", web.text);
+    // A lost acceptance receipt must not let an old client cleanup delete files in use.
+    let _ = web
+        .call(
+            method::MUX_FILE_PUT_CANCEL,
+            json!({"sessionId": target,
+        "uploadId": upload, "ownerToken": owner}),
+        )
+        .await;
+    assert_eq!(sha(&std::fs::read(&path).unwrap()), sha(&bytes));
+}
+
+#[tokio::test]
+async fn web_staged_capabilities_cannot_touch_local_uploads_or_forge_resolved_paths() {
+    let h = hub();
+    let mut local = client(&h, Origin::Local);
+    let session = local.new_session("web-upload-scope").await;
+    let other = local.new_session("web-upload-other").await;
+    let begin = local
+        .call(
+            method::MUX_FILE_PUT_BEGIN,
+            json!({"sessionId": session,
+        "fileName": "local.bin", "size": 3, "forPrompt": true}),
+        )
+        .await;
+    let local_id = begin["result"]["uploadId"].as_str().unwrap();
+    let local_token = begin["result"]["ownerToken"].as_str().unwrap();
+    let mut web = client(&h, Origin::Web);
+    let begun = web
+        .call(
+            method::MUX_FILE_PUT_BEGIN,
+            json!({"sessionId": session,
+        "fileName": "web.bin", "size": 3, "forPrompt": true}),
+        )
+        .await;
+    assert!(begun.get("error").is_none(), "{begun}");
+    let id = begun["result"]["uploadId"].as_str().unwrap();
+    let owner = begun["result"]["ownerToken"].as_str().unwrap();
+    for (target, upload, token) in [
+        (session.as_str(), local_id, local_token),
+        (session.as_str(), id, "forged"),
+        (other.as_str(), id, owner),
+    ] {
+        for method in [
+            method::MUX_FILE_PUT_CHUNK,
+            method::MUX_FILE_PUT_FINISH,
+            method::MUX_FILE_PUT_STATUS,
+            method::MUX_FILE_PUT_CANCEL,
+        ] {
+            let response = web
+                .call(
+                    method,
+                    json!({"sessionId": target, "uploadId": upload,
+                "ownerToken": token, "offset": 0, "data": b64(b"abc"),
+                "fileName": "web.bin", "size": 3}),
+                )
+                .await;
+            assert_eq!(response["error"]["data"]["reason"], "filePut.remote", "{response}");
+        }
+    }
+    // Querying resume progress touches the age marker, not the prompt-consumed
+    // marker: it must not freeze an unfinished upload.
+    let progress = web
+        .call(
+            method::MUX_FILE_PUT_STATUS,
+            json!({"sessionId": session,
+        "uploadId": id, "ownerToken": owner}),
+        )
+        .await;
+    assert_eq!(progress["result"]["offset"], 0, "{progress}");
+    let response = web
+        .call(
+            method::MUX_FILE_PUT_CHUNK,
+            json!({"sessionId": session,
+        "uploadId": id, "ownerToken": owner, "offset": 0, "data": b64(b"abc")}),
+        )
+        .await;
+    assert!(response.get("error").is_none(), "{response}");
+    let response = web
+        .call(
+            method::MUX_FILE_PUT_FINISH,
+            json!({"sessionId": session,
+        "uploadId": id, "ownerToken": owner, "fileName": "web.bin", "size": 3}),
+        )
+        .await;
+    assert!(response.get("error").is_none(), "{response}");
+    let mut reference = image_ref(id, "web.bin");
+    reference["_meta"]["acpmux"]["upload"]["owned"] = json!(owner);
+    let mut resolved = vec![reference.clone()];
+    acpmux::prompt_uploads::resolve(&session, true, &mut resolved).unwrap();
+    for method in [method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH] {
+        let response = web
+            .call(
+                method,
+                json!({"sessionId": session,
+            "uploadId": id, "ownerToken": owner, "offset": 0, "data": b64(b"def"),
+            "fileName": "web.bin", "size": 3}),
+            )
+            .await;
+        assert_eq!(response["error"]["data"]["reason"], "filePut.remote", "{response}");
+    }
+    let mut forged = resolved[0].clone();
+    forged["_meta"]["acpmux"]["uploadPath"] = json!("/unrelated/private/file");
+    for mut blocks in [vec![reference, forged.clone()], vec![forged]] {
+        let error = acpmux::prompt_uploads::resolve(&session, true, &mut blocks).unwrap_err();
+        assert_eq!(error.data.unwrap()["reason"], "upload.remote");
+    }
+    let mut wrong_session = resolved.clone();
+    assert!(acpmux::prompt_uploads::resolve(&other, true, &mut wrong_session).is_err());
+    // Read-only resolved proof is not an upload mutation/cancel capability.
+    let proof = resolved[0]["_meta"]["acpmux"]["webUpload"]["proof"].as_str().unwrap();
+    let response = web
+        .call(
+            method::MUX_FILE_PUT_CANCEL,
+            json!({"sessionId": session,
+        "uploadId": id, "ownerToken": proof}),
+        )
+        .await;
+    assert_eq!(response["error"]["data"]["reason"], "filePut.remote", "{response}");
+}

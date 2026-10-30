@@ -57,7 +57,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | faces, text, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | chat_colors | menu | geometry | link | texts | typing | rows | resize | nudge | list | presence | live | faces, text, steps, elapsed, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
@@ -184,6 +184,14 @@ final class DebugHomeNativeFixture: InternalPageProvider {
                 return .object(["error": .string("stream needs the Home fixture (debug.home_native_fixture.open)")])
             }
             ok = fixture.debugStream(params["text"]?.stringValue ?? "", done: params["done"]?.boolValue ?? false)
+        case "live":
+            // The fixture's Chief works: its typing bubble and the status line above it, one frame per
+            // step of `steps` (default "Reading", "Starting agents"), the last begun `elapsed` s ago.
+            guard let fixture = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.fixture(showing: view) else {
+                return .object(["error": .string("live needs the native Home fixture (debug.home_native_fixture.open)")])
+            }
+            let steps = params["steps"]?.arrayValue?.compactMap(\.stringValue) ?? ["Reading", "Starting agents"]
+            ok = fixture.debugLive(steps, elapsed: params["elapsed"]?.doubleValue ?? 7)
         case "presence":
             // Who else has the fixture's conversation open (`people`: mock participant ids, default
             // three of the mock's people; `typing`: one of them types), as the owner's presence.
