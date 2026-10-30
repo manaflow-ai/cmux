@@ -8,7 +8,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import type { BackgroundGroup } from "../src/agent-session/acpmux/backgroundTasks/backgroundTasks";
+import { backgroundGroups, type BackgroundGroup } from "../src/agent-session/acpmux/backgroundTasks/backgroundTasks";
+import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { BackgroundTasksPanel } from "../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel";
 import { SubagentTranscript, WINDOW } from "../src/agent-session/acpmux/backgroundTasks/SubagentTranscript";
 
@@ -131,4 +132,68 @@ test("a finished command with no known end shows no time that keeps counting", a
   const times = [...container.querySelectorAll(".acpmux-bg__time")].map((node) => node.textContent ?? "");
   expect(times.length).toBeGreaterThan(0);
   expect(times.every((text) => text === "")).toBe(true);
+});
+
+test("a workflow agent opened from the panel draws its transcript, loading first, never a blank pane", async () => {
+  const container = installDom();
+  const workflow = {
+    id: "wf-node",
+    parent: null,
+    name: "Workflow",
+    kind: "workflow",
+    state: "running",
+    startedAt: 1_000,
+    runId: "wf_demo",
+    workflowAgents: new Map([
+      [1, { index: 1, label: "review", agentId: "review", state: "running", startedAt: 1_100 }],
+    ]),
+  };
+  const groups = backgroundGroups({
+    rows: [{ id: "s", version: 1, at: 0, kind: SUBAGENTS, subagents: [workflow as never] }],
+    commands: [],
+    sessions: [],
+    chatName: "This chat",
+    sessionId: "chat",
+  });
+  let resolve!: (value: unknown) => void;
+  const reads: unknown[] = [];
+  const read = (request: unknown) => {
+    reads.push(request);
+    return new Promise<unknown>((done) => (resolve = done));
+  };
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(
+      <BackgroundTasksPanel
+        groups={groups}
+        look="flat"
+        workflow={{ sessionId: "chat", chat: "This chat", connection: "connected", read }}
+        onClearFinished={() => {}}
+        onExpand={() => {}}
+        onClose={() => {}}
+      />,
+    ),
+  );
+  const task = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-bg__task-open")].find((button) =>
+    button.textContent?.includes("review"),
+  );
+  expect(task).toBeDefined();
+  expect(task!.disabled).toBe(false);
+  await act(async () => task!.click());
+  const transcript = container.querySelector(".acpmux-bg__transcript")!;
+  expect(transcript).not.toBeNull();
+  // The click's own frame shows the loading state, not an empty pane.
+  expect(transcript.textContent).toContain("Loading");
+  expect(reads).toEqual([{ sessionId: "chat", runId: "wf_demo", agentId: "review" }]);
+  await act(async () =>
+    resolve({
+      start: 0,
+      end: 1,
+      lines: 1,
+      truncated: false,
+      updates: [{ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Reviewed the diff" } }],
+    }),
+  );
+  expect(transcript.textContent).toContain("Reviewed the diff");
+  expect(transcript.textContent).not.toContain("Loading");
 });
