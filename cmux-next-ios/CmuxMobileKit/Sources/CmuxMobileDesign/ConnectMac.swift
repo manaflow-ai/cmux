@@ -35,10 +35,11 @@ public struct ConnectMacSteps: View {
                 otherAccount
             } else {
                 step(1, signInText)
-                step(2, Text("In cmux on your Mac, turn on \(Text("Settings → Mobile → Allow iPhone Connections").fontWeight(.semibold))."))
-                status
-                    .padding(.top, 6)
             }
+            // A Mac with connections disabled has not registered with the account either.
+            step(2, Text("In cmux on your Mac, turn on \(Text("Settings → Mobile → Allow iPhone Connections").fontWeight(.semibold))."))
+            status
+                .padding(.top, 6)
         }
         .frame(maxWidth: 340, alignment: .leading)
     }
@@ -48,16 +49,7 @@ public struct ConnectMacSteps: View {
     /// method can make another account for the same person).
     private var otherAccount: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Group {
-                if let email, !email.isEmpty {
-                    Text("Sign in to cmux on your Mac as \(Text(email).fontWeight(.semibold)).")
-                } else {
-                    Text("Sign in to cmux on your Mac with this account.")
-                }
-            }
-            .font(theme.type.rowSubtitle)
-            .foregroundStyle(theme.colors.label2)
-            .fixedSize(horizontal: false, vertical: true)
+            step(1, signInText)
             if let openAccount {
                 Button("Account Settings", action: openAccount)
                     .font(theme.type.rowSubtitle.weight(.semibold))
