@@ -83,16 +83,30 @@ describe("conversationMarkdown", () => {
     ];
     let saved = 0;
     const keys = (items: ReturnType<typeof copyRow>) => items?.children?.map((child) => child.key);
-    const withSave = copyRow({ link: undefined, sessionId: "chat-1", rows }, () => {}, undefined, undefined, () => {
-      saved++;
-    });
+    const withSave = copyRow(
+      { link: undefined, sessionId: "chat-1", rows },
+      () => {},
+      undefined,
+      undefined,
+      () => {
+        saved++;
+      },
+    );
     expect(keys(withSave)).toEqual(["copyResponse", "copyMarkdown", "saveMarkdown", "copySessionId"]);
     withSave?.children?.find((child) => child.key === "saveMarkdown")?.onSelect?.();
     expect(saved).toBe(1);
     // No host save, or nothing answered yet: no row.
     expect(keys(copyRow({ link: undefined, sessionId: "chat-1", rows }, () => {}))).not.toContain("saveMarkdown");
     expect(
-      keys(copyRow({ link: undefined, sessionId: "chat-1", rows: rows.slice(0, 1) }, () => {}, undefined, undefined, () => {})),
+      keys(
+        copyRow(
+          { link: undefined, sessionId: "chat-1", rows: rows.slice(0, 1) },
+          () => {},
+          undefined,
+          undefined,
+          () => {},
+        ),
+      ),
     ).not.toContain("saveMarkdown");
   });
 });
