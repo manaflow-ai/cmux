@@ -143,14 +143,14 @@ struct RemoteVNCReconnectTests {
     }
 }
 
-private final class CountingRFBTransport: RFBTransport, @unchecked Sendable {
+private nonisolated final class CountingRFBTransport: RFBTransport, @unchecked Sendable {
     func open() async throws {}
     func receive() async throws -> [UInt8] { throw RFBError.connectionClosed }
     func send(_ bytes: [UInt8]) async throws {}
     func close() {}
 }
 
-private final class AttemptCounter: @unchecked Sendable {
+private nonisolated final class AttemptCounter: @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
 

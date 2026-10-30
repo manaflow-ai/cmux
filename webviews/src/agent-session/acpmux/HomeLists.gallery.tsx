@@ -180,6 +180,20 @@ const empty: Props = {
   onAnswer: () => Promise.resolve("answered" as const),
 };
 
+// The differing path endings are outside a narrow row's visible command prefix.
+const longCommands: Props = {
+  ...baseline,
+  sessions: inputSessions.slice(0, 2),
+  asks: asks.slice(0, 2).map((ask, index) => ({
+    ...ask,
+    permission: {
+      ...ask.permission,
+      title: "Run the payment tests",
+      command: `bun test packages/payments/integration/checkout/subscriptions/regression/${index === 0 ? "annual-renewal.test.ts" : "monthly-renewal.test.ts"}`,
+    },
+  })),
+};
+
 const cappedInput = Array.from({ length: 5 }, (_, index) =>
   session({
     sessionId: `home-cap-input-${index + 1}`,
@@ -324,6 +338,10 @@ export default componentEntry<Props>({
   },
   load: () => import("./HomeLists").then(({ HomeLists: Component }) => withReceipt(Component)),
   variants: {
+    "long-commands": {
+      note: "Long commands share a prefix but have different file names; each full command remains inspectable on hover.",
+      props: longCommands,
+    },
     baseline: {
       note: "Needs you lists every other chat's ask with its chat, folder and age, Allow once and Deny in place (the first takes ⌥⌘1 and ⌥⌘3); a question and another computer's chat open their chat. Ready for review stays separate, and the current, archived, side and not-ready chats stay out.",
       props: baseline,

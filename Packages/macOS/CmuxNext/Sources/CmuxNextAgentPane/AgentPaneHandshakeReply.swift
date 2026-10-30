@@ -9,6 +9,7 @@ enum AgentPaneHandshakeReply {
         // A page that loaded again starts without the tab row: it is offered again.
         if request == .ready { model.tabRow.pageLoaded() }
         model.setCheckpointAvailable(false)
+        model.pageCommands = []
         do {
             var handshake = request == .ready
                 ? try await model.host.handshake(sessionId: model.sessionId)

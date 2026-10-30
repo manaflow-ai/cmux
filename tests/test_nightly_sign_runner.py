@@ -10,7 +10,9 @@ variable alone.
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import io
 import os
 import sys
 import tempfile
@@ -119,7 +121,7 @@ class Pick(unittest.TestCase):
             env = {"CANDIDATE": "", "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r",
                    "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "1"}
             self.assertEqual(picker.main(env, read=lambda t, r: snapshot({SMALL: 3}), now=NOW), 0)
-            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\n")
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\nplacement=verified\n")
 
     def test_a_pick_made_on_a_rerun_is_its_own_alternate(self) -> None:
         # A full re-run runs the picker again; its fresh pick must win over the other size.
@@ -128,7 +130,7 @@ class Pick(unittest.TestCase):
             env = {"CANDIDATE": "", "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r",
                    "GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": "2"}
             self.assertEqual(picker.main(env, read=lambda t, r: snapshot({LARGE: 90}), now=NOW), 0)
-            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\n")
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\nplacement=verified\n")
 
     def test_main_writes_the_output_and_never_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -137,12 +139,100 @@ class Pick(unittest.TestCase):
 
             def broken(token: str, repo: str) -> dict:
                 raise OSError("rate limit")
-            self.assertEqual(picker.main(env, read=broken, now=NOW), 0)
-            self.assertEqual(output.read_text(), f"runner={LARGE}\nalternate={SMALL}\n")
+            self.assertEqual(picker.main(env, read=broken, now=NOW, sleep=lambda s: None), 0)
+            # Unreadable: unverified, so the size with the most slots, not the variable (HQ#5168).
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\nplacement=unverified\n")
             output.write_text("")
             self.assertEqual(picker.main(env, read=lambda t, r: snapshot({LARGE: 90}), now=NOW), 0)
             # 12 vCPU is stalled, so a re-run keeps 6 vCPU rather than moving onto it.
-            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\n")
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\nplacement=verified\n")
+
+
+class Unverified(unittest.TestCase):
+    """Without a fresh pool snapshot the pick is unverified, and says so (HQ#5168).
+
+    A missing, stale or unreadable snapshot used to hand the signing jobs vars.MACOS_RUNNER_26
+    unchecked, the label that stranded every nightly for eight hours on 2026-10-26. Now the
+    pick takes the size with the most slots (6 vCPU) and offers the other size to a re-run,
+    marks the placement unverified in its outputs, a ::warning and the step summary, retries an
+    unreadable read a bounded number of times, and still never fails the job.
+    """
+
+    def run_main(self, read, attempt: str = "1", candidate: str = LARGE, clock=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            output, summary = Path(tmp) / "out", Path(tmp) / "summary"
+            env = {"CANDIDATE": candidate, "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r",
+                   "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary), "GITHUB_RUN_ATTEMPT": attempt}
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                kwargs = {"clock": clock} if clock else {}
+                self.assertEqual(picker.main(env, read=read, now=NOW, sleep=lambda s: None, **kwargs), 0)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            return values, summary.read_text(), stdout.getvalue()
+
+    def assert_unverified(self, values: dict, summary: str, stdout: str) -> None:
+        self.assertEqual(values, {"runner": SMALL, "alternate": LARGE, "placement": "unverified"})
+        self.assertIn("::warning title=nightly sign runner::", stdout)
+        self.assertIn("unverified", stdout)
+        self.assertIn("unverified", summary)
+
+    def test_a_missing_snapshot_is_unverified_and_never_trusts_the_variable(self) -> None:
+        self.assert_unverified(*self.run_main(lambda t, r: None))
+
+    def test_a_stale_snapshot_is_unverified_and_never_trusts_the_variable(self) -> None:
+        # 60 minutes old: past QUEUE_SNAPSHOT_MINUTES, so it says nothing about 12 vCPU now.
+        values, summary, stdout = self.run_main(lambda t, r: snapshot({}, age_minutes=60))
+        self.assert_unverified(values, summary, stdout)
+        self.assertIn("stale", summary)
+
+    def test_an_unreadable_snapshot_is_retried_a_bounded_number_of_times(self) -> None:
+        calls = []
+
+        def broken(token: str, repo: str) -> dict:
+            calls.append(token)
+            raise OSError("rate limit")
+        values, summary, stdout = self.run_main(broken)
+        self.assert_unverified(values, summary, stdout)
+        self.assertEqual(len(calls), picker.SNAPSHOT_READS)
+        self.assertIn("rate limit", summary)
+
+    def test_the_retries_stop_at_the_deadline(self) -> None:
+        # A read that takes the whole budget is not retried: the 2-minute step must still write its outputs.
+        ticks = iter([0.0, picker.SNAPSHOT_READ_SECONDS + 1, picker.SNAPSHOT_READ_SECONDS + 1])
+        calls = []
+
+        def slow(token: str, repo: str) -> dict:
+            calls.append(token)
+            raise TimeoutError("timed out")
+        values, *_ = self.run_main(slow, clock=lambda: next(ticks))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(values["placement"], "unverified")
+
+    def test_a_read_that_recovers_is_verified(self) -> None:
+        answers = [OSError("reset"), snapshot({SMALL: 90})]
+
+        def flaky(token: str, repo: str) -> dict:
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        values, summary, _ = self.run_main(flaky)
+        self.assertEqual(values, {"runner": LARGE, "alternate": LARGE, "placement": "verified"})
+        self.assertNotIn("unverified", summary)
+
+    def test_a_full_rerun_without_a_snapshot_tries_the_other_size(self) -> None:
+        # Attempt 1 took 6 vCPU unverified; a full re-run picks again, still blind, and moves to 12 vCPU.
+        values, *_ = self.run_main(lambda t, r: None, attempt="2")
+        self.assertEqual(values, {"runner": LARGE, "alternate": LARGE, "placement": "unverified"})
+        values, *_ = self.run_main(lambda t, r: None, attempt="3")
+        self.assertEqual(values, {"runner": SMALL, "alternate": SMALL, "placement": "unverified"})
+
+    def test_no_token_is_unverified_too(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(picker.main({"CANDIDATE": LARGE, "GITHUB_OUTPUT": str(output)}, now=NOW), 0)
+            self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={LARGE}\nplacement=unverified\n")
 
 
 class Workflow(unittest.TestCase):
