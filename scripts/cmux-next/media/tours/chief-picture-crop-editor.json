@@ -36,7 +36,7 @@
         }
       },
       "wait": 3,
-      "record": true,
+      "windows": true,
       "optional": "no Chief conversation on this runner"
     }
   ]
