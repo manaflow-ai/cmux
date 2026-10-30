@@ -11,9 +11,9 @@ import CmuxNextCompat
 ///
 /// One serial utility queue per file keeps saves in call order; a save that a newer one replaced
 /// before it ran is skipped, so a burst costs one write. The caller hands over a value, and the
-/// encoding runs on the queue too; an encoding that throws leaves the file as it was. ``read()``
-/// waits for the saves already queued for the file, so a store made right after a save reads it
-/// back. At quit ``flushAll(within:)`` waits, bounded, for queued saves, under the app's blocking
+/// encoding runs on the queue too; an encoding that throws leaves the file as the last save that
+/// ran left it. ``read()`` waits for the saves already queued for the file, so a store made right
+/// after a save reads it back. At quit ``flushAll(within:)`` waits, bounded, for queued saves, under the app's blocking
 /// allowance. A crash or kill between a save's call and its write loses that save: the window is
 /// the queue's backlog (a few milliseconds idle, up to a second under heavy disk load), the price
 /// of never holding the main thread for the disk. The files hold a new chat's unsent text and
@@ -47,7 +47,7 @@ public nonisolated final class AgentPaneStateFile: Sendable {
     }
 
     /// Saves what `encode` returns, atomically, on the file's queue; nil removes the file, and a
-    /// throw keeps it as it was.
+    /// throw keeps it as the last save that ran left it (a save this one replaced never ran).
     public func write(_ encode: @escaping @Sendable () throws -> Data?) {
         let number = newest.withLock { value in
             value += 1

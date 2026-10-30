@@ -82,6 +82,7 @@ struct AgentPaneStateFileTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = AgentPaneStateFile.at(directory.appending(path: "t.json"))
         file.write { Data("good".utf8) }
+        #expect(file.read() == Data("good".utf8))
         file.write { throw Failed() }
         #expect(file.read() == Data("good".utf8))
     }
