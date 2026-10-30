@@ -60,7 +60,7 @@ function nativePage(before: number) {
 
 /// A daemon over a fake socket; `serves` says whether it lists `_acpmux/native_history`, and
 /// `unknown` makes it answer that method as one it does not serve (an older peer's daemon).
-function fakeDaemon({ serves = true, unknown = false } = {}) {
+function fakeDaemon({ serves = true, unknown = false, refused = "" } = {}) {
   let socket: any;
   const nativeReads: number[] = [];
   const session = {
@@ -94,6 +94,7 @@ function fakeDaemon({ serves = true, unknown = false } = {}) {
       case "_acpmux/native_history":
         nativeReads.push(params.before);
         if (unknown) return { error: { code: -32601, message: "Method not found" } };
+        if (refused) return { error: { code: -32602, message: refused, data: { reason: refused } } };
         return { result: nativePage(params.before) };
       default:
         return { result: null };
@@ -123,7 +124,7 @@ const settle = async () => {
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 };
 
-type Snapshot = { canLoadOlder: boolean; historyFrom?: number; rows: { kind: string; text?: string }[] };
+type Snapshot = { canLoadOlder: boolean; historyFrom?: number; rows: { kind: string; text?: string; seq?: number }[] };
 
 async function open(daemon: ReturnType<typeof fakeDaemon>) {
   let snapshot: Snapshot = { canLoadOlder: false, rows: [] };
@@ -156,6 +157,9 @@ test("an adopted chat pages its transcript's older turns in above the seeded one
   await client.loadOlder();
   expect(daemon.nativeReads).toEqual([SEEDED_BEFORE, 4_000]);
   expect(prompts()).toEqual(questions(1, 2, 3, 4, 5, 6, 7, 8, 9));
+  // A turn paged in from the transcript is in no log: no fork or edit goes through it.
+  const summaries = snapshot().rows.filter((row) => row.kind === "turnSummary");
+  expect(summaries.map((row) => row.seq === undefined)).toEqual([...Array(6).fill(true), false, false, false]);
   // Nothing older: the pane stops asking.
   expect(snapshot().canLoadOlder).toBe(false);
   await client.loadOlder();
@@ -183,3 +187,14 @@ test("a peer's older daemon that answers method-not-found just stops the paging"
   expect(snapshot().canLoadOlder).toBe(false);
   client.close();
 });
+
+for (const reason of ["transcriptRead.remote", "transcriptRead.unsupported"])
+  test(`a refusal of the transcript read (${reason}) just stops the paging`, async () => {
+    const daemon = fakeDaemon({ refused: reason });
+    const { client, snapshot, prompts } = await open(daemon);
+    await client.loadOlder();
+    expect(daemon.nativeReads).toEqual([SEEDED_BEFORE]);
+    expect(prompts()).toEqual(questions(7, 8, 9));
+    expect(snapshot().canLoadOlder).toBe(false);
+    client.close();
+  });

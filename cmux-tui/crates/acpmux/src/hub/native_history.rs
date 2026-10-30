@@ -27,6 +27,10 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// The `initialize` feature of a daemon that serves `_acpmux/native_history`; a peer that does
+/// not list it is never sent one (`peer_forward.rs`).
+pub const FEATURE: &str = "nativeHistory";
+
 /// Transcript pages read at once on this daemon: each parses up to 16 MiB of JSON lines.
 static READS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
