@@ -1119,6 +1119,7 @@ impl Hub {
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
         let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
+        let mut restored_any = false;
         for e in waiting {
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
             let (prompt_id, turn_id, text) = (field("promptId"), field("turnId"), field("text"));
@@ -1188,10 +1189,25 @@ impl Hub {
                 requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),
                 retries: 0,
             });
+            restored_any = true;
             session.queued.fetch_add(1, Ordering::SeqCst);
             ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
         }
-        tracing::info!(session = %session.id, queued = queue.len(), "restored queued prompts");
+        let order = restored_any.then(|| {
+            queue.iter().map(|prompt| Value::String(prompt.prompt_id.clone())).collect::<Vec<_>>()
+        });
+        let restored_count = queue.len();
+        drop(restored);
+        drop(ledger);
+        drop(queue);
+        // A visible attach may have answered before this background log restore. Publish one
+        // durable queue snapshot so its event stream and session_changed summary learn the rows
+        // that were rebuilt after the attach page. This is idempotent: a second restore adds no
+        // prompt and emits no snapshot.
+        if let Some(order) = order {
+            self.append(session, "mux", "queue_order", json!({"order": order}));
+        }
+        tracing::info!(session = %session.id, queued = restored_count, "restored queued prompts");
     }
 
     /// Runs the prompts `restore_queue` put back, each in its place in the queue (after any

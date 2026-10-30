@@ -20,7 +20,7 @@
 
 use super::{Hub, Session};
 use crate::adopt_replay::PastTurn;
-use crate::rpc::RpcError;
+use crate::rpc::{MAX_MESSAGE_BYTES, RpcError};
 use crate::store::now_ms;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
@@ -35,6 +35,11 @@ pub const FEATURE: &str = "nativeHistory";
 
 /// Transcript pages read at once on this daemon: each parses up to 16 MiB of JSON lines.
 static READS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
+/// Leave the same one MiB envelope room as ordinary event pages. Native history is a JSON-RPC
+/// reply (and may cross a peer that adds metadata), so its result must stay below the transport
+/// limit before the request id and wrappers are added.
+const REPLY_BYTES: usize = MAX_MESSAGE_BYTES - (1 << 20);
 
 /// A record's place on its page takes the low `KEY_BITS` of its seq; the page's cursor the rest.
 /// A page holds at most `PAGE_TURNS` (200) turns of at most `MAX_TOOLS` (400) calls, so at most
@@ -265,18 +270,27 @@ pub(crate) async fn handle(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcE
         if !mark_holds(&mut input, before, &mark) {
             return Err(stale());
         }
-        let page = crate::adopt_replay::claude_page_with_turns_open(
-            &mut input,
-            Some(before),
-            crate::adopt_replay::PAGE_TURNS,
-        );
-        // The page and its marks use one descriptor. Recheck after reading for an in-place
-        // truncate/rewrite; appends are fine, as are rotations while this descriptor is held.
-        if !mark_holds(&mut input, before, &mark) {
-            return Err(stale());
-        }
-        let next_mark = if page.start > 0 { self::mark(&mut input, page.start) } else { None };
-        Ok(page_reply(&session, before, page, next_mark))
+        // Keep whole turns whenever possible. A transcript's raw page is bounded, but JSON
+        // escaping and ACP event envelopes can expand it past the one-frame RPC limit. Re-read
+        // from the same byte cursor with fewer turns until the serialized result fits. The cursor
+        // returned by each smaller page is its own start, so no turn is skipped.
+        let mut want = crate::adopt_replay::PAGE_TURNS;
+        let reply = loop {
+            let page =
+                crate::adopt_replay::claude_page_with_turns_open(&mut input, Some(before), want);
+            // The page and its marks use one descriptor. Recheck after reading for an in-place
+            // truncate/rewrite; appends are fine, as are rotations while this descriptor is held.
+            if !mark_holds(&mut input, before, &mark) {
+                return Err(stale());
+            }
+            let next_mark = if page.start > 0 { self::mark(&mut input, page.start) } else { None };
+            let reply = page_reply(&session, before, page, next_mark);
+            if result_bytes(&reply) <= REPLY_BYTES || want <= 1 {
+                break fit_reply(reply);
+            }
+            want = want.div_ceil(2);
+        };
+        Ok(reply)
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?
@@ -323,6 +337,56 @@ fn page_reply(
         }
     }
     json!({"events": events, "before": page.start, "mark": mark, "turns": page.turns.len(), "read": page.read})
+}
+
+/// The serialized result size, before the request id and JSON-RPC envelope. The one MiB margin in
+/// [`REPLY_BYTES`] is deliberately larger than those wrappers and peer annotations.
+fn result_bytes(reply: &Value) -> usize {
+    serde_json::to_string(reply).map_or(usize::MAX, |text| text.len())
+}
+
+/// Omit the largest event payloads only when one whole turn still cannot fit after page sizing.
+/// Every event, including its sequence, kind, timestamps and identity, remains in the page; only
+/// its renderable message is replaced by the same explicit marker used by ordinary event pages.
+/// This makes a large turn finite and advances its byte cursor instead of returning
+/// `message.too_large` forever.
+fn fit_reply(mut reply: Value) -> Value {
+    if result_bytes(&reply) <= REPLY_BYTES {
+        return reply;
+    }
+    let mut bytes = result_bytes(&reply);
+    let Some(events) = reply.get_mut("events").and_then(Value::as_array_mut) else { return reply };
+    let mut event_sizes: Vec<usize> = events
+        .iter()
+        .map(|event| serde_json::to_string(event).map_or(usize::MAX, |text| text.len()))
+        .collect();
+    let mut omitted = vec![false; events.len()];
+    while bytes > REPLY_BYTES {
+        let Some((index, _)) = event_sizes
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !omitted[*index])
+            .max_by_key(|(_, size)| *size)
+        else {
+            break;
+        };
+        let original = event_sizes[index];
+        let original_msg = events[index].get("msg").cloned().unwrap_or(Value::Null);
+        let original_msg_bytes = serde_json::to_string(&original_msg).map_or(0, |text| text.len());
+        events[index]["msg"] = json!({
+            "_meta": {"acpmux": {"omitted": {"bytes": original_msg_bytes, "reason": "too_large"}}}
+        });
+        let replacement =
+            serde_json::to_string(&events[index]).map_or(usize::MAX, |text| text.len());
+        event_sizes[index] = replacement;
+        omitted[index] = true;
+        bytes = bytes.saturating_sub(original.saturating_sub(replacement));
+    }
+    // `fit_reply` is only called after reducing to one turn. Its event count is bounded by the
+    // transcript parser, so the identity-only envelopes above always fit in one frame. Keep this
+    // assertion as a guard if those parser bounds change.
+    debug_assert!(bytes <= REPLY_BYTES, "native history reply still too large: {bytes}");
+    reply
 }
 
 #[cfg(test)]

@@ -11,7 +11,14 @@ import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000f7";
 const START = Date.UTC(2026, 9, 29, 9, 0, 0);
-type Rec = { sessionId: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, unknown> };
+type Rec = {
+  sessionId: string;
+  seq: number;
+  at: number;
+  dir: string;
+  kind: string;
+  msg: Record<string, unknown>;
+};
 type Step = [dir: string, kind: string, msg: Record<string, unknown>];
 const say = (text: string) => ({
   method: "session/update",
@@ -41,7 +48,14 @@ const log: Rec[] = (
     ["mux", "native_history", { family: "claude", before: SEEDED_BEFORE, mark: "seed-mark", turns: 3 }],
     ...[7, 8, 9].flatMap(turn),
   ] as Step[]
-).map(([dir, kind, msg], index) => ({ sessionId: CHAT, seq: index + 1, at: START + index * 1000, dir, kind, msg }));
+).map(([dir, kind, msg], index) => ({
+  sessionId: CHAT,
+  seq: index + 1,
+  at: START + index * 1000,
+  dir,
+  kind,
+  msg,
+}));
 const lastSeq = log.length;
 
 function nativePage(before: number) {
@@ -64,6 +78,7 @@ function fakeDaemon({ serves = true, unknown = false, refused = "" } = {}) {
   let socket: any;
   const nativeReads: number[] = [];
   const nativeMarks: unknown[] = [];
+  const attaches: unknown[] = [];
   const session = {
     sessionId: CHAT,
     cwd: "/home/dev/x",
@@ -82,14 +97,19 @@ function fakeDaemon({ serves = true, unknown = false, refused = "" } = {}) {
           result: {
             protocolVersion: 1,
             _meta: {
-              acpmux: { origin: "local", extensions: serves ? ["_acpmux/native_history"] : [], operations: [] },
+              acpmux: {
+                origin: "local",
+                extensions: serves ? ["_acpmux/native_history"] : [],
+                operations: [],
+              },
             },
           },
         };
       case "_acpmux/watch":
         return { result: { sessions: [session] } };
       case "_acpmux/attach":
-        return { result: { session, events: log, hasMore: false, lastSeq } };
+        attaches.push(params);
+        return { result: { session, queue: [], events: log, hasMore: false, lastSeq } };
       case "_acpmux/events":
         return { result: { events: [], hasMore: false, lastSeq } };
       case "_acpmux/native_history":
@@ -110,7 +130,11 @@ function fakeDaemon({ serves = true, unknown = false, refused = "" } = {}) {
         if (message.id === undefined) return;
         queueMicrotask(() =>
           socket.onmessage?.({
-            data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...answer(message.method, message.params) }),
+            data: JSON.stringify({
+              jsonrpc: "2.0",
+              id: message.id,
+              ...answer(message.method, message.params),
+            }),
           }),
         );
       },
@@ -119,29 +143,105 @@ function fakeDaemon({ serves = true, unknown = false, refused = "" } = {}) {
     queueMicrotask(() => socket.onopen?.());
     return socket as WebSocket;
   };
-  return { open, nativeReads, nativeMarks };
+  const restoredQueue = () => {
+    for (const [method, params] of [
+      [
+        "_acpmux/event",
+        {
+          sessionId: CHAT,
+          seq: lastSeq + 1,
+          at: START + 100_000,
+          dir: "mux",
+          kind: "queue_order",
+          msg: { order: ["held"] },
+        },
+      ],
+      [
+        "_acpmux/session_changed",
+        {
+          sessionId: CHAT,
+          kind: "queue",
+          recordKind: "queue_order",
+          seq: lastSeq + 1,
+          session: {
+            ...session,
+            queue: [{ promptId: "held", prompt: "Send when I resume", held: true }],
+            queued: 1,
+            queuePaused: true,
+          },
+        },
+      ],
+    ])
+      socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
+  };
+  return { open, nativeReads, nativeMarks, attaches, restoredQueue };
 }
 
 const settle = async () => {
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 };
 
-type Snapshot = { canLoadOlder: boolean; historyFrom?: number; rows: { kind: string; text?: string; seq?: number }[] };
+type Snapshot = {
+  canLoadOlder: boolean;
+  historyFrom?: number;
+  rows: { kind: string; text?: string; seq?: number }[];
+  queue?: { id: string; prompt: string }[];
+  summary?: { queuePaused?: boolean };
+};
 
 async function open(daemon: ReturnType<typeof fakeDaemon>) {
   let snapshot: Snapshot = { canLoadOlder: false, rows: [] };
+  const listeners = new Set<() => void>();
   const client = await AcpmuxDirectClient.connect(
-    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
-    (next: any) => (snapshot = next),
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://127.0.0.1:1/",
+      token: "t",
+      sessionId: CHAT,
+    },
+    (next: any) => {
+      snapshot = next;
+      for (const listener of listeners) listener();
+    },
     undefined,
     daemon.open,
   );
   await settle();
   const prompts = () => snapshot.rows.filter((row) => row.kind === "user").map((row) => row.text);
-  return { client, snapshot: () => snapshot, prompts };
+  const when = (ready: (snapshot: Snapshot) => boolean) =>
+    new Promise<void>((resolve) => {
+      const changed = () => {
+        if (!ready(snapshot)) return;
+        listeners.delete(changed);
+        resolve();
+      };
+      listeners.add(changed);
+      changed();
+    });
+  return { client, snapshot: () => snapshot, prompts, when };
 }
 
 const questions = (...ns: number[]) => ns.map((n) => `Question ${n}`);
+
+test("a fast attach learns held prompts when background log restoration publishes its queue", async () => {
+  const daemon = fakeDaemon();
+  const { client, snapshot, when } = await open(daemon);
+  try {
+    expect(daemon.attaches).toHaveLength(1);
+    expect(daemon.attaches[0]).toMatchObject({ waitLogs: false });
+    expect(snapshot().queue).toEqual([]);
+    daemon.restoredQueue();
+    await when((next) => next.queue?.some((entry) => entry.id === "held") === true);
+    expect(snapshot().queue?.map(({ id, prompt }) => ({ id, prompt }))).toEqual([
+      { id: "held", prompt: "Send when I resume" },
+    ]);
+    expect(snapshot().summary?.queuePaused).toBe(true);
+    expect(daemon.attaches).toHaveLength(1);
+  } finally {
+    client.close?.();
+  }
+});
 
 test("an adopted chat pages its transcript's older turns in above the seeded ones, each once", async () => {
   const daemon = fakeDaemon();
