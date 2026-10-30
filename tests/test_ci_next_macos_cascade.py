@@ -1082,7 +1082,7 @@ class Rerun(unittest.TestCase):
                 context["needs"] = {"macos-placement": {"outputs": outputs}}
                 self.assertEqual(evaluate(runs_on, context), expected)
                 outputs["placed_attempt"] = "1"
-                self.assertFalse(evaluate(runs_on, context))
+                self.assertEqual(evaluate(runs_on, context), SIDE)
 
     def rerun_outputs(self, runners: list, live: dict, waiting: dict, **extra: str) -> dict:
         """placement.main() on the bot's attempt 2, then the step's shell, as the runner runs them."""
@@ -1305,8 +1305,8 @@ class Wiring(unittest.TestCase):
                 # The bot's attempt 2 (the rescue moved a stuck sibling) keeps the slot.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, large=f" {name} ")), LARGE)
                 # A person's re-run goes back to the minis first: attempt 1's count is stale by then.
-                self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), LARGE if name == "fast-tier" else SIDE)
-                self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), LARGE if name == "fast-tier" else SIDE)
+                self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), SIDE)
+                self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, large=f" {name} ")), SMALL)
 
     def test_release_compile_pr_takes_an_idle_mini_else_the_placements_blacksmith_slot(self):
@@ -1545,14 +1545,13 @@ class Wiring(unittest.TestCase):
         for name in CASCADED:
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
-                expected_without_retry = False if name == "fast-tier" else SIDE
+                expected_without_retry = SIDE
                 # The bot's attempt 2, placed afresh, takes its retry label; an earlier reading never.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="")), SMALL)
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), expected_without_retry)
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="", placed="1")), expected_without_retry)
-                # No free slot (an empty label), or no placement output: the owned side label for other
-                # cascade jobs. Fast-tier is skipped when its current placement has no admissible route,
-                # so it cannot bypass outage/nightly exclusions with a Blacksmith last resort.
+                # With no slot or a carried placement, preserve the base's
+                # owned queue rather than bypassing Blacksmith exclusions.
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT)), expected_without_retry)
                 self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="")), expected_without_retry)
 
@@ -1561,29 +1560,44 @@ class Wiring(unittest.TestCase):
         self.assertEqual(evaluate(runs_on, self.context(fork=True, runner="", placed="1")), SMALL)
         disabled = self.context(runner="", placed="1")
         disabled["vars"]["CI_PR_POOL_OWNED"] = "0"
-        self.assertEqual(evaluate(runs_on, disabled), SMALL)
+        self.assertEqual(evaluate(runs_on, disabled), LARGE)
 
-    def test_fast_tier_bot_retry_with_carried_placement_has_no_runner(self):
+    def test_fast_tier_bot_retry_with_carried_placement_keeps_base_queue(self):
         runs_on = self.jobs["fast-tier"]["runs-on"]
-        # A rescue retry whose placement was skipped must not consume stale
-        # attempt-1 outputs and evaluate runs-on to boolean false.
-        self.assertFalse(evaluate(runs_on, self.context("2", BOT, runner="", placed="1")))
+        self.assertEqual(evaluate(runs_on, self.context("2", BOT, runner="", placed="1")), SIDE)
 
-    def test_missing_fast_tier_capacity_fails_admission_instead_of_passing_by_skip(self):
-        admission = self.jobs["fast-tier-admission"]
-        step = admission["steps"][0]
-        self.assertEqual(step["env"]["SELECTED_RUNNER"], self.jobs["fast-tier"]["runs-on"])
-        for context, admitted in ((self.context(runner=""), False),
-                                  (self.context("2", BOT, runner="", placed="1"), False),
-                                  (self.context(small=" fast-tier "), True),
-                                  (self.context(fork=True, runner=""), True)):
-            selected = evaluate(step["env"]["SELECTED_RUNNER"], context)
-            result = subprocess.run(["bash", "-e", "-c", step["run"]], capture_output=True,
-                                    env={"SELECTED_RUNNER": str(selected).lower() if not selected else selected})
-            self.assertEqual(result.returncode == 0, admitted, selected)
-        # Capacity admission runs for every otherwise-required fast tier,
-        # even when placement emits nothing.
-        self.assertNotIn("needs.macos-placement.outputs", admission["if"])
+    def test_all_excluded_without_fleet_client_preserves_base_queue_and_coverage(self):
+        busy = {"name": "side-mini", "status": "online", "busy": True,
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+        for reason in ("outage", "nightly"):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+                shot = snapshot(large=1, small=1)
+                if reason == "outage":
+                    shot["bs_health"] = {"label_outages": [
+                        {"pool": label, "queued": 1, "last_start_s": 1900} for label in (LARGE, SMALL)]}
+                else:
+                    for label in (LARGE, SMALL):
+                        shot["pools"][label]["reserved_queued"] = 1
+                output = Path(tmp) / "out"
+                with mock.patch.object(placement.pool, "GitHub") as api, \
+                        mock.patch.object(placement.cascade, "read", return_value=(
+                            {LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 1}, cascade.seen(shot, NOW))):
+                    api.return_value.runners.return_value = [busy]
+                    placement.main(env(ROUTE_TOKEN="test", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                       GITHUB_OUTPUT=str(output), CASCADE_RUNS=" fast-tier "))
+                outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual(outputs["fleet_jobs"], "")
+                self.assertEqual(outputs["free_retry_runner"], "")
+                self.assertEqual(outputs["blacksmith_12_jobs"] + outputs["blacksmith_6_jobs"], "")
+                self.assertEqual(outputs["deferred_runner"], SIDE)
+                context = self.context()
+                context["needs"]["macos-placement"]["outputs"].update(outputs, placed_attempt="1")
+                self.assertEqual(evaluate(self.jobs["fast-tier"]["runs-on"], context), SIDE)
+                context["inputs"] = {"same_tree_sha": "", "dev_daily": False}
+                context["github"].update(base_ref="feat-cmux-next")
+                context["needs"].update(path_route={"outputs": {"macos": "true", "fast_tier": "true"}},
+                                         **{"push-head-preflight": {"outputs": {"current": "true"}}})
+                self.assertTrue(evaluate(self.jobs["fast-tier"]["if"].replace("!cancelled()", "true"), context))
 
     def test_gui_jobs_keep_their_route(self):
         for name in GUI_JOBS:

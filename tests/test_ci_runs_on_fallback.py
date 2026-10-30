@@ -665,19 +665,16 @@ class RunsOnFallbackTests(unittest.TestCase):
                             failures.append(f"{path.name} {job_id}: terminal {variable} has no pool fallback")
         self.assertEqual(failures, [], "a reserved runner label must never be the final runs-on value")
 
-    def test_cmux_next_fast_tier_never_falls_back_to_the_reserved_side_label(self) -> None:
+    def test_cmux_next_fast_tier_uses_the_cascade_before_deferring_to_base_queue(self) -> None:
         fast = load(WORKFLOWS / "cmux-next.yml")["jobs"]["fast-tier"]
         expression = runs_on_text(fast)
-        self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", expression)
-        self.assertIn("needs.macos-placement.outputs.retry_runner", expression)
-        self.assertIn("blacksmith-6vcpu-macos-26", expression)
-        # If placement excluded both Blacksmith pools and has no retry label, the job is skipped;
-        # an unconditional vars.MACOS_RUNNER_26/Blacksmith tail would bypass outage and nightly guards.
-        self.assertIn("needs.macos-placement.outputs.placed_attempt != format('{0}', github.run_attempt)", expression)
-        self.assertIn("github.triggering_actor", expression)
-        fast_if = str(fast.get("if") or "")
-        self.assertIn("needs.macos-placement.outputs.fast_runner != ''", fast_if)
-        self.assertIn("needs.macos-placement.outputs.retry_runner", fast_if)
+        retry = expression.index("needs.macos-placement.outputs.retry_runner")
+        deferred = expression.index("needs.macos-placement.outputs.deferred_runner")
+        legacy = expression.index("vars.CI_SIDE_LANE_RUNNER")
+        self.assertLess(retry, deferred)
+        self.assertLess(deferred, legacy)
+        self.assertIn(".github/workflows/cmux-next.yml", rescued_paths())
+        self.assertNotIn("needs.macos-placement.outputs", fast["if"])
 
     def test_the_role_label_rule_catches_what_it_is_for(self) -> None:
         here = ".github/workflows/x.yml"

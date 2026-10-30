@@ -619,7 +619,7 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
             # The GUI jobs of the rescue's re-run never read gui_runner: they leave the owned GUI queue they were
             # rescued from for Blacksmith macOS (cmux-next.yml's gui_overflow leg).
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
-                         f"runner={label if owned else ''}\ngui_overflow={GUI_OVERFLOW}\n"
+                         f"runner={label if owned else ''}\ndeferred_runner={label}\ngui_overflow={GUI_OVERFLOW}\n"
                          f"watch={'false' if fallback and not owned else 'true'}\n")
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     # Runners read: the jobs past `owned` have no idle mini, so the cascade's overflow may take them.
@@ -714,7 +714,7 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
             free_gui = free_gui_route_label(label, runners)
             free_session = free_session_route_label(label, runners)
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
-                         f"runner={route}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
+                         f"runner={route}\ndeferred_runner={route or label}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
                          f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
                          f"gui_overflow={gui_overflow}\nsession_lane_runner={session_lane}\n"
                          f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
@@ -758,7 +758,7 @@ def _timeout_fallback(env: Mapping[str, str]) -> int:
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(
-                f"owned_jobs=\nfallback_jobs=\nrunner={cascade.SMALL}\n"
+                f"owned_jobs=\nfallback_jobs=\nrunner={cascade.SMALL}\ndeferred_runner=\n"
                 f"gui_runner=\nsession_runner=\nfree_gui_runner=\nfree_session_runner=\n"
                 f"gui_overflow={cascade.SMALL}\nsession_lane_runner=\n"
                 f"nightly_runner_ready=\nfast_runner=\nfresh_runner=\nfresh_jobs=\n"
