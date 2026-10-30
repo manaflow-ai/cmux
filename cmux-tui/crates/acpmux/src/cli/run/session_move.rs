@@ -219,7 +219,7 @@ async fn prepare(
     remote: &RemoteDaemon,
     args: &MoveArgs,
     o: &mut Outcome,
-) -> Result<(Value, Forward, Client)> {
+) -> Result<(Value, Forward, std::sync::Arc<Client>)> {
     let checkout = tokio::task::spawn_blocking({
         let cwd = cwd.to_path_buf();
         move || checkout_of(&cwd)
