@@ -17,8 +17,10 @@ import CmuxNextSettings
 /// For captures of the launch notice: `{plant_draft: {path, text}}` keeps `text` as the
 /// unsaved changes of local file `path` through the app's own store and writes the draft at once,
 /// as an edit followed by a quit that cannot wait would. `{launch_notice: true}` runs the launch's
-/// recovered-draft notice again in the active window with a new store over the same directory, as
-/// the next launch's first window does (the notice keeps no state outside that directory).
+/// recovered-draft notice again in the active window, as the next launch's first window does (the
+/// notice keeps no state outside the store's directory). `{clear_draft: path}` removes that draft
+/// and its notice record, as a save does, so a capture leaves nothing behind. A request whose
+/// draft or window is missing answers `ok: false` with an `error`, which fails a tour step.
 @MainActor
 enum DebugFilePages {
     private static var lastOpenLink: String?
@@ -30,13 +32,18 @@ enum DebugFilePages {
             let kept = store.update(id: QuitParticipantID.file(path: path), title: URL(fileURLWithPath: path).lastPathComponent,
                                     contents: Data((plant["text"]?.stringValue ?? "").utf8), filePath: path)
             await store.writePending()
-            result["planted"] = .bool(kept == .kept)
+            guard kept == .kept else { return ["ok": false, "error": "the draft was not kept"] }
+            result["planted"] = true
         }
-        if params["launch_notice"]?.boolValue == true, let window = services.windows.active?.window {
-            let launch = RecoveryDraftStore(directory: services.recoveryDrafts.directory)
-            launch.restoreHandler = services.recoveryDrafts.restoreHandler
-            await RecoveryNotice.show(store: launch, in: window)
+        if params["launch_notice"]?.boolValue == true {
+            guard let window = services.windows.active?.window else { return ["ok": false, "error": "no active window"] }
+            // The app's own store: its Open stays wired for as long as the toast shows.
+            await RecoveryNotice.show(store: services.recoveryDrafts, in: window)
             result["notice_ran"] = true
+        }
+        if let path = params["clear_draft"]?.stringValue {
+            await services.recoveryDrafts.remove(id: QuitParticipantID.file(path: path))
+            result["cleared"] = true
         }
         let drafts = await services.recoveryDrafts.drafts()
         if let id = params["restore"]?.stringValue {

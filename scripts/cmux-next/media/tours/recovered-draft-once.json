@@ -7,6 +7,17 @@
       "shot": false
     },
     {
+      "title": "Start clean: no draft of notes.md left by an earlier capture",
+      "rpc": {
+        "method": "debug.filepages",
+        "params": {
+          "clear_draft": "/tmp/cmux-capture-recovered-draft/notes.md"
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    },
+    {
       "title": "Plant a recovered draft of notes.md (an edit, then a quit that could not wait)",
       "rpc": {
         "method": "debug.filepages",
@@ -44,6 +55,17 @@
         }
       },
       "wait": 1.5
+    },
+    {
+      "title": "Clean up: remove the planted draft and its notice record",
+      "rpc": {
+        "method": "debug.filepages",
+        "params": {
+          "clear_draft": "/tmp/cmux-capture-recovered-draft/notes.md"
+        }
+      },
+      "wait": 0.3,
+      "shot": false
     }
   ]
 }
