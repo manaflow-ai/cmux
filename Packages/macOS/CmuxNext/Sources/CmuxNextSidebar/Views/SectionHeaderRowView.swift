@@ -221,8 +221,6 @@ final class SectionHeaderRowView: SidebarRowView {
         }
     }
 
-    override var fillVerticalInset: CGFloat { 0 }
-
     override func layout() {
         super.layout()
         let b = layoutBounds

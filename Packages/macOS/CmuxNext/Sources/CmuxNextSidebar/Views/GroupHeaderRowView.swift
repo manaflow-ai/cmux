@@ -343,10 +343,7 @@ final class GroupHeaderRowView: SidebarRowView {
         // The bar fills the row (as tall as a workspace row); the type and glyphs keep their scale.
         // Type and glyphs follow a one-line row: an Expanded header is two lines tall, its name is not bigger.
         let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: min(b.height, SidebarLayoutMetrics.standard.rowHeight))
-        let columns = SidebarColumns(rowWidth: b.width, comfortable: SidebarDensityTokens.isComfortable,
-                                     leadingOffset: railReach,
-                                     leadingInset: LayoutGrid.sidebarLead - SidebarStyle.horizontalInset,
-                                     trailingInset: SidebarStyle.rowEdgeGap)
+        let columns = SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach)
         // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
         let lead = columns.lead
@@ -413,12 +410,13 @@ final class GroupHeaderRowView: SidebarRowView {
         pin.isHidden = !pinned
         let pinInk = pin.image.flatMap { SidebarGlyphInk.shared.box(of: $0, glyph: SidebarItemRowView.pinGlyph) }
         let scale = window?.backingScaleFactor ?? 2
-        let pinX = (hasIcon ? columns.disclosureFrame(height: b.height).midX : SidebarStyle.iconColumnCenterX(leading: lead)) - (pinInk?.midX ?? pinSide / 2)
+        let pinX = SidebarStyle.iconColumnCenterX(leading: lead) - (pinInk?.midX ?? pinSide / 2)
         pin.frame = NSRect(x: (pinX * scale).rounded() / scale, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
-        let iconLead = lead
-        glyph.frame = NSRect(x: iconLead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        // After a pin, the header's own icon and name move one icon column in, as a pinned row's do.
+        let inner = pinned ? SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach + columns.text - columns.lead) : columns
+        glyph.frame = NSRect(x: inner.lead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
         // The label's frame sits its text inset left of the column, as a workspace title's does.
-        let nx = columns.text(hasLeadingMark: hasIcon || pinned) - SidebarStyle.labelCellPadding
+        let nx = inner.text(hasLeadingMark: hasIcon) - SidebarStyle.labelCellPadding
         let countWidth = count.stringValue.isEmpty || renaming ? 0 : Self.drawnWidth(count)
         let nh = ceil(name.intrinsicContentSize.height)
         count.isHidden = countWidth == 0

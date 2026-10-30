@@ -35,7 +35,7 @@ extension SidebarItemRowView {
         if activityOnColumn { return }
         let side = SidebarStyle.indicatorSize
         if style != .chip && style != .favorite {
-            let columns = SidebarStyle.columns(rowWidth: bounds.width - SidebarStyle.rowEdgeGap)
+            let columns = bandColumns(in: bounds)
             activity.frame = columns.trailingFrame(index: rowBadge.isHidden ? 0 : 1, centerY: bounds.midY, side: side)
             title.frame.size.width = max(0, min(title.frame.width, activity.frame.minX - LayoutGrid.base - title.frame.minX))
         } else {

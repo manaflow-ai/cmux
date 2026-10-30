@@ -3,9 +3,15 @@ import CmuxNextDesign
 
 /// AppKit adapters for the pure grid, measured from the highlight's left edge.
 extension SidebarStyle {
+    /// The one column source every sidebar row kind reads, in its highlight's coordinates.
+    /// `lead` sits `horizontalInset` inside the highlight: the highlight keeps the base list inset
+    /// (6 compact, 8 comfortable), and an iconless title starts as far left as the row allows
+    /// (Lawrence 2026-10-23), so lead lands 12 / 16 from the sidebar edge. The trailing line is
+    /// grid.md's: 24 from the sidebar edge, the row ending `rowEdgeGap` short of it.
     static func columns(rowWidth: CGFloat, depth: Int = 0, leadingOffset: CGFloat = 0) -> SidebarColumns {
         SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
                        depth: depth, leadingOffset: leadingOffset,
+                       leadingInset: LayoutGrid.sidebarLead - horizontalInset,
                        trailingInset: rowEdgeGap)
     }
 

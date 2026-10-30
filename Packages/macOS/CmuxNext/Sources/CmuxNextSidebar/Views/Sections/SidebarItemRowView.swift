@@ -238,10 +238,11 @@ class SidebarItemRowView: NSView {
         // (a band row's glyph, a pinned row's pin) starts where a workspace row's text starts (its inset plus the
         // pill inset), and a title after that glyph starts at the one text column (`SidebarStyle.leadingTextX`).
         // A pinned row's own icon or color dot, when it has one, takes the text column after the pin.
-        let columns = SidebarStyle.columns(rowWidth: b.width - SidebarStyle.rowEdgeGap, depth: info.indent)
-        let rowLead = columns.lead
-        let pinFrame = info.leadingPin ? pinGlyphFrame(side: Metrics.smallIconSize, leading: bare && !showsSwatchDot ? rowLead : rowLead - LayoutGrid.iconBox, height: b.height) : .zero
-        let lead = style == .chip ? Metrics.space2 : columns.lead
+        let columns = bandColumns(in: b)
+        let pinFrame = info.leadingPin ? pinGlyphFrame(side: Metrics.smallIconSize, leading: columns.lead, height: b.height) : .zero
+        // After a pin, the row's own icon, color dot and title move one icon column in.
+        let inner = info.leadingPin ? bandColumns(in: b, after: columns.text - columns.lead) : columns
+        let lead = style == .chip ? Metrics.space2 : inner.lead
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: lead, y: (b.height - side) / 2, width: side, height: side)
@@ -251,7 +252,7 @@ class SidebarItemRowView: NSView {
         // as a selected row); the profile avatar's pill and click fill its square.
         let pillFrame = style.isIconOnly ? (showsAvatar ? b : iconFrame)
             : style == .chip ? b
-            : NSRect(x: inset, y: LayoutGrid.pillInset, width: max(0, b.width - inset * 2), height: max(0, b.height - 2 * LayoutGrid.pillInset))
+            : NSRect(x: inset, y: 0, width: max(0, b.width - inset * 2), height: b.height)
         pill.frame = pillFrame
         pill.cornerRadius = isRailButton ? SidebarStyle.railTileCornerRadius : SidebarStyle.rowCornerRadius
         // A text-only workspace with a color draws it as its list row does: a dot before the title.
@@ -304,7 +305,7 @@ class SidebarItemRowView: NSView {
         }
         badge.frame = NSRect(x: badgeX, y: (b.height - badgeHeight) / 2, width: badgeWidth, height: badgeHeight)
         let th = ceil(title.intrinsicContentSize.height)
-        let textX = (style == .chip ? iconFrame.maxX + Metrics.space2 : columns.text(hasLeadingMark: !bare || showsSwatchDot || info.leadingPin)) - SidebarStyle.labelCellPadding
+        let textX = (style == .chip ? iconFrame.maxX + Metrics.space2 : inner.text(hasLeadingMark: !bare || showsSwatchDot)) - SidebarStyle.labelCellPadding
         title.frame = NSRect(x: textX, y: SidebarStyle.textY(title, centerY: b.midY), width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
     }
 
@@ -316,21 +317,30 @@ class SidebarItemRowView: NSView {
     /// column is measured from the fill's end. Lawrence msg 11914: the status drew after the title,
     /// 3.5 pt right of the column every other dot and spinner shares.
     private func layoutColumnMark(in b: NSRect) -> CGFloat? {
-        let rowWidth = b.width - SidebarStyle.rowEdgeGap
-        let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
+        let columns = bandColumns(in: b)
+        let column = columns.trailingCenter()
         if !rowBadge.isHidden {
             let side = rowBadge.cellSide, width = rowBadge.preferredWidth
             let x = style == .chip ? b.width - Metrics.space2 - width : column - width + side / 2, scale = window?.backingScaleFactor ?? 2
             rowBadge.frame = NSRect(x: SidebarStyle.pixelSnapped(x, scale: scale), y: SidebarStyle.pixelSnapped((b.height - side) / 2, scale: scale),
                                     width: width, height: side)
             guard style != .chip else { return rowBadge.frame.minX }
-            return min(rowBadge.frame.minX, SidebarStyle.trailingColumnStart(rowWidth: rowWidth))
+            return min(rowBadge.frame.minX, column - SidebarStyle.trailingSlotSide / 2)
         }
         guard activityOnColumn else { return nil }
         let side = SidebarStyle.indicatorSize, scale = window?.backingScaleFactor ?? 2
         func snapped(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
         activity.frame = NSRect(x: snapped(column - side / 2), y: snapped((b.height - side) / 2), width: side, height: side)
-        return min(activity.frame.minX, SidebarStyle.trailingColumnStart(rowWidth: rowWidth))
+        return min(activity.frame.minX, column - SidebarStyle.trailingSlotSide / 2)
+    }
+
+    /// The shared sidebar columns in this row's coordinates. A band row's bounds include the outer inset on
+    /// both sides (its pill runs from `horizontalInset` to `width - horizontalInset`), so the columns are the list
+    /// rows' measured from the pill: lead `horizontalInset` inside it, the trailing line 22.5 before its end.
+    /// `after` moves lead and text right (a pinned row's icon and title, one icon column after the pin).
+    func bandColumns(in b: NSRect, after: CGFloat = 0) -> SidebarColumns {
+        let inset = SidebarStyle.horizontalInset
+        return SidebarStyle.columns(rowWidth: b.width - inset, depth: info.indent, leadingOffset: inset + after)
     }
 
     /// A large tile: the glyph well centered over a one-line caption, the

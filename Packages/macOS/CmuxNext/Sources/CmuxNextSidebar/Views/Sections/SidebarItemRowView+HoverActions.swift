@@ -37,7 +37,7 @@ extension SidebarItemRowView {
         activity.alphaValue = shown ? 0 : 1
         guard shown else { return }
         let control = SidebarStyle.controlSize
-        let columns = SidebarStyle.columns(rowWidth: b.width - SidebarStyle.rowEdgeGap)
+        let columns = bandColumns(in: b)
         var x = columns.trailingCenter() - control / 2
         if let hoverClose {
             hoverClose.frame = NSRect(x: x, y: (b.height - control) / 2, width: control, height: control)

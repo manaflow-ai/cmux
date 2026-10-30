@@ -3,9 +3,14 @@ import AppKit
 @testable import CmuxNextSidebar
 import Testing
 
-/// The decided sidebar grid, in points from the sidebar edge. No window or capture is needed:
-/// the first test pins the existing layout adapters, and the second lays out each real row view.
+/// The decided sidebar grid (leo-workspace design/grid.md 5.4), in points from the sidebar edge. No window or
+/// capture is needed: the first test pins the existing layout adapters, and the second lays out each real row view.
 /// Keep the expected numbers independent of LayoutGrid so changing a token cannot bless drift.
+///
+/// One number differs from grid.md: compact `lead` is 12, not 16. grid.md puts the highlight 8 from the edge and
+/// lead 8 inside it; the highlight keeps base's list inset (6 compact, 8 comfortable), and an iconless title starts
+/// `horizontalInset` inside its row (SidebarLookContractTests.titlesStartAsFarLeftAsTheRowAllows). Compact lead is
+/// therefore 6 + 6 = 12, the nearest grid line both allow; text stays lead + icon box + 8 (36 compact, 44 comfortable).
 @MainActor @Suite(.serialized) struct SidebarGridAlignmentTests {
     nonisolated enum Kind: String, CaseIterable, Sendable {
         case workspace, item, tab, app, link, sectionHeader, done, showMore, group
@@ -39,6 +44,10 @@ import Testing
         try body()
     }
 
+    /// grid.md `lead` from the sidebar edge, and `text` after a 16 / 20 icon box and an 8 gap.
+    nonisolated static func lead(_ comfortable: Bool) -> CGFloat { comfortable ? 16 : 12 }
+    nonisolated static func text(_ comfortable: Bool) -> CGFloat { comfortable ? 44 : 36 }
+
     /// Existing APIs only: this test compiles on the pre-fix stack and fails on its old insets,
     /// icon boxes and trailing column rather than on a missing symbol; density and rails stay at base.
     @Test(arguments: cases)
@@ -57,8 +66,8 @@ import Testing
             #expect(abs(SidebarDensityTokens.headerHeight - headerHeight) <= 0.5)
             let lead = SidebarStyle.titleLeading
             let text = c.kind == .sectionHeader ? lead : SidebarStyle.leadingTextX(leading: lead)
-            let expectedText = c.kind == .sectionHeader ? CGFloat(16) : (c.comfortable ? 44 : 40)
-            #expect(abs(origin + lead - CGFloat(16 + c.depth * 7)) <= 0.5)
+            let expectedText = c.kind == .sectionHeader ? Self.lead(c.comfortable) : Self.text(c.comfortable)
+            #expect(abs(origin + lead - Self.lead(c.comfortable) - CGFloat(c.depth * 7)) <= 0.5)
             #expect(abs(origin + text - expectedText - CGFloat(c.depth * 7)) <= 0.5)
             // A control's size never changes its center. A second column is one 20 pt pitch in.
             for index in 0..<c.marks {
@@ -82,7 +91,7 @@ import Testing
             view.layout()
             #expect(view.window == nil)
             let hasLeadingMark = c.kind == .workspace || c.kind == .item
-            let text: CGFloat = hasLeadingMark ? (c.comfortable ? 44 : 40) : 16
+            let text: CGFloat = hasLeadingMark ? Self.text(c.comfortable) : Self.lead(c.comfortable)
             if let workspace = view as? WorkspaceRowView {
                 #expect(abs(origin + workspace.title.frame.minX - text - CGFloat(c.depth * 7)) <= 0.5)
                 let font = workspace.title.font
@@ -112,7 +121,7 @@ import Testing
                                                   workspaceIcon: false) as? WorkspaceRowView)
             workspace.layout()
             #expect(workspace.icon.frame.width == 0)
-            #expect(abs(origin + workspace.title.frame.minX - CGFloat(16 + c.depth * 7)) <= 0.5)
+            #expect(abs(origin + workspace.title.frame.minX - Self.lead(c.comfortable) - CGFloat(c.depth * 7)) <= 0.5)
         }
     }
 
@@ -289,7 +298,7 @@ extension SidebarGridAlignmentTests {
                 #expect(abs(frame.minX + reach - CGFloat((comfortable ? 8 : 6) + depth * 7)) <= 0.5)
                 #expect(abs(frame.maxX - 318.5) <= 0.5)
                 let columns = SidebarStyle.columns(rowWidth: frame.width, leadingOffset: reach)
-                #expect(abs(frame.minX + columns.lead - CGFloat(16 + depth * 7)) <= 0.5)
+                #expect(abs(frame.minX + columns.lead - Self.lead(comfortable) - CGFloat(depth * 7)) <= 0.5)
                 #expect(abs(frame.minX + columns.trailingCenter() - 296) <= 0.5)
             }
         }
@@ -339,10 +348,8 @@ extension SidebarGridAlignmentTests {
                                                 height: SidebarDensityTokens.headerHeight) as? SectionHeaderRowView)
             section.layout()
             #expect(section.addButton.frame.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
-            #expect(section.fillVerticalInset == 0)
-            // Group pills and section fills retain their full row height.
+            // Group pills retain their full row height; section and workspace fills paint the row's own layer.
             #expect(group.layer?.sublayers?.contains { $0.frame == group.bounds } == true)
-            #expect(section.layer?.sublayers?.contains { $0.frame == section.bounds } == true)
         }
     }
 
@@ -371,7 +378,7 @@ extension SidebarGridAlignmentTests {
     @Test(arguments: [false, true])
     func twentyPointHitBoxesUseConsecutiveSlots(comfortable: Bool) {
         let columns = SidebarColumns(rowWidth: 304, comfortable: comfortable)
-        let first = columns.trailingFrame(centerY: 14, side: 20)
+        let first = columns.trailingFrame(centerY: 14, side: SidebarStyle.controlSize)
         let second = columns.trailingFrame(before: columns.trailingEdge(before: first), centerY: 14,
                                            size: CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
         #expect(first.size == CGSize(width: SidebarStyle.controlSize, height: SidebarStyle.controlSize))
