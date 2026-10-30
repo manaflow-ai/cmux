@@ -280,9 +280,9 @@ mod tests {
 
     #[test]
     fn one_live_session_wins_over_closed_ones() {
-        let found = [c("hb", "review", "hb/m3", false), c("big-red", "review", "m1", true)];
+        let found = [c("hb", "review", "hb/m3", false), c("mac-a", "review", "m1", true)];
         assert_eq!(pick("review", &found).unwrap().unwrap().route, "hb/m3");
-        let closed = [c("big-red", "review", "m1", true)];
+        let closed = [c("mac-a", "review", "m1", true)];
         assert_eq!(pick("review", &closed).unwrap().unwrap().route, "m1");
         assert_eq!(pick("review", &[]).unwrap(), None);
     }
@@ -290,7 +290,7 @@ mod tests {
     #[test]
     fn several_live_sessions_are_refused_with_each_host_and_name() {
         let found = [
-            c("big-red", "review", "m1", false),
+            c("mac-a", "review", "m1", false),
             c("hb", "review", "hb/m3", false),
             c("hb", "review", "hb/m4", false),
             c("cmux16", "review", "cmux16/m5", true),
@@ -298,14 +298,14 @@ mod tests {
         let e = pick("review", &found).unwrap_err();
         assert_eq!(
             e.message,
-            "\"review\" names 3 live sessions: big-red/review, hb/m3, hb/m4; name one of them"
+            "\"review\" names 3 live sessions: mac-a/review, hb/m3, hb/m4; name one of them"
         );
         let data = e.data.unwrap();
         assert_eq!(data["reason"], AMBIGUOUS);
         assert_eq!(data["session"], "review");
         let uses: Vec<&str> =
             data["choices"].as_array().unwrap().iter().filter_map(|c| c["use"].as_str()).collect();
-        assert_eq!(uses, ["big-red/review", "hb/m3", "hb/m4"]);
+        assert_eq!(uses, ["mac-a/review", "hb/m3", "hb/m4"]);
         // The message names ten; the data lists every one.
         let many: Vec<Candidate> =
             (0..12).map(|i| c(&format!("h{i}"), "review", &format!("h{i}/m"), false)).collect();
