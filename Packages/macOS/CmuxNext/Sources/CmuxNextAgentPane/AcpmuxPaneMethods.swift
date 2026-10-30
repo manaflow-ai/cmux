@@ -117,6 +117,10 @@ nonisolated enum AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
         // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
         "_acpmux/route/list", "_acpmux/chat/route.set",
+        // The composer's sign-in check before a turn (direct.ts sessionAuth, sessionAuth.ts): read
+        // only. It names its chat (`sessionId`, in the pane's scope) or a new chat's `target` (a
+        // harness, and optionally its host and route), never another chat.
+        "_acpmux/session/auth",
         // The Inspector's running-limit stepper (direct.ts setRunningLimit): how many of a chat's
         // sub-sessions in the pane's scope run a turn at once, or back to the inherited limit
         // (`null`). Only `maxRunning`: it starts nothing new and widens no permission (each child already
@@ -247,7 +251,9 @@ nonisolated enum AcpmuxPaneMethods {
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
     /// a named session must be in the pane's scope (``sessionScoped``'s rule); none is fine.
-    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set"]
+    /// The sign-in check names a chat (`sessionId`) or only a new chat's `target`: a named one must
+    /// be in the pane's scope too.
+    public static let optionallySessionScoped: Set<String> = ["acp.trust.get", "acp.trust.set", "_acpmux/session/auth"]
 
     /// The methods that copy a session's content into a new session the pane then controls: a
     /// fork, and the handoff steps (prepare captures the source and makes the target, draft edits
@@ -355,24 +361,25 @@ nonisolated enum AcpmuxPaneMethods {
     /// Where a frame carries the ticket of a gesture reserved at its pick (`params._meta.cmuxGesture`).
     public static let gestureTicketKey = "cmuxGesture"
 
-    /// A session/prompt with every `_meta` inside its prompt blocks removed, at any depth (a block's
-    /// own, a nested resource's, annotations'); nil when there is none (the frame goes unchanged).
-    /// The request's own `params._meta` stays. Adapters read no block `_meta` today; a future one
-    /// could, and the relay cannot check what it would do with it.
+    /// Strip untrusted block metadata at every depth, retaining only a top-level upload reference.
+    /// The daemon validates that the finished upload belongs to this chat. Request params._meta
+    /// stays; nil means the frame is unchanged.
     static func strippingPromptMeta(_ object: [String: Any]?) -> [String: Any]? {
         guard var object, object["method"] as? String == "session/prompt", var params = object["params"] as? [String: Any],
               let prompt = params["prompt"] as? [Any] else { return nil }
         var stripped = false
-        func strip(_ value: Any) -> Any {
+        func strip(_ value: Any, acceptsUpload: Bool = false) -> Any {
             if var dictionary = value as? [String: Any] {
+                let upload = acceptsUpload ? promptUploadMeta(dictionary) : nil
                 if dictionary.removeValue(forKey: "_meta") != nil { stripped = true }
                 for (key, child) in dictionary where child is [String: Any] || child is [Any] { dictionary[key] = strip(child) }
+                if let upload { dictionary["_meta"] = upload }
                 return dictionary
             }
-            if let list = value as? [Any] { return list.map(strip) }
+            if let list = value as? [Any] { return list.map { strip($0) } }
             return value
         }
-        let blocks = prompt.map(strip)
+        let blocks = prompt.map { strip($0, acceptsUpload: true) }
         guard stripped else { return nil }
         params["prompt"] = blocks
         object["params"] = params

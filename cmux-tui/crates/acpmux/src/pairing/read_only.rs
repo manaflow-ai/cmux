@@ -6,7 +6,7 @@
 //!
 //! Allowed: the handshake, the session lists, watching and attaching
 //! (always hidden, so the person's unread and seen state do not change),
-//! a session's details, events, attachments and turn history, waiting
+//! a session's details, events, attachments, a queued prompt's text and turn history, waiting
 //! for a session to settle, and resolving a name or link to a session
 //! (`_acpmux/resolve`, answered from the same session list, without this
 //! machine's or its peers' names: `hub/locate.rs`). Refused: prompts, new or forked sessions,
@@ -28,6 +28,7 @@ const ALLOWED: &[&str] = &[
     method::MUX_INFO,
     method::MUX_EVENTS,
     method::MUX_ATTACHMENT,
+    method::MUX_QUEUE_TEXT,
     method::MUX_HISTORY,
     method::MUX_WAIT,
     method::MUX_SCHEMA,
