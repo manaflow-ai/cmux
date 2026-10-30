@@ -4031,7 +4031,10 @@ export class AcpmuxDirectClient {
             agent.state !== previous?.[index]?.state ||
             agent.name !== previous?.[index]?.name,
         );
+      const current = this.rows.current;
+      if (!this.rows.has(row.id) && row.seq !== undefined) this.rows.current = row.seq;
       this.rows.set(row.id, row, changed ?? false);
+      this.rows.current = current;
     }
   }
 

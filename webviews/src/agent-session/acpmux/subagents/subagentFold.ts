@@ -123,7 +123,7 @@ export type Event = { seq: number; at: number; msg?: any };
 type Step = { event: Event; update: any };
 /// The most `acpmux run --parent` calls waiting for their sub-session's start at once.
 const PENDING_CHILDREN = 16;
-type Group = { id: string; at: number; version: number; ids: string[] };
+type Group = { id: string; at: number; version: number; ids: string[]; seq?: number };
 type ViewRevisions = { activity: symbol; command: symbol; summary: object };
 
 /// Folds a session's subagent records out of its transcript. Subagents the session spawns
@@ -131,6 +131,8 @@ type ViewRevisions = { activity: symbol; command: symbol; summary: object };
 /// own updates, their spawn and state events, and the tool calls that started them draw no row.
 export class SubagentFold {
   private readonly agents = new Map<string, Subagent>();
+  /// The event that first introduced each agent, retained for a late top-level promotion.
+  private readonly startedSeq = new Map<string, number>();
   /// Replay can show a child's spawn before the sender's own spawn. Keep the
   /// original record so the child can be moved under that sender later.
   private readonly pending = new Map<string, Map<string, Event>>();
@@ -211,6 +213,7 @@ export class SubagentFold {
   private dropPhantom(id: string): void {
     const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
     this.agents.delete(id);
+    this.startedSeq.delete(id);
     const phantomGroup = this.groupOf.get(id);
     this.groupOf.delete(id);
     this.own.delete(id);
@@ -424,12 +427,13 @@ export class SubagentFold {
     };
     this.runs.set(call, agent.id);
     this.agents.set(agent.id, agent);
+    this.startedSeq.set(agent.id, event.seq);
     this.named.add(agent.id);
     this.turn.add(agent.id);
     // A foreground run ends with its call; the turn's end ends one whose end never came.
     if (!agent.background) this.called.add(agent.id);
     // Its own card in the transcript, where it started: never a batch with Claude's subagents.
-    const group: Group = { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [agent.id] };
+    const group: Group = { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [agent.id], seq: event.seq };
     this.groupOf.set(agent.id, group);
     this.open = undefined;
     this.updateRun(agent, event, update);
@@ -639,7 +643,13 @@ export class SubagentFold {
     }
     agent.parent = parent;
     if (parent === null) {
-      const group: Group = { id: `${SUBAGENTS}-root-${agent.id}`, at: agent.startedAt, version: 0, ids: [agent.id] };
+      const group: Group = {
+        id: `${SUBAGENTS}-root-${agent.id}`,
+        at: agent.startedAt,
+        version: 0,
+        ids: [agent.id],
+        seq: this.startedSeq.get(agent.id),
+      };
       this.groupOf.set(agent.id, group);
       this.changed.add(group);
     } else if (event) this.record(parent, { event, spawned: agent.id });
@@ -683,6 +693,7 @@ export class SubagentFold {
       id: group.id,
       version: group.version,
       at: group.at,
+      ...(group.seq !== undefined ? { seq: group.seq } : {}),
       kind: SUBAGENTS,
       subagents: group.ids.map((id) => ({ ...this.agents.get(id)! })),
     }));
@@ -862,10 +873,11 @@ export class SubagentFold {
         startedAt: event.at,
       };
       this.agents.set(agent.id, agent);
+      this.startedSeq.set(agent.id, event.seq);
       if (spawn) this.turn.add(agent.id);
       if (typeof change.toolCallId === "string") this.called.add(agent.id);
       if (parent === null) {
-        this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
+        this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [], seq: event.seq };
         this.open.ids.push(agent.id);
         this.groupOf.set(agent.id, this.open);
       } else this.record(parent, { event, spawned: agent.id });
