@@ -22,6 +22,8 @@ workspace = true
 # Named threads at a declared QoS (plans/cmux-next/chrome-parity/p02-threads.md).
 cmux-threads.workspace = true
 serde.workspace = true
+# The owner app as a level and the helpers' one stop rule (crates/cmux-owner-liveness).
+cmux-owner-liveness.workspace = true
 # raw_value only (a9): script values keep the page's key order. Never
 # preserve_order, which would change every map in the crate.
 serde_json = { workspace = true, features = ["raw_value"] }
