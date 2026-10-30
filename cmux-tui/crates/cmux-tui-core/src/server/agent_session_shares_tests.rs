@@ -266,9 +266,7 @@ fn a_provisioning_share_arms_its_expiry_timer() {
 
     shares.advance(Duration::from_secs(61));
     shares.expired(&mux);
-    let state = shares
-        .with(None, |all, _| Ok((all[0].state, false)))
-        .unwrap();
+    let state = shares.with(None, |all, _| Ok((all[0].state, false))).unwrap();
     assert_eq!(state, ShareState::Expired);
     assert!(shares.armed.lock().unwrap().is_none());
 }

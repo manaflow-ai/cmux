@@ -277,6 +277,70 @@ fn server_connection_permits_enforce_and_release_the_cap() {
     assert_eq!(snapshot.peak, MAX_SERVER_CONNECTIONS as u64);
 }
 
+/// #27669: connection threads parked on the registry lock outlived their CLI
+/// clients and held every slot, so the app's reconnects were refused
+/// `server.busy`. A client that hung up gives its slot to the next one; a live
+/// client keeps its own.
+#[cfg(unix)]
+#[test]
+fn hung_up_local_clients_give_their_slots_to_the_next_connection() {
+    use std::os::unix::net::UnixStream;
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let mut clients = Vec::new();
+    let permits: Vec<ConnectionPermit> = (0..MAX_SERVER_CONNECTIONS)
+        .map(|_| {
+            let (daemon_side, client) = UnixStream::pair().unwrap();
+            clients.push(client);
+            claim_watched_connection(&connections, &daemon_side).expect("slot below the cap")
+        })
+        .collect();
+    let (live_daemon_side, _live_client) = UnixStream::pair().unwrap();
+    assert!(
+        claim_watched_connection(&connections, &live_daemon_side).is_none(),
+        "every client is still connected: the limit holds"
+    );
+
+    // The clients give up; their connection threads are still parked.
+    clients.truncate(MAX_SERVER_CONNECTIONS - 2);
+    let app = claim_watched_connection(&connections, &live_daemon_side)
+        .expect("a slot of a client that hung up serves the next connection");
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.active, MAX_SERVER_CONNECTIONS as u64 - 1);
+    assert_eq!(snapshot.hung_up, 2);
+    assert_eq!(snapshot.reclaimed, 2);
+    assert_eq!(snapshot.refused, 1);
+
+    // A parked thread ending frees its place in the pool, not a live slot.
+    drop(permits);
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!((snapshot.active, snapshot.hung_up), (1, 0));
+    drop(app);
+    assert_eq!(connections.active(), 0);
+}
+
+/// The hung-up pool is bounded by the limit, so connection threads stay
+/// bounded at twice it however long the registry lock is held.
+#[cfg(unix)]
+#[test]
+fn hung_up_pool_is_bounded_by_the_connection_limit() {
+    use std::os::unix::net::UnixStream;
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let mut parked = Vec::new();
+    for _ in 0..MAX_SERVER_CONNECTIONS * 2 {
+        let (daemon_side, client) = UnixStream::pair().unwrap();
+        parked.push(claim_watched_connection(&connections, &daemon_side).expect("slot"));
+        drop(client);
+    }
+    let (daemon_side, _client) = UnixStream::pair().unwrap();
+    assert!(claim_watched_connection(&connections, &daemon_side).is_none());
+    let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.active, MAX_SERVER_CONNECTIONS as u64);
+    assert_eq!(snapshot.hung_up, MAX_SERVER_CONNECTIONS as u64);
+    // One parked thread ends: its pool place takes the next hung-up slot.
+    parked.remove(0);
+    assert!(claim_watched_connection(&connections, &daemon_side).is_some());
+}
+
 #[test]
 fn server_stats_report_lock_writer_and_connection_metrics() {
     let mux = test_mux();
