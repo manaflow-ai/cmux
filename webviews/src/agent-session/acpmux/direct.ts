@@ -325,6 +325,9 @@ type EarlyAttach = {
   watch: AttachWatch;
   sent: SentAttach;
   live: EventRecord[];
+  /// The chat's row changed after some of `live` came: those may be of the session before
+  /// (recreated meanwhile), which nothing in a record says, so the open attaches again.
+  suspect?: boolean;
 };
 
 /// A settled promise's value, unread: the race waits on the settling only.
@@ -3226,7 +3229,13 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     const watch: AttachWatch = { sessionId, seen: new Map() };
     this.attachWatch = watch;
-    const early: EarlyAttach = { sessionId, generation, watch, sent: this.sendAttach(sessionId, generation, true), live: [] };
+    const early: EarlyAttach = {
+      sessionId,
+      generation,
+      watch,
+      sent: this.sendAttach(sessionId, generation, true),
+      live: [],
+    };
     this.earlyAttach = early;
     return early;
   }
@@ -3243,8 +3252,9 @@ export class AcpmuxDirectClient {
   /// is not: acpmux keeps one subscription per chat and connection (server/view.rs `attach`), which
   /// the next attach takes over, so it streams once. Its live records stay held until that attach
   /// takes them (`attachWatched`), so none applies before the rows the open draws first (a kept
-  /// tail, the Mac's copy); its reads start over with that attach. `final`: the open ended, so
-  /// nothing takes them.
+  /// tail, the Mac's copy). That attach discards them: its page holds every record of the session
+  /// that came before it, and any of a session since recreated is not this chat's. Its reads start
+  /// over with that attach. `final`: the open ended, so nothing waits for them.
   private dropEarly(early: EarlyAttach, final = false): void {
     if (this.attachWatch === early.watch) this.attachWatch = undefined;
     const shown = early.sessionId === this.selectedSessionId && early.generation === this.selectionGeneration;
@@ -3332,10 +3342,14 @@ export class AcpmuxDirectClient {
     // A chat on another machine reads its asks and handoff once its attach answers, as before:
     // its machine may be down, and the Mac's copy shown then has none to read.
     const sent = early?.sent ?? this.sendAttach(sessionId, generation, typeof askedOf !== "string");
-    // What came live of the chat since an attach asked with the list (this one, or one the open
-    // dropped and attaches again here) applies now, once its rows are drawn and held (`copyLive`).
-    const streamed = early ?? (this.earlyAttach?.sessionId === sessionId ? this.earlyAttach : undefined);
-    if (streamed) this.takeEarly(streamed);
+    // What came live of the chat since the attach asked with the list applies now, once its rows
+    // are drawn and held (`copyLive`). One the open dropped: this attach's page holds what it
+    // streamed, so none of it applies (`dropEarly`), and what comes from here on does.
+    if (early) this.takeEarly(early);
+    else if (this.earlyAttach?.sessionId === sessionId) {
+      this.earlyAttach.live.length = 0;
+      this.earlyAttach = undefined;
+    }
     const result = await sent.attaching;
     this.syncView();
     if (!current()) return [];
@@ -3362,11 +3376,13 @@ export class AcpmuxDirectClient {
     };
     if (strayed()) return again();
     // An attach asked before the list was read, whose reply is of another session than the list
-    // names, or whose row moved machines since: the records it streamed before the open took it
+    // names, whose row moved machines since, or whose row changed after it streamed records
+    // (`suspect`): the records it streamed before the open took it
     // (applied above, `takeEarly`) may be that other session's, so none of them stays.
     if (
       early &&
-      ((typeof askedGen === "number" && typeof replyOf === "number" && replyOf !== askedGen) ||
+      (early.suspect ||
+        (typeof askedGen === "number" && typeof replyOf === "number" && replyOf !== askedGen) ||
         recreated ||
         rowNow?.peer !== askedOf)
     )
@@ -3584,6 +3600,10 @@ export class AcpmuxDirectClient {
     const added = !this.sessions.some((item) => item.sessionId === session.sessionId);
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), session];
     const watch = this.attachWatch?.sessionId === session.sessionId ? this.attachWatch : undefined;
+    // Records the attach asked with the list streamed before the row changed may be of the
+    // session before it (`EarlyAttach.suspect`).
+    const early = this.earlyAttach;
+    if (early?.sessionId === session.sessionId && early.live.length > 0) early.suspect = true;
     watch?.seen.set(`${String(session.createdAt)} ${String(session.peer)}`, {
       createdAt: session.createdAt,
       peer: session.peer,
