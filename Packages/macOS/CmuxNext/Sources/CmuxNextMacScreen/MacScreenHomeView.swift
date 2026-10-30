@@ -175,7 +175,7 @@ final class MacScreenHomeView: MacScreenThemedView {
     private func header() -> NSView {
         let title = MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, [
             MacScreenGlyph("display", font: MacScreenType.title, ink: \.primary),
-            MacScreenText(L.t("macScreen.home.title", "Mac Screen"), font: MacScreenType.title),
+            MacScreenText(L.t("macScreen.home.title", "Screen Sharing"), font: MacScreenType.title),
         ])
         let column = MacScreenStack.make(.vertical, spacing: 6, alignment: .leading)
         column.addArrangedSubview(title)
