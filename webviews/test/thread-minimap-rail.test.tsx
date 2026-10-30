@@ -201,14 +201,12 @@ test("rows are 10 px tab stops; every prompt on screen is current; hover magnifi
   }
 });
 
-test("the card waits Codex's 250 ms, follows the pointer at once while warm, and goes as the pointer leaves", async () => {
+test("the card opens on the hover, follows the pointer at once, and goes as the pointer leaves", async () => {
   const view = await mount(8);
   jest.useFakeTimers();
   try {
+    // In the hover's own commit: no dwell (model.ts RAIL_CARD_DELAY).
     await enter(3);
-    await advance(230);
-    expect(card()).toBeNull();
-    await advance(30);
     expect(card()).not.toBeNull();
     expect(card()!.textContent).toContain("Question 3");
     // Moving to another row moves the card with it, on the same frame.
@@ -229,10 +227,8 @@ test("the card waits Codex's 250 ms, follows the pointer at once while warm, and
     await pointer("pointerout", card()!, { relatedTarget: document.body });
     expect(card()).toBeNull();
     await advance(600);
-    // Cooled: the 250 ms again.
+    // Cooled: still at once.
     await enter(6);
-    expect(card()).toBeNull();
-    await advance(260);
     expect(card()).not.toBeNull();
   } finally {
     await view.unmount();

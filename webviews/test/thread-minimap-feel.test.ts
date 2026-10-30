@@ -4,8 +4,8 @@
 // measured worse than Codex in a 60-turn chat:
 // - a jump lands the prompt's bubble 35 px below the top, also when the rows it crosses were never
 //   drawn (it landed 262 px above the view, for a prompt 50 turns up);
-// - the hover card opens 250 ms after the pointer reaches the rail, as Codex's does (it took 465 ms),
-//   while the tick magnifies at once;
+// - the hover card opens with the hover itself (Leo, 2026-10-29: "faster scrttoll/hover over"; it
+//   waited Codex's 250 ms, and 465 ms before that), and the tick magnifies at once;
 // - the band of lit rows follows the scroll on the scroll's own frame (it lagged 1-2 frames and lit
 //   a turn still below the view), with the turns on screen as Codex counts them;
 // - older turns that load above the reader leave the band where it is on screen (it moved 150 px in
@@ -203,7 +203,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       await page.close();
     });
 
-    test("hovering magnifies at once and opens the card 250 ms after the pointer reaches the rail", async () => {
+    test("hovering magnifies at once and opens the card with the hover", async () => {
       const page = await open(turns(0, COUNT), 9000);
       const point = await tickPoint(page, 30);
       await page.mouse.move(point.x + 400, point.y);
@@ -255,10 +255,9 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       const growsAt = frames.filter((frame) => frame.t >= hovering).indexOf(grows!);
       expect(growsAt).toBeGreaterThanOrEqual(0);
       expect(growsAt).toBeLessThan(4);
-      // The card: Codex's 250 ms (its frames show 267-283 ms with the render), not the app's 450,
-      // painted by the second frame after.
-      expect(carded - over).toBeGreaterThan(230);
-      expect(carded - over).toBeLessThan(400);
+      // The card: committed with the hover (no dwell, model.ts RAIL_CARD_DELAY; it waited 250 ms),
+      // so no more than one painted frame goes by before it, and it paints by the second frame after.
+      expect(frames.filter((frame) => frame.t >= over && frame.t < carded).length).toBeLessThanOrEqual(1);
       const opensAt = frames.filter((frame) => frame.t >= carded).indexOf(opens!);
       expect(opensAt).toBeGreaterThanOrEqual(0);
       expect(opensAt).toBeLessThan(2);

@@ -1,6 +1,6 @@
 // The thread minimap, as the Codex desktop app's prompt rail: one 10 px row per user prompt, pinned
 // to the pane's left edge with a spacing-token inset. Hovering magnifies the rows near the pointer
-// like the Dock and, after the app's hover delay (ui/hoverIntent.ts), opens a preview card (the prompt, its bookmark and
+// like the Dock and, on the same hover (model.ts RAIL_CARD_DELAY), opens a preview card (the prompt, its bookmark and
 // the start of the reply) beside the hovered row. A click scrolls the transcript so the prompt
 // lands near the top and flashes its bubble; dragging scrubs; Tab walks the rows. Bookmarks show
 // as a dot past the tick, and the row's right spot toggles one. Geometry comes from the
@@ -35,7 +35,6 @@ import { experimentArm } from "../../../experiments/experiment";
 import { tickRanges } from "./tickWindow";
 import { useThreadMinimapArm } from "../chatDisplay";
 import {
-  CARD_DELAY,
   cardOffset,
   JUMP_CURVE,
   jumpDuration,
@@ -43,6 +42,7 @@ import {
   MIN_PROMPTS,
   minimapTurns,
   railFade,
+  RAIL_CARD_DELAY,
   railFades,
   railHeight,
   ROW_WIDTH,
@@ -213,10 +213,9 @@ export function ThreadMinimap({
   const [focused, setFocused] = useState<number | undefined>(undefined);
   /// The row the card shows (it stays while the pointer is in the card).
   const [cardRow, setCardRow] = useState<number | undefined>(undefined);
-  // The card's hover intent (ui/hoverIntent.ts): the first waits Codex's 250 ms (CARD_DELAY), then
-  // the card follows the pointer from row to row at once, and the rail cools a moment after it goes.
-  // Keyboard focus shows it at once.
-  const preview = useHoverIntent<"rail">({ delay: CARD_DELAY });
+  // The card's hover intent (ui/hoverIntent.ts): it opens on the hover (RAIL_CARD_DELAY), follows the
+  // pointer from row to row at once, and goes as the pointer leaves. Keyboard focus shows it at once.
+  const preview = useHoverIntent<"rail">({ delay: RAIL_CARD_DELAY });
   const cardOpen = preview.shown !== null;
   const intend = preview.hover;
   useEffect(() => {

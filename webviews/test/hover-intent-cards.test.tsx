@@ -73,9 +73,9 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ]).flat();
 
-// The minimap's turn preview waits Codex's 250 ms rather than the app's 450 (Leo, 2026-10-19: the
-// rail should feel like Codex's); under 200 ms is still a pass-over.
-test("the minimap's turn preview waits its delay, then follows the pointer at once until the rail cools", async () => {
+// The session rail's turn preview opens on the hover itself (Leo, 2026-10-29: "faster scrttoll/hover
+// over"; model.ts RAIL_CARD_DELAY), then follows the pointer from row to row, and goes as it leaves.
+test("the minimap's turn preview opens on the hover, follows the pointer and goes as it leaves", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   jest.useFakeTimers();
   try {
@@ -108,25 +108,21 @@ test("the minimap's turn preview waits its delay, then follows the pointer at on
         if (under !== undefined) pointer("pointerout", tick(under), null);
         under = undefined;
       });
-    // Still hidden 199 ms after the pointer came (one at 110 ms, the old delay, shows by then), and
-    // shown by 250 ms.
-    const waitsItsDelay = async (index: number) => {
+    // Shown in the commit of the hover, with no timer run.
+    const opensAtOnce = async (index: number) => {
       await move(index);
-      await wait(199);
-      expect(visible()).toBe(false);
-      await wait(51);
       expect(visible()).toBe(true);
     };
 
-    await waitsItsDelay(2);
-    // Warm: the next tick's preview at once.
+    await opensAtOnce(2);
+    // The next tick's preview at once.
     await move(3);
     expect(visible()).toBe(true);
-    // Off the rail past the warm time: the next waits again.
+    // Off the rail it goes; a cold rail opens at once too.
     await leave();
     expect(visible()).toBe(false);
     await wait(600);
-    await waitsItsDelay(4);
+    await opensAtOnce(4);
   } finally {
     jest.useRealTimers();
     await act(async () => root.unmount());

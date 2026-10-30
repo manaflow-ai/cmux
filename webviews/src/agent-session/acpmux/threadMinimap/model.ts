@@ -76,10 +76,14 @@ export const THREAD_PADDING_TOP = 16;
 export const JUMP_CURVE = [0.35, 0.05, 0, 1] as const;
 export const STEP_CURVE = [0.3, 0.2, 0, 1] as const;
 export const STEP_MS = MOTION_MS.standard;
-/// The preview card opens this long after the pointer reaches the rail (Codex's `delayOpen`, 250 ms).
-/// Shorter than the app's 450 ms hover delay (ui/hoverIntent.ts): the rail is a deliberate target,
-/// and the card is the point of hovering it. Once one shows, the next row's follows at once.
+/// The full-height map's preview card opens this long after the pointer reaches it (Codex's
+/// `delayOpen`, 250 ms). Shorter than the app's 450 ms hover delay (ui/hoverIntent.ts). Once one
+/// shows, the next row's follows at once.
 export const CARD_DELAY = 250;
+/// The session rail's preview card opens on the hover itself, with no dwell (Leo, 2026-10-29: "faster
+/// scrttoll/hover over"; design/session-rail.md: the card's "instant-open hover behavior"). The rail is
+/// a deliberate target, and the card is the point of hovering it.
+export const RAIL_CARD_DELAY = 0;
 /// When older turns load above the rail's rows and move them, the rail glides back over this long.
 export const SHIFT_MS = MOTION_MS.standard;
 /// A jump keeps correcting its landing for up to this many frames while the rows it crossed measure.
