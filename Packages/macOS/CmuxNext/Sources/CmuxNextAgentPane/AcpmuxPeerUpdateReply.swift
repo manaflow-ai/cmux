@@ -24,7 +24,9 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         case held
         /// The CLI's ssh probe of the peer failed (`failed` with reason `unreachable`, its first
         /// step): the peer dropped off the network after the app read its build; nothing changed.
-        /// Not final: asked again later. Also `failed` with reason `updateRunning` (another update
+        /// Not final: asked again later. Also `failed` with reason `lockLost` (the connection
+        /// holding the update's lease dropped, so the CLI changed nothing more; the next turn reads
+        /// the peer's build again). Also `failed` with reason `updateRunning` (another update
         /// holds the host's lock; nothing changed) reads as ``busy``. Every other `failed` reason
         /// (`unsupportedPlatform`, `pushFailed`, `pushMismatch`, `restartFailed`, the hand-written
         /// unit's refusals, ...) stays a failure: retrying the same build would fail the same way,
@@ -79,7 +81,9 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
         case "failed":
             switch (try? container.decodeIfPresent(String.self, forKey: .reason)) ?? nil {
             case "cloudMachine": outcome = .cloudMachine
-            case "unreachable": outcome = .unreachable
+            // `lockLost`: the connection holding the update's lease dropped, and the CLI changed
+            // nothing more (acpmux `host_update.rs`): the peer went away mid-update, so offline.
+            case "unreachable", "lockLost": outcome = .unreachable
             case "updateRunning": outcome = .busy
             default: outcome = error.map(Self.offline) == true ? .unreachable : .failed
             }

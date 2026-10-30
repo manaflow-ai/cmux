@@ -86,6 +86,9 @@ import Testing
         #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"ssh h failed: Connection closed by 192.0.2.7 port 22"}"#) == .failed)
         // ssh reached it and something there failed: still a failure.
         #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"ssh h failed: Bootstrap failed: 125"}"#) == .failed)
+        // The connection holding the update's lease dropped: the CLI changed nothing more, so the
+        // peer is offline and asked again, not failed (review of #27288 at 1211894).
+        #expect(outcome(#"{"outcome":"failed","reason":"lockLost","error":"h lost its update lock: its connection ended"}"#) == .unreachable)
         // Another update holds the host's lock: nothing changed, not now (review of #25388).
         #expect(outcome(#"{"outcome":"failed","reason":"updateRunning","error":"another update of h is running"}"#) == .busy)
         // --keep-newer left a later or own build alone.
@@ -255,6 +258,29 @@ import Testing
 
         #expect(fixture.calls.count == 2)
         #expect(clock.sleeps == [.seconds(120)])
+        #expect(events.withLock { $0 } == [.updating, .offline, .updating, .updated(build: Self.local)])
+        let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
+        #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
+    }
+
+    /// The connection holding the update's lease dropped as the binary's copy finished (`failed`,
+    /// reason `lockLost`, acpmux `an_update_whose_lock_connection_drops_changes_nothing_more`): the
+    /// old daemon runs on, so nothing is recorded or shown as failed, and the retry updates it.
+    @Test func anUpdateWhoseLockDroppedIsAskedAgainNotRecordedFailed() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        try fixture.reply("huge-blue", 1, #"{"updated":[{"peer":"huge-blue","host":"huge-blue","outcome":"failed","ok":false,"build":null,"reason":"lockLost","error":"huge-blue lost its update lock: its connection ended"}],"peers":[]}"#)
+        try fixture.reply("huge-blue", 2, #"{"updated":[{"peer":"huge-blue","outcome":"updated","ok":true,"build":"abc123def 2026-10-20"}],"peers":[]}"#)
+        let source = fixture.source(peers: ["huge-blue"])
+        let events = Mutex<[DaemonUpdateEvent.State]>([])
+        let clock = PolicyTestClock()
+        let state = fixture.root.appendingPathComponent("state")
+        await DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true },
+            report: { event in events.withLock { $0.append(event.state) } }, directory: state, clock: clock
+        )).run()
+
+        #expect(fixture.calls.count == 2)
         #expect(events.withLock { $0 } == [.updating, .offline, .updating, .updated(build: Self.local)])
         let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
         #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
