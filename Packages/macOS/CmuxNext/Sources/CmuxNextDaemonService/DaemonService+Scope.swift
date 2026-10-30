@@ -27,6 +27,8 @@ extension DaemonService {
     /// one when nil): after a reconnect, the new connection's sequence does
     /// not cover the old one's echo.
     public func closeTicket(_ ticket: CommandTicket?, label: String, error: (any Error)?, replying: DaemonConnection? = nil) async {
+        // A pane verb on a pane still opening was refused before it was sent: the person sees why (rule a), whoever ran it.
+        if error is PaneNotReady { onPaneNotReady?(label) }
         guard let ticket else { return }
         ticket.scope.note("reply \(label)")
         if error == nil, let source = replying ?? connection, let sequence = await source.eventSequence() {

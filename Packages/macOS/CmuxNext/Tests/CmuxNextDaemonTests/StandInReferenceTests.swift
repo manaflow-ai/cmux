@@ -20,3 +20,19 @@ import Testing
         #expect(DaemonRequestExecutor.standInReference(in: NewTabRequest(pane: PaneID(rawValue: 3))) == nil)
     }
 }
+
+/// The same check on the encoded line, as the request boundary runs it before a request goes out (a non-create pane verb
+/// that names a stand-in is refused there with `PaneNotReady`, never sent).
+@MainActor struct StandInLineTests {
+    @Test func anEncodedLineThatNamesAStandInIsCaught() throws {
+        let standIn = ProvisionalPane()
+        let leaking = try WireCoding.encodeRequest(ZoomPaneRequest(pane: standIn.handle), id: 7)
+        #expect(DaemonRequestExecutor.mayNameStandIn(leaking))
+        #expect(DaemonRequestExecutor.standInReference(inLine: leaking) != nil)
+        let daemon = try WireCoding.encodeRequest(ZoomPaneRequest(pane: PaneID(rawValue: 3)), id: 8)
+        #expect(!DaemonRequestExecutor.mayNameStandIn(daemon))
+        // A stand-in's digits in text (a line typed into a terminal) are not a pane reference.
+        let text = try WireCoding.encodeRequest(SendInputRequest(surface: SurfaceID(rawValue: 9), text: "\(standIn.handle.rawValue)"), id: 9)
+        #expect(DaemonRequestExecutor.standInReference(inLine: text) == nil)
+    }
+}

@@ -236,3 +236,16 @@ public struct PendingPaneNotCreated: Error, CustomStringConvertible {
     /// Plain English, as every ``DaemonError`` text of this module (it has no string catalog).
     public var description: String { "the pane it was for was not created" }
 }
+
+/// A pane verb (zoom, rename, swap, a page in it) named a pane that is still opening (a pending create's stand-in): it was
+/// not sent, since the daemon does not know that pane yet. The app shows it as a refusal (`DaemonService.onPaneNotReady`).
+public struct PaneNotReady: Error, CustomStringConvertible {
+    public let command: String
+    public let reference: String
+    public init(command: String, reference: String) {
+        self.command = command
+        self.reference = reference
+    }
+    /// Plain English for the log (this module has no string catalog); the app shows a localized text.
+    public var description: String { "\(command): the pane is still opening (\(reference)); not sent" }
+}
