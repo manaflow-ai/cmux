@@ -35,31 +35,9 @@ public final class PushRegistration {
     private var preferences = Preferences(kinds: ["question", "permission", "completed", "chief"])
     /// What the service last accepted, so a repeat sends nothing.
     private var sent: String?
-    private(set) var task: Task<Void, Never>?
-    private let topic: String?
-    private let register: @MainActor (Registration) async throws -> Void
+    private var task: Task<Void, Never>?
 
-    struct Registration {
-        let api: LiveAPI
-        let deviceID: String
-        let token: String
-        let environment: String
-        let topic: String
-        let preferences: Preferences
-
-        var key: String { [deviceID, token, environment, preferences.key].joined(separator: "|") }
-    }
-
-    init(topic: String? = Bundle.main.bundleIdentifier,
-         register: @escaping @MainActor (Registration) async throws -> Void = { registration in
-             try await registration.api.putPush(deviceID: registration.deviceID, token: registration.token,
-                                                environment: registration.environment, topic: registration.topic,
-                                                kinds: registration.preferences.kinds, mutedMacs: registration.preferences.mutedMacs,
-                                                previews: registration.preferences.previews)
-         }) {
-        self.topic = topic
-        self.register = register
-    }
+    init() {}
 
     /// The APNs device token (app delegate).
     public func didRegister(deviceToken: Data) {
@@ -97,18 +75,16 @@ public final class PushRegistration {
     }
 
     private func sync() {
-        guard let api, let deviceID, let token, let topic else { return }
+        guard let api, let deviceID, let token, let topic = Bundle.main.bundleIdentifier else { return }
         let environment = Self.environment
         let key = [deviceID, token, environment, preferences.key].joined(separator: "|")
         guard key != sent else { return }
         let preferences = preferences
-        let registration = Registration(api: api, deviceID: deviceID, token: token, environment: environment,
-                                        topic: topic, preferences: preferences)
-        let register = register
         task?.cancel()
         task = Task { [weak self] in
             do {
-                try await register(registration)
+                try await api.putPush(deviceID: deviceID, token: token, environment: environment, topic: topic, kinds: preferences.kinds,
+                                      mutedMacs: preferences.mutedMacs, previews: preferences.previews)
                 guard !Task.isCancelled else { return }
                 self?.sent = key
                 log.info("push registered (\(environment, privacy: .public), \(preferences.kinds.count, privacy: .public) kinds)")
