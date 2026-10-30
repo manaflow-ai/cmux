@@ -327,7 +327,16 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
             const page = await open(engine, stage, width);
             await pressAt(page, chip(name));
             await settle(page, stage.chips, [name]);
-            if (name === "Model") {
+            // The current model's row carries its levels inline where the caller picks model and
+            // effort together (#26521: New Tab); the segment group is the one with a checked level.
+            const inlineLevel =
+              '.acpmux-quick-menu .acpmux-quick-efforts:has(.acpmux-quick-effort-segment[aria-checked="true"]) .acpmux-quick-effort-segment[aria-checked="false"]';
+            if (name === "Model")
+              await page.locator(`${inlineLevel}, .acpmux-quick-sub:has-text("Effort")`).first().waitFor();
+            if (name === "Model" && (await page.locator(inlineLevel).count()) > 0) {
+              await menusAtRest(page);
+              await pressAt(page, inlineLevel);
+            } else if (name === "Model") {
               // The level rows sit in the model menu's Effort › submenu, the popup with no submenu row.
               await pressAt(page, '.acpmux-quick-sub:has-text("Effort")');
               await page.locator('[role="menu"]:not(:has(.acpmux-quick-sub)) [role="menuitemradio"]').first().waitFor();
