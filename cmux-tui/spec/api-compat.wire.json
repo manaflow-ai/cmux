@@ -475,6 +475,10 @@
         "id": 4111,
         "priority": "control"
       },
+      "cloud-conversation-presence": {
+        "id": 4125,
+        "priority": "control"
+      },
       "cloud-conversation-run": {
         "id": 4110,
         "priority": "control"
@@ -1623,6 +1627,10 @@
       },
       "cloud-conversation-live": {
         "id": 50691,
+        "priority": "control"
+      },
+      "cloud-conversation-presence": {
+        "id": 50700,
         "priority": "control"
       },
       "cloud-conversation-resynced": {
