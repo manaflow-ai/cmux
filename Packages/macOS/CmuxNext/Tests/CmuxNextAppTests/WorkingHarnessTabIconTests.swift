@@ -74,11 +74,13 @@ import Testing
         cell.layoutLayers()
         let icon = cell.iconLayer.frame
         let spinner = try #require(cell.spinnerLayer).frame
+        let visibleTitleWidth = try #require(cell.titleFade.geometry).visibleWidth
+        #expect(cell.titleLayer.frame.minX + visibleTitleWidth <= spinner.minX)
         item.title = "Chat"
         cell.update(item: item)
         #expect(cell.iconLayer.frame == icon)
         #expect(cell.spinnerLayer?.frame == spinner)
-        #expect(cell.titleLayer.frame.maxX <= spinner.minX)
+        #expect(cell.titleFade.geometry?.visibleWidth == visibleTitleWidth)
         #expect(cell.iconLayer.opacity == 1)
     }
 }
