@@ -48,8 +48,7 @@ export type QuickMenu = {
   };
   /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
   account?: { sessionId: string; accounts: ChatAccounts };
-  /// Account presentation alternatives for the gallery; the compact submenu is the default. Every
-  /// layout but inline lists Cmux routers under a Provider heading inside the Account choices.
+  /// Provider presentation alternatives for the gallery; the compact submenu is the default.
   routeLayout?: "submenu" | "inline" | "grouped";
   /// Auth for the selected session/route only, as acpmux last verified it.
   auth?: { verdict: SessionAuth; onLogin?(): void; onRefresh?(): void };
@@ -460,7 +459,7 @@ export function QuickModelMenu({
       list={accounts.list}
       failed={accounts.failed}
       switchFailed={accounts.switchFailed}
-      grouped={menu.routeLayout !== "inline"}
+      grouped={menu.routeLayout === "grouped"}
       onPick={(routeId) => {
         onOpenChange(false);
         accounts.pick(routeId);
@@ -883,14 +882,12 @@ export function QuickModelMenu({
         onChatTab &&
         account &&
         (menu.routeLayout === "inline" ? (
-          <MenuGroup label={t("picker.account")}>{routeRows}</MenuGroup>
+          <MenuGroup label={t("picker.provider")}>{routeRows}</MenuGroup>
         ) : (
-          // The composer's account switcher (Leo, 2026-10-29: "Why the fuck did you remove the
-          // fucking account switcher?"); #27151 had renamed it Provider.
           <Submenu
             className="acpmux-quick-item acpmux-quick-sub"
             popupClassName="acpmux-quick-menu acpmux-quick-submenu"
-            label={<QuickRowLabel label={t("picker.account")} value={accountValue} />}
+            label={<QuickRowLabel label={t("picker.provider")} value={accountValue} />}
           >
             {routeRows}
           </Submenu>
