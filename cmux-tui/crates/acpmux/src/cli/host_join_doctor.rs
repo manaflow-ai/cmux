@@ -468,11 +468,23 @@ fn output(program: &Path, args: &[&str]) -> Option<(i32, String)> {
         .spawn()
         .ok()?;
     let mut stdout = child.stdout.take()?;
-    let reader = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = stdout.read_to_string(&mut text);
-        text
-    });
+    // Ends at the child's EOF, or when the kill below closes the pipe.
+    let reader = match cmux_threads::spawn(
+        "acpmux-join-doctor-output",
+        cmux_threads::ThreadQos::Utility,
+        move || {
+            let mut text = String::new();
+            let _ = stdout.read_to_string(&mut text);
+            text
+        },
+    ) {
+        Ok(reader) => reader,
+        Err(_) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    };
     let status = match child.wait_timeout(STATUS_TIMEOUT).ok()? {
         Some(status) => status,
         None => {
