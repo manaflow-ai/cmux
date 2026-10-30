@@ -96,6 +96,12 @@ class CommandTests(unittest.TestCase):
             self.assertEqual(prefetch.package_paths(command), expected, command)
         self.assertEqual(prefetch.package_paths("swift test", "Packages/B"), ["Packages/B"])
 
+    def test_inline_assignments_reach_the_manifest(self) -> None:
+        self.assertEqual(prefetch.command_env("CMUX_TERMINAL_CLIENT_MODEL_ONLY=1 swift test"),
+                         {"CMUX_TERMINAL_CLIENT_MODEL_ONLY": "1"})
+        self.assertEqual(prefetch.command_env("env A=1 B=x swift build"), {"A": "1", "B": "x"})
+        self.assertEqual(prefetch.command_env("swift test A=1"), {})
+
     def test_other_commands_seed_nothing(self) -> None:
         for command in ("swift package dump-package", "swift test --help", "swift --version", "cargo test",
                         "bash -c 'swift test'", "swift test 'unterminated"):
@@ -117,6 +123,30 @@ class DumpTests(unittest.TestCase):
     def test_reads_local_path_dependencies(self) -> None:
         dump = {"dependencies": [{"fileSystem": [{"path": "/abs/Pkg"}]}, {"sourceControl": [{}]}]}
         self.assertEqual(prefetch.local_dependencies(dump, Path("/root/P")), [Path("/abs/Pkg")])
+
+
+class SoftFailureTests(unittest.TestCase):
+    def test_a_malformed_package_resolved_still_seeds_the_rest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = Path(tmp)
+            (package / "Package.resolved").write_text("{not json")
+            dump = {"targets": [{"type": "binary", "url": "https://h/x.zip", "checksum": "b" * 64}]}
+            original = prefetch.dump_package
+            prefetch.dump_package = lambda path, swift="swift", env=None: dump
+            try:
+                found = prefetch.graph_artifacts(package, package / "store")
+            finally:
+                prefetch.dump_package = original
+        self.assertEqual(found, [("https://h/x.zip", "b" * 64)])
+
+    def test_a_listing_failure_never_fails_the_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            package = Path(tmp)
+            (package / "Package.swift").write_text("")
+
+            def broken(package, store, swift, env):
+                raise RuntimeError("boom")
+            self.assertEqual(prefetch.seed([package], package / "s", package / "c", collect=broken), 0)
 
 
 class SeedTests(unittest.TestCase):
@@ -142,7 +172,7 @@ class SeedTests(unittest.TestCase):
 
     def seed(self, artifacts, body: bytes) -> int:
         return prefetch.seed([self.package], self.store, self.cache, download=self.download(body),
-                             collect=lambda package, store, swift: list(artifacts))
+                             collect=lambda package, store, swift, env: list(artifacts))
 
     def test_puts_each_artifact_at_swiftpm_cache_name(self) -> None:
         url = "https://github.com/o/r/releases/download/v1/A.xcframework.zip"
@@ -178,7 +208,7 @@ class SeedTests(unittest.TestCase):
         def fail(url: str, destination: Path) -> None:
             raise OSError("network down")
         missed = prefetch.seed([self.package], self.store, self.cache, download=fail,
-                               collect=lambda package, store, swift: [("https://h/A.zip", self.checksum)])
+                               collect=lambda package, store, swift, env: [("https://h/A.zip", self.checksum)])
         self.assertEqual(missed, 1)
         self.assertFalse(self.cache.exists() and any(self.cache.iterdir()))
 

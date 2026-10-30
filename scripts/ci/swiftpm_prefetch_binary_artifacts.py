@@ -61,6 +61,24 @@ def say(message: str) -> None:
     print(f"swiftpm prefetch: {message}", flush=True)
 
 
+def command_env(command: str) -> dict[str, str]:
+    """The NAME=VALUE assignments before the SwiftPM word of `command` (after an optional `env`): a manifest
+    that reads one (CMUX_TERMINAL_CLIENT_MODEL_ONLY) is evaluated as the command will evaluate it."""
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return {}
+    found = {}
+    for word in words:
+        if word in COMMAND_PREFIXES:
+            continue
+        match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", word)
+        if not match:
+            break
+        found[match.group(1)] = match.group(2)
+    return found
+
+
 def package_paths(command: str, directory: str = ".") -> list[str]:
     """The package directories `command` builds when it is `swift build|test` (or swift-build|swift-test),
     possibly after env assignments or a wrapper word; [] for anything else, or a command shlex cannot read.
@@ -152,9 +170,9 @@ def remote_pins(package: Path) -> list[tuple[str, str]]:
     return found
 
 
-def dump_package(path: Path, swift: str = "swift") -> dict:
+def dump_package(path: Path, swift: str = "swift", env: dict[str, str] | None = None) -> dict:
     done = subprocess.run([swift, "package", "dump-package", "--package-path", str(path)],
-                          capture_output=True, text=True, timeout=600)
+                          capture_output=True, text=True, timeout=600, env={**os.environ, **(env or {})})
     if done.returncode != 0:
         raise RuntimeError(f"dump-package {path} exited {done.returncode}: {done.stderr.strip()[-400:]}")
     return json.loads(done.stdout)
@@ -196,19 +214,26 @@ def pin_artifacts(location: str, revision: str, store: Path, swift: str = "swift
     return found
 
 
-def graph_artifacts(root: Path, store: Path, swift: str = "swift", jobs: int = 8) -> list[tuple[str, str]]:
-    """Every remote zip binary target of root's package graph: its local packages and its pins."""
+def graph_artifacts(root: Path, store: Path, swift: str = "swift", env: dict[str, str] | None = None,
+                    jobs: int = 8) -> list[tuple[str, str]]:
+    """Every remote zip binary target of root's package graph: its local packages and its pins. Pins are
+    evaluated without `env`: a dependency's manifest at a fixed revision does not read cmux's variables."""
     found: dict[str, str] = {}
     seen: set[Path] = set()
     frontier = [root.resolve()]
+    try:
+        resolved = remote_pins(root)
+    except (OSError, ValueError, AttributeError) as error:
+        warn(f"skipped {root}/Package.resolved: {error}")
+        resolved = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
         pins = {pool.submit(pin_artifacts, location, revision, store, swift): location
-                for location, revision in remote_pins(root)}
+                for location, revision in resolved}
         while frontier:
             batch = [path for path in dict.fromkeys(frontier) if path not in seen]
             seen.update(batch)
             frontier = []
-            for path, future in [(path, pool.submit(dump_package, path, swift)) for path in batch]:
+            for path, future in [(path, pool.submit(dump_package, path, swift, env)) for path in batch]:
                 try:
                     dump = future.result()
                 except Exception as error:  # noqa: BLE001 - reported, and SwiftPM fetches what is missed
@@ -276,14 +301,17 @@ def link_into_cache(blob: Path, cache: Path, url: str) -> Path:
 
 
 def seed(packages: list[Path], store: Path, cache: Path, swift: str = "swift", download=curl_download,
-         collect=graph_artifacts) -> int:
+         collect=graph_artifacts, env: dict[str, str] | None = None) -> int:
     """Seed the cache for every package; returns how many artifacts did not make it (warned, not fatal)."""
     artifacts: dict[str, str] = {}
     for package in packages:
         if not (package / "Package.swift").is_file():
             say(f"{package} has no Package.swift; nothing to seed")
             continue
-        artifacts.update(collect(package, store, swift))
+        try:
+            artifacts.update(collect(package, store, swift, env))
+        except Exception as error:  # noqa: BLE001 - SwiftPM fetches whatever is not seeded
+            warn(f"could not list {package}'s binary artifacts: {error}")
     missed = 0
     for url, checksum in sorted(artifacts.items()):
         try:
@@ -306,14 +334,20 @@ def main(argv=None) -> int:
     parser.add_argument("--swift", default=os.environ.get("SWIFT", "swift"))
     args = parser.parse_args(argv)
     paths = list(args.package_path)
+    env: dict[str, str] = {}
     if args.command is not None:
         paths += package_paths(args.command, args.directory)
+        env = command_env(args.command)
     if not paths:
         return 0
     if shutil.which(args.swift) is None:
         warn(f"{args.swift} is not on PATH; nothing seeded")
         return 0
-    seed([Path(path) for path in paths], args.store, args.cache or swiftpm_artifact_cache(), args.swift)
+    try:
+        seed([Path(path) for path in paths], args.store, args.cache or swiftpm_artifact_cache(), args.swift,
+             env=env)
+    except Exception as error:  # noqa: BLE001 - never fail the run: SwiftPM downloads what is missing
+        warn(f"stopped early: {error}")
     return 0
 
 
