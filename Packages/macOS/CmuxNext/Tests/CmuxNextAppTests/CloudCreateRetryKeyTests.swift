@@ -206,13 +206,14 @@ import Testing
         // The first attempt answered req_1 and was cancelled before recording it: the item is closed.
         let flow = CloudMachineCreateFlow(run: { _, _, key, _ in try await MainActor.run { try backend.call(key) } },
                                           confirm: { _ in true },
-                                          approve: { request, _, _ in throw CloudApprovalAnswer.Failure.notInFeed(request: request) },
+                                          approve: { request, _, _ in throw CloudApprovalAnswer.Failure.mismatch(request: request, reason: "state") },
                                           pause: { _ in })
         let machine = try await flow.create(name: nil, startedByPerson: false, key: "k1")
         #expect(machine["id"]?.stringValue == "vm_1")
         #expect(backend.machines.count == 1)
         #expect(CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: "state"), request: "r"))
         #expect(!CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "r", reason: "params"), request: "r"))
-        #expect(!CloudMachineCreateFlow.alreadyAnswered(.notInFeed(request: "other"), request: "r"))
+        #expect(!CloudMachineCreateFlow.alreadyAnswered(.notInFeed(request: "r"), request: "r"))
+        #expect(!CloudMachineCreateFlow.alreadyAnswered(.mismatch(request: "other", reason: "state"), request: "r"))
     }
 }

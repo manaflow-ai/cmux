@@ -189,9 +189,8 @@ struct CloudMachineCreateFlow {
     /// The approval item for `request` is no longer open to answer: an attempt already answered it.
     static func alreadyAnswered(_ failure: CloudApprovalAnswer.Failure, request: String) -> Bool {
         switch failure {
-        case .notInFeed(let r): r == request
         case .mismatch(let r, let reason): r == request && reason == "state"
-        case .refused: false
+        case .notInFeed, .mismatch, .refused: false
         }
     }
 
