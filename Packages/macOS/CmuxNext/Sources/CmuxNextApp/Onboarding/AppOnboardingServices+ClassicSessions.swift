@@ -129,8 +129,14 @@ extension AppOnboardingServices {
         await listed.value()
         bound.cancel()
         await queue.drained()
+        let started = ContinuousClock.now
         await SidebarDocStore.current?.settled()
+        // The wait this adds per imported workspace, recorded only while a DEBUG bench runs (ClassicUpgradeSimulationPerfTests).
+        BenchSpans.mark(Self.documentSettledSpan, milliseconds: BenchSpans.ms(.now - started))
     }
+
+    /// The bench span of ``placementLanded(_:queue:)``'s wait for the sidebar document.
+    static let documentSettledSpan = "classicImport.documentSettled"
 
     /// The daemon a classic workspace opens on: this Mac's, or the one for
     /// its SSH host once connected. Classic's identity file and SSH options
