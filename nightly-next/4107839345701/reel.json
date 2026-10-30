@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4107839345701",
+  "notes": "notes/4107839345701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28181,
+      "title": "fix(agent-pane): dismiss destination picker during trust ask",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28197,
+      "title": "carry of #27531: gate nightly recovery on tree marker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28230,
+      "title": "test(ios): keep EditAndResend surface tests out of macOS swift test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28336,
+      "title": "tool-evals: Codex retries and the shell's cmux fixed; 'this workspace' is the cmux workspace (round 4)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27964,
+      "title": "cmux NEXT Cloud: Worker machine exec, files and credential recovery (cmux-platform#89 C2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28169,
+      "title": "ci(cmux-tui): keep panic ratchet in PR lint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28165,
+      "title": "carry of #27720: reject spaced visual verdict placeholder",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28128,
+      "title": "carry of #27611: transcript row tidy",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
