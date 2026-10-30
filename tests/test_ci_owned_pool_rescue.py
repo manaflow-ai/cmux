@@ -181,13 +181,21 @@ def assert_left_at_open_head(case, api, text, number=42):
     case.assertIn(f"not rescued: PR #{number} is open at the run's head; {rescue.OPEN_HEAD_RULE}", text)
 
 
+def with_ids(jobs_at, first=900000):
+    """`jobs_at` with an id on every job that has none, as GitHub gives each job one."""
+    def jobs(seconds):
+        return [found if found.get("id") is not None else {**found, "id": first + index}
+                for index, found in enumerate(jobs_at(seconds))]
+    return jobs
+
+
 def assert_settled_failover(case, api):
     """The settled-sibling failover: a cancel, then a re-run of only what waited (one job, or the failed and cancelled
     jobs), never a full re-run or a placement re-run that would repeat a finished job."""
     case.assertIn("cancel", api.calls)
     case.assertNotIn("rerun", api.calls)
-    case.assertTrue("rerun-failed" in api.calls or any(call.startswith("rerun-job:") for call in api.calls),
-                    api.calls)
+    case.assertNotIn("rerun-failed", api.calls)
+    case.assertTrue(any(call.startswith("rerun-job:") for call in api.calls), api.calls)
 
 
 def event(**overrides):
@@ -6048,7 +6056,7 @@ class OpenHeadUnstartedFailover(unittest.TestCase):
         # so the full re-run never discards it.
         for jobs in (carried, linux_finished):
             with self.subTest(jobs=jobs.__name__):
-                clock, api, target = self.world(jobs)
+                clock, api, target = self.world(with_ids(jobs))
                 self.run_rescue(api, clock, target)
                 assert_settled_failover(self, api)
 
@@ -6346,21 +6354,46 @@ class OpenHeadSettledFailover(unittest.TestCase):
         self.assertIn(f"{self.COMPILE} on {MINI}", receipt[0])
         self.assertIn("::notice title=Open-head failover::", out)
 
-    def test_two_waiting_jobs_re_run_the_failed_jobs(self):
-        def two(seconds):
+    def test_a_cancel_never_leaves_a_queued_job_behind(self):
+        # Every job the cancel would stop must come back in the re-run. With a second job queued (another Mac job,
+        # a Linux job on a live label), no single re-run does: a job re-run brings back one job and its dependents,
+        # and a re-run of the failed jobs is not shown to bring back a cancelled queued one. The open head keeps the
+        # run, and a later look moves it once only the stalled job is left.
+        def mac(seconds):
             other = job("cmux-next app scheme compile", labels=[MINI], created=-600)
             other["id"] = 99
             return [*self.shape_27853(seconds), other]
-        clock, api, target = self.world(two)
-        _, lines, _ = self.run_rescue(api, clock, target)
-        self.assertIn("cancel", api.calls)
-        self.assertIn("rerun-failed", api.calls)
-        self.assertFalse(any(call.startswith("rerun-job") for call in api.calls), api.calls)
-        # GitHub's rerun-failed-jobs repeats the red jobs too: the receipt names them instead of counting them kept.
-        receipt = [line for line in lines if "receipt" in line]
-        self.assertTrue(receipt and "finished jobs kept: 26; failed jobs repeated: cmux-next fast tier, "
-                        "cmux-next swift test" in receipt[0], receipt)
-        self.assertIn(f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1", lines)
+
+        def linux(seconds):
+            other = job("cmux-next fleet Release compile", labels=["blacksmith-2vcpu-ubuntu-2404"], created=-60)
+            other["id"] = 98
+            return [*self.shape_27853(seconds), other]
+        for jobs in (mac, linux):
+            with self.subTest(jobs=jobs.__name__):
+                clock, api, target = self.world(jobs)
+                result, lines, out = self.run_rescue(api, clock, target)
+                assert_left_at_open_head(self, api, result, number=27853)
+                self.assertFalse([call for call in api.calls if call.startswith("rerun-job")], api.calls)
+                self.assertTrue(any("2 unfinished jobs" in line for line in lines), lines)
+                self.assertNotIn("::notice title=Open-head failover::", out)
+
+    def test_a_job_that_queues_before_the_cancel_drops_it(self):
+        # The guard right before the cancel: a second job queued since the failover's look would be cancelled and
+        # left behind by the re-run of the stalled job alone.
+        state = {"looks": 0}
+
+        def queues(seconds):
+            state["looks"] += 1
+            jobs = self.shape_27853(seconds)
+            if state["looks"] > 2:  # the failover's look and the receipt, then the guard's read
+                late = job("cmux-next app scheme compile", labels=[MINI])
+                late["id"] = 97
+                jobs.append(late)
+            return jobs
+        clock, api, target = self.world(queues)
+        result, _, _ = self.run_rescue(api, clock, target)
+        assert_left_at_open_head(self, api, result, number=27853)
+        self.assertIn("would leave it cancelled", result)
 
     def test_a_running_or_assigned_job_keeps_the_open_head_rule(self):
         def running(seconds):
@@ -6511,6 +6544,7 @@ class OpenHeadPlacementRerun(unittest.TestCase):
         self.assertNotIn("rerun", api.calls)  # not every job: the red checks and the cargo tier keep their results
         self.assertNotIn("rerun-failed", api.calls)  # a re-run of failed jobs would keep the old placement outputs
         self.assertIn(rescue.CMUX_NEXT_PLACEMENT_JOB, result)
+        self.assertIn(f"{rescue.CANCEL_SENT} run {RUN_ID} attempt 1 of job {self.PLACEMENT_ID}", lines)
         receipt = next(line for line in lines if "receipt" in line)
         self.assertIn("cmux-next fast tier on " + SIDE_STD, receipt)
         self.assertIn("finished jobs kept: ", receipt)
@@ -6521,6 +6555,30 @@ class OpenHeadPlacementRerun(unittest.TestCase):
         clock, api, target = self.world(self.shape(), running=1)
         result, _ = self.run_rescue(api, clock, target)
         assert_left_at_open_head(self, api, result, number=27797)
+
+    def test_a_placement_failover_stopped_after_its_cancel_resumes_only_the_placement(self):
+        # The rescue job ends (cancelled, killed, out of time) between its cancel and its re-run: its CANCEL_SENT
+        # mark names the placement job, so the successor re-runs that job and the jobs that need it, never every
+        # job, which would repeat the red checks and the cargo tier the failover keeps.
+        clock, api, target = self.world(self.shape())
+
+        def stopped(run_id, job_id, next_attempt):
+            raise KeyboardInterrupt
+        api.rerun_job = stopped
+        lines = []
+        with unittest.mock.patch("sys.stdout", io.StringIO()), self.assertRaises(KeyboardInterrupt):
+            rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lines.append, failed_only=True)
+        self.assertIn("cancel", api.calls)
+        marks = rescue.cancel_marks(lines)
+        self.assertEqual(marks, {(RUN_ID, 1): f"sent job {self.PLACEMENT_ID}"})
+        del api.rerun_job
+        meant = marks[(RUN_ID, 1)].removeprefix("sent job ")
+        with unittest.mock.patch("sys.stdout", io.StringIO()):
+            rescue.resume_rerun(api, target, now=clock.now, sleep=clock.sleep, log=lines.append, every_job=False,
+                                only_job=int(meant))
+        self.assertIn(f"rerun-job:{self.PLACEMENT_ID}", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
 
     def test_a_label_that_started_nothing_since_the_job_queued_is_moved_though_a_job_runs_there(self):
         # Run 40993742146: glaeda-side-std ran one job, started before the fast tier queued, and started nothing
@@ -6598,16 +6656,17 @@ class OpenHeadPlacementRerun(unittest.TestCase):
         def linux_queued():
             # A queued job outside the placement's subtree would be cancelled and never re-run.
             return job("cmux-next fleet Release compile", labels=["blacksmith-2vcpu-ubuntu-2404"])
-        for make in (mac_running, linux_running, assigned):
+        # A queued job outside the placement's subtree, beside the stalled one: no one re-run brings both back.
+        for make in (mac_running, linux_running, assigned, linux_queued):
             with self.subTest(job=make.__name__):
                 clock, api, target = self.world(self.shape(make))
                 result, _ = self.run_rescue(api, clock, target)
                 assert_left_at_open_head(self, api, result, number=27797)
-        # A finished job the placement re-run would repeat, or a queued one it would leave cancelled, takes the
-        # settled-sibling failover instead: nothing runs, so only what waited is re-run and every result is kept.
-        for make in (mac_done, mac_failed, unknown_finished, linux_queued):
+        # A finished job the placement re-run would repeat takes the settled-sibling failover instead: nothing runs,
+        # so only the waiting job is re-run and every result is kept.
+        for make in (mac_done, mac_failed, unknown_finished):
             with self.subTest(job=make.__name__):
-                clock, api, target = self.world(self.shape(make))
+                clock, api, target = self.world(with_ids(self.shape(make)))
                 result, _ = self.run_rescue(api, clock, target)
                 assert_settled_failover(self, api)
 
@@ -6620,10 +6679,10 @@ class OpenHeadPlacementRerun(unittest.TestCase):
                  "relay-tls": {"extra": {"path": ".github/workflows/relay-tls.yml"}}}
         for name, kwargs in cases.items():
             with self.subTest(case=name):
-                clock, api, target = self.world(self.shape(), **kwargs)
+                clock, api, target = self.world(with_ids(self.shape()), **kwargs)
                 if name == "attempt 2":
                     api.attempt = 2
-                    api.rerun_jobs = self.shape()
+                    api.rerun_jobs = with_ids(self.shape())
                 result, _ = self.run_rescue(api, clock, target)
                 # Without a placement re-run the finished Linux jobs rule out a full re-run, and nothing runs, so
                 # the settled-sibling failover re-runs only what waited.
