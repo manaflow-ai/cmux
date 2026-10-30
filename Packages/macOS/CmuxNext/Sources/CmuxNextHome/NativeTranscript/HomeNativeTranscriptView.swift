@@ -508,17 +508,19 @@ public final class HomeNativeTranscriptView: NSView {
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
-        #if DEBUG || CMUX_BENCH_HOOKS
-        // The variations gallery: the shared background follows light and dark, after the theme pass repaints.
-        if let number = debugVariantNumber { Task { @MainActor [weak self] in self?.debugSetFirstRunVariant(number) } }
-        #endif
     }
 
     /// The theme's palette (the key window's, for every window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
-    private func applyTheme() {
+    func applyTheme() {
         let accent = accentOverride, style = bubbleStyle, chosen = bubbleColors
-        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        var active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }.applying(chosen)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // The variations gallery: the chat paints the variant's shared background, like the rest of the window.
+        if let shared = debugVariantBackground()?.usingColorSpace(.sRGB) {
+            active.background = HomeColor(red: shared.redComponent, green: shared.greenComponent, blue: shared.blueComponent, alpha: 1)
+        }
+        #endif
         // A chosen sent colour replaces MessagesLab's measured blue (and its white text).
         let measured = chosen.sent == nil && chosen.sentText == nil
             && performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }

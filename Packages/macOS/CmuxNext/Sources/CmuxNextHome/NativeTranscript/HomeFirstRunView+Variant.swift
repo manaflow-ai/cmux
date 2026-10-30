@@ -176,11 +176,11 @@ extension HomeNativeTranscriptView {
         debugVariantNumber = number
         let variant = HomeFirstRunVariant.numbered(number)
         firstRun.variant = variant
-        if let window {
-            let background = (variant?.background ?? .shipping).color(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
-            debugUnifyBackground(window, background)
+        if let window, let background = variant?.background, background.color(dark: false) != nil {
+            DebugUnifiedBackdrop.install(in: window, background: background)
             // No tinted glass band over the chat's top: it read as a second background.
-            if background != nil { transcript.setTopFadeStyle(.edgeShadow) }
+            transcript.setTopFadeStyle(.edgeShadow)
+            applyTheme()
         }
         // The gallery shows the panel even where the capture Mac's Chief conversation is not the shown one.
         firstRun.isHidden = false
@@ -189,35 +189,84 @@ extension HomeNativeTranscriptView {
         guard let variant else { return nil }
         return "\(variant.caption). Background: \(variant.background.name)"
     }
+
+    /// DEBUG: the variant's shared background for this view's appearance, nil without one; the
+    /// chat's own palette background takes it (`applyTheme`).
+    func debugVariantBackground() -> NSColor? {
+        guard let number = debugVariantNumber, let variant = HomeFirstRunVariant.numbered(number) else { return nil }
+        return variant.background.color(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+    }
 }
 
-/// DEBUG: paints `color` as the one background of the whole window (title bar, sidebar, chat,
-/// compose band): the window and its content view take it, and every panel-sized layer fill,
-/// vibrancy view and glass band under them is cleared or hidden. Small controls (the field,
-/// search and filter capsules, bubbles, buttons) keep their own look. Nil puts nothing back:
-/// the gallery relaunches the app between runs.
-@MainActor private func debugUnifyBackground(_ window: NSWindow, _ color: NSColor?) {
-    guard let color, let content = window.contentView else { return }
-    window.backgroundColor = color
-    window.titlebarAppearsTransparent = true
-    content.wantsLayer = true
-    content.layer?.backgroundColor = color.cgColor
-    let wide = content.bounds.width * 0.2
-    func walk(_ view: NSView) {
-        for child in view.subviews {
-            let big = child.bounds.width >= wide
-            if big, child is NSVisualEffectView || child is GlassPanelView, child.bounds.height >= 24 {
-                child.isHidden = true
-                continue
-            }
-            if big, child.bounds.height >= 44, let fill = child.layer?.backgroundColor, fill.alpha > 0 {
-                child.layer?.backgroundColor = NSColor.clear.cgColor
-            }
-            walk(child)
-        }
+/// DEBUG: one background for the whole window (title bar, sidebar, chat, compose band). A view at
+/// the bottom of the content view paints the variant's colour for the current appearance, and on
+/// every appearance change (`updateLayer`) it paints again and clears what the theme pass painted
+/// back: every panel-sized layer fill, vibrancy view and glass band. Small controls (the field,
+/// search and filter capsules, bubbles, buttons) keep their own look.
+final class DebugUnifiedBackdrop: NSView {
+    var background: HomeFirstRunVariant.Background
+
+    init(background: HomeFirstRunVariant.Background) {
+        self.background = background
+        super.init(frame: .zero)
+        wantsLayer = true
+        autoresizingMask = [.width, .height]
     }
-    walk(content)
-    // The title bar's own views sit beside the content view, under the frame view.
-    if let frame = content.superview { for sibling in frame.subviews where sibling !== content { walk(sibling) } }
+
+    required init?(coder: NSCoder) { nil }
+
+    static func install(in window: NSWindow, background: HomeFirstRunVariant.Background) {
+        guard let content = window.contentView else { return }
+        let view = content.subviews.compactMap { $0 as? DebugUnifiedBackdrop }.first ?? {
+            let view = DebugUnifiedBackdrop(background: background)
+            view.frame = content.bounds
+            content.addSubview(view, positioned: .below, relativeTo: content.subviews.first)
+            return view
+        }()
+        view.background = background
+        window.titlebarAppearsTransparent = true
+        view.needsDisplay = true
+        view.repaint()
+    }
+
+    nonisolated override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        repaint()
+        // After the theme pass that runs with this one has repainted its panels.
+        Task { @MainActor [weak self] in self?.repaint() }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func repaint() {
+        guard let window, let content = window.contentView else { return }
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        guard let color = background.color(dark: dark) else { return }
+        layer?.backgroundColor = color.cgColor
+        window.backgroundColor = color
+        let wide = content.bounds.width * 0.2
+        func walk(_ view: NSView) {
+            for child in view.subviews where child !== self {
+                let big = child.bounds.width >= wide
+                if big, child is NSVisualEffectView || child is GlassPanelView, child.bounds.height >= 24 {
+                    child.isHidden = true
+                    continue
+                }
+                if big, child.bounds.height >= 44, let fill = child.layer?.backgroundColor, fill.alpha > 0 {
+                    child.layer?.backgroundColor = NSColor.clear.cgColor
+                }
+                walk(child)
+            }
+        }
+        walk(content)
+        // The title bar's own views sit beside the content view, under the frame view.
+        if let frame = content.superview { for sibling in frame.subviews where sibling !== content { walk(sibling) } }
+        for transcript in Self.transcripts(in: content) where transcript.debugVariantNumber != nil { transcript.applyTheme() }
+    }
+
+    private static func transcripts(in view: NSView) -> [HomeNativeTranscriptView] {
+        (view as? HomeNativeTranscriptView).map { [$0] } ?? view.subviews.flatMap { transcripts(in: $0) }
+    }
 }
 #endif
