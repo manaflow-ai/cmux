@@ -109,6 +109,7 @@ extension ThreadRegistry {
         ThreadDeclaration("cmux-next.hang-episodes", qos: .utility),
         ThreadDeclaration("cmux-next.hang-episodes.symbols", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.run-marker", qos: .utility),
+        ThreadDeclaration("com.cmuxterm.next.busy-watchdog", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.crash-forwarder", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.owner-panic-forwarder", qos: .utility),
         ThreadDeclaration("com.cmuxterm.app.next.invariant-sink", qos: .utility),

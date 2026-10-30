@@ -5,8 +5,8 @@ import Testing
 
 /// The busy watchdog's window ends on the main thread's deadline queue, never sooner than the
 /// window and at most its 10 s leeway after it, so the end rides another main wake when there is one (Chromium's
-/// `subtle::DelayPolicy::kFlexibleNoSooner`, base/task/delay_policy.h). Only a wake before the window's nominal end
-/// keeps the watch going, so alone the end fires once, at most 20 s after the wake that opened the window. Shares
+/// `subtle::DelayPolicy::kFlexibleNoSooner`, base/task/delay_policy.h). A wake during the window, also after its
+/// nominal end, keeps the watch going; the fire's own wake does not, so alone the end fires once, at most 20 s after the wake that opened the window. Shares
 /// are judged over the real elapsed time. The queue runs on a fake timer and uptime the test drives; the close
 /// runs inline.
 @MainActor
@@ -103,6 +103,17 @@ struct BusyWatchdogWakeQueueTests {
         #expect(rig.windowEnds == 1)
         #expect(rig.queue.coalescedFires == 1)
         #expect(rig.queue.count == 0)
+    }
+
+    @Test("A wake after the nominal end, before the end fires, opens the next window")
+    func aWakeBetweenTheNominalEndAndTheFireKeepsWatching() {
+        let rig = Rig()
+        rig.wake(at: 0)
+        rig.wake(at: 15 * Self.second)
+        rig.fire(at: 21 * Self.second)
+        #expect(rig.windowEnds == 1)
+        #expect(rig.queue.count == 1, "the wake at 15 s keeps the watch going")
+        #expect(rig.timer.armedDate == 31 * Self.second)
     }
 
     @Test("A busy window's record spans the real elapsed time, not the configured window")

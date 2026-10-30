@@ -27,9 +27,10 @@ import Darwin
 enum DebugWakeups {
     /// `helperParent`: whose children the Chromium helpers are (``ChromiumHelperParent/pid``).
     static func report(_ params: [String: JSONValue], budgeted: FrameScheduler, helperParent: pid_t?,
-                       work: BackgroundWork) async -> JSONValue {
+                       work: BackgroundWork) async throws -> JSONValue {
         var object = mainActorPart(params, budgeted: budgeted)
-        let processes = (try? await work.run(.bestEffort, mayBlock: .system) { AppProcesses.sample(helperParent: helperParent) }) ?? []
+        // A cancelled sample throws: an empty list would read as every process gone (bench-idle.py diffs two calls).
+        let processes = try await work.run(.bestEffort, mayBlock: .system) { AppProcesses.sample(helperParent: helperParent) }
         object["processes"] = .array(processes.map(\.json))
         return .object(object)
     }

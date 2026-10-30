@@ -22,8 +22,8 @@ import CmuxNextCompat
 /// main wake when there is one (a `PostDelayedTask` with
 /// `subtle::DelayPolicy::kFlexibleNoSooner`, base/task/delay_policy.h). Shares
 /// are judged over the real elapsed time from the window's start to its close.
-/// A new window opens at once only if the app was awake before the window's
-/// nominal end; the fire's own wake comes after it and never counts. An idle
+/// A new window opens at once if the app woke during the window, also after
+/// its nominal end; the fire's own wake does not count. An idle
 /// app therefore costs nothing, and a steadily busy app one check per 10-20 s.
 /// A spin on a background thread that never wakes the main thread is seen
 /// only in the window after the last main-thread wake.
@@ -95,7 +95,10 @@ public final class BusyWatchdog: Sendable {
     private let sampler: Mutex<ThreadStackSampler?> = Mutex(nil)
     private let measuring = Atomic<Bool>(false)
     private let awakeDuringWindow = Atomic<Bool>(false)
-    /// The open window's nominal end (uptime ns): only a wake before it keeps the watch going.
+    /// Main wakes after the open window's nominal end, while its end has not run yet: they keep the watch going too.
+    private let lateWakes = Atomic<Int>(0)
+    /// The open window's nominal end (uptime ns), which splits ``awakeDuringWindow`` from ``lateWakes``. `UInt64.max`
+    /// from the wake that opens a window until its start samples are taken, so every wake in between is counted.
     private let windowEnd = Atomic<UInt64>(0)
     /// Uptime ns, the clock of the window and of the wake queue's deadlines.
     private let uptime: @Sendable () -> UInt64
@@ -204,18 +207,31 @@ public final class BusyWatchdog: Sendable {
     /// The main run loop woke. Cheap, and it never reads the kernel: an uptime read and two atomics, plus one
     /// hop that opens a window off the main thread when none is open.
     public func noteAwake() {
-        if uptime() < windowEnd.load(ordering: .acquiring) { awakeDuringWindow.store(true, ordering: .relaxed) }
-        guard measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
+        guard measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else {
+            if uptime() < windowEnd.load(ordering: .acquiring) {
+                awakeDuringWindow.store(true, ordering: .relaxed)
+            } else {
+                lateWakes.add(1, ordering: .relaxed)
+            }
+            return
+        }
+        beginWindow()
         // The expected-activity count is stamped here, in the waking turn (atomic loads, no system call), so input
         // in this turn counts as during the window.
         let activityAtWake = activity.total
         offMain { [self] in openWindow(activity: activityAtWake) }
     }
 
+    /// A window begins: no wake counted yet, and until its start samples are taken every wake is during it.
+    private func beginWindow() {
+        windowEnd.store(.max, ordering: .releasing)
+        awakeDuringWindow.store(false, ordering: .relaxed)
+        lateWakes.store(0, ordering: .relaxed)
+    }
+
     /// Takes the window's start samples. Through ``offMain``. `activity`: the expected-activity count when the
     /// window began (the waking turn's stamp, or the close's for a window that follows one).
     private func openWindow(activity activityAtStart: UInt64) {
-        awakeDuringWindow.store(false, ordering: .relaxed)
         let helperList = helperSource()()
         var sampled: [pid_t: (helper: Helper, usage: ProcessUsage)] = [:]
         for helper in helperList {
@@ -234,15 +250,20 @@ public final class BusyWatchdog: Sendable {
 
     /// The window's deadline fired (on the main thread when the end is on the wake queue). The close reads the
     /// kernel and samples the main thread's stack, which the main thread cannot do to itself, so it runs off it.
+    /// Runs in the fire's own main turn, whose wake is one of ``lateWakes`` (atomic loads only): the close counts
+    /// only the late wakes before it.
     private func endWindow() {
-        offMain { [weak self] in self?.closeWindow() }
+        let lateSeen = lateWakes.load(ordering: .relaxed)
+        offMain { [weak self] in self?.closeWindow(lateSeen: lateSeen) }
     }
 
-    func closeWindow() {
+    /// `lateSeen`: the late wakes counted when the end fired, the fire's own turn among them.
+    func closeWindow(lateSeen: Int = 0) {
         guard let start = window.withLock({ window in defer { window = nil }; return window }) else { return }
-        // Only a wake before the nominal end counts: the fire's own wake and one the close itself causes do not
-        // keep the watch going. The shares use the real elapsed time, up to window + leeway.
-        let stayAwake = awakeDuringWindow.load(ordering: .relaxed)
+        // A wake during the window, or after its nominal end but before the end fired, keeps the watch going; the
+        // fire's own wake and one the close itself causes do not. The shares use the real elapsed time, up to
+        // window + leeway.
+        let stayAwake = awakeDuringWindow.load(ordering: .relaxed) || lateSeen > 1
         let now = uptime()
         let wall = Double(max(now &- start.startNanos, 1))
         let activityAtEnd = activity.total
@@ -274,9 +295,16 @@ public final class BusyWatchdog: Sendable {
         }
         // Keep watching only while the app stayed awake during the window.
         if stayAwake {
+            beginWindow()
             openWindow(activity: activityAtEnd)
-        } else {
-            measuring.store(false, ordering: .releasing)
+            return
+        }
+        measuring.store(false, ordering: .releasing)
+        // A wake after the end fired found the watch still on and opened nothing: open for it.
+        if lateWakes.load(ordering: .relaxed) > lateSeen,
+           measuring.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged {
+            beginWindow()
+            openWindow(activity: activity.total)
         }
     }
 

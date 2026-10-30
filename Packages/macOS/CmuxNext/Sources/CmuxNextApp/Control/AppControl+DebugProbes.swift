@@ -234,7 +234,7 @@ extension AppControl {
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { [budgeted = mainWork.frames, parent = services.cache.chromium.source.helperParent, work = services.work] call in
-                await DebugWakeups.report(call.params, budgeted: budgeted, helperParent: parent.pid, work: work)
+                try await DebugWakeups.report(call.params, budgeted: budgeted, helperParent: parent.pid, work: work)
             },
             // Energy Saver policy and inputs, main wake queue, top wakers, process energy; simulated inputs (p14-energy.md).
             EnergyReport(services: services).method, EnergyReport.simulateMethod(services: services),
