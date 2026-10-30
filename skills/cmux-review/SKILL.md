@@ -37,6 +37,20 @@ Don't wait for a person. Ship risky user-visible behavior behind a setting or
 Debug toggle and fix a bad default in the next nightly. `main` is nightly: stack
 fixes, do not revert.
 
+## PR review receipt
+
+Post the verdict as a PR comment whose first line is the receipt, and put nothing
+before it: `Review (<reviewer>): SHIP at <full 40-character head sha>` (or `BLOCK`,
+`FIX`). Findings go below that line. A SHIP counts only for the exact head it
+names. A receipt that carries an older head's SHIP to a new head across a base
+merge is not a review. Mark it in the reviewer label:
+`Review (<reviewer>; carried): SHIP at <new head sha>`. next-autoland and
+`scripts/ci/review_receipt.py` (on main) treat a first line as carried when the label says carried, or
+when the line says "carried from" or "carried over". A carried SHIP counts only
+while the newest independent verdict on the PR is a SHIP. Do not use "carry",
+"carries", "carried" or "carrying" in a real review's label, or "carried from" /
+"carried over" on its first line.
+
 ## Adversarial review
 
 For security, persistence, concurrency, data-loss risks, or a requested deep

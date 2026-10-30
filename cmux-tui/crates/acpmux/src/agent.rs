@@ -31,6 +31,14 @@ pub enum Direction {
     In,
 }
 
+/// Which pipe of an agent a line of `Inbound::Stderr` came from: its stderr, or a `[non-json
+/// stdout]` note. The hub cleans each as its own stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StderrPipe {
+    Stderr,
+    Stdout,
+}
+
 /// Something the agent sent that acpmux must act on.
 #[derive(Debug)]
 pub enum Inbound {
@@ -58,8 +66,9 @@ pub enum Inbound {
         /// withdrawal marker is stored. The reader owns the receiver.
         persisted: Option<oneshot::Sender<bool>>,
     },
-    /// One stderr line; `host_seq` names the agent host entry it came from.
-    Stderr(String, Option<u64>),
+    /// One stderr line of the agent of `agent` (its generation and which of its pipes); `host_seq`
+    /// names the agent host entry it came from. A `[non-json stdout]` note is the agent's stdout.
+    Stderr(String, Option<u64>, Option<(u64, StderrPipe)>),
     /// The agent process with this pid exited. The pid tells a late exit of
     /// a replaced process apart from the current one.
     Exited { pid: Option<u32>, code: Option<i32>, host_seq: Option<u64> },
@@ -546,6 +555,38 @@ async fn pause_input(seam: &InputSeam, line: &str, writing: bool) {
     }
 }
 
+/// How acpmux started a harness: its argv, the part of its environment that decides which MCP
+/// configs it reads and which program a name runs, and its folder (`hub/idle_census.rs`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Launch {
+    pub args: Vec<String>,
+    pub env: std::collections::BTreeMap<String, String>,
+    pub cwd: std::path::PathBuf,
+}
+
+impl Launch {
+    const ENV: [&str; 4] = ["PATH", "HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"];
+
+    /// From a spawn's program, args, full environment and folder.
+    pub fn new(
+        program: &str,
+        args: &[String],
+        env: &[(String, String)],
+        cwd: &std::path::Path,
+    ) -> Self {
+        let args = std::iter::once(program.to_owned()).chain(args.iter().cloned()).collect();
+        let env = env.iter().filter(|(k, _)| Self::ENV.contains(&k.as_str())).cloned().collect();
+        Launch { args, env, cwd: cwd.to_path_buf() }
+    }
+
+    /// From the command a direct child runs.
+    fn of(cmd: &tokio::process::Command, cwd: &std::path::Path) -> Self {
+        let std = cmd.as_std();
+        let args: Vec<String> = std.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        Self::new(&std.get_program().to_string_lossy(), &args, &command_env(cmd), cwd)
+    }
+}
+
 pub struct ChildAgent {
     pub name: String,
     /// Shared with the fences its writer takes (`Writer::Direct`, a weak reference).
@@ -573,6 +614,12 @@ pub struct ChildAgent {
     /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
     /// decided at its session/new or load), for a fork through it.
     pub all_tools: std::sync::atomic::AtomicBool,
+    /// The `mcpServers` acpmux gave it at its session/new or load (`spawn.rs` `acp_params`), for
+    /// the idle census (`hub/idle_census.rs`). None for an agent adopted from another daemon.
+    pub given_servers: std::sync::Mutex<Option<Value>>,
+    /// The MCP servers its harness's configs named as it started (`LaunchServers::read`, before
+    /// it started), for the idle census. None for a harness another daemon started.
+    pub(crate) launch: std::sync::Mutex<Option<crate::hub::LaunchServers>>,
     /// Set once the agent is replaced or stopped (`retire`): a /context answer it still sends
     /// is not the chat's context any more, and is neither logged nor handed to the hub. A lock,
     /// not a flag: the reader holds it while it checks and logs such an answer (`tap_live`), so a
@@ -662,10 +709,27 @@ impl ChildAgent {
             inbound: inbound.clone(),
             order: Mutex::new(()),
         });
+        // A delivery may have updated or removed the machine's secrets since
+        // daemon startup. Never build a process env from stale cached values.
+        anyhow::ensure!(
+            crate::login_env::machine_env_fresh_before_spawn().await,
+            "machine environment changed; login env refresh failed"
+        );
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
+        // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
+        let launch = crate::hub::LaunchServers::read(
+            &Launch::of(&cmd, cwd),
+            crate::config::derive_family(name, profile),
+        )
+        .await;
         let preview_format = Some(pinned_preview_format(&cmd));
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
+        // Below the GUI's CPU class (macOS), the tools it starts with it (`cpu_class.rs`).
+        // From the harness's own env: its profile's value as resolved.
+        let env = command_env(&cmd);
+        crate::cpu_class::CpuClass::for_session(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+            .apply(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
         #[cfg(windows)]
         let job = {
@@ -702,6 +766,8 @@ impl ChildAgent {
             codex,
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            given_servers: std::sync::Mutex::new(None),
+            launch: std::sync::Mutex::new(Some(launch)),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
@@ -756,10 +822,13 @@ impl ChildAgent {
 
         let stderr_done = {
             let inbound = inbound.clone();
+            let generation = agent.generation;
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    let _ = inbound.send(Inbound::Stderr(line, None)).await;
+                    let _ = inbound
+                        .send(Inbound::Stderr(line, None, Some((generation, StderrPipe::Stderr))))
+                        .await;
                 }
             })
         };
@@ -775,6 +844,8 @@ impl ChildAgent {
                 // open; watch it so its exit is reported regardless.
                 let mut leader_check = tokio::time::interval(LEADER_CHECK);
                 let mut leader_gone: Option<tokio::time::Instant> = None;
+                // The carry whose hold was waited out (`claude_stdio/carry.rs`): once per carry.
+                let mut held: Option<u64> = None;
                 loop {
                     let next = tokio::select! {
                         next = lines.next_line() => next,
@@ -814,6 +885,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
+                                        Some((agent_for_exit.generation, StderrPipe::Stdout)),
                                     ))
                                     .await;
                                 continue;
@@ -852,6 +924,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
+                                        Some((agent_for_exit.generation, StderrPipe::Stdout)),
                                     ))
                                     .await;
                                 continue;
@@ -886,6 +959,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
+                                        Some((agent_for_exit.generation, StderrPipe::Stdout)),
                                     ))
                                     .await;
                                 continue;
@@ -927,6 +1001,20 @@ impl ChildAgent {
                                     .await;
                             }
                         }
+                    }
+                    // Claude Code ended its turn and runs on with steers it had not read: its next
+                    // line waits until the hub logged that turn's end and the next one's start
+                    // (the next turn's prompt), bounded (`claude_stdio/carry.rs`).
+                    // Each carry holds once, also one made while an earlier one still holds.
+                    let tr = agent_for_exit.translator.as_ref();
+                    let holding = tr.and_then(|tr| tr.holding().map(|carry| (tr, carry)));
+                    match holding {
+                        Some((tr, carry)) if held != Some(carry) => {
+                            tr.wait_unheld(crate::claude_stdio::CARRY_HOLD_MAX).await;
+                            held = Some(carry);
+                        }
+                        Some(_) => {}
+                        None => held = None,
                     }
                 }
                 // Claude's background shells ended with it (cx-ncc.84).
@@ -1365,6 +1453,32 @@ impl ChildAgent {
         fence: Option<&Fence>,
         on_written: F,
     ) -> Result<Value, RpcError> {
+        self.request_hook(method, params, fence, false, on_written).await
+    }
+
+    /// Like `request_with_hook`, but the callback requires confirmation from the stdin writer
+    /// (or hosted harness receipt), not acceptance into the transport queue.
+    pub(crate) async fn request_with_confirmed_hook<F: FnOnce()>(
+        &self,
+        method: &str,
+        params: Value,
+        fence: Option<&Fence>,
+        on_written: F,
+    ) -> Result<Value, RpcError> {
+        let own_fence = Fence::default();
+        let fence = fence.unwrap_or(&own_fence);
+        let _unsent = CutOnDrop(Some(fence));
+        self.request_hook(method, params, Some(fence), true, on_written).await
+    }
+
+    async fn request_hook<F: FnOnce()>(
+        &self,
+        method: &str,
+        params: Value,
+        fence: Option<&Fence>,
+        confirmed: bool,
+        on_written: F,
+    ) -> Result<Value, RpcError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.map.insert(key(&Value::from(id)), tx);
@@ -1375,6 +1489,23 @@ impl ChildAgent {
             let mut unhanded = CutOnDrop(fence);
             self.write_fenced(&msg, fence).await.map_err(|e| RpcError::internal(e.to_string()))?;
             unhanded.0 = None;
+            let mut rx = rx;
+            if confirmed && let Some(fence) = fence {
+                // A legacy host may answer without a write receipt. Return its answer, but
+                // never consume information or report read from an unconfirmed transport.
+                tokio::select! {
+                    () = fence.settled() => {}
+                    answer = &mut rx => {
+                        if fence.now() == Fence::WRITTEN { on_written(); }
+                        return answer.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")));
+                    }
+                }
+                if fence.now() != Fence::WRITTEN {
+                    return Err(RpcError::internal(
+                        "agent process closed before the prompt write was confirmed",
+                    ));
+                }
+            }
             on_written();
             let answer = rx.await;
             // No answer proves its line was written: an error may be this side's own "closed" or
@@ -1712,6 +1843,8 @@ impl ChildAgent {
                 exit: tokio::sync::Notify::new(),
             }),
             all_tools: std::sync::atomic::AtomicBool::new(false),
+            given_servers: std::sync::Mutex::new(None),
+            launch: std::sync::Mutex::new(None),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
@@ -1935,7 +2068,13 @@ impl ChildAgent {
                 if !(self.tap)(Direction::In, &note, Some(h)) {
                     return false;
                 }
-                let _ = inbound.send(Inbound::Stderr(line, Some(h))).await;
+                let _ = inbound
+                    .send(Inbound::Stderr(
+                        line,
+                        Some(h),
+                        Some((self.generation, StderrPipe::Stderr)),
+                    ))
+                    .await;
                 true
             }
             Entry::Exit { code } => {

@@ -121,6 +121,7 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
   never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.cloud-browser-proxy`,
+  `com.cmuxterm.next.cloud-hub-loopback` (Open Desktop's SOCKS connections to the app's WireGuard hub),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
@@ -129,6 +130,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Browser: `com.cmuxterm.next.browser-host.provider.write`, `cmux browser-host provider reader`,
   `com.cmuxterm.chromium-host.read`, `com.cmuxterm.chromium-host.exit`, `com.cmuxterm.app.next.cef-children`,
   `com.cmuxterm.import-history-sync`
+- Dictation: `com.cmuxterm.dictation.recording` (one dictation session's recording file, utility, serial: its
+  file writes block this queue, never the audio tap or main; one write per second of audio heard, each
+  one second of 16 kHz PCM, so it keeps up by orders of magnitude; the finish's header patch and read of a
+  recording within 4 MiB run here too)
 - Design: `com.cmuxterm.next.desktop-picture` (the desktop wallpaper watch's reads, utility, serial: its
   `NSWorkspace.desktopImageURL(for:)` WindowServer round trip and file stat block this queue, never main
   (#26394); one read at a time, and events during it fold into one more read, so no back-pressure)

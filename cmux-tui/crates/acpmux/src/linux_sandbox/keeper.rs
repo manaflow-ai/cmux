@@ -155,7 +155,7 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
     }
     let end = args.iter().position(|s| s == "--").ok_or("missing --")?;
     let mut values = BTreeMap::new();
-    let mut input = args[..end].iter();
+    let mut input = args.get(..end).unwrap_or_default().iter();
     while let Some(flag) = input.next() {
         let value = match flag.as_str() {
             "--api-loopback-v4" | "--api-loopback-v6" => "",
@@ -204,7 +204,7 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
         proxy_port,
         api: api_port.map(|p| SocketAddr::new(Ipv4Addr::LOCALHOST.into(), p)),
         program: program.clone(),
-        args: args[end + 2..].to_vec(),
+        args: args.get(end + 2..).unwrap_or_default().to_vec(),
     })
 }
 fn validate_handoff_with_notify(
@@ -385,7 +385,9 @@ async fn handoff(socket: &AsyncFd<UnixStream>) -> Result<(Vec<u8>, Vec<OwnedFd>)
     while bytes.len() < 1024 {
         let mut chunk = [0u8; 1024];
         let mut ready = socket.readable().await.map_err(|e| e.to_string())?;
-        let result = ready.try_io(|s| recv_chunk(s.as_raw_fd(), &mut chunk[..1024 - bytes.len()]));
+        let result = ready.try_io(|s| {
+            recv_chunk(s.as_raw_fd(), chunk.get_mut(..1024 - bytes.len()).unwrap_or_default())
+        });
         let (n, received) = match result {
             Err(_) => continue,
             Ok(result) => result.map_err(|e| e.to_string())?,
@@ -394,7 +396,7 @@ async fn handoff(socket: &AsyncFd<UnixStream>) -> Result<(Vec<u8>, Vec<OwnedFd>)
         if n == 0 || fds.len() > 3 {
             return Err("handoff EOF or excess descriptors".into());
         }
-        bytes.extend_from_slice(&chunk[..n]);
+        bytes.extend_from_slice(chunk.get(..n).unwrap_or_default());
         if bytes.contains(&b'\n') {
             return Ok((bytes, fds));
         }
