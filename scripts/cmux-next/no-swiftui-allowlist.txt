@@ -74,10 +74,8 @@ Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedGlyph.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedIconLabel.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxHeader.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxRow.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxSection.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedInboxView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedListView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedNoticeRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedPromptSummary.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextHistory/HistoryCookieBackupsView.swift

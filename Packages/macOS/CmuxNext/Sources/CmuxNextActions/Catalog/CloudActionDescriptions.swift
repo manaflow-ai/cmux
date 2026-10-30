@@ -87,10 +87,11 @@ nonisolated enum CloudActionDescriptions {
             after 25 s. A person's run from the palette types it into a new terminal tab instead.
             """,
         "cloudSetupGitHub": """
-            Copies this Mac's git user.name and user.email to the machine (--target machine:<id>) and starts \
-            a GitHub CLI sign-in there; no token leaves this Mac. Returns ok, gh_status (logged_in, pending, \
-            missing or failed), the identity it set and, while the sign-in waits, device_code and \
-            verification_uri for the person to approve; --focus also opens that page.
+            Copies this Mac's git user.name and user.email to the machine (--target machine:<id>) and sets up \
+            GitHub: through the cmux GitHub App when the team has connected it (git gets a short-lived token \
+            per repo; no token stored), else a GitHub CLI sign-in there. No token leaves this Mac. Returns ok, \
+            method (app or device), fallback_reason, gh_status (app, logged_in, pending, missing or failed), \
+            the identity it set and, while a sign-in waits, device_code and verification_uri; --focus opens that page.
             """,
         "cloudEnrollMachine": """
             Makes the machine (--target machine:<id>) an ssh host and an acpmux peer of this Mac: authorizes \
@@ -168,9 +169,9 @@ nonisolated enum CloudActionDescriptions {
             """,
         "cloudListMachines": """
             Returns the app's Cloud machines: loaded, count, account.signed_in and machines, each with \
-            machine_id, target (machine:<id>), title, status, owner and created_at. loaded false means the \
-            list is not known yet (signed out, or still loading after 25 s with pending: true), not that \
-            there are none.
+            machine_id, target (machine:<id>), title, status, owner, created_by and created_at. created_by is \
+            the creator's user ID, or null when unavailable. loaded false means the list is not known yet \
+            (signed out, or still loading after 25 s with pending: true), not that there are none.
             """,
         "cloudNewTerminal": """
             Opens a new workspace with a terminal on the machine (--target machine:<id>), resuming a paused \

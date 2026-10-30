@@ -72,9 +72,20 @@ pub fn find(report: &str) -> Shown {
 
 /// The `<show>` block for `report`, or None when it names nothing to show.
 pub fn block(report: &str) -> Option<String> {
+    block_in(report, None)
+}
+
+/// `block` for a subagent whose cmux workspace is `workspace` (`ws_…`): each
+/// item opens there as a new tab, and the Chief links that tab, so the person
+/// finds the work beside the agent's chat (Lawrence, Oct 29: "diff should have
+/// been opened in a845 workspace"). None: the column right of the Chief's chat.
+pub fn block_in(report: &str, workspace: Option<&str>) -> Option<String> {
     let shown = find(report);
     if shown.is_empty() {
         return None;
+    }
+    if let Some(ws) = workspace {
+        return Some(block_in_workspace(&shown, ws));
     }
     let mut lines = vec![
         "<show>".to_owned(),
@@ -104,6 +115,38 @@ pub fn block(report: &str) -> Option<String> {
     }
     lines.push("</show>".to_owned());
     Some(lines.join("\n"))
+}
+
+fn block_in_workspace(shown: &Shown, ws: &str) -> String {
+    let mut lines = vec![
+        "<show>".to_owned(),
+        format!(
+            "Done work to show (show.afterReport): open the one or two most useful as new tabs in the subagent's own workspace {ws}, without moving focus, and link each tab in your reply ([diff](cmux://tab/tab_…), the id from the command's answer); show nothing if none helps."
+        ),
+    ];
+    for (old, new) in &shown.ranges {
+        match &shown.repo {
+            Some(repo) => lines.push(format!(
+                "- diff {old}..{new}: cmux --json tab create browser --workspace {ws} --url https://github.com/{repo}/compare/{old}...{new}"
+            )),
+            None => lines.push(format!(
+                "- diff {old}..{new}: cmux --json tab create terminal --workspace {ws} with `git log -p {old}..{new}` in the repo"
+            )),
+        }
+    }
+    for page in &shown.pages {
+        lines.push(format!(
+            "- page {page}: cmux --json tab create browser --workspace {ws} --url {page}"
+        ));
+    }
+    for file in &shown.files {
+        lines.push(format!(
+            "- file {file}: cmux action run file.open --target <its pane: cmux pane list --workspace {ws}> --path {} --where tab",
+            shell_quote(file)
+        ));
+    }
+    lines.push("</show>".to_owned());
+    lines.join("\n")
 }
 
 fn is_break(c: char) -> bool {

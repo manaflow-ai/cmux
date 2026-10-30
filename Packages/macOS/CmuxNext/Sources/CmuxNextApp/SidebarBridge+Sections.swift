@@ -110,16 +110,17 @@ extension SidebarBridge {
                                           workspace: { workspaces[$0] }, chiefPicture: picture,
                                           chiefImage: picture.flatMap(uploads.image(at:)))
                 if model.itemInfo != infos { model.itemInfo = infos }
+                if model.newWorkspaceShortcut != shortcuts["newTab"] { model.newWorkspaceShortcut = shortcuts["newTab"] }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
             }
         }
     }
 
-    /// The shortcut of each built-in's action, as menus show it.
+    /// Built-in tooltips and the empty-workspace hint use the same shortcut text as menus.
     static func builtInShortcuts(_ registry: ActionRegistry) -> [ActionID: String] {
         var shortcuts: [ActionID: String] = [:]
-        for action in builtInActions.values {
+        for action in Array(builtInActions.values) + ["newTab"] {
             if let shortcut = registry.shortcutDisplay(for: action) { shortcuts[action] = shortcut }
         }
         return shortcuts
