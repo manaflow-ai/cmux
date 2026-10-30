@@ -19,7 +19,7 @@ enum SidebarLaneFixture {
     /// The working sample's usage warnings: a runaway session's badge (acpmux `usageWarnings`).
     static let usageWarnings = [
         "No autocompact cap: context is 412k and only compacts at the model's limit. "
-            + "Rotate onto a capped profile (lane-place rotate fleet-coordinator, coming)",
+            + "Rotate to a fresh session (lane-place rotate fleet-coordinator, leo-workspace#1617)",
         "Context 412k tokens, above the 400k warning line. Compact it (acpmux send fleet-coordinator /compact)",
         "90 subagents started in the last hour, above 40. Open the session to see what it starts; "
             + "cancel its turn to stop it (acpmux session cancel fleet-coordinator)",

@@ -8,9 +8,9 @@
 //! `contextTokens` or `subagentsPerHour`; `value` the session's number (context tokens, or
 //! subagents started in the last hour), null when it has none; `limit` the threshold it passed,
 //! null for `noAutocompactCap`; `text` one line a tooltip shows, ending in what to do; `action`
-//! `{label, command, available}`, the step that answers it (a metric must trigger an action, HQ#5123)
-//! and the command that takes it, `available` false while that command is still to come. Nothing
-//! is done automatically. Empty for a closed session or one with no
+//! `{label, command, pending}`, the step that answers it (a metric must trigger an action, HQ#5123)
+//! and the command that takes it, `pending` the change that adds that command while it has not
+//! landed, else null. Nothing is done automatically. Empty for a closed session or one with no
 //! `usageStats` yet. A number acpmux could not read is unknown (null or absent), never zero, and
 //! an unknown number neither raises nor clears a warning.
 
@@ -24,31 +24,34 @@ pub const CONTEXT_TOKENS: &str = "contextTokens";
 /// `subagentsPerHour`: it started more subagents in the last hour than the limit.
 pub const SUBAGENTS_PER_HOUR: &str = "subagentsPerHour";
 
-/// The step that answers each rule, its label and the command that takes it for session `name`
-/// (`available` false: the command is still to come).
+/// The change that adds `lane-place rotate`, named beside the command until it lands.
+const ROTATE_PENDING: &str = "leo-workspace#1617";
+
+/// The step that answers each rule, its label and the command that takes it for session `name`,
+/// and the change that adds that command while it has not landed.
 fn action(rule: &str, name: &str) -> Value {
-    let (label, command, available) = match rule {
-        // `session restart` keeps the launch settings, so it adds no cap: the session moves onto a
-        // capped profile (claude-sr2), which `lane-place rotate` will do.
+    let (label, command, pending) = match rule {
+        // `session restart` keeps the launch settings, so the old process carries on as it was:
+        // `lane-place rotate` starts a successor with a fresh context (a dry run until `--yes`).
         NO_AUTOCOMPACT_CAP => {
-            ("Rotate onto a capped profile", format!("lane-place rotate {name}"), false)
+            ("Rotate to a fresh session", format!("lane-place rotate {name}"), Some(ROTATE_PENDING))
         }
         // Claude Code's own `/compact`, sent as a prompt (`claude_stdio`: it ends its prompt).
-        CONTEXT_TOKENS => ("Compact it", format!("acpmux send {name} /compact"), true),
+        CONTEXT_TOKENS => ("Compact it", format!("acpmux send {name} /compact"), None),
         _ => (
             "Open the session to see what it starts; cancel its turn to stop it",
             format!("acpmux session cancel {name}"),
-            true,
+            None,
         ),
     };
-    json!({"label": label, "command": command, "available": available})
+    json!({"label": label, "command": command, "pending": pending})
 }
 
 /// `warning` with its action, and the action at the end of its text.
 fn with_action(mut warning: Value, name: &str) -> Value {
     let action = action(warning["rule"].as_str().unwrap_or_default(), name);
     let command = action["command"].as_str().unwrap_or_default().to_owned();
-    let soon = if action["available"] == true { "" } else { ", coming" };
+    let soon = action["pending"].as_str().map(|p| format!(", {p}")).unwrap_or_default();
     let text = format!(
         "{}. {} ({command}{soon})",
         warning["text"].as_str().unwrap_or_default(),
@@ -118,15 +121,13 @@ pub fn short(warning: &Value) -> String {
 }
 
 /// `short` with the command that answers it, for `acpmux ls --wide`:
-/// `ctx 412k: acpmux send lane-1 /compact`, `no-cap: lane-place rotate lane-1 (coming)`.
+/// `ctx 412k: acpmux send lane-1 /compact`, `no-cap: lane-place rotate lane-1 (leo-workspace#1617)`.
 pub fn with_command(warning: &Value) -> String {
     let action = &warning["action"];
-    match action["command"].as_str() {
-        Some(command) if action["available"] == false => {
-            format!("{}: {command} (coming)", short(warning))
-        }
-        Some(command) => format!("{}: {command}", short(warning)),
-        None => short(warning),
+    match (action["command"].as_str(), action["pending"].as_str()) {
+        (Some(command), Some(pending)) => format!("{}: {command} ({pending})", short(warning)),
+        (Some(command), None) => format!("{}: {command}", short(warning)),
+        (None, _) => short(warning),
     }
 }
 
