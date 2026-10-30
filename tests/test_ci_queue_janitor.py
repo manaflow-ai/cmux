@@ -2894,12 +2894,44 @@ class UnclaimedLegPlanTests(unittest.TestCase):
                     self.assertEqual((decision.action, decision.candidate.category), ("skip", "unclaimed"))
                     self.assertEqual(decision.note, janitor.OPEN_HEAD_RULE)
 
-    def test_a_moved_deleted_or_unread_branch_is_left_alone(self):
-        for heads in ({DISPATCH_BRANCH: "eeeeeee"}, {DISPATCH_BRANCH: ""}, {}):
-            with self.subTest(heads=heads):
-                run, jobs = unclaimed_world(age=50)
-                # Not live: left to category b and the orphan pass, not even listed.
-                self.assertIsNone(decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}, heads=heads), run))
+    def test_an_unread_branch_is_left_alone(self):
+        run, jobs = unclaimed_world(age=50)
+        # Unknown: left to category b and the orphan pass, not even listed.
+        self.assertIsNone(decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}, heads={}), run))
+
+    def test_a_moved_or_deleted_short_lived_branch_is_cancelled_and_not_re_run(self):
+        # 2026-10-30: dispatches at moved or deleted lane heads held glaeda-side-std-xcode-26.6 places for two to
+        # three and a half hours (runs 41066827744 and 41080779296) while 49 jobs queued behind them.
+        cases = (({DISPATCH_BRANCH: "eeeeeee"}, "moved on"), ({DISPATCH_BRANCH: ""}, "gone"))
+        for heads, why in cases:
+            for path, actor, attempt in ((TUI, "leo", 1), (".github/workflows/cmux-next.yml", "leo", 1),
+                                         (TUI, "github-actions[bot]", 2)):
+                with self.subTest(heads=heads, path=path, attempt=attempt):
+                    run, jobs = unclaimed_world(age=50, path=path, actor=actor, attempt=attempt)
+                    decision = decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []}, heads=heads), run)
+                    self.assertEqual((decision.action, decision.candidate.category), ("cancel", "unclaimed"))
+                    self.assertFalse(decision.candidate.rerun)
+                    self.assertIn(why, decision.candidate.reason)
+
+    def test_a_stale_head_on_a_long_lived_branch_or_a_delivery_run_is_left_alone(self):
+        for branch in ("main", "feat-cmux-next", "nightly-next", "rc/1.2"):
+            with self.subTest(branch=branch):
+                run, jobs = unclaimed_world(age=50, branch=branch)
+                self.assertIsNone(decision_for(unclaimed_plan([run], jobs, {branch: []}, heads={branch: "eeee"}), run))
+        # A DEV build is a delivery run (delivery_workflows.delivers()), whatever its branch.
+        run, jobs = unclaimed_world(age=50, path=".github/workflows/cmux-next.yml")
+        run["name"] = run["display_title"] = "cmux NEXT DEV daily · d9d0e2ca"
+        self.assertIsNone(decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []},
+                                                      heads={DISPATCH_BRANCH: "eeee"}), run))
+        run, jobs = unclaimed_world(age=50, path=".github/workflows/nightly-next-launch-smoke.yml")
+        self.assertIsNone(decision_for(unclaimed_plan([run], jobs, {DISPATCH_BRANCH: []},
+                                                      heads={DISPATCH_BRANCH: "eeee"}), run))
+
+    def test_a_stale_head_whose_open_pull_request_opted_out_is_skipped(self):
+        run, jobs = unclaimed_world(age=50)
+        prs = {DISPATCH_BRANCH: [make_pr(5, head="eeee", labels=("no-janitor",))]}
+        decision = decision_for(unclaimed_plan([run], jobs, prs, heads={DISPATCH_BRANCH: "eeee"}), run)
+        self.assertEqual(decision.action, "skip")
 
     def test_a_superseded_or_closed_pull_request_run_is_left_to_category_b(self):
         run, jobs = unclaimed_world(age=50, event="pull_request", branch="feature", sha="aaa")
@@ -2995,6 +3027,29 @@ class UnclaimedLegRerunTests(unittest.TestCase):
         self.assertNotIn("pr-branch", wanted)
 
     def test_candidates_that_could_not_be_re_run_spend_no_head_read(self):
+        # On rc/* (as on main, feat-cmux-next and nightly-next) a stale head cancels nothing
+        # (stale_head_cancellable()), so a read is spent only where a re-run can follow.
+        runs, jobs = [], {}
+        for index, (path, actor, attempt) in enumerate(((TUI, "leo", 1), (".github/workflows/cmux-next.yml", "leo", 1),
+                                                        (TUI, "github-actions[bot]", 2))):
+            run, world = unclaimed_world(age=50, branch=f"rc/b{index}", path=path, actor=actor, attempt=attempt)
+            runs.append(run)
+            jobs.update(world)
+        failed, world = unclaimed_world(age=50, branch="rc/failed",
+                                        siblings=[started_job(age=90, label=LINUX, status="completed",
+                                                              conclusion="failure")])
+        opted, world2 = unclaimed_world(age=50, branch="rc/opted")
+        runs += [failed, opted]
+        jobs.update(world)
+        jobs.update(world2)
+        prs = {"rc/opted": [make_pr(9, head="other", labels=("no-janitor",))]}
+        wanted = janitor.branch_head_lookups(runs, {run["id"] for run in runs}, prs_by_branch=prs,
+                                             jobs_by_run=jobs, unclaimed={run["id"] for run in runs})
+        self.assertEqual(wanted, ["rc/b0"])
+
+    def test_a_short_lived_branch_gets_a_read_whatever_its_re_run_would_do(self):
+        # A stale head there cancels the run outright (stale_head_cancellable()), so the read is never wasted;
+        # an opted-out pull request still spends none.
         runs, jobs = [], {}
         for index, (path, actor, attempt) in enumerate(((TUI, "leo", 1), (".github/workflows/cmux-next.yml", "leo", 1),
                                                         (TUI, "github-actions[bot]", 2))):
@@ -3011,7 +3066,11 @@ class UnclaimedLegRerunTests(unittest.TestCase):
         prs = {"opted": [make_pr(9, head="other", labels=("no-janitor",))]}
         wanted = janitor.branch_head_lookups(runs, {run["id"] for run in runs}, prs_by_branch=prs,
                                              jobs_by_run=jobs, unclaimed={run["id"] for run in runs})
-        self.assertEqual(wanted, ["b0"])
+        self.assertEqual(wanted, ["b0", "b1", "b2", "failed"])
+        # Outside category f (a lost run of category e) nothing changes: no read where no re-run can follow.
+        wanted = janitor.branch_head_lookups(runs, {run["id"] for run in runs}, prs_by_branch=prs,
+                                             jobs_by_run=jobs, unclaimed=set())
+        self.assertEqual(wanted, ["b0", "b1"])
 
 
 class UnclaimedLegSweepTests(unittest.TestCase):
@@ -3040,6 +3099,23 @@ class UnclaimedLegSweepTests(unittest.TestCase):
 
             # Attempt 2 is the bot's: never re-run again here.
             fake.runs[run["id"]].update(status="queued")
+            fake.log.clear()
+            self.sweep(fake, temp)
+            self.assertEqual(fake.posts(), [])
+
+    def test_a_dispatch_at_a_moved_branch_head_is_cancelled_and_never_re_run(self):
+        run, jobs = unclaimed_world(age=50)
+        fake = FakeGitHub({run["id"]: dict(run)}, jobs)
+        fake.prs[DISPATCH_BRANCH] = []
+        fake.branches[DISPATCH_BRANCH] = "eeeeeee"
+        with tempfile.TemporaryDirectory() as temp:
+            code, text = self.sweep(fake, temp)
+            self.assertEqual(code, 0)
+            self.assertEqual(fake.posts(), [[str(run["id"]), "cancel"]])
+            self.assertIn("stale head", text)
+            self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+            fake.runs[run["id"]].update(status="completed", conclusion="cancelled")
+
             fake.log.clear()
             self.sweep(fake, temp)
             self.assertEqual(fake.posts(), [])

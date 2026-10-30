@@ -71,7 +71,11 @@ jobs queued on a pool they hold exceeds a threshold:
      published in the snapshot under WAIT_P90_KEY), with no evidence needed.
      Run 39652497071's cmux-tui macOS leg (a dispatch on a live branch, on
      glaeda-side-std-xcode-26.6) sat unclaimed 18:25Z to 00:37Z until
-     GitHub's queue timeout. It is acted on only at a live head with no open
+     GitHub's queue timeout. A push or dispatch on a short-lived branch (not
+     main, feat-cmux-next, nightly-next or rc/*; no nightly, DEV or promote
+     run) whose branch moved on or is gone is cancelled outright and not
+     re-run, as in category e (stale_head_cancellable()). Otherwise it is
+     moved only at a live head with no open
      pull request at it (an open pull request's head is never cancelled, as
      in category e): a push or dispatch whose branch head, read with
      one request (CANDIDATE_HEAD_LOOKUPS a sweep, and PENDING_HEAD_LOOKUPS
@@ -1751,6 +1755,27 @@ def find_unclaimed(
     return found_by_run
 
 
+# Branches whose push and dispatch runs are never cancelled for a moved head: their tip moves on every merge, and a
+# run there (feat-cmux-next's tip suites, which base-red judgment reads) is the base's signal, not a superseded try.
+LONG_LIVED_BRANCHES = frozenset({"main", "feat-cmux-next", "nightly-next"})
+
+
+def stale_head_cancellable(run: Mapping[str, Any]) -> bool:
+    """Whether category f may cancel `run` once its head is stale (lost_pr_state() "stale"): a push or dispatch on a
+    short-lived branch that moved on or is gone, and no nightly, DEV or promote run (delivery_workflows.delivers()).
+
+    Its output is never read, like a superseded pull request run's (category b), so the cancel carries no re-run.
+    Before this, a stale run's unclaimed leg was left to the orphan pass (120 minutes, and only once a newer job on
+    its labels got a runner): on 2026-10-30 five dispatches at moved or deleted lane heads held
+    glaeda-side-std-xcode-26.6 queue places for two to three and a half hours (runs 41066827744, 41077686537,
+    41081194145, 41080779296, 41095093014).
+    """
+    branch = str(run.get("head_branch") or "")
+    return (run.get("event") in ("push", "workflow_dispatch") and bool(branch)
+            and branch not in LONG_LIVED_BRANCHES and not branch.startswith("rc/")
+            and not delivers(run.get("path"), run.get("event"), run.get("name"), run.get("display_title")))
+
+
 def classify_unclaimed(
     run: Mapping[str, Any],
     run_jobs: Sequence[Mapping[str, Any]],
@@ -1772,12 +1797,14 @@ def classify_unclaimed(
     REFUSAL_RESCUE_ATTEMPT it is left alone, so the janitor adds one attempt
     to the rescue's ladder at most.
 
-    Only a run at a live head is touched (lost_pr_state() "current"): a push
+    Only a run at a live head is moved (lost_pr_state() "current"): a push
     or dispatch at its branch's head. One at the head of an open pull request
     is listed as skipped and never cancelled (open_pr_at_head(),
-    OPEN_HEAD_RULE). Without evidence that the pool skipped the leg, a stale or unknown
-    run is left to category b and the orphan pass (None, so it is not even
-    listed). A current run is cancelled for a later
+    OPEN_HEAD_RULE). A push or dispatch on a short-lived branch whose head is
+    stale (the branch moved on or is gone; stale_head_cancellable()) is
+    cancelled and not re-run, as category e does: nobody reads its output.
+    Any other stale or unknown run is left to category b and the orphan pass
+    (None, so it is not even listed). A current run is cancelled for a later
     sweep's re-run of its failed jobs, as in category e, unless that re-run
     would keep the leg on the owned label (owned_pool_rescue.
     bot_rerun_leaves_owned(): owned_pool_rescue.py's watch owns those runs),
@@ -1790,7 +1817,9 @@ def classify_unclaimed(
     bound = ("the cascade's stall wait" if leg.blacksmith else "45m, or the pool's p90 wait when longer")
     evidence = (f"unclaimed leg: `{leg.job_name}` queued {format_age(now - leg.queued_since)} with no runner on "
                 f"`{leg.pool}`, past its {format_age(dt.timedelta(seconds=leg.bound_seconds))} bound ({bound})")
-    if state != "current":
+    # Only a head read this sweep says stale: lost_pr_state() calls a push with an unread head stale too.
+    stale = state == "stale" and branch_head is not None and stale_head_cancellable(run)
+    if state != "current" and not stale:
         return None
     if pr is not None and JANITOR_OPT_OUT_LABEL in pr_labels(pr):
         return LostVerdict("skip", evidence, f"PR #{pr.get('number')} is labelled `{JANITOR_OPT_OUT_LABEL}`", pr=pr)
@@ -1800,6 +1829,10 @@ def classify_unclaimed(
     if at_head is not None:
         return LostVerdict("skip", f"{evidence}; at the head of open PR #{at_head.get('number')}", OPEN_HEAD_RULE,
                            pr=at_head)
+    if stale:
+        # Nobody reads a stale head's output (category b's rule for a superseded pull request run), so it is
+        # cancelled whatever its attempt or its re-run route, and never re-run.
+        return LostVerdict("cancel", f"{evidence}; {why}: a stale head, so it is not re-run", pr=pr)
     attempt = int(run.get("run_attempt") or 1)
     if leg.blacksmith:
         if attempt > rescue.REFUSAL_RESCUE_ATTEMPT:
@@ -1835,7 +1868,9 @@ def branch_head_lookups(runs: Iterable[Mapping[str, Any]], run_ids: Iterable[int
 
     A read is spent only where it can change the outcome into a re-run: never for a bot's attempt, a run
     that already failed (in `jobs_by_run`), a branch whose open pull request opted out (`no-janitor`, or
-    labels left unread), or a category-f run (`unclaimed`) whose re-run would stay on the owned label.
+    labels left unread), or a category-f run (`unclaimed`) whose re-run would stay on the owned label. The
+    exception is a category-f run stale_head_cancellable() covers: a stale head cancels it with no re-run,
+    so its head is read whatever its attempt, its failures or its re-run route.
     """
     wanted = set(run_ids)
     in_f = set(unclaimed)
@@ -1843,14 +1878,18 @@ def branch_head_lookups(runs: Iterable[Mapping[str, Any]], run_ids: Iterable[int
     branches: list[str] = []
     for run in sorted(runs, key=lambda item: (str(item.get("created_at") or ""), int(item.get("id") or 0))):
         branch = str(run.get("head_branch") or "")
+        # A category-f run on a short-lived branch is cancelled once its head is stale (stale_head_cancellable()),
+        # whatever its attempt or its re-run would do, so its head is worth a read either way.
+        stale_eligible = run.get("id") in in_f and stale_head_cancellable(run)
         if run.get("id") not in wanted or run.get("event") not in ("push", "workflow_dispatch") or not branch \
-                or branch in seen or bot_rerun(run):
+                or branch in seen or (bot_rerun(run) and not stale_eligible):
             continue
-        if run.get("id") in in_f and not rescue.bot_rerun_leaves_owned(str(run.get("path") or ""),
-                                                                       int(run.get("run_attempt") or 1)):
+        if run.get("id") in in_f and not stale_eligible and not rescue.bot_rerun_leaves_owned(
+                str(run.get("path") or ""), int(run.get("run_attempt") or 1)):
             continue
-        if jobs_by_run is not None and any(job.get("status") == "completed" and job.get("conclusion") == "failure"
-                                           for job in jobs_by_run.get(run.get("id")) or ()):
+        if not stale_eligible and jobs_by_run is not None and any(
+                job.get("status") == "completed" and job.get("conclusion") == "failure"
+                for job in jobs_by_run.get(run.get("id")) or ()):
             continue
         prs = (prs_by_branch or {}).get(branch) or []
         if prs_by_branch is not None and lost_pr_state(run, prs)[0] == "current":
