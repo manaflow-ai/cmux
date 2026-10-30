@@ -81,3 +81,14 @@ test("a queue listing gives the entry its resume, and another agent's message ne
 test("the label is in the catalog", () => {
   expect(translate("composer.queuedSubagentRetry")).toBe("Resume subagent");
 });
+
+test("a teammate's prompt in acpmux's words, or an edit the pane missed, is no resume", () => {
+  const listed = `${named.slice(0, 120)}…`;
+  const [theirs] = mergeQueue([], [{ promptId: "p-4", client: "acpmux", prompt: listed, author: { id: "u-2", name: "Austin" } }]);
+  expect(theirs?.retry).toBeUndefined();
+  const [held] = mergeQueue([], [{ promptId: "p-5", client: "acpmux", prompt: listed }]);
+  expect(held?.retry?.agentId).toBe("af0cbece62b15d0e1");
+  // The person rewrote it while the pane was away: the listing's own words decide.
+  const [edited] = mergeQueue([held!], [{ promptId: "p-5", client: "acpmux", prompt: "just check the logs" }]);
+  expect(edited?.retry).toBeUndefined();
+});

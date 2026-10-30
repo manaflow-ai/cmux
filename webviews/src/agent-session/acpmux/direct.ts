@@ -518,7 +518,7 @@ function queuedEntry(
     ...(message ? { message } : {}),
     ...(author ? { author } : {}),
     ...(inlineParts?.length ? { inlineParts } : {}),
-    ...(retry && !message ? { retry } : {}),
+    ...(retry && !message && !author ? { retry } : {}),
   };
 }
 
@@ -654,7 +654,8 @@ export function mergeQueue(
       message,
       author,
       recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts,
-      message || author ? undefined : (had?.retry ?? subagentRetryNotice(preview, entry)),
+      // The resume read before holds while its text does; an edit the pane missed reads the listing.
+      message || author ? undefined : ((whole ? had.retry : undefined) ?? subagentRetryNotice(preview, entry)),
     );
   });
 }

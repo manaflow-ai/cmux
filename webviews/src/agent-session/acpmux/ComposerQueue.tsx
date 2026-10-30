@@ -263,6 +263,9 @@ export function ComposerQueue({
   const wasOpen = useRef(unfolded);
   useLayoutEffect(() => {
     const current = list.current;
+    // A hold belongs to the list the pointer was on: once that list leaves (the queue emptied) no
+    // pointerleave comes, so a list drawn later starts unheld.
+    if (watched.current?.list !== current) held.current = false;
     if (current) {
       // Clear the collapsed list's scroll offset before measuring the opened rows. A pointer click
       // can leave focus on a row that the browser keeps anchored while the list grows; measuring
