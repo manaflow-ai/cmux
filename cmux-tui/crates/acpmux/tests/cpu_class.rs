@@ -280,3 +280,45 @@ async fn cpu_class_a_direct_background_harness_is_clamped_not_darwinbg_at_its_ex
     assert_eq!(darwinbg, "0", "the harness was darwinbg at its exec");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A background harness that is a shell script with no `#!` line starts, as execvp starts one
+/// (with /bin/sh), under the clamped exec too (review 3 of #28442).
+#[tokio::test]
+async fn cpu_class_a_background_harness_script_without_a_shebang_starts_with_sh() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch("ns");
+    let fifo = pid_fifo(&dir);
+    let script = dir.join("harness");
+    std::fs::write(
+        &script,
+        format!(
+            "sleep 120 & echo \"$$ $!\" > {}\nexec python3 {}\n",
+            daemon_env::sh_quote(fifo.display()),
+            daemon_env::sh_quote(FAKE)
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let hosts = dir.join("hosts");
+    let spec: SpawnSpec = serde_json::from_value(json!({
+        "session_id": "s-cpu-ns",
+        "program": script,
+        "args": [],
+        "env": daemon_env::vars(&dir, daemon_env::Agents::StandIn, &[]),
+        "cwd": dir,
+        "translator": null,
+        "socket": agent_host::socket_path(&hosts, "s-cpu-ns"),
+        "hosts_dir": hosts,
+        "buffer_cap": agent_host::DEFAULT_BUFFER_CAP,
+        "cpu_class": "background",
+    }))
+    .unwrap();
+    let launcher = HostLauncher { exe: daemon_env::bin().into(), prefix: Vec::new() };
+    let record = link::spawn(&launcher, &spec).await.expect("a script without #! starts");
+    let (harness, sleeper) = read_pids(fifo).await;
+    assert_eq!(record.harness_pid, Some(harness as u32));
+    let s = base_priority(sleeper);
+    end_group(harness);
+    assert_eq!(s, BACKGROUND_PRI, "a tool the script started runs at the GUI's class");
+    let _ = std::fs::remove_dir_all(&dir);
+}
