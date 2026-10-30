@@ -361,5 +361,15 @@ import Testing
         #expect(header(withItems)?.isCollapsed == false, "items still show under the header")
         let noItems = [row(.group(Self.group), 0, group: Self.group), row(.doneFold(fold), 24, group: Self.group, last: true)]
         #expect(header(noItems)?.isCollapsed == true, "a group that draws no member reads as folded")
+
+        // Codex review: a link drawn below the group's last shown workspace ends the group, so a drop on that
+        // workspace's lower edge still inserts within the group instead of leaving it.
+        let itemBelow = [row(.group(Self.group), 0, group: Self.group), row(.workspace(WorkspaceID("w")), 24, group: Self.group),
+                         row(.item("link"), 48, group: Self.group), row(.doneFold(fold), 72, group: Self.group, last: true)]
+        let member = RustRow.resolvable(itemBelow).first { $0.key.kind == "workspace" }
+        #expect(member?.isLastInGroup == false, "the link below still belongs to the group")
+        let itemAbove = [row(.group(Self.group), 0, group: Self.group), row(.item("link"), 24, group: Self.group),
+                         row(.workspace(WorkspaceID("w")), 48, group: Self.group), row(.doneFold(fold), 72, group: Self.group, last: true)]
+        #expect(RustRow.resolvable(itemAbove).first { $0.key.kind == "workspace" }?.isLastInGroup == true, "nothing drawn below it")
     }
 }
