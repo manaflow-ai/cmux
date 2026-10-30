@@ -2864,6 +2864,7 @@ impl WorkspaceRegistry {
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
             repair_resources_at_open(&tx)?;
+            public_projection_store::prune_stale_notification_reads_at_open(&tx)?;
             terminal_keep_store::classify_legacy_terminals(&tx)?;
             tx.commit()?;
         }

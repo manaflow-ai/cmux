@@ -117,6 +117,7 @@ impl Mux {
     /// publish its upsert or delete. Hook reports carry the agent's native
     /// session id into `extra.agent_session_id`.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn commit_agent_report(
         &self,
         target: AgentReportTarget<'_>,
@@ -451,6 +452,7 @@ impl Mux {
         Ok((commit, Some(agent)))
     }
 
+    #[track_caller]
     pub fn list_agents(
         &self,
         surface: Option<SurfaceId>,

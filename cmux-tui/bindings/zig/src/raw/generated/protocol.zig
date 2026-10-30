@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2461ff8aeeb5d34f4dd06fbf14db7a02d2e540305fe2174488fd74e38e0b2f8d";
+pub const ir_sha256 = "9bbcf894d8b9055c0e1450d83dc935b0f36accda9dc61e684c11cf5a31566e13";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1889,6 +1889,18 @@ pub const ServerStatsJournalWriter = struct {
     terminal_queued: u64,
 };
 
+pub const ServerStatsLockDetail = struct {
+    by_hold_p99: []const ServerStatsLockSiteDetail,
+    by_hold_total: []const ServerStatsLockSiteDetail,
+    contended_acquisitions: u64,
+    hold_us: ServerStatsHistogram,
+    holder: wire.Nullable(ServerStatsLockHolder),
+    last_stall: wire.Nullable(ServerStatsLockStall),
+    sites: u64,
+    stalls: u64,
+    wait_us: ServerStatsHistogram,
+};
+
 pub const ServerStatsLockHolder = struct {
     held_for_us: u64,
     site: []const u8,
@@ -1901,10 +1913,26 @@ pub const ServerStatsLockSite = struct {
     site: []const u8,
 };
 
+pub const ServerStatsLockSiteDetail = struct {
+    acquisitions: u64,
+    hold_max_us: u64,
+    hold_p99_us: u64,
+    hold_total_us: u64,
+    site: []const u8,
+    wait_max_us: u64,
+    wait_p99_us: u64,
+    wait_total_us: u64,
+};
+
 pub const ServerStatsLockStall = struct {
     blocker: wire.Nullable([]const u8),
     waited_us: u64,
     waiter: []const u8,
+};
+
+pub const ServerStatsLocks = struct {
+    registry: ServerStatsLockDetail,
+    state: ServerStatsLockDetail,
 };
 
 pub const ServerStatsRegistryLock = struct {
@@ -1940,6 +1968,7 @@ pub const ServerStatsResourceProjection = struct {
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
+    locks: ?ServerStatsLocks = null,
     registry_lock: ServerStatsRegistryLock,
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
@@ -1947,6 +1976,7 @@ pub const ServerStatsResult = struct {
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "locks",
         "resource_projection",
         "write_path",
     };

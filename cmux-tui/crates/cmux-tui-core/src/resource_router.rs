@@ -284,8 +284,10 @@ fn dispatch_resource_request(
             }
             ResourceOperation::SessionPing => {
                 ensure_session_route(mux, &request.selectors)?;
-                let snapshot = public_session_snapshot(mux)?;
-                Ok(json!({"alive":true,"cursor":snapshot["cursor"]}))
+                // The cursor alone: a ping reads the topology frame, not the
+                // whole session snapshot.
+                let cursor = crate::resource_api::public_session_cursor(mux)?;
+                Ok(json!({"alive":true,"cursor":cursor}))
             }
             ResourceOperation::TerminalList => list_resources(mux, &request.selectors, "terminals"),
             // A conversation tab's content is not a browser (`conversation-tabs-v1`).
