@@ -112,6 +112,7 @@ impl RestoringServer {
         // its watcher before the session serves its first client.
         mux.start_default_settings_owner();
         mux.start_default_keybindings_owner();
+        mux.connection_stats().note_socket(&self.path);
         self.slot.attach(ServedSession {
             mux: mux.clone(),
             render_service: Arc::new(RenderService::new()),

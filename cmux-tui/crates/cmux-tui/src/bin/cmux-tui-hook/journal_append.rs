@@ -17,11 +17,13 @@
 //!   `RetryBudget`: full-jitter exponential backoff with the daemon's
 //!   `retry_after_ms` as a floor.
 //! - No timer decides delivery (rule R-L5): the sender stops when the queue is
-//!   empty or the daemon is gone (its socket is missing or refuses the
-//!   connection). Lines it could not send stay queued for the agent's next
-//!   hook. A sender that dies leaves its lines too; the next one sends them
-//!   again with their idempotency keys, and the daemon answers a repeat from
-//!   its receipt.
+//!   empty or the daemon is gone. A daemon that refuses the connection but
+//!   keeps its socket file did not end its session: the lines stay queued,
+//!   and the next hook child of any agent of the session sends them (again,
+//!   with their idempotency keys; the daemon answers a repeat from its
+//!   receipt). A daemon that removed its socket ended its session: the lines
+//!   are dropped and counted where `server-stats` (`hook_queue`) shows them
+//!   ([`super::hook_spool`] has the queue's lifecycle).
 //! - The provider waits only for its own line to be written to the daemon,
 //!   or to be queued behind lines a sender is already working on (the
 //!   parent's `HANDOFF_WAIT` bounds that wait).
@@ -33,7 +35,7 @@ use std::cell::Cell;
 
 use cmux_tui_core::backoff::RetryBudget;
 
-use super::hook_spool::{DrainLock, Spool};
+use super::hook_spool::{DrainLock, Found, Spool};
 use super::*;
 
 /// The most the first retry waits, beyond the daemon's `retry_after_ms`. A
@@ -56,7 +58,9 @@ pub(super) fn append_with_receipt(
     on_sent: &dyn Fn(),
 ) -> anyhow::Result<()> {
     if !socket.exists() {
-        // No socket: this terminal is not attached to a live cmux-tui.
+        // No socket: this terminal's session ended. Its queues can never be
+        // sent; drop and count them.
+        let _ = sweep(socket, None);
         bail!("session socket {} is gone", socket.display());
     }
     let spool = Spool::for_request(socket, encoded).context("open the agent's hook queue")?;
@@ -77,7 +81,34 @@ pub(super) fn append_with_receipt(
     let mut sender = Sender::new(socket);
     let outcome = drain(&spool, lock, &mut sender, request_id, &signal);
     signal();
+    // Best effort: a queue this child cannot clean now is cleaned by the next
+    // hook child, and its own event's outcome stands either way.
+    let _ = sweep(socket, Some(&spool));
     outcome
+}
+
+/// The other queues beside `socket`: sends those of the live session that no
+/// child sends, and drops (and counts) those whose session ended.
+fn sweep(socket: &Path, except: Option<&Spool>) -> std::io::Result<()> {
+    let alive = socket.exists();
+    let mut sender = Sender::new(socket);
+    for found in super::hook_spool::orphans(socket, except)? {
+        let (spool, send) = match found {
+            Found::Live(spool) => (spool, alive),
+            Found::Ended(spool) => (spool, false),
+        };
+        let Some(lock) = spool.try_drain()? else {
+            // Its sender is at work.
+            continue;
+        };
+        if send {
+            // Another agent's events: their outcome is theirs.
+            let _ = drain(&spool, lock, &mut sender, "", &|| {});
+        } else {
+            spool.discard(0, lock)?;
+        }
+    }
+    Ok(())
 }
 
 /// Sends the queue from its start until it is empty, then lets go of `lock`.
@@ -110,7 +141,16 @@ fn drain(
             Delivered::Rejected(error) if own => own_rejection = Some(error),
             Delivered::Rejected(_) => {}
             Delivered::Gone(error) => {
-                spool.compact(offset)?;
+                if sender.socket.exists() {
+                    // Not answering, but its session did not end (a daemon
+                    // that stopped without ending it starts it again on the
+                    // same socket): the rest waits for the next hook.
+                    spool.compact(offset)?;
+                } else {
+                    // The daemon removed its socket: the session ended, and
+                    // nothing can take these events. Count them as dropped.
+                    spool.discard(offset, lock)?;
+                }
                 return Err(error);
             }
         }
