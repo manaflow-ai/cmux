@@ -235,16 +235,21 @@ impl LogWriter {
         open_logs: usize,
         supervisor: &Supervisor,
     ) -> Self {
-        Self::start_with_write_delay(root, segment_bytes, open_logs, supervisor, test_write_delay())
+        let hook = test_write_delay().map(|delay| -> WriteHook {
+            Arc::new(move |_: &str| cmux_threads::checked::sync::sleep(delay))
+        });
+        Self::start_with_hook(root, segment_bytes, open_logs, supervisor, hook)
     }
 
-    /// [`Self::start`], each write held `delay` first (a test's slow disk; [`test_write_delay`]).
-    pub(super) fn start_with_write_delay(
+    /// [`Self::start`]; `before_write` runs on the writer thread once per session write, before
+    /// the write, with the session's id (a test's slow disk, [`test_write_delay`]; or a test
+    /// that appends the session's next line there, so no write ends with an empty queue).
+    pub(super) fn start_with_hook(
         root: PathBuf,
         segment_bytes: u64,
         open_logs: usize,
         supervisor: &Supervisor,
-        delay: Option<std::time::Duration>,
+        before_write: Option<WriteHook>,
     ) -> Self {
         let shared = Arc::new(Shared {
             boost: Arc::new(cmux_threads::OwnerBoost::new()),
@@ -269,7 +274,7 @@ impl LogWriter {
             cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
-            move || run(&worker, delay),
+            move || run(&worker, before_write.as_deref()),
         )
         .map_err(|e| {
             tracing::error!("the event log writer did not start; logs are written in place: {e}")
@@ -418,6 +423,10 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// The writer thread's name, also its name in a hang record.
 const THREAD: &str = "acpmux-log-writer";
 
+/// What runs on the writer thread before each session write, with the session's id
+/// ([`LogWriter::start_with_hook`]).
+pub(super) type WriteHook = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// Debug builds only: `ACPMUX_TEST_LOG_WRITE_DELAY_MS` holds each write that long, so a test can
 /// stop the daemon while a record is queued and not yet written (at most 2 s). Release builds
 /// have no seam.
@@ -434,7 +443,7 @@ fn test_write_delay() -> Option<std::time::Duration> {
     None
 }
 
-fn run(shared: &Shared, delay: Option<std::time::Duration>) {
+fn run(shared: &Shared, before_write: Option<&(dyn Fn(&str) + Send + Sync)>) {
     let watched = SyncThread::register(THREAD, WRITE_ITEM);
     let mut state = lock(&shared.state);
     loop {
@@ -452,8 +461,8 @@ fn run(shared: &Shared, delay: Option<std::time::Duration>) {
         let result = {
             // Held for this write: it runs at the QoS of the highest waiter, if any.
             let _hold = cmux_threads::OwnerBoost::hold(&*shared.boost);
-            if let Some(delay) = delay {
-                cmux_threads::checked::sync::sleep(delay);
+            if let Some(hook) = before_write {
+                hook(&id);
             }
             let _item = watched.item();
             lock(&shared.files).write(&id, &q.lines)

@@ -4,21 +4,20 @@
 //! beside 79 others seldom has an empty queue, and every `_acpmux/events` read of it got no
 //! reply in 30 s (fleet job 88f5f7da34f5480fc9817e95, 288 of 288 reads); the app timed out at
 //! 2 s and restarted acpmux.
+//!
+//! No timing decides these tests. The chat streams on the writer thread itself: before each
+//! write of the chat, the writer's hook (`LogWriter::start_with_hook`) appends its next record,
+//! so no write ever ends with the chat's queue empty. A read that waits for an empty queue never
+//! returns; [`HANG`] only turns that hang into a failure.
 
 use super::*;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, Weak, mpsc};
 use std::time::Duration;
 
 const CHAT: &str = "streaming-chat";
 
-/// Each write of the log is held this long, as a busy disk holds it: the chat queues its next
-/// record while the one before it is written, so its queue is never empty.
-const WRITE: Duration = Duration::from_millis(50);
-
-/// The hang limit, 200 writes. A read or a flush waits for at most two writes of the chat (the
-/// one in progress and the one with its last record); one that has not returned by then waits
-/// for the stream to end, that is, with no bound.
+/// Turns a hang into a failure. A bounded read or flush returns after at most two writes.
 const HANG: Duration = Duration::from_secs(10);
 
 fn record(seq: u64) -> EventRecord {
@@ -32,46 +31,57 @@ fn record(seq: u64) -> EventRecord {
     }
 }
 
-fn store(name: &str) -> Arc<LocalStore> {
+/// The chat's stream, driven from the writer's hook: while `on`, each write of the chat first
+/// appends the chat's next record.
+#[derive(Default)]
+struct Stream {
+    store: OnceLock<Weak<LocalStore>>,
+    on: AtomicBool,
+    /// The last record appended.
+    seq: AtomicU64,
+    /// Told once three records are appended.
+    started: Mutex<Option<mpsc::Sender<()>>>,
+}
+
+impl Stream {
+    fn before_write(&self, id: &str) {
+        if id != CHAT || !self.on.load(Ordering::SeqCst) {
+            return;
+        }
+        let Some(store) = self.store.get().and_then(Weak::upgrade) else { return };
+        let seq = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
+        store.append(CHAT, &record(seq)).unwrap();
+        if seq == 3
+            && let Some(started) = self.started.lock().unwrap().take()
+        {
+            let _ = started.send(());
+        }
+    }
+}
+
+/// A store whose writer streams the chat (see [`Stream`]), not yet started.
+fn store(name: &str) -> (Arc<LocalStore>, Arc<Stream>) {
     let root = std::env::temp_dir().join(format!(
         "acpmux-read-settle-{name}-{}-{}",
         std::process::id(),
         uuid::Uuid::now_v7()
     ));
     crate::config::private_state_dir(&root).unwrap();
-    let log = log_writer::LogWriter::start_with_write_delay(
+    let stream = Arc::new(Stream::default());
+    let hook: log_writer::WriteHook = {
+        let stream = stream.clone();
+        Arc::new(move |id: &str| stream.before_write(id))
+    };
+    let log = log_writer::LogWriter::start_with_hook(
         root.clone(),
         1 << 20,
         OPEN_LOGS,
         &crate::supervised::embedded(),
-        Some(WRITE),
+        Some(hook),
     );
-    Arc::new(LocalStore { root, log })
-}
-
-/// A chat that streams until `stop`: it appends its next record as soon as the one before the
-/// last is written, so one record is always queued while another is written. Signals `started`
-/// once a few records are queued.
-fn stream(
-    store: Arc<LocalStore>,
-    stop: Arc<AtomicBool>,
-    started: mpsc::Sender<()>,
-) -> std::thread::JoinHandle<u64> {
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
-        let mut progress = store.progress(CHAT).unwrap();
-        let mut seq = 0;
-        while !stop.load(Ordering::SeqCst) {
-            seq += 1;
-            store.append(CHAT, &record(seq)).unwrap();
-            if seq == 3 {
-                let _ = started.send(());
-            }
-            let behind = seq.saturating_sub(1);
-            rt.block_on(progress.wait_for(|p| p.written >= behind || p.failed)).unwrap();
-        }
-        seq
-    })
+    let store = Arc::new(LocalStore { root, log });
+    stream.store.set(Arc::downgrade(&store)).ok();
+    (store, stream)
 }
 
 /// The seqs on disk in the chat's log, read from its files (no settle). The line the writer is
@@ -91,18 +101,21 @@ fn seqs_on_disk(store: &LocalStore) -> Vec<u64> {
         .collect()
 }
 
-/// Runs `op` on its own thread while the chat streams, after a few of its records are queued;
-/// returns what `op` returned and `before`, the last record queued before `op` started, or
+/// Starts the chat's stream, then runs `op` on its own thread once three records are appended;
+/// returns what `op` returned and `before`, the last record appended before `op` started, or
 /// fails when `op` has not returned within [`HANG`].
 fn while_streaming<T: Send + 'static>(
     store: &Arc<LocalStore>,
+    stream: &Stream,
     what: &str,
     op: impl FnOnce(&LocalStore) -> T + Send + 'static,
 ) -> (T, u64) {
-    let stop = Arc::new(AtomicBool::new(false));
     let (started_tx, started) = mpsc::channel();
-    let streamer = stream(store.clone(), stop.clone(), started_tx);
-    started.recv().unwrap();
+    *stream.started.lock().unwrap() = Some(started_tx);
+    stream.on.store(true, Ordering::SeqCst);
+    stream.seq.store(1, Ordering::SeqCst);
+    store.append(CHAT, &record(1)).unwrap();
+    started.recv_timeout(HANG).expect("the chat streamed three records");
     let before = store.progress(CHAT).unwrap().borrow().queued;
     let (done_tx, done) = mpsc::channel();
     let reader = store.clone();
@@ -110,8 +123,11 @@ fn while_streaming<T: Send + 'static>(
         let _ = done_tx.send(op(&reader));
     });
     let got = done.recv_timeout(HANG);
-    stop.store(true, Ordering::SeqCst);
-    let streamed = streamer.join().unwrap();
+    // Stop the stream and let the writer finish it before any panic: a hook still holding the
+    // store must never be its last owner (the writer would join its own thread).
+    stream.on.store(false, Ordering::SeqCst);
+    store.flush().unwrap();
+    let streamed = stream.seq.load(Ordering::SeqCst);
     match got {
         Ok(got) => (got, before),
         Err(mpsc::RecvTimeoutError::Timeout) => panic!(
@@ -124,8 +140,8 @@ fn while_streaming<T: Send + 'static>(
 
 #[test]
 fn read_settle_an_events_read_of_a_streaming_chat_returns_with_every_record_queued_before_it() {
-    let store = store("events");
-    let (read, before) = while_streaming(&store, "an events read", |store| {
+    let (store, stream) = store("events");
+    let (read, before) = while_streaming(&store, &stream, "an events read", |store| {
         store.events(CHAT, 0, usize::MAX).map(|r| r.into_iter().map(|e| e.seq).collect::<Vec<_>>())
     });
     let seqs = read.unwrap();
@@ -137,9 +153,10 @@ fn read_settle_an_events_read_of_a_streaming_chat_returns_with_every_record_queu
 
 #[test]
 fn read_settle_a_flush_while_a_chat_streams_returns_with_every_record_queued_before_it_on_disk() {
-    let store = store("flush");
-    let (flushed, before) =
-        while_streaming(&store, "a flush", |store| store.flush().map(|()| seqs_on_disk(store)));
+    let (store, stream) = store("flush");
+    let (flushed, before) = while_streaming(&store, &stream, "a flush", |store| {
+        store.flush().map(|()| seqs_on_disk(store))
+    });
     let seqs = flushed.unwrap();
     assert!(before >= 3, "the flush started after the chat streamed: {before}");
     assert!(seqs.len() as u64 >= before, "the flush left records queued before it: {seqs:?}");

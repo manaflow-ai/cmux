@@ -137,12 +137,14 @@ fn a_waiting_request_raises_the_writer_to_its_qos() {
     ));
     crate::config::private_state_dir(&root).unwrap();
     // Each write is held, so the writer is still writing when the request waits.
-    let writer = Arc::new(LogWriter::start_with_write_delay(
+    let hold: WriteHook =
+        Arc::new(|_: &str| std::thread::sleep(std::time::Duration::from_millis(200)));
+    let writer = Arc::new(LogWriter::start_with_hook(
         root.clone(),
         1 << 20,
         8,
         &crate::supervised::embedded(),
-        Some(std::time::Duration::from_millis(200)),
+        Some(hold),
     ));
     writer.append("background", b"{}\n".to_vec(), 1).unwrap();
     writer.append("chat", b"{}\n".to_vec(), 1).unwrap();
