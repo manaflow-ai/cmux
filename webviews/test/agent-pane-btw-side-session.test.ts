@@ -1,6 +1,23 @@
 // `/btw` in the real agent pane, backed by a protocol mock. A running main
 // turn must continue while a dismissible answer stays anchored in its transcript.
 // Disabled or refused requests must never become a steer, prompt, or queue item.
+//
+// The page is the pane's dev entry (vite.config.acpmux-pane.mjs) with its browser host, talking
+// JSON-RPC over a WebSocket to a stand-in acpmux daemon whose chat has a turn running, plus one
+// side session of that chat.
+//
+// - With the side-sessions gate on, `/btw <question>` mid-turn asks acpmux `_acpmux/btw` for a side
+//   session, then asks the app to open it beside the chat (`chat.sideChat`). It is not a prompt:
+//   nothing is queued or cancelled, the composer clears, and the chat's turn keeps streaming.
+// - When acpmux refuses, the question stays in the composer and the reason shows above it.
+// - With the gate off, `/btw` is not a cmux command: no side session starts.
+// - A side session's composer says "Reply in this session…".
+// - The palette's Side Question (`sideQuestion`, carrying the selected session) focuses the composer
+//   with `/btw ` in it, and only for the shown, selected chat that is not itself a side session.
+//
+// Real Chromium from Playwright (`chromium.launch`); CI fails the file when it cannot launch
+// (requireBrowserLane). The only `webkit` here is the `window.webkit.messageHandlers` bridge the
+// page talks to, not the engine.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -487,6 +504,7 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
     test("explicitly disabling /btw retains the question without steering the main turn", async () => {
       const page = await openChat(MAIN, false);
       await type(page, `/btw ${QUESTION}`);
+      await page.locator(".acpmux-attachment-note").filter({ hasText: "Side questions are disabled" }).waitFor();
       await settled();
       expect(btws).toEqual([]);
       expect(prompts).toEqual([]);
@@ -496,10 +514,12 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
 
     test("the palette's sideQuestion focuses the composer with /btw", async () => {
       const page = await openChat(MAIN, true);
-      await page.evaluate(() =>
-        (window as unknown as { cmuxAcpmuxBridge: { command(name: string): void } }).cmuxAcpmuxBridge.command(
-          "sideQuestion",
-        ),
+      await page.evaluate(
+        (session) =>
+          (
+            window as unknown as { cmuxAcpmuxBridge: { command(name: string, sessionId?: string): void } }
+          ).cmuxAcpmuxBridge.command("sideQuestion", session),
+        MAIN,
       );
       await page.waitForFunction(
         () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent === "/btw ",
@@ -514,14 +534,38 @@ await requireBrowserLane("agent-pane-btw-side-session.test.ts", async () => {
 
     test("with Side sessions off, the palette's sideQuestion leaves the composer empty", async () => {
       const page = await openChat(MAIN, false);
-      await page.evaluate(() =>
-        (window as unknown as { cmuxAcpmuxBridge: { command(name: string): void } }).cmuxAcpmuxBridge.command(
-          "sideQuestion",
-        ),
+      await page.evaluate(
+        (session) =>
+          (
+            window as unknown as { cmuxAcpmuxBridge: { command(name: string, sessionId?: string): void } }
+          ).cmuxAcpmuxBridge.command("sideQuestion", session),
+        MAIN,
       );
       await settled();
       expect(await composerText(page)).toBe("");
       await page.close();
+    });
+
+    test("the palette drops a stale or side-session command instead of prefilling the wrong chat", async () => {
+      const page = await openChat(MAIN, true);
+      await page.evaluate(() =>
+        (
+          window as unknown as { cmuxAcpmuxBridge: { command(name: string, sessionId?: string): void } }
+        ).cmuxAcpmuxBridge.command("sideQuestion", "a-session-that-is-no-longer-selected"),
+      );
+      expect(await composerText(page)).toBe("");
+      await page.close();
+
+      const sidePage = await openChat(SIDE, true);
+      await sidePage.evaluate(
+        (session) =>
+          (
+            window as unknown as { cmuxAcpmuxBridge: { command(name: string, sessionId?: string): void } }
+          ).cmuxAcpmuxBridge.command("sideQuestion", session),
+        SIDE,
+      );
+      expect(await composerText(sidePage)).toBe("");
+      await sidePage.close();
     });
 
     test("turning Side sessions on reaches an open chat without reopening it", async () => {

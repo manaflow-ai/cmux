@@ -64,6 +64,12 @@ struct CmdNRowSlotTests {
         let anchor = before[at]
         services.windows.select(anchor, in: state)
         controller.showWorkspace(requested: state.workspaceID)
+        let anchorID = WorkspaceID(anchor)
+        let anchorReady = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) {
+            guard let row = list.rowViews[.workspace(anchorID)], let layoutRow = list.displayed.row(for: .workspace(anchorID)) else { return false }
+            return row.window != nil && row.frame == list.frame(for: layoutRow)
+        }
+        try #require(anchorReady, "anchor row was not displayed before Cmd-N: \(rows(list.displayed))")
 
         let beforeLayout = list.displayed
         var frames: [[String]] = []
@@ -185,7 +191,12 @@ struct CmdNInGroupRowSlotTests {
         let anchor = members[0]
         services.windows.select(anchor, in: state)
         controller.showWorkspace(requested: state.workspaceID)
-        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { state.workspaceID == anchor }
+        let anchorID = WorkspaceID(anchor)
+        let anchorReady = await RapidWorkspaceCreateTests.wait(within: .seconds(10)) {
+            guard state.workspaceID == anchor, let row = list.rowViews[.workspace(anchorID)], let layoutRow = list.displayed.row(for: .workspace(anchorID)) else { return false }
+            return row.window != nil && row.frame == list.frame(for: layoutRow)
+        }
+        try #require(anchorReady, "anchor row was not displayed before Cmd-N: \(rows(list.displayed))")
         let before = rows(list.displayed)
         let at = try #require(before.firstIndex(of: anchor))
 

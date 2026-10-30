@@ -45,12 +45,19 @@ extension WindowManager {
 
     func applyPendingPlacements(live: Set<String>) {
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
-        for (id, pending) in pendingPlacements where live.contains(id) {
+        pendingPlacementOrder.removeAll { pendingPlacements[$0] == nil }
+        let ready = pendingPlacementOrder.filter { live.contains($0) && services.machines.workspace(id: $0)?.0.isProvisional == false }
+        var refreshed: Set<String> = []
+        for id in ready {
+            guard let pending = pendingPlacements[id] else { continue }
             guard let workspace = services.machines.workspace(id: id) else {
                 // Before the create reply, retain the placement; the create
                 // failure path removes it explicitly. Once the daemon has
                 // reported it, an absent workspace is a confirmed removal.
-                if pending.hasReported { pendingPlacements[id] = nil }
+                if pending.hasReported {
+                    pendingPlacements[id] = nil
+                    pendingPlacementOrder.removeAll { $0 == id }
+                }
                 continue
             }
             guard workspace.0.isProvisional != true else { continue }
@@ -59,12 +66,15 @@ extension WindowManager {
                 let target = registry.value.window(requestedWindow)
                 if target?.isOpen == false || (target == nil && pendingClaims[id] != requestedWindow) {
                     pendingPlacements[id] = nil
+                    pendingPlacementOrder.removeAll { $0 == id }
                     continue
                 }
             }
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let daemon = services.machines.daemon(forWorkspace: id) else { continue }
-            let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
+            // One store-backed rows pass per window; each following placement
+            // reads the model with the preceding optimistic moves applied.
+            let sections = Self.placementSections(in: bridge, refresh: refreshed.insert(window).inserted)
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
             // The daemon can report a created workspace before this window's
@@ -77,11 +87,20 @@ extension WindowManager {
             let slot = pending.slot ?? (daemon.isLocal ? pending.byDefault?.move(for: id, section: section, in: sections, home: home)
                 : pending.byDefault?.slot(for: id, section: section, in: sections, home: home))
             pendingPlacements[id] = nil
+            pendingPlacementOrder.removeAll { $0 == id }
             if let position = slot?.position(moving: [id], section: section, in: sections) {
                 bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
             }
             ActionRunScope.carrying(pending.run) { pending.then?(id, bridge) }
         }
+    }
+
+    /// Slot indices and the reorder plan must use the same current rows. The
+    /// daemon can publish several creates before the rows observation runs;
+    /// resolving against the last drawn list would put bottom before those rows.
+    static func placementSections(in bridge: SidebarBridge, refresh: Bool = true) -> [SidebarRowSection] {
+        if refresh { bridge.sameTurn.syncNow(rows: true) }
+        return SidebarRowSection.withoutPlaceholders(bridge.model.sections)
     }
 
     /// Places a workspace this app just made (by a command whose reply
