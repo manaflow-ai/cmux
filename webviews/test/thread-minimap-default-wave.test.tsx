@@ -216,9 +216,14 @@ test("the rail's list owns overflow without drawing a second visible scrollbar, 
     "utf8",
   ).replace(/\/\*[\s\S]*?\*\//g, "");
   const list = /\.acpmux-minimap__list\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
-  expect(list).toMatch(/overflow-y:\s*auto/);
-  expect(list).toMatch(/overscroll-behavior:\s*contain/);
+  // A list that fits its prompts is no scroll container, so the wheel over it reaches the transcript.
+  expect(list).toMatch(/overflow:\s*hidden/);
+  expect(list).not.toMatch(/overflow(-[xy])?:\s*(auto|scroll)/);
   expect(list).toMatch(/scrollbar-width:\s*none/);
+  // Only one longer than its room scrolls itself, and never chains the wheel on at its ends.
+  const scrolls = /\.acpmux-minimap__list\[data-rail-scrolls\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  expect(scrolls).toMatch(/overflow-y:\s*auto/);
+  expect(scrolls).toMatch(/overscroll-behavior:\s*contain/);
   expect(css).toMatch(/\.acpmux-minimap__list::-webkit-scrollbar\s*\{[^}]*display:\s*none/);
   // The rail sits over the transcript: sticky, no height of its own, so it takes no room in the layout.
   const shell = /\.acpmux-minimap\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";

@@ -349,6 +349,96 @@ test("wheel browsing belongs to the rail and is not snapped back by transcript s
   }
 });
 
+test("a wheel over a rail that scrolls itself is not the reader's: the transcript keeps following", async () => {
+  const { followTrace } = await import("../src/agent-session/acpmux/followTrace");
+  const view = await mount(70);
+  const input = jest.spyOn(followTrace, "input");
+  try {
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    expect(list.hasAttribute("data-rail-scrolls")).toBe(true);
+    // The transcript's reader listener is a capture listener on the scroller, an ancestor of the rail:
+    // it runs before anything on the list can stop the event, so it must skip the rail's wheel itself.
+    // An upward wheel there released the transcript's follow (App.tsx `followIntent(false)`).
+    const captured: number[] = [];
+    view.scroller.addEventListener("wheel", (event) => captured.push((event as WheelEvent).deltaY), { capture: true });
+    input.mockClear();
+    await act(async () => {
+      list.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true }));
+      tick(40).dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -40, bubbles: true, cancelable: true }));
+    });
+    expect(captured).toEqual([-120, -40]);
+    expect(input).not.toHaveBeenCalled();
+    // The same wheel over the transcript is the reader's.
+    await act(async () => {
+      view.scroller.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true }));
+    });
+    expect(input).toHaveBeenCalledTimes(1);
+  } finally {
+    input.mockRestore();
+    await view.unmount();
+  }
+});
+
+test("a rail that fits its prompts passes the wheel through to the transcript", async () => {
+  const { followTrace } = await import("../src/agent-session/acpmux/followTrace");
+  const view = await mount(8);
+  const input = jest.spyOn(followTrace, "input");
+  try {
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    // No mark: the list is no scroll container (threadMinimap.css), so the browser scrolls the
+    // transcript, and every transcript wheel listener hears it as the reader's.
+    expect(list.hasAttribute("data-rail-scrolls")).toBe(false);
+    const heard: number[] = [];
+    view.scroller.addEventListener("wheel", (event) => heard.push((event as WheelEvent).deltaY));
+    input.mockClear();
+    await act(async () => {
+      tick(3).dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true }));
+    });
+    expect(heard).toEqual([-120]);
+    expect(input).toHaveBeenCalledTimes(1);
+  } finally {
+    input.mockRestore();
+    await view.unmount();
+  }
+});
+
+test("a rail browsed in one chat follows the reader again in the next chat the transcript shows", async () => {
+  const view = await mount(70);
+  try {
+    const list = () => document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    // Browse the rail: a wheel over it, and the list's native scroll.
+    await act(async () => {
+      list().dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 120, bubbles: true, cancelable: true }));
+    });
+    list().scrollTop = 240;
+    await act(async () => list().dispatchEvent(new dom.window.Event("scroll", { bubbles: true })));
+    // The same transcript shows another chat of the same length.
+    await act(async () =>
+      view.root.render(
+        <VirtualTranscript
+          rows={turnView(chat(70), new Set())}
+          sessionId="rail-test-other"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    // Its reader goes far down and back to the top: the rail follows the band to its top, rather
+    // than holding the first chat's browsing offset.
+    await act(async () => {
+      view.scroller.scrollTop = 5000;
+      view.scroller.dispatchEvent(new dom.window.Event("scroll"));
+    });
+    await act(async () => {
+      view.scroller.scrollTop = 0;
+      view.scroller.dispatchEvent(new dom.window.Event("scroll"));
+    });
+    expect(list().scrollTop).toBe(0);
+  } finally {
+    await view.unmount();
+  }
+});
+
 test("a clicked row takes focus, as a clicked button does in Codex, so Tab goes on from the rail; the click does not hold the card open", async () => {
   const view = await mount(12);
   jest.useFakeTimers();
