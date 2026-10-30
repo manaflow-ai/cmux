@@ -119,7 +119,9 @@ await requireBrowserLane("chat-inspector-overlay-transcript.test.ts", async () =
           });
           const closed = await rowEdges(page);
           expect(closed.rows).toEqual(before.rows);
-          expect(Math.max(...closed.rows)).toBeGreaterThan(left + (placement === "push" ? 100 : 0));
+          // Floating, the rows never moved; pushed, they were narrowed and now reach past the panel's edge.
+          if (placement === "push") expect(Math.max(...closed.rows)).toBeGreaterThan(left + 100);
+          else expect(open.rows).toEqual(before.rows);
         } finally {
           await page.close();
         }
