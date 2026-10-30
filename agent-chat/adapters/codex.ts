@@ -1,4 +1,4 @@
-import type { Adapter, AgentEvent, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
+import type { Adapter, AgentEvent, AgentPlanStatus, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
 import { agentModelCatalog } from "../catalog";
@@ -49,6 +49,26 @@ interface CodexState {
   // timeout, that many error events.
   pendingStop?: Promise<void>;
   commands: CommandEntry[];
+  // Thread lifecycle rows already shown, so repeated notifications do not
+  // repeat them (see threadLifecycle).
+  lifecycle: CodexLifecycle;
+}
+
+interface CodexLifecycle {
+  // A current app-server reports one compaction as a contextCompaction item
+  // and as the deprecated thread/compacted notification, in either order; an
+  // older one sends only the notification. Counting each signal per turn and
+  // showing max(items, notifications) markers gives one per compaction.
+  compactionTurnId?: string;
+  compactionItems: number;
+  compactionNotices: number;
+  // objective + status of the goal last shown; usage ticks re-send it.
+  goalKey?: string;
+  systemError: boolean;
+}
+
+function freshLifecycle(): CodexLifecycle {
+  return { compactionItems: 0, compactionNotices: 0, systemError: false };
 }
 
 interface TurnWaiter {
@@ -273,6 +293,7 @@ function forkedCodexState(sourceState: CodexState): CodexState {
     turnActive: false,
     activeGeneration: undefined,
     commands: sourceState.commands.slice(),
+    lifecycle: freshLifecycle(),
   };
 }
 
@@ -453,8 +474,60 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
       itemStarted(sess, p.item);
       break;
     case "item/completed":
-      itemCompleted(sess, p.item);
+      if (p.item?.type === "contextCompaction") compactionSignal(sess, st, p.turnId, "item");
+      else itemCompleted(sess, p.item);
       break;
+    case "thread/compacted":
+      compactionSignal(sess, st, p.turnId, "notice");
+      break;
+    case "turn/plan/updated": {
+      const plan = codexPlanEvent(p.plan);
+      if (plan) sess.emit(plan);
+      break;
+    }
+    case "thread/goal/updated":
+      goalUpdated(sess, st, p.goal);
+      break;
+    case "thread/goal/cleared":
+      if (st.lifecycle.goalKey !== undefined) {
+        st.lifecycle.goalKey = undefined;
+        sess.emit({ kind: "status", text: "Goal cleared" });
+      }
+      break;
+    case "thread/status/changed": {
+      // Only a system error is news here. The waiting flags never outlive the
+      // approval or input request, which this adapter answers at once, and
+      // running/idle already follow turn/started and turn/completed.
+      const systemError = p.status?.type === "systemError";
+      if (systemError && !st.lifecycle.systemError) {
+        sess.emit({ kind: "status", text: "Codex reported a system error on this thread" });
+      }
+      st.lifecycle.systemError = systemError;
+      break;
+    }
+    case "thread/archived":
+      sess.emit({ kind: "status", text: "Thread archived in Codex" });
+      break;
+    case "thread/unarchived":
+      sess.emit({ kind: "status", text: "Thread unarchived in Codex" });
+      break;
+    case "thread/closed": {
+      // The server unloaded the thread. Unroute it so the next send takes the
+      // thread/resume path instead of starting a turn on a thread it no longer
+      // holds, and end a turn that can no longer complete.
+      srv.sessionsByThread.delete(threadKey);
+      if (st.turnActive) {
+        const generation = st.activeGeneration;
+        st.turnActive = false;
+        st.currentTurnId = undefined;
+        st.activeGeneration = undefined;
+        resolveTurnWaiters(st, null);
+        sess.emit({ kind: "error", message: "Codex closed the thread mid-turn" });
+        sess.emit({ kind: "done", generation } as any);
+        sess.setStatus("idle");
+      }
+      break;
+    }
     case "thread/tokenUsage/updated":
       sess.internal.lastUsage = p.tokenUsage?.total;
       break;
@@ -576,6 +649,54 @@ function itemCompleted(sess: SessionCtx, item: any) {
   }
 }
 
+function compactionSignal(sess: SessionCtx, st: CodexState, turnId: unknown, signal: "item" | "notice") {
+  const lc = st.lifecycle;
+  const turn = typeof turnId === "string" ? turnId : "";
+  if (lc.compactionTurnId !== turn) {
+    lc.compactionTurnId = turn;
+    lc.compactionItems = 0;
+    lc.compactionNotices = 0;
+  }
+  const shown = Math.max(lc.compactionItems, lc.compactionNotices);
+  if (signal === "item") lc.compactionItems += 1;
+  else lc.compactionNotices += 1;
+  if (Math.max(lc.compactionItems, lc.compactionNotices) > shown) {
+    sess.emit({ kind: "status", text: "Conversation compacted" });
+  }
+}
+
+const PLAN_STATUS: Record<string, AgentPlanStatus> = { pending: "pending", inProgress: "in_progress", completed: "completed" };
+
+function codexPlanEvent(steps: unknown): Extract<AgentEvent, { kind: "plan" }> | null {
+  if (!Array.isArray(steps) || !steps.length) return null;
+  return {
+    kind: "plan",
+    entries: steps.map((step: any) => ({
+      text: typeof step?.step === "string" ? step.step : String(step?.step ?? ""),
+      status: PLAN_STATUS[step?.status] ?? "unknown",
+    })),
+  };
+}
+
+const GOAL_STATUS_PREFIX: Record<string, string> = {
+  active: "Goal",
+  paused: "Goal paused",
+  blocked: "Goal blocked",
+  usageLimited: "Goal hit the usage limit",
+  budgetLimited: "Goal reached its token budget",
+  complete: "Goal complete",
+};
+
+function goalUpdated(sess: SessionCtx, st: CodexState, goal: any) {
+  const objective = typeof goal?.objective === "string" ? goal.objective.trim() : "";
+  if (!objective) return;
+  const status = typeof goal.status === "string" ? goal.status : "active";
+  const key = `${status}\n${objective}`;
+  if (st.lifecycle.goalKey === key) return;
+  st.lifecycle.goalKey = key;
+  sess.emit({ kind: "status", text: `${GOAL_STATUS_PREFIX[status] ?? "Goal"}: ${truncate(objective, 200)}` });
+}
+
 function summarizeChanges(item: any): string {
   const changes = item.changes ?? [];
   if (Array.isArray(changes) && changes.length) {
@@ -598,6 +719,7 @@ function defaultState(autoApprove: boolean): CodexState {
     activeGeneration: undefined,
     turnWaiters: [],
     commands: [],
+    lifecycle: freshLifecycle(),
   };
 }
 
