@@ -1,0 +1,328 @@
+{
+  "version": 1,
+  "build": "4099184203401",
+  "notes": "notes/4099184203401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27673,
+      "title": "fix(nightly-next): fail closed when in-flight read is unknown",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27619,
+      "title": "fix(next browser): Paste and Match Style follows the Chromium page's validation; review notes",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27709,
+      "title": "fix(cmux-next): copy-ids review fixes",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27536,
+      "title": "acpmux: a turn ends when Claude Code ends it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27332,
+      "title": "New Tab: keep keyboard-selected quick actions visible",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26978,
+      "title": "perf(settings): cache searchable rows between keystrokes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27739,
+      "title": "ci: the devbox rebake pushes its manifest branch as cmux-bot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27701,
+      "title": "cmux NEXT sidebar: a clamped Shift+Arrow keeps the range; selection actions keep pinned members",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27769,
+      "title": "test(cmux-next): the joined-machine actions are palette-exempt (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27541,
+      "title": "cmux NEXT: show nothing while acpmux starts; a lasting failure is one line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26825,
+      "title": "cmux daemon: bridge a link share to its hosted room, 1/2: provisioning (cmux.share/1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26153,
+      "title": "cmux NEXT: resolve rapid bottom placements from current rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27758,
+      "title": "cmux NEXT: await FolderChanges.events() in MachineConsentChanges (build fix)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25857,
+      "title": "ci(cmux-next): a crashed test helper names itself instead of going undiagnosed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26716,
+      "title": "cmux NEXT: notify on a hand-off's done, failed and needs-you, once per turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25441,
+      "title": "cmux NEXT: expose Ask a Side Question in the command palette",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24834,
+      "title": "[rd-biz-chief] Return GitHub setup to its team and collapse remote duplicates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27715,
+      "title": "defaults guard: run the guard from the base tip, not the pull request's last-push base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27733,
+      "title": "docs(cmux-review): how to write a PR review receipt and a carried receipt",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27006,
+      "title": "test(cloud): preserve team selection when refresh fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25839,
+      "title": "cmux NEXT: link the Cloud start-session highlight to docs",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27708,
+      "title": "fix(next): a person's own Enter always sends, however late the prompt arrives",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27177,
+      "title": "web-lint: hosts that run no heavy checks leave the type-aware lint to CI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27645,
+      "title": "fix(composer): retain queued edits across remounts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26714,
+      "title": "Find in Chat keeps the selected transcript position",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24153,
+      "title": "cmux NEXT: a pane opening on the right lays its page out once; pane-perf harness gets a page action",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23972,
+      "title": "cmux NEXT: agents can screenshot windows, panes and tabs; browser pages come back masked",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24581,
+      "title": "fix(acpmux): guard sidebar group labels and empty groups",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27547,
+      "title": "iOS chat: removing a queued message never overwrites an unsent draft",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24473,
+      "title": "Keep recordings dropped from the macOS capture thumbnail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24009,
+      "title": "cmux-next: pointing hand over clickable native chrome",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25942,
+      "title": "Agent pane: a chat that outgrew its context window offers Compact, not a Retry that fails again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25420,
+      "title": "cmux NEXT sidebar: drag the Chief out to remove it; a Chief just added draws before its echo (2/2 of #23933)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25420/652aebb5/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "652aebb5",
+      "tour": "core"
+    },
+    {
+      "pr": 27670,
+      "title": "defaults guard: trust a receipt from a private org member with write access",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27190,
+      "title": "docs(agents): every setting reaches the palette, CLI and MCP",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27623,
+      "title": "Transcript: opened command steps show the command highlighted over scrolling output",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27339,
+      "title": "Keep emoji initials whole in Home and Settings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27591,
+      "title": "cmux NEXT: Background tasks model, derived from acpmux state (1/2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27618,
+      "title": "fix(composer): keep prompt recall anchored across older pages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27126,
+      "title": "Sidebar test suites close the windows they open (20 suites, 84 windows), with .closesItsWindows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27056,
+      "title": "fix(next): open sidebar and tab group editors instantly",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/27056/group-tab-before-after-60fps.mp4",
+      "source": "manual",
+      "note": "4 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 27516,
+      "title": "cmux NEXT sidebar: the nested-groups capture fixture names no fleet host",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25151,
+      "title": "cx-oy6yl: Capture update survival with nine agents and four commands",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27682,
+      "title": "fix(tailnet): decide a failure close on the closing thread, under the fence's lock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26082,
+      "title": "Agent chat: PR pills share the message action row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27679,
+      "title": "ci(cmux-next): the DEV Release product receipt records the resolved Swift mode",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26517,
+      "title": "cmux-next: FolderChanges.events() returns once its watches are registered",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26056,
+      "title": "test(next): separate classic upgrade correctness from timing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24480,
+      "title": "Keep native subagent tooltip rows during text updates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24456,
+      "title": "test(cmux-next control): the watchdog CPU test spins its own thread, so action.run's deadline test no longer times out behind it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24077,
+      "title": "cmux NEXT: the What's New popover stays inside its window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27681,
+      "title": "acpmux: an idle Codex session behind npm's launcher hibernates",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
