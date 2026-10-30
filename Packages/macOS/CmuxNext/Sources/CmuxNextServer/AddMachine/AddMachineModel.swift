@@ -131,7 +131,7 @@ public struct AddMachineServices {
 /// (or doctor for Check Machine) with its checklist filling in live from the CLI's lines, then
 /// ready or failed. The card, the palette, the CLI and a reopen read the same model; the click and
 /// the key run ``perform(_:)``.
-@Observable
+@MainActor @Observable
 public final class AddMachineModel {
     public nonisolated enum Mode: Equatable, Sendable {
         /// Add Machine: the field and the Tailscale list, then enroll.

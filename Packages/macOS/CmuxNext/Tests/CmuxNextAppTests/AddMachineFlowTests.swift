@@ -365,7 +365,6 @@ import Testing
         model.perform(.add)
         try await waitFor { host.live != nil }
         let live = try #require(host.live)
-        defer { live.finish() }
         let installFail = Self.step("install", "fail", "use the app build", reason: "wrong-platform")
         live.yield(Self.report("test-machine", "test-machine", ok: false, [Self.step("reach", "ok"), installFail]))
         try await waitFor { model.checklist.row(.install)?.status == .done(.fail) }
@@ -374,15 +373,11 @@ import Testing
 
         // Start finished() before Cancel drops the model's task. Its wait then observes the
         // canceled task settling, rather than returning early because the task is already nil.
-        var waiter: Task<String?, Never>?
-        await withCheckedContinuation { (started: CheckedContinuation<Void, Never>) in
-            waiter = Task {
-                started.resume()
-                return await model.finished()
-            }
-        }
+        let waiter = Task { await model.finished() }
+        for _ in 0..<10 { await Task.yield() }
         #expect(model.perform(.cancel))
-        _ = await waiter?.value
+        live.finish()
+        _ = await waiter.value
 
         #expect(host.installs.isEmpty, "a retained report must not start installation after Cancel")
         #expect(host.connected.isEmpty)
