@@ -275,9 +275,9 @@ test("an idle summary ends a summary-only turn when its terminal event was misse
   }
 });
 
-test("a waiting summary keeps the active turn blocked", async () => {
-  const daemon = fakeDaemon(record([["mux", "user_message", { text: "permissioned prompt" }]]), {
-    status: "running",
+test.each(["running", "waiting"])("a %s attach keeps the turn active while waiting", async (status) => {
+  const daemon = fakeDaemon([], {
+    status,
     turn: { turnId: "t2", startedAt: START + 30_000 },
   });
   let snapshot: any;
@@ -293,8 +293,16 @@ test("a waiting summary keeps the active turn blocked", async () => {
     await until(() => snapshot.summary?.status === "waiting", "the waiting summary");
     expect(snapshot.isWorking).toBe(true);
     expect(client.turnRunning()).toBe(true);
+    expect(snapshot.turnStartedAtMs).toBe(START + 30_000);
     expect(await client.continueIn("claude")).toBeUndefined();
     expect(daemon.calls.filter((method) => method === "_acpmux/handoff_prepare")).toHaveLength(0);
+    await client.cancel();
+    expect(daemon.calls).toContain("session/cancel");
+    expect(snapshot.stopping).toBe(true);
+    daemon.change({ status: "idle", turn: undefined });
+    await until(() => !snapshot.isWorking, "idle after waiting");
+    expect(client.turnRunning()).toBe(false);
+    expect(snapshot.stopping).toBeUndefined();
   } finally {
     client.close();
   }
