@@ -457,10 +457,11 @@ export class SubagentFold {
     const name = daemonShortName(record.shortName);
     const asked = promptKey(record.prompt);
     // A name is the surer of the two: a different explicit name cannot fall back to its prompt.
-    // The daemon allocates `base-2`, `base-3`, ... when a requested short name is taken. A
-    // numeric suffix therefore has no provenance in this record; never let it promote a shell
-    // call whose requested name happens to equal the renamed MCP child.
-    if (name && isDaemonRenamedName(name)) return undefined;
+    // The daemon allocates `base-2`, `base-3`, ... when a requested short name is taken. When a
+    // start requested that base, the suffix has no provenance in this record; never let it promote
+    // a shell call whose requested name happens to equal the renamed child. An explicit `-n fix-2`
+    // with no competing `fix` is its own name.
+    if (name && this.mayBeRenamed(name)) return undefined;
     const identity = { name, prompt: asked };
     if (this.retiredStarts.some((start) => identitiesOverlap(start, identity))) return undefined;
     // The call's requested name in the daemon's spelling (`-n Alpha` claims `alpha`).
@@ -524,6 +525,18 @@ export class SubagentFold {
   private markAmbiguous(identity: ChildIdentity): void {
     for (const pending of this.parentCalls.values())
       if (identitiesOverlap(identity, pending.identity)) pending.ambiguous = true;
+  }
+
+  /// `name` ends in `-N` and a pending, running or retired start requested it without that suffix.
+  private mayBeRenamed(name: string): boolean {
+    const base = /-\d+$/.test(name) ? name.replace(/-\d+$/, "") : undefined;
+    if (!base) return false;
+    const identities = [
+      ...[...this.parentCalls.values()].map((pending) => pending.identity),
+      ...this.sessionStarts.values(),
+      ...this.retiredStarts,
+    ];
+    return identities.some((identity) => identity.name === base);
   }
 
   private retire(identity: ChildIdentity | undefined): void {
@@ -1089,10 +1102,6 @@ function daemonShortName(value: unknown): string | undefined {
     out = next;
   }
   return out || "task";
-}
-
-function isDaemonRenamedName(name: string): boolean {
-  return /-\d+$/.test(name);
 }
 
 function sameIdentity(a: ChildIdentity, b: ChildIdentity): boolean {
