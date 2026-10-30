@@ -158,6 +158,15 @@ def stall_sites(stalls):
     return sorted(sites.values(), key=lambda s: -s["total_ms"])
 
 
+def lock_held_share(first, last, window_s):
+    def held_us(snapshot):
+        hold = stat(snapshot, "registry_lock", "hold_us") or {}
+        return (hold.get("count") or 0) * (hold.get("mean") or 0)
+    if not window_s or not stat(last, "registry_lock", "hold_us"):
+        return None
+    return round(max(0, held_us(last) - held_us(first)) / (window_s * 1e6), 4)
+
+
 def stat(snapshot, *path):
     value = snapshot
     for key in path:
@@ -249,6 +258,10 @@ def run_metrics(run):
         "daemon_lock_wait_us": {k: lock_wait.get(k) for k in ("count", "p50", "p90", "p99", "max")},
         "daemon_lock_hold_us": {k: (stat(last, "registry_lock", "hold_us") or {}).get(k) for k in ("p50", "p90", "p99", "max")},
         "daemon_lock_stalls": stat(last, "registry_lock", "stalls"),
+        # Share of wall time the registry lock was held over the run's own server-stats window: the change of
+        # hold count x mean hold (both cumulative from the daemon's start) between the first and last read,
+        # divided by the window (lead 2026-10-30: ~85 % in both arms of the B1 A/B).
+        "registry_lock_held_share": lock_held_share(first, last, window_s),
         "daemon_lock_top_sites": (stat(last, "registry_lock", "top_sites") or [])[:5],
         "journal_commit_us": {k: (stat(last, "journal_writer", "commit_us") or {}).get(k) for k in ("p50", "p90", "p99", "max")},
         "workspace_close_app_ms": dist(c.get("app_gone_ms") for c in closes),
@@ -343,6 +356,7 @@ KEY = [  # (label, path in metrics) for the text summary
     ("daemon refused share of connects", ("daemon_connections", "refused_share")),
     ("daemon peak/limit", ("daemon_connections", "peak")),
     ("lock wait p99 us", ("daemon_lock_wait_us", "p99")),
+    ("registry lock held share", ("registry_lock_held_share",)),
     ("workspace close p99 ms", ("workspace_close_app_ms", "p99")),
     ("workspace close p95 ms", ("workspace_close_app_ms", "p95")),
     ("workspace close not done", ("workspace_close_not_done",)),

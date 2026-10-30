@@ -289,17 +289,24 @@ def connection_holders(rows):
     each connection's name, kind, transport and age) by name and kind, and the live client processes on the
     host by role (hook helpers, `cmux` CLI calls, the app). A `cmux` process here is one of the bundle's CLI
     or hook binaries; each holds at most one connection or is waiting for one."""
-    _, parsed, code = cli("raw", "command", "--request-json", json.dumps({"cmd": "list-clients"}), timeout=15)
-    listed = value(parsed) if parsed else None
-    clients = listed if isinstance(listed, list) else (listed or {}).get("clients") if isinstance(listed, dict) else None
+    # `cmux client list` (the resource operation client.list): one object per connection with name,
+    # client_kind, transport and connected_seconds. (`raw command list-clients` was refused: usage.invalid.)
+    _, parsed, code = cli("client", "list", timeout=15)
+    listed = value(parsed) if parsed is not None else None
+    if isinstance(listed, dict):
+        listed = listed.get("clients") if isinstance(listed.get("clients"), list) else listed.get("items")
+    clients = listed if isinstance(listed, list) else None
     by_label = {}
     ages = {}
     for client in clients or []:
         if not isinstance(client, dict):
             continue
-        label = f"{client.get('kind') or '-'}/{client.get('name') or '-'}/{client.get('transport') or '-'}"
+        label = f"{client.get('client_kind') or client.get('kind') or '-'}/{client.get('name') or '-'}/{client.get('transport') or '-'}"
         by_label[label] = by_label.get(label, 0) + 1
-        ages.setdefault(label, []).append(client.get("connected_seconds"))
+        try:
+            ages.setdefault(label, []).append(float(client.get("connected_seconds")))
+        except (TypeError, ValueError):
+            pass
     roles = {"hook_helper": 0, "cli": 0, "other_bundle": 0}
     for _, _, _, args in rows:
         if "cmux-tui-hook" in args or "__agent-hook" in args:
