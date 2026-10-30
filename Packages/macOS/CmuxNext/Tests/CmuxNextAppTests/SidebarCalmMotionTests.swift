@@ -3,12 +3,13 @@ import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// POLISH audit, batch 4 (cx-2grmt): "No bouncy or weird transforms." A mouse wheel past the
 /// first or last space bounced the list out and back, and a new group's chip grew from 0.86.
 /// The edge stays still, and the chip arrives with its row's fade only.
-@MainActor
+@MainActor @Suite(.closesItsWindows)
 struct SidebarCalmMotionTests {
     private static let group = GroupID("grp-new")
 
@@ -64,7 +65,8 @@ struct SidebarCalmMotionTests {
         let sidebar = Self.sidebar(model)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView?.addSubview(sidebar)
         window.orderFrontRegardless()
         try #require(window.screen != nil)

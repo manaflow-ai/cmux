@@ -700,6 +700,12 @@ impl ChildAgent {
             inbound: inbound.clone(),
             order: Mutex::new(()),
         });
+        // A delivery may have updated or removed the machine's secrets since
+        // daemon startup. Never build a process env from stale cached values.
+        anyhow::ensure!(
+            crate::login_env::machine_env_fresh_before_spawn().await,
+            "machine environment changed; login env refresh failed"
+        );
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
         // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
         let launch = crate::hub::LaunchServers::read(
