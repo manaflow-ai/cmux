@@ -22,7 +22,7 @@ import Testing
             parsed.yield(hangs.open)
             if data == Data("first".utf8) { gate.wait() }  // holds the lane while the second chunk waits
         }
-        defer { lane.close() }
+        defer { lane.close {} }
         #expect(hangs.lanes == ["terminal.feed"])
         lane.processOutput(Data("first".utf8))
         lane.processOutput(Data("second".utf8))
@@ -44,7 +44,7 @@ import Testing
         let lane = TerminalOutputLane(surface: Self.surface, label: "test.terminal-feed-nil") { _, data in
             chunks.append(data)
         }
-        defer { lane.close() }
+        defer { lane.close {} }
         lane.processOutput(Data("first".utf8))
         lane.processOutput(Data("second".utf8))
         await lane.drained()

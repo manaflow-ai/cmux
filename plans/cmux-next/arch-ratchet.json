@@ -2,7 +2,7 @@
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Never CI.",
   "method": "arch_counts",
   "method_version": 6,
-  "measured_sha": "c24aa209aad98ccedfbbba5bba660ac5c660c0be",
+  "measured_sha": "28e7e5144af431051e902bb9d23d2f5494aec2b9",
   "measured_date": "2026-10-30",
   "rows": {
     "layer_hard": {
@@ -65,7 +65,7 @@
     "assume_isolated_total": 181,
     "app_broadcast_names": 2,
     "observer_sites": 198,
-    "blocking_allow_escapes": 19,
+    "blocking_allow_escapes": 18,
     "app_lines": 164014
   },
   "packages": {
@@ -385,8 +385,7 @@
       "global_mutable_statics": 21,
       "assume_isolated_outside_adapters": 9,
       "assume_isolated_total": 12,
-      "observer_sites": 8,
-      "blocking_allow_escapes": 1
+      "observer_sites": 8
     },
     "CmuxNextTrace": {
       "stateful_singletons": 1,

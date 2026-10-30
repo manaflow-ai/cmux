@@ -4,8 +4,8 @@
 import Foundation
 import Testing
 
-/// `TerminalOutputLane.close()` runs on the main thread each time a terminal surface is freed (the view's
-/// deinit): its fence before `ghostty_surface_free` is the reviewed `surfaceTeardown` wait, so the blocking
+/// `TerminalOutputLane.close(then:)` runs on the main thread each time a terminal surface is freed (the view's
+/// deinit): it never waits for the lane (the lane's last block posts `ghostty_surface_free`), so the blocking
 /// detector records nothing and a Debug build started with `CMUX_BLOCKING_TRAP=1` does not stop
 /// (plans/cmux-next/chrome-parity/p02-threads.md, task 035). The lane's parse is a no-op recorder, so no
 /// Ghostty surface is made.
@@ -15,7 +15,7 @@ import Testing
         BlockingViolationTable.$scoped.withValue(table) {
             let lane = TerminalOutputLane(surface: TerminalOutputLaneHangScopeTests.surface, label: "test.terminal-close") { _, _ in }
             lane.processOutput(Data("chunk".utf8))
-            lane.close()
+            lane.close {}
         }
         await table.flush()
 
@@ -29,7 +29,7 @@ import Testing
                 await MainActor.run {
                     let lane = TerminalOutputLane(surface: TerminalOutputLaneHangScopeTests.surface, label: "test.terminal-close") { _, _ in }
                     lane.processOutput(Data("chunk".utf8))
-                    lane.close()
+                    lane.close {}
                 }
             }
         }

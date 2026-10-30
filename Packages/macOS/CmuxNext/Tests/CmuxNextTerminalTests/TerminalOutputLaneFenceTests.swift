@@ -6,14 +6,14 @@ import GhosttyNextKit
 import Testing
 
 /// The output lane is a checked Sendable: its surface is a constant and work on the
-/// lane reaches it only while the lane is open, so after ``TerminalOutputLane/close()`` (the fence before
+/// lane reaches it only while the lane is open, so after ``TerminalOutputLane/close(then:)`` (whose last block posts
 /// `ghostty_surface_free`) nothing queued earlier or later touches the surface. The lane's parse is the
 /// test's recorder, so no Ghostty surface is made.
 @Suite(.timeLimit(.minutes(1))) struct TerminalOutputLaneFenceTests {
     static let surface = TerminalOutputLaneHangScopeTests.surface
 
     /// Work queued behind the chunk in flight when the lane closes, and work queued after the close,
-    /// never sees the surface; the chunk in flight finishes before close returns.
+    /// never sees the surface; the chunk in flight finishes before the close's last block runs.
     @Test func nothingReachesTheSurfaceAfterClose() async {
         let log = SurfaceLog()
         let gate = DispatchSemaphore(value: 0)
@@ -32,7 +32,7 @@ import Testing
         var iterator = started.makeAsyncIterator()
         _ = await iterator.next()
 
-        let closed = Task.detached { lane.close() }
+        let closed = Task.detached { lane.close {} }
         // Returns only once the close set its flag: the gate is still shut, so no parse freed capacity.
         await lane.waitForCapacity()
         gate.signal()
@@ -51,7 +51,7 @@ import Testing
         let lane = TerminalOutputLane(surface: Self.surface, label: "test.terminal-surface") { surface, _ in
             log.append("chunk", surface)
         }
-        defer { lane.close() }
+        defer { lane.close {} }
         lane.processOutput(Data("chunk".utf8))
         lane.perform { log.append("perform", $0) }
         await lane.drained()

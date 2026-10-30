@@ -22,9 +22,9 @@ import QuartzCore
 public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     // MARK: State
 
-    /// SAFETY: the view's live surface: made in `init`, freed only in `deinit`, and never
-    /// replaced, so a non-nil read on the main actor is a live handle for that turn. Off-main
-    /// work reaches it only through ``lane``, which `deinit` closes before the free.
+    /// SAFETY: the view's live surface: made in `init`, never replaced, and freed only after
+    /// `deinit` (``TerminalSurfaceTeardown``), so a non-nil read on the main actor is a live handle
+    /// for that turn. Off-main work reaches it only through ``lane``, whose last block posts the free.
     @safe private(set) var surface: ghostty_surface_t?
     /// The light/dark scheme last given to this surface (diagnostics).
     var colorSchemeIsDark = false
@@ -40,6 +40,8 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     }
     /// Serial lane for output and other process_output-ordered calls.
     private(set) var lane: TerminalOutputLane?
+    /// Where the closed view's surface is freed: the main thread, in `visible` (``TerminalSurfaceTeardown``).
+    private let teardownDelivery: MainDelivery
     /// Watches each output chunk's parse on ``lane`` (``TerminalOutputLane``); nil watches nothing.
     private let hangWatch: (any HangWatchScoping)?
     /// ``lane`` parses at utility while the view is suspended (``TerminalOutputLane/lowersHidden``).
@@ -226,6 +228,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         #endif
         offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         windowWatch = TerminalWindowWatch(node: node)
+        teardownDelivery = MainDelivery(class: .visible, owner: "terminal.surface-teardown", on: mainWork)
         let visibilityNode = node.map { VisibilityNode("terminal.surface", parent: $0) } ?? VisibilityNode(root: "terminal.surface", own: .visible)
         self.visibilityNode = visibilityNode
         windowNode = VisibilityNode("terminal.surface.window", own: .hidden, parent: visibilityNode)
@@ -260,17 +263,12 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         MainActor.assumeIsolated {
             windowWatch.stop()
             secureInput.release(ObjectIdentifier(self))
-            if let surface {
-                lane?.close()
-                vsync.close() // no vsync tick reaches the surface after this
-                // SAFETY: the one free of the view's surface (`surface`'s note), after the lane
-                // that reaches it off the main thread closed.
-                unsafe ghostty_surface_free(surface)
-            }
-            bridgeObject.surfaceFreed() // free joined every thread that reads the bridge: the hook stops reading it
-            // Released after free: free joins the IO thread that reads the bridge.
-            // SAFETY: the one release of `init`'s retain (`bridge`'s note), after the free.
-            unsafe bridge.release()
+            if surface != nil { vsync.close() } // no vsync tick reaches the surface after this
+            // The surface's one owner from here frees it, then the bridge, on the main thread once the
+            // lane's chunk in flight returns; this never waits for the lane (``TerminalOutputLane/close(then:)``).
+            // SAFETY: hands `surface` and `init`'s retain on the bridge to the teardown (their notes).
+            let teardown = unsafe TerminalSurfaceTeardown(surface: surface, bridge: bridge, delivery: teardownDelivery)
+            if let lane { lane.close { teardown.post() } } else { teardown.run() }
         }
     }
 
