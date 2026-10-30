@@ -34,7 +34,15 @@ import Testing
         let place = view.controller.demo?.readingPlace(keeps: { _ in true })
         if place == nil {
             let pinned = view.controller.store?.state.ui.scroll.pinnedToBottom == true
-            Issue.record("\(which): no place; pinned \(pinned), placed \(!view.projection.placesOnOpen)")
+            var rows = "no demo"
+            if let demo = view.controller.demo {
+                let i = demo.firstVisibleRow
+                let near = (max(0, i - 2)..<min(demo.model.count, i + 6)).map { j in
+                    "\(demo.model.rows[j].spec.key)@\(demo.windowY(contentY: demo.layout.contentTop(j)))\(demo.model.rows[j].ghost ? " ghost" : "")"
+                }
+                rows = "count \(demo.model.count) first \(i) anchorY \(demo.anchorY) atNewest \(demo.store.state.atNewest) near \(near)"
+            }
+            Issue.record("\(which): no place; pinned \(pinned), placed \(!view.projection.placesOnOpen); \(rows)")
         }
         return place
     }
