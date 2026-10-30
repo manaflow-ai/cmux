@@ -161,6 +161,7 @@ extension WorkspaceContentController {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
             withExtendedLifetime((services, state)) {}
+            return nil // the failure is logged here; the next create only waits for this one to end
         }
     }
 
