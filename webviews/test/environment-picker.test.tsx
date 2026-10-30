@@ -189,6 +189,9 @@ async function press(target: Element, init: KeyboardEventInit) {
   });
 }
 
+/// A connect choice's name, without the one-line description New Cloud Machine carries.
+const choiceLabel = (button: Element) => button.querySelector(".acpmux-menu-label")?.textContent ?? button.textContent;
+
 test("a peer's transport reads the same from the relayed reply and the daemon's own", async () => {
   const { peerKindsFromStatus } = await import("../src/agent-session/acpmux/environments");
   const kinds: Record<string, "ssh" | "cloud"> = { "gpu-box": "ssh", "cloud-1": "cloud" };
@@ -248,10 +251,7 @@ for (const started of [false, true]) {
     });
     await openPicker();
     const actions = () => [...doc().querySelectorAll<HTMLButtonElement>(".acpmux-location-choose")];
-    expect(actions().map((button) => button.textContent)).toEqual([
-      t("composer.addComputer"),
-      t("composer.newCloudMachine"),
-    ]);
+    expect(actions().map(choiceLabel)).toEqual([t("composer.addComputer"), t("composer.newCloudMachine")]);
     await act(async () => actions()[0]!.click());
     expect(calls).toEqual([["connect", "addMachine"]]);
     await openPicker();
@@ -273,7 +273,7 @@ test("previews off: New Tab does not add setup beside existing computers", async
 test("previews off: an existing remote computer keeps the current connection footer", async () => {
   await mount(false);
   await openPicker();
-  expect([...doc().querySelectorAll(".acpmux-location-choose")].map((button) => button.textContent)).toEqual([
+  expect([...doc().querySelectorAll(".acpmux-location-choose")].map(choiceLabel)).toEqual([
     t("composer.connectSSH"),
     t("composer.newCloudMachine"),
   ]);

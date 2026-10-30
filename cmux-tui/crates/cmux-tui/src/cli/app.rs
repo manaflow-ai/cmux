@@ -213,9 +213,8 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                         }))
             });
             if rest.iter().any(|argument| argument == "--") || !has_command {
-                return Err(UsageError::new(
-                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND",
-                ));
+                let usage = super::cloud_help::usage("exec").unwrap_or_default();
+                return Err(UsageError::new(format!("usage: {usage}")));
             }
             run_action("cloud exec", rest.get(1..).unwrap_or_default(), ActionName::Cli)?
         }
