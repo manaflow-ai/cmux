@@ -180,6 +180,11 @@ raw.
 
 ## CLI
 
+Every command's `--help` ends with examples. One page per command group gives the common tasks and
+the command for each: [sessions](docs/cli-sessions.md) (new, send, ls, last, wait, retry, session),
+[hosts](docs/cli-hosts.md), [harnesses, presets and defaults](docs/cli-harnesses.md),
+[the daemon](docs/cli-daemon.md), and [tasks, processes, worktrees and messages](docs/cli-work.md).
+
 ### Remote ergonomics
 
 `acpmux host add` saves the peer and returns while connectivity is probed in
@@ -244,9 +249,24 @@ acpmux session cancel worker/review  # cancel its running turn
 acpmux session stop worker/review    # stop its agent; keep the session
 ```
 
-Use the stable `sessionId` from `resolve`, a unique name or prefix, or `HOST/NAME`.
-Resume, retry, cancel and stop refuse ambiguous matches, including a local and remote
-session with the same name, and list qualified IDs to select from. Once resolved, a control
+Use the stable `sessionId` from `resolve`, an id prefix, a bare name, or `HOST/NAME`.
+Every command that takes a session (send, last, retry, wait, attach, `session
+info|cancel|stop|close|rename`) reads a bare name or prefix the same way: it names the one
+live session with that name across this host and its peers, so `acpmux send review "…"`
+reaches `linux-b/review` when no other live session is called `review`. Closed sessions count
+only when no live one matches. Several live matches are refused (exit 2,
+`session_ambiguous`), never picked; a session here does not win over a peer's. The refusal
+lists each choice and the exact command for it:
+
+```text
+$ acpmux send review "ship it"
+acpmux: usage: "review" names 2 live sessions: mac-a/review, linux-b/review; name one of them
+  acpmux send mac-a/review 'ship it'
+  acpmux send linux-b/review 'ship it'
+```
+
+With `--json`, `error.data.choices` lists each one's `host`, `name`, `route` and the key to
+`use`. Once resolved, a control
 keeps the owning peer and session ID even if another host has a copy of that session.
 The target daemon decides which start policy and controls the caller may use; a peer link
 does not grant app-only permissions.

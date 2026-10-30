@@ -201,7 +201,7 @@ export default componentEntry<Props>({
       props: { chat: true, routeLayout: "submenu" },
       play: async (ctx) => {
         await open(ctx);
-        await ctx.focus({ role: "menuitem", name: /^Provider/ });
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
         await ctx.press("Enter");
       },
     },
@@ -210,7 +210,7 @@ export default componentEntry<Props>({
       props: { chat: true, routeLayout: "grouped" },
       play: async (ctx) => {
         await open(ctx);
-        await ctx.focus({ role: "menuitem", name: /^Provider/ });
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
         await ctx.press("Enter");
       },
     },

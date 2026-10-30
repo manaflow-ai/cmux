@@ -179,8 +179,14 @@ pub enum Command {
     /// List pending permission requests across sessions, and how to answer them.
     Pending,
     /// Send a prompt and stream the reply until the turn ends.
-    #[command(alias = "prompt", alias = "send-keys")]
+    #[command(
+        alias = "prompt",
+        alias = "send-keys",
+        after_help = "Examples:\n  acpmux send review \"ship it\"         the one live `review`, here or on a peer\n  acpmux send hb/review \"ship it\"      `review` on peer hb\n  acpmux send 0199aaaa \"ship it\"       by id prefix\nA name several live sessions share is refused with the exact command for each."
+    )]
     Send {
+        /// The session: a name, `HOST/NAME`, an id or an id prefix. A bare name or prefix names
+        /// the one live session that has it on this host or its peers; several are refused.
         #[arg(required_unless_present = "status")]
         session: Option<String>,
         /// Prompt text. Reads stdin when omitted or "-".
@@ -1318,6 +1324,11 @@ mod help_contract_tests {
         ),
         ("acpmux README", include_str!("../../README.md")),
         ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
+        ("docs/cli-sessions.md", include_str!("../../docs/cli-sessions.md")),
+        ("docs/cli-hosts.md", include_str!("../../docs/cli-hosts.md")),
+        ("docs/cli-harnesses.md", include_str!("../../docs/cli-harnesses.md")),
+        ("docs/cli-daemon.md", include_str!("../../docs/cli-daemon.md")),
+        ("docs/cli-work.md", include_str!("../../docs/cli-work.md")),
     ];
 
     fn shell_words(text: &str) -> Vec<String> {
