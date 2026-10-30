@@ -28,8 +28,9 @@ const ALWAYS: Record<string, CliOnlyUse> = {
   quit: "terminal",
 };
 
-/// Only bare: `/model <name>` and `/config key=value` run without the terminal.
-const BARE: Record<string, CliOnlyUse> = { model: "model", config: "terminal" };
+/// `/config key=value` still needs the terminal. `/model` is a cmux GUI command and is handled by
+/// the composer before this guard can reject it.
+const BARE: Record<string, CliOnlyUse> = { config: "terminal" };
 
 /// The terminal-only command `prompt` is, for a Claude chat; undefined otherwise.
 export function cliOnlyCommand(
