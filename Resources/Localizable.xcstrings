@@ -674293,127 +674293,127 @@
         }
       }
     },
-    "cli.ssh.et.commandTooLong": {
+    "cli.ssh.et.commandUndeliverable": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] The remote command is too long for Eternal Terminal to deliver; continuing over SSH."
+            "value": "[cmux] Eternal Terminal cannot deliver this remote command (too long or contains control characters); continuing over SSH."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] الأمر البعيد أطول من أن يرسله Eternal Terminal؛ سيتم المتابعة عبر SSH."
+            "value": "[cmux] لا يستطيع Eternal Terminal إرسال هذا الأمر البعيد (طويل جدًا أو يحتوي على أحرف تحكم)؛ سيتم المتابعة عبر SSH."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Der Remote-Befehl ist zu lang für Eternal Terminal; es wird über SSH fortgefahren."
+            "value": "[cmux] Eternal Terminal kann diesen Remote-Befehl nicht übermitteln (zu lang oder enthält Steuerzeichen); es wird über SSH fortgefahren."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] El comando remoto es demasiado largo para que Eternal Terminal lo envíe; se continúa por SSH."
+            "value": "[cmux] Eternal Terminal no puede enviar este comando remoto (demasiado largo o contiene caracteres de control); se continúa por SSH."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] La commande distante est trop longue pour être transmise par Eternal Terminal ; poursuite via SSH."
+            "value": "[cmux] Eternal Terminal ne peut pas transmettre cette commande distante (trop longue ou contenant des caractères de contrôle) ; poursuite via SSH."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] リモートコマンドが長すぎて Eternal Terminal で送信できません。SSH で続行します。"
+            "value": "[cmux] Eternal Terminal ではこのリモートコマンドを送信できません（長すぎるか制御文字を含みます）。SSH で続行します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] 원격 명령이 너무 길어 Eternal Terminal로 전달할 수 없습니다. SSH로 계속합니다."
+            "value": "[cmux] Eternal Terminal이 이 원격 명령을 전달할 수 없습니다(너무 길거나 제어 문자가 포함됨). SSH로 계속합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] 远程命令过长，Eternal Terminal 无法传送；改用 SSH 继续。"
+            "value": "[cmux] Eternal Terminal 无法传送此远程命令（过长或包含控制字符）；改用 SSH 继续。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] 遠端命令過長，Eternal Terminal 無法傳送；改以 SSH 繼續。"
+            "value": "[cmux] Eternal Terminal 無法傳送此遠端命令（過長或包含控制字元）；改以 SSH 繼續。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Udaljena komanda je predugačka da bi je Eternal Terminal isporučio; nastavlja se putem SSH-a."
+            "value": "[cmux] Eternal Terminal ne može isporučiti ovu udaljenu komandu (predugačka je ili sadrži kontrolne znakove); nastavlja se putem SSH-a."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Fjernkommandoen er for lang til, at Eternal Terminal kan levere den; fortsætter via SSH."
+            "value": "[cmux] Eternal Terminal kan ikke levere denne fjernkommando (for lang eller indeholder kontroltegn); fortsætter via SSH."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Il comando remoto è troppo lungo per essere inviato da Eternal Terminal; continuazione tramite SSH."
+            "value": "[cmux] Eternal Terminal non può inviare questo comando remoto (troppo lungo o contiene caratteri di controllo); continuazione tramite SSH."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] ពាក្យបញ្ជាពីចម្ងាយវែងពេកសម្រាប់ Eternal Terminal បញ្ជូន; បន្តតាម SSH។"
+            "value": "[cmux] Eternal Terminal មិនអាចបញ្ជូនពាក្យបញ្ជាពីចម្ងាយនេះបានទេ (វែងពេក ឬមានតួអក្សរបញ្ជា); បន្តតាម SSH។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Den eksterne kommandoen er for lang til at Eternal Terminal kan levere den; fortsetter via SSH."
+            "value": "[cmux] Eternal Terminal kan ikke levere denne eksterne kommandoen (for lang eller inneholder kontrolltegn); fortsetter via SSH."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Zdalne polecenie jest zbyt długie, aby Eternal Terminal mógł je dostarczyć; kontynuowanie przez SSH."
+            "value": "[cmux] Eternal Terminal nie może dostarczyć tego zdalnego polecenia (jest zbyt długie lub zawiera znaki sterujące); kontynuowanie przez SSH."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] O comando remoto é longo demais para o Eternal Terminal entregar; continuando por SSH."
+            "value": "[cmux] O Eternal Terminal não consegue entregar este comando remoto (longo demais ou contém caracteres de controle); continuando por SSH."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Удалённая команда слишком длинная для передачи через Eternal Terminal; продолжаем через SSH."
+            "value": "[cmux] Eternal Terminal не может передать эту удалённую команду (слишком длинная или содержит управляющие символы); продолжаем через SSH."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] คำสั่งระยะไกลยาวเกินกว่าที่ Eternal Terminal จะส่งได้; ดำเนินการต่อผ่าน SSH"
+            "value": "[cmux] Eternal Terminal ไม่สามารถส่งคำสั่งระยะไกลนี้ได้ (ยาวเกินไปหรือมีอักขระควบคุม); ดำเนินการต่อผ่าน SSH"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Uzak komut, Eternal Terminal'in iletebileceğinden uzun; SSH üzerinden devam ediliyor."
+            "value": "[cmux] Eternal Terminal bu uzak komutu iletemiyor (çok uzun veya denetim karakterleri içeriyor); SSH üzerinden devam ediliyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "[cmux] Віддалена команда задовга для передавання через Eternal Terminal; продовжуємо через SSH."
+            "value": "[cmux] Eternal Terminal не може передати цю віддалену команду (задовга або містить керівні символи); продовжуємо через SSH."
           }
         }
       }

@@ -257,7 +257,7 @@ struct EternalTerminalCommandBuilderTests {
                 "--noexit",
                 "--", "user@example.com",
             ])
-            #expect(!result.stderr.contains("too long"))
+            #expect(!result.stderr.contains("undeliverable"))
         }
     }
 
@@ -274,7 +274,20 @@ struct EternalTerminalCommandBuilderTests {
                 environment: environment
             )
             #expect(result.stdout == "ssh fallback\n")
-            #expect(result.stderr == "remote command too long\n")
+            #expect(result.stderr == "remote command undeliverable\n")
+            #expect(!fileExists(directory, "et.args"))
+        }
+    }
+
+    @Test("continues over SSH when an argument holds a control character", arguments: ["a\tb", "a\nb", "a\u{3}b", "a\u{1B}b", "a\u{7F}b"])
+    func controlCharacterCommandFallsBack(argument: String) throws {
+        try withFakeCommands { directory, environment in
+            let result = try run(
+                builder(sshFallbackCommand: "printf 'ssh fallback\\n'", remoteCommandArguments: ["printf", argument]),
+                environment: environment
+            )
+            #expect(result.stdout == "ssh fallback\n")
+            #expect(result.stderr == "remote command undeliverable\n")
             #expect(!fileExists(directory, "et.args"))
         }
     }
@@ -478,7 +491,7 @@ struct EternalTerminalCommandBuilderTests {
                 serverUnreachable: "etserver unreachable",
                 remoteBootstrapInstallFailed: "remote bootstrap install failed",
                 startupRecoveryPrompt: "The remote command may already be running; type ssh to retry.",
-                commandTooLong: "remote command too long"
+                commandUndeliverable: "remote command undeliverable"
             )
         )
     }

@@ -36,8 +36,8 @@ public struct EternalTerminalCommandBuilder: Sendable {
         public let remoteBootstrapInstallFailed: String
         /// Warns that an explicit SSH retry may run the remote command again.
         public let startupRecoveryPrompt: String
-        /// Printed when the remote command is longer than ET can type into the remote shell.
-        public let commandTooLong: String
+        /// Printed when ET cannot type the remote command into the remote shell intact.
+        public let commandUndeliverable: String
 
         /// Creates the fallback explanations.
         ///
@@ -48,7 +48,7 @@ public struct EternalTerminalCommandBuilder: Sendable {
         ///   - serverUnreachable: The remote `etserver` port refused or timed out.
         ///   - remoteBootstrapInstallFailed: Bootstrap staging failed.
         ///   - startupRecoveryPrompt: Interactive recovery warning after an ET error.
-        ///   - commandTooLong: The remote command exceeds what ET can deliver.
+        ///   - commandUndeliverable: The remote command is too long or holds control characters.
         public init(
             localMissing: String,
             remoteMissing: String,
@@ -56,7 +56,7 @@ public struct EternalTerminalCommandBuilder: Sendable {
             serverUnreachable: String,
             remoteBootstrapInstallFailed: String,
             startupRecoveryPrompt: String,
-            commandTooLong: String
+            commandUndeliverable: String
         ) {
             self.localMissing = localMissing
             self.remoteMissing = remoteMissing
@@ -64,7 +64,7 @@ public struct EternalTerminalCommandBuilder: Sendable {
             self.serverUnreachable = serverUnreachable
             self.remoteBootstrapInstallFailed = remoteBootstrapInstallFailed
             self.startupRecoveryPrompt = startupRecoveryPrompt
-            self.commandTooLong = commandTooLong
+            self.commandUndeliverable = commandUndeliverable
         }
     }
 
@@ -166,7 +166,7 @@ public struct EternalTerminalCommandBuilder: Sendable {
     /// The command ET types into the remote login shell, or `nil` for a plain shell.
     ///
     /// ET has no remote argv: `--command` is injected into the user's login
-    /// shell. `exec` replaces that shell (fish and csh accept the same form),
+    /// shell. `exec` replaces that shell (fish accepts the same form),
     /// so the remote program runs exactly as SSH or Mosh would run it.
     var remoteShellCommand: String? {
         guard !remoteCommandArguments.isEmpty else { return nil }
@@ -175,12 +175,22 @@ public struct EternalTerminalCommandBuilder: Sendable {
 
     /// The longest `--command` ET reliably delivers, in UTF-8 bytes.
     ///
-    /// ET types `--command` into the remote login shell as one line, and a
-    /// canonical-mode tty line holds at most about 1024 bytes. Delivery was
-    /// measured to stop between 953 and 1016 bytes on ET 6.2.11 and 7.0.0
+    /// ET types `--command` into the remote login shell as one line. Delivery
+    /// was measured to stop between 953 and 1016 bytes on ET 6.2.11 and 7.0.0
     /// (https://github.com/manaflow-ai/cmux/pull/8721); a longer line never
     /// runs and the pane sits idle, so longer commands continue over SSH.
     static let maxDeliverableCommandBytes = 928
+
+    /// Whether ET can type the remote command into the login shell intact.
+    ///
+    /// Beyond the length limit, a control character (tab, newline, Ctrl-C,
+    /// ESC, DEL) would be interpreted by the remote line editor or tty
+    /// instead of reaching the program, whatever its shell quoting.
+    var remoteShellCommandIsDeliverable: Bool {
+        guard let remoteShellCommand else { return true }
+        return remoteShellCommand.utf8.count <= Self.maxDeliverableCommandBytes
+            && !remoteShellCommand.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
+    }
 
     /// The `et` argv after the executable, with the configured terminal path.
     public var clientArguments: [String] {
@@ -235,8 +245,8 @@ public struct EternalTerminalCommandBuilder: Sendable {
             let script = "printf '%s\\n' \(messages.remoteProbeFailed.remoteCommandShellQuoted) >&2; exec /bin/sh -c \(sshFallbackCommand.remoteCommandShellQuoted)"
             return "/bin/sh -c \(script.remoteCommandShellQuoted)"
         }
-        if let remoteShellCommand, remoteShellCommand.utf8.count > Self.maxDeliverableCommandBytes {
-            let script = "printf '%s\\n' \(messages.commandTooLong.remoteCommandShellQuoted) >&2; exec /bin/sh -c \(sshFallbackCommand.remoteCommandShellQuoted)"
+        if !remoteShellCommandIsDeliverable {
+            let script = "printf '%s\\n' \(messages.commandUndeliverable.remoteCommandShellQuoted) >&2; exec /bin/sh -c \(sshFallbackCommand.remoteCommandShellQuoted)"
             return "/bin/sh -c \(script.remoteCommandShellQuoted)"
         }
         let localResolver = RemoteExecutableCommandBuilder(

@@ -737,9 +737,9 @@ private enum EternalTerminalFallbackMessages {
                 localized: "cli.ssh.et.startupRecovery",
                 defaultValue: "[cmux] The terminal transport exited with an error. The remote session or command may already be running. Type ssh and press Return to retry over SSH, which may run it again; any other response closes this terminal."
             ),
-            commandTooLong: String(
-                localized: "cli.ssh.et.commandTooLong",
-                defaultValue: "[cmux] The remote command is too long for Eternal Terminal to deliver; continuing over SSH."
+            commandUndeliverable: String(
+                localized: "cli.ssh.et.commandUndeliverable",
+                defaultValue: "[cmux] Eternal Terminal cannot deliver this remote command (too long or contains control characters); continuing over SSH."
             )
         )
     }
