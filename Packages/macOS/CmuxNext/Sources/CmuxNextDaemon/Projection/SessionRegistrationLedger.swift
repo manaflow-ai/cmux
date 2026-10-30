@@ -60,10 +60,7 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
 
     /// The current record of `session` got no answer and its timed retries are spent: only a changed
     /// record or a new connection sends it again.
-    public func isWaitingForEvent(session: String) -> Bool {
-        if case .backingOff(waitingForEvent: true) = entries[session]?.state { return true }
-        return false
-    }
+    public func isWaitingForEvent(session: String) -> Bool { false }
 
     /// The daemon has recorded `session`'s current record.
     public func isRecorded(session: String) -> Bool { sent[session] != nil }
