@@ -10,9 +10,9 @@ protocol DeviceOwnerAuthenticating: AnyObject {
     func authenticate(reason: String) async -> Bool
 }
 
-// crash-allow: LAContext is framework-thread-safe; one context is shared by the app actor and its callback queue.
-private final class AuthContextBox: @unchecked Sendable {
-    nonisolated(unsafe) let context: LAContext // crash-allow: evaluatePolicy/invalidate are framework-thread-safe.
+@MainActor
+private final class AuthContextBox {
+    let context: LAContext
     init(_ context: LAContext) { self.context = context }
 }
 
@@ -58,7 +58,9 @@ final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
                 }
             }
         }, onCancel: {
-            contextBox.context.invalidate()
+            Task { @MainActor in
+                contextBox.context.invalidate()
+            }
             reply.finish(false)
         })
     }
