@@ -14,6 +14,11 @@ it goes on (a PreToolUse hook holds the tool call), except `async` ones, which r
 work in the agent's folder (git status, git log, git diff, a file read, a grep) and, every
 --cli-every tool calls, one `cmux` CLI call (the bundled CLI), as agents call it.
 
+Between tool calls (the model's think time) it draws to its terminal as Claude Code's TUI does:
+a spinner line rewritten 10 times a second and streamed text at --stream-cps characters a second,
+and it keeps --cpu of one core busy (Claude Code is a node process that renders while it streams).
+So the daemon parses 80 terminals' output and the app draws the visible ones, as on Austin's Mac.
+
 Every hook run, tool run and CLI call is one JSON line in AD_AGENT_LOG:
   {"t": unix time, "kind": "hook"|"tool"|"cli"|"start"|"end", "event", "ms", "rc", "code"}
 `code` is the cmux error code a CLI call printed (server.busy, session.busy, session.no_answer,
@@ -33,6 +38,10 @@ import sys
 import threading
 import time
 import uuid
+
+SPINNER = "✻✽✶✳✢·"
+WORDS = ("Reading", "the", "repository", "layout", "and", "checking", "the", "failing", "test", "before", "editing",
+         "src/server.rs", "→", "the", "lock", "is", "held", "across", "the", "write;", "moving", "it", "out", "of", "the", "loop")
 
 ERROR_CODE = re.compile(r'"code"\s*:\s*"([a-z_]+\.[a-z_.]+)"|\b((?:server|session)\.[a-z_]+)\b')
 TOOLS = (
@@ -116,6 +125,39 @@ def run_hooks(hooks, event, payload, tool=None):
         thread.join()
 
 
+def think(seconds, cps, cpu, turn):
+    """The model's think time: a spinner at 10 Hz, streamed words at `cps`, `cpu` of a core busy."""
+    end = time.monotonic() + seconds
+    out = sys.stdout
+    frame = 0
+    budget = 0.0
+    while True:
+        now = time.monotonic()
+        if now >= end:
+            break
+        tick_end = min(end, now + 0.1)
+        # Busy for `cpu` of the tick (render work), then sleep the rest.
+        busy_until = now + (tick_end - now) * max(0.0, min(1.0, cpu))
+        x = 0
+        while time.monotonic() < busy_until:
+            x = (x * 1103515245 + 12345) & 0x7FFFFFFF
+        budget += cps * (tick_end - now)
+        text = []
+        while budget >= 1:
+            word = random.choice(WORDS) + " "
+            text.append(word)
+            budget -= len(word)
+        frame += 1
+        # Rewrite the spinner line (as the TUI does), then stream the text above it.
+        out.write("\r\x1b[2K" + "".join(text) + ("\n" if text and random.random() < 0.2 else "")
+                  + f"\x1b[38;5;174m{SPINNER[frame % len(SPINNER)]} Thinking… ({frame // 10}s · ↓ {frame * 7} tokens · turn {turn})\x1b[0m")
+        out.flush()
+        sleep = tick_end - time.monotonic()
+        if sleep > 0:
+            time.sleep(sleep)
+    out.write("\r\x1b[2K")
+
+
 def run_tool(name, argv, cwd):
     start = time.monotonic()
     rc = 0
@@ -160,6 +202,8 @@ def main():
     parser.add_argument("--tool-gap", type=float, default=float(os.environ.get("AD_TOOL_GAP", "3.0")),
                         help="mean seconds between tool calls (model think time)")
     parser.add_argument("--cli-every", type=int, default=int(os.environ.get("AD_CLI_EVERY", "3")))
+    parser.add_argument("--stream-cps", type=float, default=float(os.environ.get("AD_STREAM_CPS", "300")))
+    parser.add_argument("--cpu", type=float, default=float(os.environ.get("AD_CPU", "0.15")))
     known, _ = parser.parse_known_args(sys.argv[1:])
     hooks = load_settings(sys.argv[1:])
     deadline = float(os.environ.get("AD_AGENT_DEADLINE", "0") or 0) or time.time() + 3600
@@ -184,7 +228,7 @@ def main():
             if time.time() >= deadline:
                 break
             # The model's think time between tool calls, as a stream of tokens to the screen.
-            time.sleep(random.expovariate(1.0 / max(0.05, known.tool_gap)))
+            think(random.expovariate(1.0 / max(0.05, known.tool_gap)), known.stream_cps, known.cpu, turn)
             name, argv = random.choice(TOOLS)
             tool_input = {"command": " ".join(argv)} if argv else {"file_path": cwd}
             call = {**payload, "tool_name": name, "tool_input": tool_input, "tool_use_id": f"toolu_{uuid.uuid4().hex[:24]}"}

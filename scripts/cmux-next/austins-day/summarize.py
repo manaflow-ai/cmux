@@ -86,7 +86,7 @@ OWNERS = owners_table()
 
 def owner_of(symbol):
     """The OWNERS.md owner of the module a demangled symbol names (CmuxNextX.Type.method -> Sources/CmuxNextX/)."""
-    found = re.match(r"^(?:\(extension in )?([A-Za-z0-9_]+)\)?[.:]", symbol or "")
+    found = re.search(r"\b(CmuxNext[A-Za-z0-9_]*)\.", symbol or "")
     if not found:
         return None
     module = found.group(1)
@@ -151,6 +151,7 @@ def run_metrics(run):
         "app_no_reply_within": run["app_log"].get("no_reply_within"),
         "app_no_reply_by_cmd": run["app_log"].get("no_reply_by_cmd"),
         "app_log_ok": run["app_log"].get("ok"),
+        "app_daemon_failed_log": run["app_log"].get("daemon_failed"),
         "app_control_ms": dist(c["ms"] for c in control), "app_control_errors": sum(1 for c in control if c.get("error")),
         "person_cli_ms": dist(p["ms"] for p in person), "person_cli_refusals": counts(p.get("code") for p in person),
         "agent_hook_ms": dist(h["ms"] for h in hooks), "agent_hooks": len(hooks),

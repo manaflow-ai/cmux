@@ -38,7 +38,7 @@ its sessions ended, and releases the lease. The A/B arms run on the host of the 
 
 Options after `--` go to `driver.py`: `--agents 80`, `--per-workspace 4`, `--tool-gap 3.0` (mean
 seconds between an agent's tool calls), `--cli-every 3`, `--wave-size 25`, `--wave-period 60`,
-`--swap-gb 6`, `--close-every 30`, `--baseline 10`. The defaults are Austin's shape; change them only
+`--swap-gb 14`, `--stream-cps 300`, `--cpu 0.15`, `--close-every 30`, `--baseline 10`. The defaults are Austin's shape; change them only
 to explore, and say so next to any number you cite.
 
 ## The load
@@ -49,13 +49,16 @@ to explore, and say so next to any number you cite.
   those hooks: on each tool call it runs the PreToolUse and PostToolUse hook commands
   (`$CMUX_TUI_HOOK claude <event>`) and on each turn end the Stop hook, with Claude Code's payload.
   It waits for sync hooks and lets `async` hooks run on. Each tool call is real git or file work in
-  the agent's worktree, and every third call is also one `cmux` CLI call.
+  the agent's worktree, and every third call is also one `cmux` CLI call. Between tool calls it
+  draws to its terminal as Claude Code's TUI does (a spinner rewritten 10 times a second and about
+  300 characters a second of streamed text) and keeps 15 % of a core busy.
 - **The shared repo**: `packs.py` builds a `--filter=blob:none` partial clone with 8 worktrees and
   19,110 promisor packs (a few real fetches, then valid one-blob packs written directly), once per
   host under `/Users/Shared/cmux-capture/austins-day/`.
 - **Chief waves**: every 60 s, 25 acpmux sessions opened at once on the app's acpmux (the acpmux
   test agent as harness `ad-fake`), each with a streamed prompt.
-- **Memory pressure**: `hog.py` holds incompressible memory until swap used is 6 GB above the start.
+- **Memory pressure**: `hog.py` holds incompressible memory until swap used is 14 GB above the start
+  (Austin: 17 of 18 GB swap), at most 90 % of physical memory.
   When the kernel's free-memory level falls to 12 it gives memory back, and it ends by itself at the
   end of the load.
 - **Workspace close**: every 30 s a new workspace is made and closed through the app's

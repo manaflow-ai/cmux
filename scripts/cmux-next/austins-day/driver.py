@@ -63,7 +63,9 @@ parser.add_argument("--tool-gap", type=float, default=3.0, help="mean seconds be
 parser.add_argument("--cli-every", type=int, default=3, help="an agent `cmux` CLI call every N tool calls (0: none)")
 parser.add_argument("--wave-size", type=int, default=25)
 parser.add_argument("--wave-period", type=float, default=60)
-parser.add_argument("--swap-gb", type=float, default=6.0, help="hog target: swap used this much above the start (0: no hog)")
+parser.add_argument("--swap-gb", type=float, default=14.0, help="hog target: swap used this much above the start (0: no hog)")
+parser.add_argument("--stream-cps", type=float, default=300, help="characters a second each agent streams to its terminal")
+parser.add_argument("--cpu", type=float, default=0.15, help="share of one core each agent keeps busy while it thinks")
 parser.add_argument("--close-every", type=float, default=30)
 parser.add_argument("--baseline", type=float, default=10, help="seconds measured before the load starts")
 parser.add_argument("--label", default="")
@@ -378,7 +380,8 @@ def make_terminals(deadline):
 
 
 def start_agents(deadline):
-    env = (f"AD_AGENT_DEADLINE={deadline:.0f} AD_TOOL_GAP={opts.tool_gap} AD_CLI_EVERY={opts.cli_every}")
+    env = (f"AD_AGENT_DEADLINE={deadline:.0f} AD_TOOL_GAP={opts.tool_gap} AD_CLI_EVERY={opts.cli_every} "
+           f"AD_STREAM_CPS={opts.stream_cps} AD_CPU={opts.cpu}")
     for agent in AGENTS:
         line = f"{env} AD_AGENT_LOG={shlex.quote(agent['log'])} sh {shlex.quote(LAUNCHER)} {shlex.quote(agent['tree'])}\n"
         _, _, code = cli("terminal", agent["terminal"], "write", "--text", line, timeout=30)
@@ -567,13 +570,18 @@ def demangle(symbols):
 
 
 def stalls(hangs):
+    """Each stall over 100 ms, named by its top cmux symbol: the first frame in a cmux image whose
+    symbol is cmux's own code (a CmuxNext module); else the first frame in a cmux image (a stdlib or
+    framework generic specialized into it)."""
     records = (hangs or {}).get("records") or []
     long = [r for r in records if (r.get("duration_ms") or 0) > STALL_MS]
+    every = {f["symbol"] for r in long for f in r.get("frame_details") or [] if cmux_image(f.get("image")) and f.get("symbol")}
+    names = demangle(every)
     tops = []
     for r in long:
-        top = next((f for f in r.get("frame_details") or [] if cmux_image(f.get("image")) and f.get("symbol")), None)
-        tops.append(top)
-    names = demangle({t["symbol"] for t in tops if t})
+        frames = [f for f in r.get("frame_details") or [] if cmux_image(f.get("image")) and f.get("symbol")]
+        own = next((f for f in frames if "CmuxNext" in names.get(f["symbol"], f["symbol"])), None)
+        tops.append(own or (frames[0] if frames else None))
     out = []
     for r, top in zip(long, tops):
         out.append({"duration_ms": r.get("duration_ms"), "cpu_ms": r.get("cpu_ms"), "kind": r.get("kind"),
@@ -584,6 +592,7 @@ def stalls(hangs):
 
 def app_log(seconds):
     predicate = (f"processID == {APP_PID} AND (eventMessage CONTAINS[c] 'no reply within' OR eventMessage CONTAINS[c] 'server.busy' "
+                 "OR (category == 'daemon' AND eventMessage CONTAINS[c] 'failed') "
                  "OR eventMessage CONTAINS[c] 'session.busy' OR eventMessage CONTAINS[c] 'no_answer' "
                  "OR eventMessage CONTAINS[c] 'stopped answering' OR eventMessage CONTAINS[c] 'unresponsive' "
                  "OR eventMessage CONTAINS[c] 'timed out')")
@@ -599,6 +608,7 @@ def app_log(seconds):
         by_cmd[key] = by_cmd.get(key, 0) + 1
     return {"ok": rc == 0, "lines": len(lines), "no_reply_within": len(no_reply), "no_reply_by_cmd": by_cmd,
             "server_busy": sum("server.busy" in l for l in lines), "session_busy": sum("session.busy" in l for l in lines),
+            "daemon_failed": sum(" failed" in l for l in lines),
             "acpmux_unresponsive": sum(("stopped answering" in l or "unresponsive" in l.lower()) for l in lines)}
 
 
