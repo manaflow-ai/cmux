@@ -1917,17 +1917,15 @@ impl Hub {
     /// Stop the child but keep the session resumable.
     pub async fn detach_child(&self, session: &Arc<Session>) {
         // A shutdown that hands this agent to the next daemon began: the agent, its turn and its
-        // permission prompts are that daemon's (`shutdown.rs`). Read again under the child lock,
-        // which the shutdown takes only after it began.
+        // permission prompts are that daemon's (`shutdown.rs`). Read under the child lock, held
+        // until the agent is gone: the shutdown takes it only after it began, so it finds either
+        // this detach done or nothing of it.
+        let mut slot = session.child.lock().await;
         if self.hands_off(session) {
             return;
         }
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
-        let mut slot = session.child.lock().await;
-        if self.hands_off(session) {
-            return;
-        }
         if let Some(child) = slot.take() {
             child.kill().await;
         }
