@@ -86,7 +86,11 @@ function Chips() {
 
 async function render(
   sessionId: string | undefined,
-  options: { draft?: string; draftGeneration?: number; onUnsentDraft?: (text: string, generation: number) => void } = {},
+  options: {
+    draft?: string;
+    draftGeneration?: number;
+    onUnsentDraft?: (text: string, generation: number) => void;
+  } = {},
   handle = createRef<ComposerHandle>(),
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -284,7 +288,6 @@ test("(d) the person's clear and a send still clear the saved draft", async () =
   await until(() => !acpmux.held.has("load-d"), "the send to clear acpmux's draft");
 });
 
-
 test("an offline send leaves a tombstone before a remount, and later edits never restore sent text", async () => {
   const handle = await render("generation-offline-send");
   await type("look at these");
@@ -307,14 +310,23 @@ test("a fresh paste supersedes a draft read already in flight", async () => {
   let answer: ((state: unknown) => void) | undefined;
   const writes: { text: string; generation: number }[] = [];
   page().cmuxAcpmuxActions = {
-    "chat.readDraft": () => new Promise((resolve) => { answer = resolve; }),
-    "chat.writeDraft": async (state) => { writes.push(state as { text: string; generation: number }); },
+    "chat.readDraft": () =>
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    "chat.writeDraft": async (state) => {
+      writes.push(state as { text: string; generation: number });
+    },
   };
   await render("generation-paste");
   const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
-  Object.defineProperty(event, "clipboardData", { value: {
-    files: [], types: ["text/plain"], getData: (kind: string) => kind === "text/plain" ? "fresh paste" : "",
-  } });
+  Object.defineProperty(event, "clipboardData", {
+    value: {
+      files: [],
+      types: ["text/plain"],
+      getData: (kind: string) => (kind === "text/plain" ? "fresh paste" : ""),
+    },
+  });
   await act(async () => host.querySelector('[role="combobox"]')!.dispatchEvent(event));
   await until(() => prompt() === "fresh paste", "the paste");
   await act(async () => answer!({ draft: "stale saved text", generation: 0 }));
@@ -337,7 +349,9 @@ test("an intentional clear while loading rejects the old saved generation", asyn
   await render("generation-clear");
   await type("delete this");
   await act(async () => {
-    host.querySelector('[role="combobox"]')!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
+    host
+      .querySelector('[role="combobox"]')!
+      .dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
     markdownField()!.type("");
   });
   const acpmux = daemon({ "generation-clear": "older unseen draft" });

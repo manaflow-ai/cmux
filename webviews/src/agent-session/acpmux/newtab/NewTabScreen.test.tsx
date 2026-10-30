@@ -5,7 +5,7 @@ import { JSDOM } from "jsdom";
 import { noChat } from "../../../gallery/fixtures/acpmux";
 import { NewTabScreen } from "./NewTabScreen";
 import { NewTabPage } from "../NewTabPage";
-import type { ComposerAttachment } from "../Composer";
+import type { ComposerAttachment } from "../attachments";
 import { registerHarnessesPage } from "../harnesses/harnessesPage";
 
 let dom: JSDOM | undefined;
@@ -350,18 +350,26 @@ test("a page always hands over its current draft, including empty", async () => 
   expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
 });
 
-
 for (const classic of [false, true]) {
   test(`${classic ? "Classic" : "New Tab"}: carry, clear, fail again, retry stays empty`, async () => {
     let carried = { text: "kept before failure", attachments: [] as ComposerAttachment[] };
     const Component = classic ? NewTabPage : NewTabScreen;
-    const page = () => <Component
-      snapshot={noChat()}
-      onAsk={() => {}} onOpen={() => {}} onSearch={() => {}} onShell={() => {}}
-      onJump={() => {}} onOpenSession={() => {}} onShowAll={() => {}}
-      takeDraft={() => carried}
-      onLeaveDraft={(text, attachments) => { carried = { text, attachments }; }}
-    />;
+    const page = () => (
+      <Component
+        snapshot={noChat()}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        takeDraft={() => carried}
+        onLeaveDraft={(text, attachments) => {
+          carried = { text, attachments };
+        }}
+      />
+    );
     await act(async () => root!.render(page()));
     const selector = classic ? "input.acpmux-newtab-field" : ".nt-field";
     const input = container.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!;

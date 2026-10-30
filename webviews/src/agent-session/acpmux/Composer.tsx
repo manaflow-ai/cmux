@@ -484,9 +484,9 @@ export function Composer({
       generation: Math.max(local.generation, seededGeneration + (local.pendingReplacement ? 1 : 0)),
       known: local.known || draftGeneration !== undefined,
       pendingReplacement: local.pendingReplacement,
-      text: local.pendingReplacement ? local.text : mergedDraft(
-        local.text, draft, local.known ? local.generation : seededGeneration, seededGeneration,
-      ),
+      text: local.pendingReplacement
+        ? local.text
+        : mergedDraft(local.text, draft, local.known ? local.generation : seededGeneration, seededGeneration),
     };
   });
   const generation = useRef(initialDraft.generation);
@@ -584,7 +584,8 @@ export function Composer({
   const versionKnowledge = () => ({ known: generationKnown.current, pendingReplacement: pendingReplacement.current });
   const advanceGeneration = (replacement: string) => {
     generation.current = Math.max(generation.current, readPersistedDraftGeneration(persistedSession.current)) + 1;
-    pendingReplacement.current = hydratedSession.current !== persistedSession.current || !draftWasRead(persistedSession.current);
+    pendingReplacement.current =
+      hydratedSession.current !== persistedSession.current || !draftWasRead(persistedSession.current);
     editedBeforeHydration.current = true;
     restoringSession.current = false;
     textRef.current = replacement;
@@ -788,7 +789,12 @@ export function Composer({
             // A failed read is not an empty draft. Keep the latest text in the remount cache and
             // wait for a successful read before sending anything to acpmux, so reconnect cannot
             // replace a durable draft with the text typed during the outage.
-            cachePersistedDraft(session, field.current?.value() ?? textRef.current, generation.current, versionKnowledge());
+            cachePersistedDraft(
+              session,
+              field.current?.value() ?? textRef.current,
+              generation.current,
+              versionKnowledge(),
+            );
             const unsent = unsentDraft.current;
             if (unsent) unsent.push(field.current?.value() ?? textRef.current, generation.current);
             await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
@@ -837,7 +843,8 @@ export function Composer({
     // they typed, so neither is lost (mergedDraft); before, it was dropped, and the typed text
     // then replaced the tab's kept draft on disk.
     const typed = field.current?.value() ?? textRef.current;
-    if (!generationKnown.current && !pendingReplacement.current) generation.current = validDraftGeneration(draftGeneration);
+    if (!generationKnown.current && !pendingReplacement.current)
+      generation.current = validDraftGeneration(draftGeneration);
     if (pendingReplacement.current) {
       generation.current = Math.max(generation.current, validDraftGeneration(draftGeneration) + 1);
     }
@@ -864,7 +871,8 @@ export function Composer({
     // chat's saved draft. Before, this reset the prompt to the saved draft or to empty, so text
     // typed before the chat loaded was cleared.
     const typedBefore = previous === undefined && !carryPrompt.current ? (field.current?.value() ?? text) : "";
-    if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text, generation.current, versionKnowledge());
+    if (previous && hydratedSession.current === previous)
+      writePersistedDraft(previous, field.current?.value() ?? text, generation.current, versionKnowledge());
     // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
     forgetQueuedDraft(previous);
     persistedSession.current = sessionId;
@@ -885,8 +893,12 @@ export function Composer({
     // A chat's own saved draft wins: carried text only fills a session that has none, which a
     // switch's new session always is, so moving to another chat mid-switch keeps that chat's draft.
     const initial = typedBefore.trim()
-      ? mergedDraft(typedBefore, restored || draft, generation.current,
-          restored ? readPersistedDraftGeneration(sessionId) : validDraftGeneration(draftGeneration))
+      ? mergedDraft(
+          typedBefore,
+          restored || draft,
+          generation.current,
+          restored ? readPersistedDraftGeneration(sessionId) : validDraftGeneration(draftGeneration),
+        )
       : restored || carried || draft || "";
     // Not yet acpmux's: the durable read merges it with acpmux's draft and writes the result.
     if (typedBefore.trim()) {
@@ -952,14 +964,14 @@ export function Composer({
       const next = replaced
         ? { text: merged, shown: merged !== currentText, write: true }
         : hydratedDraft({
-        current: currentText,
-        restored: state?.draft,
-        edited,
-        pendingWrite: hasPendingDraftWrite(sessionId),
-        firstRead,
-        generation: localGeneration,
-        restoredGeneration: incomingGeneration,
-      });
+            current: currentText,
+            restored: state?.draft,
+            edited,
+            pendingWrite: hasPendingDraftWrite(sessionId),
+            firstRead,
+            generation: localGeneration,
+            restoredGeneration: incomingGeneration,
+          });
       if (next.shown) {
         // Its own write (below) or none: the text effect does not write it again.
         restoringSession.current = next.text !== textRef.current;

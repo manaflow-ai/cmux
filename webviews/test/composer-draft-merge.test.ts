@@ -2,11 +2,14 @@ import { expect, test } from "bun:test";
 import vectors from "./fixtures/composer-draft-merge.json";
 import { mergedDraft } from "../src/agent-session/acpmux/composerDraft";
 
-const expand = (parts: { text: string; count: number }[]) => parts.map(({ text, count }) => text.repeat(count)).join("");
+const expand = (parts: { text: string; count: number }[]) =>
+  parts.map(({ text, count }) => text.repeat(count)).join("");
 
 for (const vector of vectors) {
   test(`shared draft merge: ${vector.name}`, () => {
-    expect(mergedDraft(expand(vector.typed), expand(vector.kept), vector.typedGeneration ?? 0, vector.keptGeneration ?? 0)).toBe(expand(vector.expected));
+    expect(
+      mergedDraft(expand(vector.typed), expand(vector.kept), vector.typedGeneration ?? 0, vector.keptGeneration ?? 0),
+    ).toBe(expand(vector.expected));
   });
 }
 

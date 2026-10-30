@@ -797,7 +797,8 @@ const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools",
 /// The composer's text changed: the chat tells acpmux this pane types (never the text itself).
 const postTyping = (text: string, sessionId?: string) =>
   void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
-const postUnsentDraft = (text: string, generation = 0) => callNative("chat.unsentDraft", { text, generation }).catch(() => undefined);
+const postUnsentDraft = (text: string, generation = 0) =>
+  callNative("chat.unsentDraft", { text, generation }).catch(() => undefined);
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
 const keptAttachments: KeptAttachments = {
@@ -8573,7 +8574,8 @@ function AcpmuxPane() {
           "chat.hideFind": async () => findRef.current?.hide(),
           // Composer drafts belong to the daemon session so every host can restore them.
           "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
-          "chat.writeDraft": ({ sessionId, text, generation }) => client.writeDraft(String(sessionId), String(text ?? ""), Number(generation ?? 0)),
+          "chat.writeDraft": ({ sessionId, text, generation }) =>
+            client.writeDraft(String(sessionId), String(text ?? ""), Number(generation ?? 0)),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
           "file.search": ({ path, query, limit }) =>

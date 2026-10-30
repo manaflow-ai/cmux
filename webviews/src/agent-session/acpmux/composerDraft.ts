@@ -32,7 +32,12 @@ export function seededText(current: string, draft: string | undefined): string {
  * prefix (at least two units); with no such overlap, join saved + "\n\n" + typed. Preserve whitespace.
  * Native AgentUnsentDrafts.merged follows this contract and consumes the same fixture.
  */
-export function mergedDraft(typed: string, saved: string | undefined, typedGeneration = 0, savedGeneration = 0): string {
+export function mergedDraft(
+  typed: string,
+  saved: string | undefined,
+  typedGeneration = 0,
+  savedGeneration = 0,
+): string {
   if (typedGeneration > savedGeneration) return typed;
   if (savedGeneration > typedGeneration) return saved ?? "";
   if (!saved?.trim()) return typed;
@@ -145,8 +150,11 @@ function staleDraftWrite(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   if ("code" in error && error.code === "draft.stale_generation") return true;
   // Compatibility with the first generation-aware daemon, before its structured error code.
-  return "message" in error && typeof error.message === "string" &&
-    /^stale composer draft generation [0-9]+; current generation is [0-9]+/.test(error.message);
+  return (
+    "message" in error &&
+    typeof error.message === "string" &&
+    /^stale composer draft generation [0-9]+; current generation is [0-9]+/.test(error.message)
+  );
 }
 
 function discardStaleDraftWrite(write: DraftWrite): void {
@@ -156,12 +164,14 @@ function discardStaleDraftWrite(write: DraftWrite): void {
   // Reconcile once, without holding the drain or web swap on another network round trip.
   // Never let this read replace a newer local edit or adopt text from a different generation.
   const sequence = draftWriteSequence;
-  void answeredInTime(readDurableDraftState(write.sessionId)).then((value) => {
-    const state = value as Awaited<ReturnType<typeof readDurableDraftState>>;
-    if (!state || draftWriteSequence !== sequence || hasPendingDraftWrite(write.sessionId)) return;
-    if (state.generation !== readPersistedDraftGeneration(write.sessionId)) return;
-    cachePersistedDraft(write.sessionId, state.draft ?? "", state.generation);
-  }).catch(() => undefined);
+  void answeredInTime(readDurableDraftState(write.sessionId))
+    .then((value) => {
+      const state = value as Awaited<ReturnType<typeof readDurableDraftState>>;
+      if (!state || draftWriteSequence !== sequence || hasPendingDraftWrite(write.sessionId)) return;
+      if (state.generation !== readPersistedDraftGeneration(write.sessionId)) return;
+      cachePersistedDraft(write.sessionId, state.draft ?? "", state.generation);
+    })
+    .catch(() => undefined);
 }
 
 function writeTimedOut(action: DraftAction, write: DraftWrite, sent: Promise<unknown>): void {
@@ -173,14 +183,17 @@ function writeTimedOut(action: DraftAction, write: DraftWrite, sent: Promise<unk
     unansweredWrite = undefined;
     flushPendingDraftWrites();
   };
-  void Promise.resolve(sent).then(() => {
-    // It landed: its own retry, still queued, would only land over a later edit.
-    if (pendingDraftWrites.get(sessionId)?.sequence === sequence) pendingDraftWrites.delete(sessionId);
-    answered();
-  }, (error) => {
-    if (staleDraftWrite(error)) discardStaleDraftWrite(write);
-    answered();
-  });
+  void Promise.resolve(sent).then(
+    () => {
+      // It landed: its own retry, still queued, would only land over a later edit.
+      if (pendingDraftWrites.get(sessionId)?.sequence === sequence) pendingDraftWrites.delete(sessionId);
+      answered();
+    },
+    (error) => {
+      if (staleDraftWrite(error)) discardStaleDraftWrite(write);
+      answered();
+    },
+  );
 }
 
 /** `write`, or a rejection once it has gone unanswered for `draftWriteLimits.timeoutMs`. */
@@ -320,14 +333,26 @@ export function draftGeneration(value: unknown): number {
 }
 
 export type DraftVersionKnowledge = { known: boolean; pendingReplacement: boolean };
-export function readPersistedDraftState(sessionId: string | undefined): { text: string; generation: number } & DraftVersionKnowledge {
+export function readPersistedDraftState(
+  sessionId: string | undefined,
+): { text: string; generation: number } & DraftVersionKnowledge {
   const key = persistedDraftKey(sessionId);
   if (!key) return { text: "", generation: 0, known: false, pendingReplacement: false };
   try {
     const raw = globalThis.localStorage?.getItem(`${key}.state-v1`);
     if (raw != null) {
-      const state = JSON.parse(raw) as { text?: unknown; generation?: unknown; known?: boolean; pendingReplacement?: boolean };
-      return { text: typeof state.text === "string" ? state.text : "", generation: draftGeneration(state.generation), known: state.known !== false, pendingReplacement: state.pendingReplacement === true };
+      const state = JSON.parse(raw) as {
+        text?: unknown;
+        generation?: unknown;
+        known?: boolean;
+        pendingReplacement?: boolean;
+      };
+      return {
+        text: typeof state.text === "string" ? state.text : "",
+        generation: draftGeneration(state.generation),
+        known: state.known !== false,
+        pendingReplacement: state.pendingReplacement === true,
+      };
     }
     const text = globalThis.localStorage?.getItem(key);
     return { text: text ?? "", generation: 0, known: text != null, pendingReplacement: false };
@@ -351,7 +376,12 @@ export function readPersistedDraft(sessionId: string | undefined): string | unde
 }
 
 /// Text and generation commit atomically, including empty tombstones after a clear or send.
-export function cachePersistedDraft(sessionId: string | undefined, text: string, generation = readPersistedDraftGeneration(sessionId), knowledge = readPersistedDraftVersion(sessionId)): void {
+export function cachePersistedDraft(
+  sessionId: string | undefined,
+  text: string,
+  generation = readPersistedDraftGeneration(sessionId),
+  knowledge = readPersistedDraftVersion(sessionId),
+): void {
   const key = persistedDraftKey(sessionId);
   if (!key || generation < readPersistedDraftGeneration(sessionId)) return;
   try {
@@ -363,7 +393,12 @@ export function cachePersistedDraft(sessionId: string | undefined, text: string,
 }
 
 /// Stores or clears an unsent prompt in the remount cache and daemon session state.
-export function writePersistedDraft(sessionId: string | undefined, text: string, generation = readPersistedDraftGeneration(sessionId), knowledge = readPersistedDraftVersion(sessionId)): void {
+export function writePersistedDraft(
+  sessionId: string | undefined,
+  text: string,
+  generation = readPersistedDraftGeneration(sessionId),
+  knowledge = readPersistedDraftVersion(sessionId),
+): void {
   if (!sessionId?.trim() || generation < readPersistedDraftGeneration(sessionId)) return;
   cachePersistedDraft(sessionId, text, generation, knowledge);
   pendingDraftWrites.set(sessionId, { sessionId, text, generation, sequence: ++draftWriteSequence });
@@ -403,7 +438,9 @@ export async function readDurableDraftState(
     const action = pageDraftAction("chat.readDraft");
     if (!action) return undefined;
     const result = await action({ sessionId });
-    const generation = draftGeneration(result && typeof result === "object" && "generation" in result ? result.generation : 0);
+    const generation = draftGeneration(
+      result && typeof result === "object" && "generation" in result ? result.generation : 0,
+    );
     return { draft: daemonDraft(result), generation };
   } catch {
     return undefined;

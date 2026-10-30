@@ -56,7 +56,8 @@ export function createUnsentDraftThrottle(options: UnsentDraftThrottleOptions): 
     stopTimer();
     const state = pending;
     pending = undefined;
-    if (state && (state.text !== lastSent || state.generation !== lastGeneration)) deliver(state.text, state.generation);
+    if (state && (state.text !== lastSent || state.generation !== lastGeneration))
+      deliver(state.text, state.generation);
   };
   return {
     push(text, generation = 0) {
