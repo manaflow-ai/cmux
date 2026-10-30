@@ -1,4 +1,4 @@
-/// The titlebar's quiet Update Available button (``UpdaterService/availableButton``): a found
+/// The sidebar footer's quiet Update Available button (``UpdaterService/availableButton``): a found
 /// update that waits for a click; the click downloads and installs it.
 nonisolated public struct UpdateAvailableButton: Equatable, Sendable {
     /// The found update's version, when Sparkle named it.

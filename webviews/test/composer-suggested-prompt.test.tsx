@@ -75,7 +75,14 @@ function Chips() {
   return null;
 }
 
-async function render(snapshot: AcpmuxSnapshot, headerCwd?: string) {
+async function render(
+  snapshot: AcpmuxSnapshot,
+  headerCwd?: string,
+  onMode?: (id: string) => void,
+  draft?: string,
+  plusExtensions?: import("../src/agent-session/acpmux/composerPlusRegistry").ComposerPlusExtension[],
+  onPlusCommand?: (id: string) => void,
+) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   root ??= createRoot(host);
@@ -91,6 +98,10 @@ async function render(snapshot: AcpmuxSnapshot, headerCwd?: string) {
           return true;
         }}
         onStop={() => {}}
+        onMode={onMode}
+        draft={draft}
+        plusExtensions={plusExtensions}
+        onPlusCommand={onPlusCommand}
         onProject={() => {}}
         onNewChat={() => {}}
         localName="studio"
@@ -297,4 +308,191 @@ test("the + button names what its menu adds in a tooltip", async () => {
   await render(fresh([]));
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
   expect([plus.getAttribute("aria-label"), plus.title]).toEqual(["Add", "Add files and more"]);
+});
+
+test("the + menu renders Add rows from the shared registry", async () => {
+  await render(fresh([]));
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  const ids = [...host.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")].map(
+    (row) => row.dataset.value,
+  );
+  expect(ids).toContain("add.files");
+  expect(ids).toContain("add.project");
+  expect(ids).toContain("add.mention");
+  expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
+});
+
+test("the + menu runs the advertised plan mode and opens the existing project chooser", async () => {
+  const modes: string[] = [];
+  const snapshot = noChat([], {
+    summary: {
+      sessionId: "",
+      cwd: APP,
+      modes: {
+        currentModeId: "acceptEdits",
+        availableModes: [
+          { id: "acceptEdits", name: "Accept edits" },
+          { id: "claude-plan", name: "Plan" },
+        ],
+      },
+    } as never,
+  });
+  await render(snapshot, undefined, (id) => modes.push(id));
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  const plan = host.querySelector<HTMLElement>('[data-value="add.mode.claude-plan"]')!;
+  expect(plan).toBeTruthy();
+  await act(async () => plan.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(modes).toEqual(["claude-plan"]);
+  await act(async () => plus.click());
+  const project = host.querySelector<HTMLElement>('[data-value="add.project"]')!;
+  await act(async () => project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(host.querySelector(".acpmux-location-button[aria-expanded=true]")).toBeTruthy();
+});
+
+test("the + menu keeps the full draft as a selected skill or goal's arguments", async () => {
+  const commands = [
+    { name: "review", description: "Review the change", source: "skill" as const },
+    { name: "goal", description: "Set a goal", source: "agent" as const },
+  ];
+  const snapshot = noChat([], { summary: { sessionId: "", cwd: APP } as never, commands });
+  for (const [row, command] of [
+    ["add.skill.review", "review"],
+    ["add.goal", "goal"],
+  ] as const) {
+    await render(snapshot, undefined, undefined, "Keep these words before the caret");
+    const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+    await act(async () => plus.click());
+    const choice = host.querySelector<HTMLElement>(`[data-value="${row}"]`)!;
+    await act(async () => choice.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+    expect(field().textContent).toContain(`/${command} Keep these words before the caret`);
+    await act(async () => root?.unmount());
+    root = undefined;
+    host.replaceChildren();
+  }
+});
+
+test("the + menu uses the current pane language for existing actions", async () => {
+  const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
+  const prior = globalThis.__cmuxPaneStrings;
+  globalThis.__cmuxPaneStrings = (await import("../src/agent-session/acpmux/generated/strings.json")).default;
+  try {
+    await act(async () => setPaneLanguage("de"));
+    await render(fresh([]));
+    const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+    await act(async () => plus.click());
+    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-label')?.textContent).toBe(
+      "Dateien oder Bilder anhängen",
+    );
+    expect(host.querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe("Projekt auswählen");
+    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
+    expect(host.querySelector('[data-value="add.project"] .acpmux-menu-description')).toBeNull();
+  } finally {
+    await act(async () => setPaneLanguage("en"));
+    globalThis.__cmuxPaneStrings = prior;
+  }
+});
+
+test("the + menu renders and dispatches host command-palette extensions", async () => {
+  const called: string[] = [];
+  await render(
+    fresh([]),
+    undefined,
+    undefined,
+    undefined,
+    [
+      {
+        id: "browser",
+        section: "tools",
+        name: "Browser",
+        description: "Control the in-app browser",
+        icon: "browser",
+        keywords: ["web"],
+        action: { kind: "command", id: "palette.openBrowser" },
+      },
+    ],
+    (id) => called.push(id),
+  );
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  expect(host.querySelector('[data-value="browser"] .acpmux-menu-label')?.textContent).toBe("Browser");
+  const row = host.querySelector<HTMLElement>('[data-value="browser"]')!;
+  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(called).toEqual(["palette.openBrowser"]);
+});
+
+test("the + menu keeps host sections separate and stays open for an unsupported action", async () => {
+  await render(fresh([]), undefined, undefined, undefined, [
+    {
+      id: "browser",
+      section: "tools",
+      name: "Browser",
+      description: "Control browser",
+      icon: "browser",
+      keywords: [],
+      action: { kind: "command", id: "palette.browser" },
+    },
+    {
+      id: "chat",
+      section: "sessions",
+      name: "Recent chat",
+      description: "Open chat",
+      icon: "agent.chat",
+      keywords: [],
+      action: { kind: "command", id: "palette.chat" },
+    },
+    {
+      id: "tab",
+      section: "tabs",
+      name: "Open tab",
+      description: "Attach tab",
+      icon: "browser",
+      keywords: [],
+      action: { kind: "command", id: "palette.tab" },
+    },
+  ]);
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  expect([...host.querySelectorAll(".acpmux-menu-header")].map((node) => node.textContent)).toEqual([
+    "Add",
+    "Search tools",
+    "Sessions",
+    "Open Tabs",
+  ]);
+  const row = host.querySelector<HTMLElement>('[data-value="browser"]')!;
+  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(host.querySelector('[data-value="browser"]')).toBeTruthy();
+});
+
+test("the + menu scrolls keyboard-selected skills into view before Enter picks one", async () => {
+  const commands = Array.from({ length: 24 }, (_, index) => ({
+    name: `skill${index}`,
+    description: `Skill ${index}`,
+    source: "skill" as const,
+  }));
+  await render(noChat([], { summary: { sessionId: "", cwd: APP } as never, commands }));
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  const scrolled: string[] = [];
+  const original = dom.window.HTMLElement.prototype.scrollIntoView;
+  dom.window.HTMLElement.prototype.scrollIntoView = function (options?: ScrollIntoViewOptions) {
+    if (options?.block === "nearest") scrolled.push(this.id);
+  };
+  try {
+    await act(async () => plus.click());
+    await act(async () => plus.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
+    const last = plus.getAttribute("aria-activedescendant")!;
+    expect(scrolled).toContain(last);
+    for (let index = 0; index < 2; index++)
+      await act(async () =>
+        plus.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })),
+      );
+    const skill = plus.getAttribute("aria-activedescendant")!;
+    expect(host.ownerDocument.getElementById(skill)?.getAttribute("data-value")).toBe("add.skill.skill23");
+    expect(scrolled).toContain(skill);
+    await act(async () => plus.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(field().textContent).toContain("/skill23 ");
+  } finally {
+    dom.window.HTMLElement.prototype.scrollIntoView = original;
+  }
 });

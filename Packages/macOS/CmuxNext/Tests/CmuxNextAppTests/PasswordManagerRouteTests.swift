@@ -41,7 +41,8 @@ struct PasswordManagerRouteTests {
 
     /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
     /// `home` is the daemon's HOME (where it reads its Ghostty config).
-    static func withApp(home: String = NSHomeDirectory(), _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
+    static func withApp(home: String = NSHomeDirectory(), agentPaneEnvironment: [String: String]? = nil,
+                        _ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-pwroute-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -50,7 +51,7 @@ struct PasswordManagerRouteTests {
                                  stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
+        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: agentPaneEnvironment)
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         services.daemon.start {
