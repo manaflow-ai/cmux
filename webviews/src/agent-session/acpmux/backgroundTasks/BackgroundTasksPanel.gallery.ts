@@ -148,10 +148,13 @@ const docked = async (ctx: PlayContext) => {
 const drill = async (ctx: PlayContext) => {
   await openPanel(ctx);
   const started = performance.now();
-  await ctx.click({ role: "button", name: /Attachment source attribution badge/ });
-  // The transcript is on the page in the click's own frame: nothing waits on the daemon.
-  const shown = ctx.document.querySelector(".acpmux-bg__transcript [data-row-id]");
-  if (!shown) throw new Error("the transcript draws on the click, from the snapshot");
+  // The panel's own agent line (the tray above the composer names the same agent).
+  await ctx.click({ selector: `.acpmux-bg__group[data-group="agent:${ATTRIBUTION.id}"] .acpmux-bg__name` });
+  // The transcript draws from the snapshot, with nothing to wait on the daemon for: it is on the
+  // page once React commits the click (the drill perf test holds it inside one frame).
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-bg__transcript [data-row-id]"), { capMs: 250 });
+  if (!ctx.document.querySelector(".acpmux-bg__transcript [data-row-id]"))
+    throw new Error("the transcript draws on the click, from the snapshot");
   ctx.document.documentElement.dataset.bgDrillMs = String(Math.round((performance.now() - started) * 10) / 10);
 };
 const finishedOpen = async (ctx: PlayContext) => {

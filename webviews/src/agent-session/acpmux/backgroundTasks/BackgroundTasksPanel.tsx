@@ -275,7 +275,7 @@ function GroupBlock({
       : undefined;
   const counts = <Counts total={group.total} failed={group.failed} />;
   return (
-    <div className="acpmux-bg__group" data-state={group.state}>
+    <div className="acpmux-bg__group" data-state={group.state} data-group={group.id}>
       <div className="acpmux-bg__agent">
         <button type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
           {group.state === "running" && <Spinner size={12} loading />}
