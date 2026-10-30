@@ -19,6 +19,8 @@ use serde_json::{Value, json};
 
 use super::JournalSubject;
 pub(crate) mod blobs;
+#[cfg(test)]
+mod session_record_tests;
 use super::presentation_store::{
     append_presentation_record, validate_presentation_color, validate_presentation_text,
     validate_workspace_group_id,

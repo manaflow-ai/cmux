@@ -259,6 +259,32 @@ fn sessions_register_import_once_and_forget() {
     assert_eq!(listed["pins"], json!([]));
 }
 
+/// The app records each connected session with the capabilities its
+/// `identify` returned (SessionRegistrar). This daemon's own list must be
+/// accepted as it is: a refused `put-session` leaves the machine out of the
+/// registry, and the next launch does not restore it (P-AUSTIN B7a).
+#[test]
+fn put_session_records_this_daemons_whole_capability_list() {
+    let mux = personal_mux();
+    let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
+    let capabilities = identity["capabilities"].clone();
+    let put = run(
+        &mux,
+        json!({"cmd":"put-session","session_id":"remote-1","transport":{"kind":"ssh","host":"build-box"},
+               "capabilities":capabilities}),
+    )
+    .expect("put-session accepts the capability list identify returned");
+    assert_eq!(put["session"]["capabilities"], capabilities);
+    let listed = run(&mux, json!({"cmd":"list-personal"})).unwrap();
+    let recorded = listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|session| session["session_id"] == "remote-1")
+        .expect("the session is in the registry");
+    assert_eq!(recorded["capabilities"], capabilities);
+}
+
 /// `personal-mixed-order-v1`: groups and loose workspaces share one
 /// personal order (`workspace_group.update {top_index}`).
 #[test]
