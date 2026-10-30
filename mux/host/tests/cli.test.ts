@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { AGENT_MUX, messageText, USER_LOCAL } from "../src/conversation-types.ts";
 import { FakeDaemon } from "./fakes/fake-daemon.ts";
@@ -115,4 +115,24 @@ test("mux hook recovers from a malformed seen cursor", async () => {
     await run({ session_id: "bad-session", prompt: "recover this hook" });
     expect(JSON.parse(readFileSync(cursor, "utf8"))).toEqual({ seen: expect.any(Number) });
   }
+});
+
+test("mux hook removes its temporary cursor when the write fails", () => {
+  const dir = mkdtempSync("/tmp/muxh-full-");
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  const home = join(dir, "home");
+  const sessions = join(home, "state", "sessions");
+  mkdirSync(sessions, { recursive: true });
+  // A zero file-size limit (with SIGXFSZ ignored) lets the temporary cursor be created and
+  // then fails its write with EFBIG, as a full disk would.
+  const run = Bun.spawnSync(
+    ["/bin/sh", "-c", `trap '' XFSZ; ulimit -f 0; exec "${process.execPath}" "${main}" hook session-start`],
+    {
+      env: { PATH: "/usr/bin:/bin", HOME: dir, MUX_HOME: home },
+      stdin: new Blob([JSON.stringify({ session_id: "full-disk" })]),
+    },
+  );
+  expect(run.exitCode, run.stderr.toString()).not.toBe(0);
+  expect(run.stderr.toString()).toContain("EFBIG");
+  expect(readdirSync(sessions)).toEqual([]);
 });
