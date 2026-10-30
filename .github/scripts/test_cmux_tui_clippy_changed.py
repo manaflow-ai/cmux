@@ -78,6 +78,7 @@ class ClippyChangedTests(unittest.TestCase):
         self.write("cmux-tui/vendor/up/src/lib.rs", "pub fn u() {}\n")
         self.write("README.md", "readme\n")
         self.write("scripts/cmux-next/rust_panic_ratchet.py", FAKE_RATCHET)
+        self.write("scripts/cmux-next/rust-panic-baseline.json", "{}\n")
         self.git("init", "-q")
         self.git("add", ".")
         self.git("commit", "-qm", "base")
@@ -271,6 +272,14 @@ class ClippyChangedTests(unittest.TestCase):
 
     def test_the_panic_ratchet_covers_the_whole_workspace_for_workspace_wide_inputs(self) -> None:
         self.change("cmux-tui/Cargo.lock", "# lock 2\n")
+        result, _ = self.run_ratchet("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--workspace", "--lib", "--bins", *PANIC]])
+        self.assertEqual(len(self.ratchet_calls()), 1)
+
+    def test_the_panic_ratchet_runs_for_a_baseline_only_change(self) -> None:
+        # The baseline is a workspace-wide ratchet input; it must not take the no-package fast path.
+        self.change("scripts/cmux-next/rust-panic-baseline.json", "{\"changed\": true}\n")
         result, _ = self.run_ratchet("--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.calls(), [["clippy", "--locked", "--workspace", "--lib", "--bins", *PANIC]])

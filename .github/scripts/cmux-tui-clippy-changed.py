@@ -48,6 +48,11 @@ ROOT = fmt_changed.ROOT
 WHOLE_WORKSPACE = frozenset({
     f"{ROOT}/Cargo.toml", f"{ROOT}/Cargo.lock", f"{ROOT}/clippy.toml", f"{ROOT}/.clippy.toml",
     f"{ROOT}/rust-toolchain.toml", f"{ROOT}/rust-toolchain", f"{ROOT}/.cargo/config.toml",
+    # The ratchet's source, measured baseline, and plan are workspace-wide inputs.
+    # A baseline-only change must run the ratchet rather than taking the no-package fast path.
+    "scripts/cmux-next/rust_panic_ratchet.py",
+    "scripts/cmux-next/rust-panic-baseline.json",
+    "plans/cmux-next/rust-panic-free.md",
 })
 RATCHET = "scripts/cmux-next/rust_panic_ratchet.py"
 LIB_KINDS = frozenset({"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"})
@@ -106,7 +111,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     base = args.base.strip()
     paths = fmt_changed.changed(repo, base)
-    if paths is None or any(path in WHOLE_WORKSPACE for path in paths):
+    ratchet_inputs_changed = False
+    if args.panic_ratchet and base and set(base) != {"0"}:
+        try:
+            all_changed = [path for path in fmt_changed.git(repo, "diff", "--name-only", "-z", base, "HEAD").split("\0") if path]
+            ratchet_inputs_changed = any(path in WHOLE_WORKSPACE for path in all_changed)
+        except subprocess.CalledProcessError:
+            ratchet_inputs_changed = True
+    if paths is None or ratchet_inputs_changed or any(path in WHOLE_WORKSPACE for path in paths):
         if args.panic_ratchet:
             return panic_ratchet(repo, ["--workspace"], True, "the whole cmux-tui workspace", args.panic_ratchet)
         command = ["cargo", "clippy", "--locked", "--keep-going", "--workspace", "--all-targets", "--", "-D", "warnings"]

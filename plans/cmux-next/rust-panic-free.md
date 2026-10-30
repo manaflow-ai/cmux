@@ -170,8 +170,10 @@ python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json /tmp/c.jsonl [-
   package and bins with `required-features`.
 - Run `--update-baseline` only from a Linux clippy run (rbx, Testbox):
   macOS compiles other `cfg` paths and would lower the Linux counts.
-- Lower the baseline with `--update-baseline` in the commit that removes
-  hits. It refuses to run while the ratchet is red and never raises a count.
+- Lower the deny-lint baseline with `--update-baseline` in the commit that removes
+  hits. It refuses to run while the ratchet is red and never raises a deny count.
+  Tracked-lint baselines may be raised only from a successful authoritative Linux
+  measurement; the PR must record the reason and run link.
 
 Why not `[workspace.lints.clippy] unwrap_used = "deny"` (the first plan):
 Cargo applies the workspace table to every target of every member that
