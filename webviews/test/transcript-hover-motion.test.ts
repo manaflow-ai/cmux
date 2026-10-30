@@ -31,6 +31,8 @@ test("transcript hover fades require motion preference and a hover-capable fine 
     ({ rule }) =>
       actions.some((action) => rule.selectorText.includes(action)) &&
       rule.style.getPropertyValue("transition") &&
+      // Always-visible pending controls disable transitions; that is not a hover fade.
+      rule.style.getPropertyValue("transition") !== "none" &&
       !rule.selectorText.includes(":focus"),
   );
   expect(fades.length).toBeGreaterThan(0);
