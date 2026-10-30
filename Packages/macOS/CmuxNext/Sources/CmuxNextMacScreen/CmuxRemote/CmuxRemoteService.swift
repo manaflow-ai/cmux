@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextComputerUse
 public import CmuxNextDaemon
+public import CmuxNextDaemonService
 public import CmuxNextDevices
 import CmuxNextWakeups
 import Darwin
@@ -32,6 +33,11 @@ public final class CmuxRemoteService {
 
     public init(connection: @escaping @MainActor () -> DaemonConnection?) {
         connectionSource = connection
+    }
+
+    /// This app's local daemon: its connection while it serves `remote-host-v1`.
+    public convenience init(daemon: DaemonService) {
+        self.init { [weak daemon] in daemon?.supports(DaemonCapability.remoteHost.rawValue) == true ? daemon?.connection : nil }
     }
 
     func markStarted() { started = true }

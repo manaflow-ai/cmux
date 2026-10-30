@@ -1,21 +1,25 @@
 import CmuxNextCompat
 import CmuxNextDevices
-import CryptoKit
 import Darwin
 import Foundation
 
 /// One channel to the Screen Sharing worker: requests with ids, answers matched by id, and
-/// `push` events for a subscription. A dedicated thread reads it until it ends.
+/// `push` events for a subscription. A dedicated thread reads it until it ends. Answers cross
+/// threads as raw JSON lines (`Data`) and are parsed by their waiter.
 nonisolated final class RemoteDeviceChannel: Sendable {
+    typealias Waiter = @Sendable (Result<Data, any Error>) -> Void
+
     let socket: Int32
     private let state = Mutex(ChannelState())
     private let writeLock = Mutex(())
     static let timeout: TimeInterval = 10
+    /// The most hub pushes kept for a reader that has not asked yet.
+    static let pushLimit = 256
 
-    private struct ChannelState: @unchecked Sendable { // crash-allow: every field is read and written under the Mutex
+    private struct ChannelState: Sendable {
         var open = true
         var nextID = 1
-        var waiting: [Int: (Result<[String: Any], any Error>) -> Void] = [:]
+        var waiting: [Int: Waiter] = [:]
         /// Hub pushes not read yet, and the one reader waiting for the next.
         var pushes: [String] = []
         var pushReader: CheckedContinuation<String?, Never>?
@@ -29,6 +33,7 @@ nonisolated final class RemoteDeviceChannel: Sendable {
     }
 
     var isOpen: Bool { state.withLock { $0.open } }
+
     /// The next hub push, in order; nil once the channel ends. One reader at a time.
     func nextPush() async -> String? {
         await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
@@ -48,7 +53,7 @@ nonisolated final class RemoteDeviceChannel: Sendable {
                 state.pushReader = nil
                 return reader
             }
-            if state.pushes.count >= 256 { state.pushes.removeFirst() }
+            if state.pushes.count >= Self.pushLimit { state.pushes.removeFirst() }
             state.pushes.append(text)
             return nil
         }
@@ -71,18 +76,13 @@ nonisolated final class RemoteDeviceChannel: Sendable {
                 guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { continue }
                 if let id = object["id"] as? Int {
                     let done = state.withLock { $0.waiting.removeValue(forKey: id) }
-                    if object["ok"] as? Bool == true {
-                        done?(.success(object["result"] as? [String: Any] ?? [:]))
-                    } else {
-                        let message = (object["error"] as? [String: Any])?["message"] as? String ?? "refused"
-                        done?(.failure(DeviceHubError.identity(message)))
-                    }
+                    done?(.success(line))
                 } else if object["event"] as? String == "push", let text = object["text"] as? String {
                     deliver(text)
                 }
             }
         }
-        let (waiting, reader) = state.withLock { state -> ([(Result<[String: Any], any Error>) -> Void], CheckedContinuation<String?, Never>?) in
+        let (waiting, reader) = state.withLock { state -> ([Waiter], CheckedContinuation<String?, Never>?) in
             state.open = false
             defer {
                 state.waiting.removeAll()
@@ -95,7 +95,8 @@ nonisolated final class RemoteDeviceChannel: Sendable {
         Darwin.close(socket)
     }
 
-    private func send(_ method: String, _ params: [String: Any], done: @escaping (Result<[String: Any], any Error>) -> Void) {
+    /// Sends one request line (`params` already encoded as a JSON object); `done` gets its answer line.
+    private func send(_ method: String, _ params: Data, done: @escaping Waiter) {
         let id = state.withLock { state -> Int? in
             guard state.open else { return nil }
             let id = state.nextID
@@ -104,46 +105,56 @@ nonisolated final class RemoteDeviceChannel: Sendable {
             return id
         }
         guard let id else { return done(.failure(DeviceHubError.transport("cmux Remote's channel closed"))) }
-        var line = (try? JSONSerialization.data(withJSONObject: ["id": id, "method": method, "params": params])) ?? Data()
-        line.append(0x0A)
+        var line = Data(#"{"id":\#(id),"method":"#.utf8)
+        line.append((try? JSONSerialization.data(withJSONObject: method, options: .fragmentsAllowed)) ?? Data(#""""#.utf8))
+        line.append(Data(#","params":"#.utf8))
+        line.append(params)
+        line.append(Data("}\n".utf8))
         let written = writeLock.withLock { _ in RemoteSocket.writeAll(socket, line) }
         if !written, let done = state.withLock({ $0.waiting.removeValue(forKey: id) }) {
             done(.failure(DeviceHubError.transport("cmux Remote's channel closed")))
         }
     }
 
-    func call(_ method: String, _ params: [String: Any] = [:]) async throws -> [String: Any] {
-        nonisolated(unsafe) let params = params
-        let answer: AnswerBox = try await withCheckedThrowingContinuation { continuation in
-            send(method, params) { result in continuation.resume(with: result.map(AnswerBox.init)) }
+    /// An answer line's `result`, or its error.
+    static func result(_ line: Data) throws -> [String: Any] {
+        guard let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else {
+            throw DeviceHubError.transport("cmux Remote's answer is not JSON")
         }
-        return answer.value
+        guard object["ok"] as? Bool == true else {
+            throw DeviceHubError.identity((object["error"] as? [String: Any])?["message"] as? String ?? "refused")
+        }
+        return object["result"] as? [String: Any] ?? [:]
+    }
+
+    static func encode(_ params: [String: Any]) -> Data {
+        (try? JSONSerialization.data(withJSONObject: params)) ?? Data("{}".utf8)
+    }
+
+    func call(_ method: String, _ params: [String: Any] = [:]) async throws -> [String: Any] {
+        let encoded = Self.encode(params)
+        let line: Data = try await withCheckedThrowingContinuation { continuation in
+            send(method, encoded) { continuation.resume(with: $0) }
+        }
+        return try Self.result(line)
     }
 
     func blockingCall(_ method: String, _ params: [String: Any]) throws -> [String: Any] {
-        // concurrency-allow: DeviceKeyMaterial is synchronous; hub requests sign on the client actor and ticket signaling on its own tasks, never the main thread; the wait is bounded by `timeout`.
         let semaphore = DispatchSemaphore(value: 0)
-        let box = Mutex<Result<AnswerBox, any Error>?>(nil)
-        nonisolated(unsafe) let params = params
-        send(method, params) { result in
-            let boxed = result.map(AnswerBox.init)
-            box.withLock { $0 = boxed }
+        let box = Mutex<Result<Data, any Error>?>(nil)
+        send(method, Self.encode(params)) { result in
+            box.withLock { $0 = result }
             semaphore.signal()
         }
+        // DeviceKeyMaterial is synchronous: hub requests sign on the client's actor and ticket
+        // signaling on its own tasks, never the main thread; the wait is bounded by `timeout`.
         guard semaphore.blockingWait(timeout: .now() + Self.timeout) == .success, let result = box.withLock({ $0 }) else {
             throw DeviceHubError.transport("cmux Remote did not answer \(method)")
         }
-        return try result.get().value
+        return try Self.result(result.get())
     }
 
     func close() {
         _ = shutdown(socket, SHUT_RDWR)
     }
 }
-
-/// One answer, handed from the reader thread to its waiter.
-nonisolated struct AnswerBox: @unchecked Sendable { // crash-allow: made by the reader thread, read once by the waiter
-    let value: [String: Any]
-    init(_ value: [String: Any]) { self.value = value }
-}
-
