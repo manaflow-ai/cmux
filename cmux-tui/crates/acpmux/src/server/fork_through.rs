@@ -141,7 +141,8 @@ mod tests {
     use crate::config::{Config, StoreMode};
     use crate::session_identity::SessionReceipt;
 
-    /// A hub with no chat of its own, and peer hb listing a working chat.
+    /// A hub with no chat of its own, and peer hb (listed, never run) listing a working chat:
+    /// `Hub::resolve_remote` needs the peer as well as its row (`hub/own_host.rs` `add_peer`).
     fn hub_with_a_peer_chat() -> Arc<Hub> {
         let mut config: Config = serde_json::from_value(json!({})).unwrap();
         config.store.mode = StoreMode::Memory;
@@ -159,6 +160,9 @@ mod tests {
             },
         };
         hub.remote_sessions.lock().unwrap().insert("hb/peer-chat-1".into(), row);
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("hb", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("hb".to_owned(), peer);
         hub
     }
 
@@ -167,6 +171,10 @@ mod tests {
     #[tokio::test]
     async fn a_peer_chats_fork_is_refused_with_what_it_asked_for() {
         let hub = hub_with_a_peer_chat();
+        assert!(
+            hub.resolve_remote("hb/peer-chat-1").is_some(),
+            "the fixture lists the peer's chat"
+        );
         let live = to_session_fork(&hub, &json!({"sessionId": "hb/peer-chat-1", "live": true}))
             .await
             .unwrap_err();
