@@ -217,13 +217,28 @@ impl RegistryConnection {
     /// It holds the `unsettled` mutex across the wait. Callers must hold the
     /// workspace registry (all do): the writer takes neither the registry
     /// nor this mutex, so the wait cannot form a cycle.
+    ///
+    /// A thread that holds the connection lock never waits here: the writer
+    /// needs the connection to commit, so no answer that is not already sent
+    /// can arrive while it is held. It only takes the answers that came.
+    /// [`crate::Mux::lock_state_pinned`] drains before it pins, so a pinned
+    /// flow finds every answer that can arrive already taken.
     pub(crate) fn drain_unsettled(&self) -> anyhow::Result<()> {
         let mut unsettled =
             self.unsettled.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let deadline = std::time::Instant::now() + UNSETTLED_DRAIN_WAIT;
+        let wait = if self.is_held_by_current_thread() {
+            std::time::Duration::ZERO
+        } else {
+            UNSETTLED_DRAIN_WAIT
+        };
+        let deadline = std::time::Instant::now() + wait;
         for entry in unsettled.iter_mut().filter(|entry| entry.resolved.is_none()) {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
-            entry.resolved = entry.pending.wait_take(left);
+            entry.resolved = if left.is_zero() {
+                entry.pending.try_take()
+            } else {
+                entry.pending.wait_take(left)
+            };
             anyhow::ensure!(
                 entry.resolved.is_some(),
                 "an earlier session journal registry commit is still indeterminate; retry"
