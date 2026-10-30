@@ -15,6 +15,8 @@ export function archiveRow(
     key: "archive",
     label: t(chat.archived ? "chatMenu.unarchive" : "chatMenu.archive"),
     icon: "inbox",
+    // Claude Code desktop's A picks Archive while the chat menu is open.
+    ...(chat.archived ? {} : { mnemonic: "A" }),
     onSelect: () => archive(!chat.archived),
   };
 }

@@ -25,6 +25,7 @@ import { useBlockWrap } from "./blockWrap";
 import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
 import { cleanText, mcpCall } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { useRowDisclosure } from "./transcriptDisclosure";
 import { toolResult, type ToolResult } from "./toolResult";
 import { Markdown } from "./Markdown";
 import { WriteLabel, writeCall } from "./WriteLabel";
@@ -60,7 +61,8 @@ export function toolIcon(kind?: string): ReactNode {
 /// edit opens to its diff.
 export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  // Closed, or open in the Verbose transcript view.
+  const [open, setOpen] = useRowDisclosure();
   // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
   const [reveal, setReveal] = useState(0);
   useFindReveal(

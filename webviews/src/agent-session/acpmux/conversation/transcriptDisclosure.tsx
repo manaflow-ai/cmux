@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useTranscriptView, type TranscriptView } from "./transcriptView";
 
 /**
  * Disclosure state for transcript details. Rows are virtualized, so the state cannot live in a
@@ -75,32 +76,67 @@ const subscribe = (listener: () => void) => {
 };
 
 const DisclosureSession = createContext<string>(DEFAULT_SESSION);
+/** The chat's transcript view (transcriptView.ts), read once here for every row under it. */
+const ViewContext = createContext<TranscriptView>("normal");
 
 export function TranscriptDisclosureProvider({ sessionId, children }: { sessionId?: string; children: ReactNode }) {
-  return <DisclosureSession.Provider value={sessionId || DEFAULT_SESSION}>{children}</DisclosureSession.Provider>;
+  const view = useTranscriptView(sessionId || undefined);
+  return (
+    <DisclosureSession.Provider value={sessionId || DEFAULT_SESSION}>
+      <ViewContext.Provider value={view}>{children}</ViewContext.Provider>
+    </DisclosureSession.Provider>
+  );
 }
+
+/** The chat's transcript view: Normal, Thinking (thoughts open) or Verbose (tool output open too). */
+export const useTranscriptViewContext = (): TranscriptView => useContext(ViewContext);
 
 export type DisclosureSetter = (value: boolean | ((current: boolean) => boolean)) => void;
 
-/** Returns a persisted disclosure value and a React-compatible setter. */
-export function useTranscriptDisclosure(key: string, defaultOpen = false): [boolean, DisclosureSetter] {
-  const sessionId = useContext(DisclosureSession);
-  const getSnapshot = useCallback(() => read(sessionId, key) ?? defaultOpen, [sessionId, key, defaultOpen]);
-  const open = useSyncExternalStore(subscribe, getSnapshot, () => defaultOpen);
+/**
+ * Returns a persisted disclosure value and a React-compatible setter. `verboseOpen` opens it by
+ * default in the Verbose view (a tool's output). The reader's toggles are kept per view, so each
+ * view starts from its own defaults and switching back finds the old toggles where they were.
+ */
+export function useTranscriptDisclosure(
+  key: string,
+  defaultOpen = false,
+  verboseOpen = false,
+): [boolean, DisclosureSetter] {
+  const view = useContext(ViewContext);
+  const chat = useContext(DisclosureSession);
+  const sessionId = view === "normal" ? chat : `${chat}#${view}`;
+  const opens = defaultOpen || (verboseOpen && view === "verbose");
+  const getSnapshot = useCallback(() => read(sessionId, key) ?? opens, [sessionId, key, opens]);
+  const open = useSyncExternalStore(subscribe, getSnapshot, () => opens);
   const setOpen = useCallback<DisclosureSetter>(
     (value) => {
-      const current = read(sessionId, key) ?? defaultOpen;
+      const current = read(sessionId, key) ?? opens;
       save(sessionId, key, typeof value === "function" ? value(current) : value);
     },
-    [sessionId, key, defaultOpen],
+    [sessionId, key, opens],
   );
+  return [open, setOpen];
+}
+
+/**
+ * A row's own open state, kept while it is mounted (a lone call's details): closed, or open in the
+ * Verbose view. A toggle lasts while the view does; a switch starts from the new view's default.
+ */
+export function useRowDisclosure(): [boolean, (open: boolean) => void] {
+  const view = useContext(ViewContext);
+  const [choice, setChoice] = useState<{ view: TranscriptView; open: boolean }>();
+  const open = choice?.view === view ? choice.open : view === "verbose";
+  const setOpen = useCallback((next: boolean) => setChoice({ view, open: next }), [view]);
   return [open, setOpen];
 }
 
 /** Test/gallery reset; production callers keep each session's choices. */
 export function resetTranscriptDisclosure(sessionId?: string): void {
-  if (sessionId) load().delete(sessionId);
-  else choices = new Map();
+  if (sessionId) {
+    // With the views' own toggles (`session#view`).
+    for (const id of [...load().keys()]) if (id === sessionId || id.startsWith(`${sessionId}#`)) load().delete(id);
+  } else choices = new Map();
   try {
     if (sessionId) globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(storageValue()));
     else globalThis.localStorage?.removeItem(STORAGE_KEY);

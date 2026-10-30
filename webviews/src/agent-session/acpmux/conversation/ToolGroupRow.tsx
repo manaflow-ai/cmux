@@ -66,8 +66,9 @@ export function ToolGroupRow({
   thoughtId?: (n: number) => string;
 }) {
   const t = useT();
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
-  const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`);
+  // The Verbose transcript view opens every group, edits included, with every call shown.
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded, true);
+  const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`, false, true);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   // The calls behind "+K more", and where the shown tail starts (a thought between two hidden
   // calls hides with them).

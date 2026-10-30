@@ -66,6 +66,16 @@ export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
 
+/// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
+/// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
+/// itself; the rows it opens measure as they draw.
+export const TRANSCRIPT_VIEW_KEY = "agentPane.display.transcriptView";
+/// Normal: the compact transcript. Thinking: thoughts open. Verbose: tool output open too.
+export type TranscriptView = "normal" | "thinking" | "verbose";
+export const TRANSCRIPT_VIEWS: readonly TranscriptView[] = ["normal", "thinking", "verbose"];
+export const isTranscriptView = (value: unknown): value is TranscriptView =>
+  value === "normal" || value === "thinking" || value === "verbose";
+
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
 export const CHAT_DISPLAY = {
@@ -225,6 +235,7 @@ let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
 let threadMinimapArm: ThreadMinimapArm | null = null;
+let transcriptView: TranscriptView = "normal";
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -241,10 +252,13 @@ export function setChatDisplay(value: unknown): void {
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const threadMinimap = resolveThreadMinimapArm(raw);
+  const stored = raw[TRANSCRIPT_VIEW_KEY];
+  const view = isTranscriptView(stored) ? stored : "normal";
   const same = JSON.stringify(next) === JSON.stringify(current);
-  if (same && minimap === minimapOn && threadMinimap === threadMinimapArm) return;
+  if (same && minimap === minimapOn && threadMinimap === threadMinimapArm && view === transcriptView) return;
   minimapOn = minimap;
   threadMinimapArm = threadMinimap;
+  transcriptView = view;
   if (same) {
     for (const listener of listeners) listener();
     return;
@@ -304,6 +318,11 @@ const subscribe = (listener: () => void) => {
 const snapshot = () => current;
 const minimapSnapshot = () => minimapOn;
 const threadMinimapSnapshot = () => threadMinimapArm;
+const transcriptViewSnapshot = () => transcriptView;
+/// The Transcript View setting: the view of a chat without its own (conversation/transcriptView.ts).
+export const defaultTranscriptView = (): TranscriptView => transcriptView;
+export const useDefaultTranscriptView = (): TranscriptView =>
+  useSyncExternalStore(subscribe, transcriptViewSnapshot, transcriptViewSnapshot);
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.

@@ -385,6 +385,7 @@ import { configureQuickActions, quickActions, type QuickActionMode } from "./hea
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
+import { transcriptViewRow } from "./header/transcriptViewRow";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
@@ -8851,7 +8852,10 @@ function AcpmuxPane() {
       : projectFilesRow({ cwd: localCwd, family: summary?.family || summary?.harness }, (cwd, name) =>
           ignoreFailure(callNative("project.addFiles", { cwd, name })),
         );
+    // Normal, Thinking or Verbose for this chat (header/transcriptViewRow.ts).
+    const transcriptView = transcriptViewRow(snapshot.sessionId, t);
     const tools: ChatMenuItem[] = [
+      ...(transcriptView ? [transcriptView] : []),
       {
         key: "display",
         label: t("chatDisplay.menu"),
@@ -8898,6 +8902,7 @@ function AcpmuxPane() {
           label: t("chatMenu.rename"),
           icon: "action.edit",
           shortcutAction: HEADER_ACTIONS.rename,
+          mnemonic: "R",
           onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
         },
         {
