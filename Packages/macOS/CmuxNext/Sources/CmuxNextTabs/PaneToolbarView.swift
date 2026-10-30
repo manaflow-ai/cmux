@@ -370,7 +370,11 @@ private final class NativeMenuInvoker: NSObject, NSMenuItemValidation {
         action()
     }
 
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool { enabled() }
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let value = enabled()
+        menuItem.isEnabled = value
+        return value
+    }
 }
 
 // Like the strip's empty space (TabStripView+TitlebarDrag): in the window's top row, a press
