@@ -63,6 +63,7 @@ public final class CmuxToastCenter {
         let view = CmuxToastView(toast: toast)
         view.onAction = { [weak handle] in handle?.runAction() }
         view.onClose = { [weak self] in self?.closedByPerson(serial) }
+        view.onResize = { [weak self] in self?.resized(serial) }
         view.onHover = { [weak self, weak handle] hovered in
             guard let handle else { return }
             self?.setHovered(hovered, handle)
@@ -125,13 +126,14 @@ public final class CmuxToastCenter {
     }
 
     /// Runs the action of the newest toast with `id` in `window`, as its
-    /// button does; false when none shows or it has no action.
+    /// button does (Details shows or hides the details in place); false when
+    /// none shows or it has no action.
     @discardableResult
     public func runAction(id: String, in window: NSWindow) -> Bool {
         let serials = stacks[ObjectIdentifier(window)]?.serials ?? []
-        guard let handle = serials.reversed().lazy.compactMap({ self.entries[$0]?.handle }).first(where: { $0.toast.id == id }),
-              handle.toast.action != nil else { return false }
-        handle.runAction()
+        guard let serial = serials.reversed().first(where: { entries[$0]?.handle.toast.id == id }),
+              let entry = entries[serial], let action = entry.handle.toast.action else { return false }
+        if action.revealsDetails { entry.view.setShowsDetails(!entry.view.showsDetails) } else { entry.handle.runAction() }
         return true
     }
 
@@ -181,6 +183,17 @@ public final class CmuxToastCenter {
             timer.schedule(after: closedCooldown) { @MainActor [weak self] in self?.quieted[quiet] = nil }
         }
         end(serial, .closed)
+    }
+
+    // MARK: Details
+
+    /// A toast's Details turned on or off: it takes its new size, growing up from its bottom edge,
+    /// and its window's toasts stack again above it.
+    private func resized(_ serial: Int) {
+        guard let entry = entries[serial], let window = entry.window else { return }
+        entry.view.layoutSubtreeIfNeeded()
+        entry.view.setFrameSize(entry.view.fittingSize)
+        relayout(ObjectIdentifier(window))
     }
 
     // MARK: Ending
@@ -246,9 +259,11 @@ public final class CmuxToastHandle {
         self.center = center
     }
 
-    /// Runs the action (button, Cmd-Z, automation) and ends the toast.
+    /// Runs the action (button, Cmd-Z, automation) and ends the toast. A
+    /// Details action is the toast's own (it shows the details in place) and
+    /// never ends it: ``CmuxToastCenter/runAction(id:in:)`` toggles it.
     public func runAction() {
-        guard !isDismissed, toast.action != nil else { return }
+        guard !isDismissed, toast.action != nil, toast.action?.revealsDetails != true else { return }
         let action = onAction
         onAction = nil
         action?()

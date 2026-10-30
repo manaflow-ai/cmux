@@ -1,6 +1,6 @@
 public import AppKit
 
-/// A toast's action (Undo, Reopen) or close button: a clear text button in
+/// A toast's action (Undo, Reopen, Details) or close button: a clear text button in
 /// the primary text color, or a small xmark, on the toast's own surface,
 /// with the shared hover fill only under the pointer. No second capsule, no
 /// accent color.
@@ -13,6 +13,11 @@ public final class CmuxToastButton: ClickableButton {
     static let closeSide: CGFloat = 20
     let style: Style
     private let plainTitle: String
+    /// A toggle that is on (a toast's Details while they show): lit with the hover fill, as under
+    /// the pointer, until off, wherever the pointer goes. Never the selection fill (the accent).
+    public var isOn = false {
+        didSet { if isOn != oldValue { changeHover { $0.hovering = isOn || hover.pointer?.isHovering == true } } }
+    }
     private lazy var hover = ChromeHover(self, cornerRadius: Metrics.itemCornerRadius, behindContent: true)
 
     init(style: Style, title: String, target: AnyObject?, action: Selector?) {
@@ -40,7 +45,12 @@ public final class CmuxToastButton: ClickableButton {
         setContentCompressionResistancePriority(.required, for: .horizontal)
         hover.refresh(animated: false)
         // Hover follows the pointer and the toast's slot (cx-3wu5).
-        hover.followPointer(onChange: { [weak self] in self?.applyStyle() })
+        hover.followPointer(onChange: { [weak self] in
+            guard let self else { return }
+            // An on toggle stays lit when the pointer leaves.
+            if isOn, !hover.state.hovering { hover.state.hovering = true }
+            applyStyle()
+        })
         applyStyle()
     }
 

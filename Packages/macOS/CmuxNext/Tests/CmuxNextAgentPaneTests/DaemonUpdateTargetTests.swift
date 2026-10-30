@@ -117,8 +117,8 @@ import Testing
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16",
                                       state: .failed(reason: "disk full", rolledBack: false), notify: true))
         #expect(shown.count == 1)
-        #expect(shown.first?.contains("cmux16") == true && shown.first?.contains("disk full") == true)
-        #expect(DaemonUpdateBoard.noticeToast([DaemonUpdateEvent(id: "x", displayName: "x", state: .updating, notify: true)], details: true) == nil)
+        #expect(shown.first?.contains("cmux16") == true)
+        #expect(DaemonUpdateBoard.noticeToast([DaemonUpdateEvent(id: "x", displayName: "x", state: .updating, notify: true)]) == nil)
     }
 
     /// Leo's screen: three toasts stacked over the chat list and composer, one per machine (a
@@ -132,7 +132,6 @@ import Testing
         var shown: [DaemonUpdateBoard.Notice] = []
         func board() async -> DaemonUpdateBoard {
             let board = DaemonUpdateBoard(closedNoticeFile: file)
-            board.openDetails = {}
             board.showNotice = { shown.append($0); return nil }
             await board.settled()
             return board
@@ -155,7 +154,7 @@ import Testing
         #expect(grouped.detail?.components(separatedBy: "\n").count == 3)
         #expect(grouped.detail?.contains("Bootstrap failed: 125") == true)
         #expect(grouped.duration == CmuxToast.untilClosed)
-        #expect(grouped.action != nil, "no Details button")
+        #expect(grouped.action?.revealsDetails == true, "no Details button that shows the reasons in place")
 
         // Closed: no toast for this build again, in this run or after a relaunch.
         shown.last?.closed()
@@ -219,13 +218,22 @@ import Testing
         #expect(board.otherMachines?.lines == [tooOld])
     }
 
-    /// Details opens Settings > Updates when the app gives a way there; none without.
-    @Test func theGroupedToastHasDetailsOnlyWithSomewhereToGo() throws {
+    /// Details shows the reason in the toast, never Settings (Leo 2026-10-29: "the FUCKING details
+    /// are FUCKING STUPID BECAUSE IT TAKES YOU TO FUCKING SETTINGS????"): one machine's toast says
+    /// what happened in plain words, and its reason is the detail Details shows.
+    @Test func detailsShowTheReasonInTheToastNotSettings() throws {
         let event = DaemonUpdateEvent(id: "acpmux-peer:build-box", displayName: "build-box",
                                       state: .failed(reason: "disk full", rolledBack: false), notify: true)
-        #expect(DaemonUpdateBoard.noticeToast([event], details: true)?.action != nil)
-        #expect(DaemonUpdateBoard.noticeToast([event], details: false)?.action == nil)
-        #expect(DaemonUpdateBoard.noticeToast([event], details: false)?.id == DaemonUpdateBoard.noticeID)
+        let toast = try #require(DaemonUpdateBoard.noticeToast([event]))
+        #expect(toast.id == DaemonUpdateBoard.noticeID)
+        #expect(toast.action?.revealsDetails == true)
+        #expect(toast.message.contains("build-box") && !toast.message.contains("disk full"))
+        #expect(toast.detail?.contains("disk full") == true)
+        let rolledBack = DaemonUpdateEvent(id: "acpmux-peer:build-box", displayName: "build-box",
+                                           state: .failed(reason: "the new daemon did not answer", rolledBack: true), notify: true)
+        let kept = try #require(DaemonUpdateBoard.noticeToast([rolledBack]))
+        #expect(kept.message.contains("build-box") && kept.detail?.contains("did not answer") == true)
+        #expect(kept.message != toast.message)
     }
 
     /// Only the person closes the notice for the build. Its window closing (the toast center ends
