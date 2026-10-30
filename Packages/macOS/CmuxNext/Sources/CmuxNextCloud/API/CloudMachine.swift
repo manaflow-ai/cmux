@@ -263,6 +263,23 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         self.idlePause = idlePause
     }
 
+    /// Classic list, detail and create routes publish `{userId, displayName}`.
+    /// Accept the earlier string form too, without hiding malformed machine fields.
+    private struct CreatorReference: Decodable {
+        let userId: String
+        private enum CodingKeys: String, CodingKey { case userId }
+
+        init(from decoder: any Decoder) throws {
+            let scalar = try decoder.singleValueContainer()
+            do {
+                userId = try scalar.decode(String.self)
+            } catch DecodingError.typeMismatch {
+                let object = try decoder.container(keyedBy: CodingKeys.self)
+                userId = try object.decode(String.self, forKey: .userId)
+            }
+        }
+    }
+
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
@@ -276,7 +293,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         imageVersion = try c.decodeIfPresent(String.self, forKey: .imageVersion)
         createdAt = try c.decodeIfPresent(Double.self, forKey: .createdAt).map { Date(timeIntervalSince1970: $0 / 1000) }
         createdBy = try c.decodeIfPresent(String.self, forKey: .createdByUserId)
-            ?? c.decodeIfPresent(String.self, forKey: .createdBy)
+            ?? c.decodeIfPresent(CreatorReference.self, forKey: .createdBy)?.userId
         visibility = try c.decodeIfPresent(String.self, forKey: .visibility)
         address = try c.decodeIfPresent(Address.self, forKey: .address)
         size = try c.decodeIfPresent(Size.self, forKey: .size)
