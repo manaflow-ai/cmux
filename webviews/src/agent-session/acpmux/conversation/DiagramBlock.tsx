@@ -9,7 +9,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { DiagramLibraries, renderMermaid, renderVega } from "../../../pages/markdown/diagrams";
 import { useT } from "../i18n";
 import { useNearViewport } from "../useNearViewport";
+import { postNative } from "../native";
+import { copyText } from "./clipboard";
 import { CodeBlock } from "./CodeBlock";
+import { Check, SaveTray } from "./icons";
 
 const CHART_LANGUAGES = new Set(["vega-lite", "vega"]);
 
@@ -35,6 +38,8 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
   const chart = useRef<HTMLDivElement>(null);
   const [showCode, setShowCode] = useState(false);
   const [failure, setFailure] = useState<string>();
+  const [saved, setSaved] = useState(false);
+  const [drawn, setDrawn] = useState(false);
   const language = lang.toLowerCase();
   const mode = language === "mermaid" ? "mermaid" : language === "vega" ? "vega" : "vega-lite";
 
@@ -43,11 +48,18 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
     if (!near || !target) return;
     let live = true;
     setFailure(undefined);
-    const drawn =
+    setDrawn(false);
+    setSaved(false);
+    const drawing =
       mode === "mermaid" ? renderMermaid(libraries, code, target) : renderVega(libraries, mode, code, target);
-    drawn.catch((error: unknown) => {
-      if (live) setFailure(error instanceof Error ? error.message : String(error));
-    });
+    drawing.then(
+      () => {
+        if (live) setDrawn(true);
+      },
+      (error: unknown) => {
+        if (live) setFailure(error instanceof Error ? error.message : String(error));
+      },
+    );
     return () => {
       live = false;
     };
@@ -60,6 +72,26 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
         {!failure && (
           <button type="button" className="cv-diagram__toggle" onClick={() => setShowCode((shown) => !shown)}>
             {showCode ? t("diagram.chart") : t("diagram.code")}
+          </button>
+        )}
+        {drawn && !failure && !showCode && (
+          <button
+            type="button"
+            className="cv-diagram__toggle"
+            aria-label={saved ? t("artifact.saved") : t("artifact.save")}
+            title={saved ? t("artifact.saved") : t("artifact.save")}
+            onClick={() => {
+              const svg = chart.current?.querySelector("svg");
+              if (!svg) return;
+              const text = new XMLSerializer().serializeToString(svg);
+              // The host's save panel (`pane.saveFile`, as the side panel's Save); a host that has none, or
+              // failed to write, is as good as none: copy the SVG instead.
+              void postNative<boolean>("pane.saveFile", { text, suggestedName: mode, kind: "svg" })
+                .then((done) => setSaved(done === true))
+                .catch(() => void copyText(text));
+            }}
+          >
+            {saved ? <Check size={14} /> : <SaveTray size={14} />}
           </button>
         )}
         {actions}
