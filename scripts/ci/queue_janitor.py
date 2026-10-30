@@ -955,8 +955,43 @@ def pool_load_snapshot(
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "pools": dict(sorted(pools.items())),
         "running": dict(sorted(running.items())),
+        LABEL_STARTED_KEY: label_started(runs, jobs_by_run),
         "settings": dict(settings or {}),
     }
+
+
+# The snapshot's map of each macOS runner label (an owned pool, a lane, a Blacksmith macOS label) to when a runner
+# last took a job that asked for exactly that label, among the in-flight runs listed (label_started()).
+LABEL_STARTED_KEY = "label_started"
+
+
+def label_started(runs: Sequence[Mapping[str, Any]],
+                  jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]]) -> dict[str, str]:
+    """When a runner last took a job on each macOS runner label: the newest `started_at` of a listed job a runner
+    took (runner_name or runner_id; a queued job's started_at is only its creation), running or finished, keyed by
+    each owned, lane or macOS label it asked for exactly (no root or capability rollup, as `pools` has).
+
+    The rescue's stall-aware failover reads it (owned_pool_rescue.label_quiet()): a label whose pool count shows a
+    job running but that started nothing while a job waited is no queue that job is moving in. Run 40993742146's
+    fast tier waited five hours on glaeda-side-std-xcode-26.6 while that label ran one job started before it queued
+    (2026-10-30). Only in-flight runs are listed, so a start in a run that has finished is not seen: the time errs
+    old, which can only offer a re-placement, never cancel a started job."""
+    newest: dict[str, dt.datetime] = {}
+    for run in runs:
+        for job in jobs_by_run.get(run.get("id"), ()):
+            if not (job.get("runner_name") or job.get("runner_id")) or job.get("conclusion") == "skipped":
+                continue
+            if job.get("status") not in RUNNING_JOB_STATUSES and job.get("status") != "completed":
+                continue
+            started = parse_time(job.get("started_at"))
+            if started is None:
+                continue
+            for label in {str(item) for item in job.get("labels") or ()}:
+                if not (owned_pool(label) or LANE_LABEL.fullmatch(label) or "macos" in label.lower()):
+                    continue
+                if label not in newest or started > newest[label]:
+                    newest[label] = started
+    return {label: moment.strftime("%Y-%m-%dT%H:%M:%SZ") for label, moment in sorted(newest.items())}
 
 
 def touches_doomed_job_inputs(paths: Iterable[str]) -> bool:
