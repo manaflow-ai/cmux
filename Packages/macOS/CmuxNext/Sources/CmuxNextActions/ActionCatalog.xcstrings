@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.agentPane.sideQuestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask a Side Question…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اطرح سؤالًا جانبيًا…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi sporedno pitanje…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stil et sidespørgsmål…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nebenfrage stellen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hacer una pregunta aparte…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poser une question annexe…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fai una domanda a parte…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドで質問…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សួរសំណួរចំហៀង…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "곁가지 질문하기…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Still et sidespørsmål…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadaj pytanie poboczne…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fazer uma pergunta paralela…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задать побочный вопрос…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถามคำถามข้างเคียง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yan soru sor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поставити побічне запитання…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hỏi câu hỏi bên lề…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提出旁支问题…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提出旁支問題…"
+          }
+        }
+      }
+    },
     "action.cloudOpenDesktop": {
       "extractionState": "manual",
       "localizations": {
@@ -28303,127 +28434,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Mac Screen Tab"
+            "value": "Screen Sharing"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "علامة تبويب جديدة لشاشة Mac"
+            "value": "مشاركة الشاشة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova kartica Mac ekrana"
+            "value": "Dijeljenje ekrana"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny Mac-skærm-fane"
+            "value": "Skærmdeling"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neuer Mac-Bildschirm-Tab"
+            "value": "Bildschirmfreigabe"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nueva pestaña de pantalla de Mac"
+            "value": "Compartir pantalla"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nouvel onglet Écran Mac"
+            "value": "Partage d’écran"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuovo pannello Schermo Mac"
+            "value": "Condivisione schermo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新規Macの画面タブ"
+            "value": "画面共有"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទាំងអេក្រង់ Mac ថ្មី"
+            "value": "ការចែករំលែកអេក្រង់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새로운 Mac 화면 탭"
+            "value": "화면 공유"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny Mac-skjerm-fane"
+            "value": "Skjermdeling"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowa karta ekranu Maca"
+            "value": "Udostępnianie ekranu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nova Aba de Tela do Mac"
+            "value": "Compartilhamento de Tela"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новая вкладка «Экран Mac»"
+            "value": "Общий экран"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แถบหน้าจอ Mac ใหม่"
+            "value": "การแชร์หน้าจอ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni Mac Ekranı Sekmesi"
+            "value": "Ekran Paylaşma"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нова вкладка «Екран Mac»"
+            "value": "Спільний екран"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tab màn hình Mac mới"
+            "value": "Chia sẻ màn hình"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新建 Mac 屏幕标签页"
+            "value": "屏幕共享"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新增 Mac 螢幕標籤頁"
+            "value": "螢幕共享"
           }
         }
       }
