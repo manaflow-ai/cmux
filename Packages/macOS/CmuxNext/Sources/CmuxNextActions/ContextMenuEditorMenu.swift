@@ -69,7 +69,7 @@ extension ActionMenuContext {
     /// The menus in the order Settings > Menus lists them: the ones people open most first.
     public static let editorOrder: [ActionMenuContext] = [
         .workspaceRow, .workspaceGroup, .sidebarBackground, .sidebarItem, .sidebarSection, .sidebarFooter, .profile,
-        .priorityRow, .nowPlayingCard, .sshMachine, .cloudMachine, .machineSection,
+        .priorityRow, .nowPlayingCard, .sshMachine, .cloudMachine, .machineSection, .joinedMachine,
         .tab, .tabGroup, .pane, .newTab, .windowBackground, .screen, .screenGroup, .screenBar,
         .terminalSelection,
         .browserPage, .browserLink, .browserImage, .browserSelection, .browserProfile, .bookmark, .bookmarksBar, .bookmarkManager,
@@ -79,7 +79,7 @@ extension ActionMenuContext {
     public var menuArea: MenuArea {
         switch self {
         case .workspaceRow, .workspaceGroup, .sidebarBackground, .sidebarItem, .sidebarSection, .sidebarFooter, .profile,
-             .priorityRow, .nowPlayingCard, .sshMachine, .cloudMachine, .machineSection: .workspace
+             .priorityRow, .nowPlayingCard, .sshMachine, .cloudMachine, .machineSection, .joinedMachine: .workspace
         case .tab, .tabGroup, .pane, .newTab, .windowBackground, .screen, .screenGroup, .screenBar: .tabs
         case .terminalSelection: .terminal
         case .browserPage, .browserLink, .browserImage, .browserSelection, .browserProfile, .bookmark, .bookmarksBar, .bookmarkManager: .browser
@@ -122,6 +122,7 @@ extension ActionMenuContext {
         case .nowPlayingCard: String(localized: "menu.name.nowPlayingCard", defaultValue: "Now Playing", bundle: .module)
         case .fileExplorerRow: String(localized: "menu.name.fileExplorerRow", defaultValue: "File", bundle: .module)
         case .priorityRow: String(localized: "menu.name.priorityRow", defaultValue: "Priority Chat", bundle: .module)
+        case .joinedMachine: String(localized: "menu.name.joinedMachine", defaultValue: "Joined Machine", bundle: .module)
         }
     }
 }
