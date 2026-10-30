@@ -415,3 +415,56 @@ async fn a_cleared_approve_all_stays_cleared_when_the_log_tail_is_replayed() {
     );
     assert_eq!(local.meta().policy_source.as_deref(), Some(SET));
 }
+
+const HOSTED: &str = "01a15900-0000-7000-8000-000000000007";
+
+/// A store whose approve-all is only in the log tail: HOSTED's saved record (`lastSeq` 1) names
+/// no policy, and an older daemon's `policy` approve-all record (seq 2, no source) is past it.
+fn tail_only_grant_store(dir: &std::path::Path) {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Local;
+    let store = crate::store::open(&cfg.store, dir).unwrap();
+    store.append(HOSTED, &record(1, "created", json!({"harness": "claude"}))).unwrap();
+    store.append(HOSTED, &record(2, "policy", json!({"policy": "approve-all"}))).unwrap();
+    let mut meta = legacy(HOSTED, true, None);
+    meta.last_seq = 1;
+    meta.event_count = 1;
+    store.save(&meta).unwrap();
+    store.flush().unwrap();
+}
+
+/// A grant only the log replay clears ends the chat's surviving agent host too, as one the load
+/// clears does (`settle_legacy_grants`): the host ran under it, maybe in a mode that never asks.
+/// The replay makes it `clearedHost` when the start's index lists the host; and adoption, which
+/// can reach a host before the background pass reads that chat's log, checks after the replay
+/// (`ends_before_adoption`): the host is ended, never adopted, and nothing answers approve-all.
+#[tokio::test]
+async fn a_grant_only_the_replay_clears_ends_its_surviving_host_before_adoption() {
+    for replay_first in [true, false] {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+        tail_only_grant_store(dir.path());
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+        let hub =
+            Hub::new_loading(cfg, store, super::Mailbox::memory(), crate::supervised::embedded());
+        // The start's index of agent hosts still running (`load_from_store` reads it from the
+        // host records): HOSTED's host outlived the older daemon.
+        hub.load_plan.lock().unwrap().hosted.insert(HOSTED.into());
+        hub.load_from_store(true);
+        let s = hub.resolve(HOSTED).unwrap();
+        if replay_first {
+            // As a daemon does: the hosted chats' logs, then adoption (`load_live_logs`).
+            hub.load_live_logs();
+            assert_eq!(s.meta().policy_source.as_deref(), Some(CLEARED_HOST), "replayed first");
+        }
+        assert!(
+            hub.ends_before_adoption(&s, false).await,
+            "replay first {replay_first}: adoption reached the host that ran under the approve-all"
+        );
+        assert_eq!(answers(&hub, HOSTED), PermissionPolicy::Ask, "replay first {replay_first}");
+        // Ended (`cleared`), or not proven ended and kept unadoptable (`clearedHost`).
+        let source = s.meta().policy_source;
+        assert!(matches!(source.as_deref(), Some(CLEARED | CLEARED_HOST)), "{source:?}");
+    }
+}
