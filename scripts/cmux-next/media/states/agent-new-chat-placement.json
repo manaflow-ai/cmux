@@ -1,0 +1,8 @@
+{
+  "title": "Agent new chat placement",
+  "steps": [
+    {"title": "Fresh launch at Home", "wait": 4},
+    {"title": "CLI new chat from Home", "cmux": ["agent", "new-chat"], "wait": 5},
+    {"title": "Repeat CLI new chat", "cmux": ["agent", "new-chat"], "wait": 5}
+  ]
+}
