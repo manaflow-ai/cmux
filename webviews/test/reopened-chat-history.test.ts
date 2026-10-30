@@ -123,9 +123,9 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     // turns behind them: the ask has to be made again from where the last one stopped, which is
     // what moving `historyFrom` on a capped read is for (#22794).
     pasteWall: history([
-      ...Array.from({ length: 30 }, (_, at) => turn(at + 1)).flat(),
+      ...Array.from({ length: 14 }, (_, at) => turn(at + 1)).flat(),
       ...Array.from({ length: 10 }, (_, at) => bigPaste(`q-${at + 1}`, 300)),
-      ...Array.from({ length: 2 }, (_, at) => turn(at + 31)).flat(),
+      ...Array.from({ length: 2 }, (_, at) => turn(at + 15)).flat(),
     ]),
     // No oversized record: a plain long chat, well past the open's cap in total.
     longText: history(
