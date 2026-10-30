@@ -665,7 +665,10 @@ export class ConversationDO extends OwnerDO<Head> {
     objectId?: string
   ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: conversation.DerivedImage } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }> {
     if (!this.existingState(entity)) return { ok: false, code: "slot_gone" }
-    const slot = store.slotIn(this.sqlStore, slotId, "uploading")
+    // A multipart slot is committed only after R2 joined its parts and the object was checked, so an open one counts
+    // too: a concurrent completion retry that failed transiently may have reopened it while this one completed.
+    const open = store.slotIn(this.sqlStore, slotId, "open")
+    const slot = store.slotIn(this.sqlStore, slotId, "uploading") ?? (open?.mode === "multipart" && open.multipart_upload_id ? open : null)
     if (!slot) {
       const kept = objectId ? store.recordByObjectId(this.sqlStore, objectId) : undefined
       if (!kept) return { ok: false, code: "slot_gone" }
