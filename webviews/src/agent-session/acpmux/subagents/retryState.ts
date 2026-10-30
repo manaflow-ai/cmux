@@ -134,9 +134,10 @@ export function sessionRetry(session: SessionRetryFields & { state: string }): R
   return { kind: "failed" };
 }
 
-/// The retry a row shows working on (its spinner and "Retrying (2/4) …"), if any.
-export const retrying = (agent: Parameters<typeof subagentRetry>[0]) => {
-  const phase = subagentRetry(agent);
+/// The retry a row shows working on (its spinner and "Retrying (2/4) …"), if any. `child`: a
+/// sub-session's own session row, where acpmux keeps its retry.
+export const retrying = (agent: Parameters<typeof subagentRetry>[0], child?: SessionRetryFields) => {
+  const phase = subagentRetry(agent, undefined, child);
   return phase.kind === "retrying" ? phase.retry : undefined;
 };
 

@@ -19,7 +19,7 @@ import type { BackgroundCommand } from "../inspector/processes";
 import { nestAgents } from "./AgentsPill";
 import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
 import type { Subagent } from "./subagentFold";
-import { retrying, retryKey, sessionRetry } from "./retryState";
+import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
 
 let trayOn = true;
 const listeners = new Set<() => void>();
@@ -65,9 +65,15 @@ export function trayItems(
   sessions: readonly StartedSession[],
   working: boolean,
 ): TrayItem[] {
+  const retries = childRetries(sessions);
   const live = agents
-    // One acpmux retries is about to run again: it shows with the running ones, turn or not.
-    .filter((agent) => (agent.state === "running" && (working || agent.background === true)) || retrying(agent))
+    // One acpmux retries is about to run again: it shows with the running ones, turn or not. A
+    // sub-session's retry is on its own session row: its line carries it, to read "Retrying (2/4)".
+    .flatMap((agent) => {
+      if (agent.state === "running" && (working || agent.background === true)) return [agent];
+      const retry = retries(agent);
+      return retry ? [agent.retry ? agent : { ...agent, retry }] : [];
+    })
     .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
   const items: TrayItem[] = nestAgents(live).map(({ agent, depth }) => ({ kind: "agent", id: agent.id, agent, depth }));
   for (const command of commands)
@@ -76,6 +82,13 @@ export function trayItems(
   for (const session of sessions)
     if (liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
   return items;
+}
+
+/// The retry acpmux waits to run for `agent`, if any: a sub-session's is on its own session row
+/// (retryState.ts ``subagentRetry``), found among the chats this one started.
+function childRetries(sessions: readonly StartedSession[]): (agent: Subagent) => RetryState | undefined {
+  const byId = new Map(sessions.map((session) => [session.sessionId, session]));
+  return (agent) => retrying(agent, agent.child ? byId.get(agent.child) : undefined);
 }
 
 const liveSession = (session: StartedSession) =>
@@ -87,7 +100,8 @@ const liveSession = (session: StartedSession) =>
 /// that ended after the others is never hidden behind older ones. Then the chats, newest first
 /// (their end is not known here), those with no creation time last.
 export function finishedTrayItems(agents: readonly Subagent[], sessions: readonly StartedSession[]): TrayItem[] {
-  const ended = agents.filter((agent) => agent.state !== "running" && !retrying(agent));
+  const retries = childRetries(sessions);
+  const ended = agents.filter((agent) => agent.state !== "running" && !retries(agent));
   // Each subtree's latest end, in one pass over a parent-to-children map (a loop is cut where it
   // meets an agent already on the path).
   const ids = new Set(ended.map((agent) => agent.id));
