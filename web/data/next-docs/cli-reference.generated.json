@@ -1788,6 +1788,13 @@
           "mcpTool": null
         },
         {
+          "command": "cmux home invite-to-team",
+          "title": "Invite to Team…",
+          "id": "home.inviteToTeam",
+          "mcp": true,
+          "mcpTool": "app_home_invite_to_team"
+        },
+        {
           "command": "cmux home leave",
           "title": "Leave Group…",
           "id": "home.leaveConversation",
