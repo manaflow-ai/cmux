@@ -146,4 +146,33 @@ import Testing
         guard case .failure(let error) = refused else { Issue.record("ran \(refused)"); return }
         #expect(error.code == "not_found")
     }
+
+    /// Page verbs, actions and `identify` pick the same browser: one in another session (a
+    /// remote workspace of the group) is passed over for the caller's own session's, since the
+    /// CLI and MCP address the daemon of the caller's session.
+    @Test func everyPathPassesOverABrowserInAnotherSession() async throws {
+        var snapshot = Self.snapshot(ownBrowser: false)
+        let near = try #require(snapshot.topology.workspaces.firstIndex { $0.id == "ws-near" })
+        snapshot.topology.workspaces[near].sessionID = "session-remote"
+        let (router, _) = install(snapshot)
+        #expect(try await state(router, caller: Self.agent).get()["tab"] == "tab-far")
+        let identity = try await router.handle(ControlRequest(method: "system.identify", params: ["caller": Self.agent])).get()
+        #expect(identity["browser"]?["tab"] == "tab-far")
+    }
+
+    /// `cmux browser page new-tab URL` with no browser near the caller opens its first one, not a
+    /// refusal: a terminal's in its own pane, an agent's beside its chat (`openBrowser` with the caller).
+    @Test func aNewTabWithNoBrowserNearOpensBesideTheCaller() async throws {
+        var snapshot = Self.snapshot(ownBrowser: false, neighbors: false)
+        snapshot.catalog.actions.append(ControlActionInfo(id: "openBrowser", title: "Open Browser", category: "browser", categoryTitle: "Browser",
+                                                          cliName: "browser open", symbol: "globe", keywords: [], shortcut: nil, shortcutConfig: nil,
+                                                          arguments: [], targets: ["pane", "tab"], requiresMask: 0, requires: [],
+                                                          isBound: true, isDebugOnly: false, mainMenu: nil))
+        let (router, executor) = install(snapshot)
+        let result = await router.handle(ControlRequest(method: "browser.page.new_tab",
+                                                        params: ["caller": Self.agent, "wait": false]))
+        _ = try result.get()
+        #expect(executor.last?.actionID == "openBrowser")
+        #expect(executor.last?.target == ControlTargetRef(kind: "tab", id: "tab-agent"))
+    }
 }
