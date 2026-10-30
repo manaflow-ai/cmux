@@ -497,6 +497,11 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
  * parity tests from growing a second notification mapper.
  */
 export function codexEventsForTest(messages: readonly unknown[]): AgentEvent[] {
+  return codexRoutingForTest(messages).events;
+}
+
+/** Like codexEventsForTest, plus whether the thread still routes to the session and its final status. */
+export function codexRoutingForTest(messages: readonly unknown[]): { events: AgentEvent[]; routed: boolean; status: SessionCtx["status"] } {
   const events: AgentEvent[] = [];
   const sess: SessionCtx = {
     id: "parity",
@@ -520,7 +525,7 @@ export function codexEventsForTest(messages: readonly unknown[]): AgentEvent[] {
     write() {},
   };
   for (const message of messages) handleServerMessage(server, message);
-  return events;
+  return { events, routed: server.sessionsByThread.get("thread-parity") === sess, status: sess.status };
 }
 
 function itemStarted(sess: SessionCtx, item: any) {
