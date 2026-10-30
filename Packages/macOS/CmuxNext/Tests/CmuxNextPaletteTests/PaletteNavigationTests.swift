@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// prefix matches first and the recently used next, and choosing a row goes
 /// there through the source.
 @MainActor
-@Suite(.paletteRanker)
+@Suite(.paletteRanker, .closesItsWindows)
 struct PaletteNavigationTests {
     @MainActor private final class Workspaces: PaletteWorkspaceSource {
         var workspaces: [PaletteWorkspace] = []
@@ -135,7 +136,7 @@ struct PaletteNavigationTests {
             PaletteNavigationEntry(id: "t1", kind: .tab(.browser), title: "Release notes", workspaceTitle: "frontend"),
         ]
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         await palette.model.settle()
         #expect(Set(Self.ids(palette)) == ["workspace:w1", "workspace:w2"])
@@ -158,7 +159,7 @@ struct PaletteNavigationTests {
             PaletteNavigationEntry(id: "new", kind: .tab(.terminal), title: "deploy", lastUsed: Self.now),
         ]
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         let ranked = await Self.search(palette, "deploy")
         #expect(Set(ranked).isSuperset(of: ["workspace:w1", "tab:new", "tab:old"]))
@@ -170,7 +171,7 @@ struct PaletteNavigationTests {
         let navigation = Navigation()
         navigation.entries = [PaletteNavigationEntry(id: "g1", kind: .group(workspaceCount: 1), title: "Infra")]
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         #expect(await Self.search(palette, "infra").first == "group:g1")
         _ = palette.model.handle(.submit)
@@ -194,7 +195,7 @@ struct PaletteNavigationTests {
         #expect(items[2].secondary.isEmpty)
 
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         // The acpmux handle, its bare id, and a Claude session UUID each find their row.
         #expect(await Self.search(palette, "acp:s_3f9a").first == "tab:chat")
@@ -226,7 +227,7 @@ struct PaletteNavigationTests {
         ]
         let palette = Self.palette(workspaces, navigation)
         palette.bindRegistryActions()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         for task in palette.registry.capturingWork({ #expect(palette.registry.perform(ActionID(rawValue: action))) }) { _ = await task.value }
         #expect(palette.isVisible)
         #expect(await Self.search(palette, "s_3f9a").first == "tab:chat")
@@ -247,7 +248,7 @@ struct PaletteNavigationTests {
                                    cwd: "/Users/me/src/project-\(index)")
         }
         let palette = Self.palette(workspaces, navigation)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         palette.show(.workspaces)
         let query = "tab 4321"
         _ = await Self.search(palette, String(query.prefix(1)))

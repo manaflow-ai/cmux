@@ -18,6 +18,7 @@ struct FeedButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         FeedButtonBody(label: configuration.label, isPressed: configuration.isPressed, role: role, compact: compact)
+            .clickableCursor()
     }
 }
 

@@ -89,6 +89,12 @@ button.cv-agentmsg__name:focus-visible {
 .cv-agentmsg__line:is(:hover, :focus-within) .cv-command__ok {
   opacity: 1;
 }
+/* It fades as a tool row's does (conversation.css, #23769); from the keyboard it comes in at once. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-agentmsg__line:focus-within .cv-command__ok {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+  }
+}
 /* The opened message: a compact glass card at the row's text indent (the icon's 16px, less its
    -1.5px margin, plus the 8px gap). */
 .cv-agentmsg__card {
