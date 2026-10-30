@@ -20,7 +20,9 @@ if (turns !== 0 && turns !== 3000) throw new Error("unsupported flow fixture siz
 if (resident && turns !== 3000) throw new Error("resident flow fixture requires 3000 turns");
 const sessionId = turns && !resident ? MockAcpmuxSocket.live!.seedLoadSession(turns) : WORKED_SESSION;
 window.cmuxAcpmuxBridge!.applyHeaderState!({ inspector: true, version: 2 });
-setChatDisplay({ [MINIMAP_KEY]: "full" });
+// The resident rail adapter measures compact-arm entries (`.acpmux-minimap__entry`).
+// The full arm intentionally renders a different minimap and has no entry ticks.
+setChatDisplay({ [MINIMAP_KEY]: "compact" });
 
 const flows = {
   sessionId,
