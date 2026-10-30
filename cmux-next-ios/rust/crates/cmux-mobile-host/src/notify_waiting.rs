@@ -23,6 +23,8 @@ pub(crate) struct Waiting {
     requests: HashMap<u64, Pending>,
     queued: VecDeque<u64>,
     active: Option<u64>,
+    /// The `_acpmux/sessions` reading the watch list's next page; none once it is whole.
+    page: Option<u64>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -49,14 +51,21 @@ impl Waiting {
         message: &Value,
         classifier: &mut Classifier,
     ) -> Result<(Vec<Value>, Vec<NotifyEvent>), String> {
-        if message.get("id").and_then(Value::as_u64) == Some(2) {
+        let id = message.get("id").and_then(Value::as_u64);
+        if id == Some(2) || (id.is_some() && id == self.page) {
+            let mut queries = Vec::new();
             if let Some(result) = message.get("result") {
                 classifier.load(result);
                 for session in result.get("sessions").and_then(Value::as_array).into_iter().flatten() {
                     self.observe(session)?;
                 }
+                queries.extend(self.next_page(result)?);
+            } else if id != Some(2) {
+                // The next watch reads the list again from its start.
+                return Err("acpmux session page failed".into());
             }
-            return Ok((self.start_next(), vec![]));
+            queries.extend(self.start_next());
+            return Ok((queries, vec![]));
         }
         if let Some(id) = message.get("id").and_then(Value::as_u64)
             && self.active == Some(id)
@@ -130,8 +139,20 @@ impl Waiting {
         Ok(())
     }
 
-    /// This dedicated connection has only auth/watch plus one recovery lookup,
-    /// staying below acpmux's per-connection request limit even for a large snapshot.
+    /// The `_acpmux/sessions` for the rest of a list too large for one reply: acpmux
+    /// answers the watch with its first rows and a string `nextCursor`, the rest by that
+    /// cursor until a page has none (acpmux `Client::whole_list`).
+    fn next_page(&mut self, result: &Value) -> Result<Option<Value>, String> {
+        self.page = None;
+        let Some(cursor) = result.get("nextCursor").and_then(Value::as_str) else { return Ok(None) };
+        self.next_id = self.next_id.checked_add(1).ok_or("pending-input request IDs exhausted")?.max(10);
+        self.page = Some(self.next_id);
+        Ok(Some(json!({"jsonrpc":"2.0","id":self.next_id,"method":"_acpmux/sessions",
+            "params":{"cursor":cursor}})))
+    }
+
+    /// This dedicated connection has only auth/watch (and its list's next page) plus one
+    /// recovery lookup, staying below acpmux's per-connection request limit even for a large snapshot.
     fn start_next(&mut self) -> Vec<Value> {
         if self.active.is_some() {
             return vec![];

@@ -296,7 +296,8 @@ fn plan(socket: &Path) -> Result<Value, Failure> {
     };
     let health =
         link.call("_acpmux/harness/health", json!({}), HEALTH_TIMEOUT).map_err(Failure::of)?;
-    let sessions = link.call("_acpmux/sessions", json!({}), CALL_TIMEOUT).map_err(Failure::of)?;
+    let sessions =
+        link.call_whole_list("_acpmux/sessions", json!({}), CALL_TIMEOUT).map_err(Failure::of)?;
     // Display names are a nicety: a catalog that does not answer leaves them out.
     let catalog = link.call("_acpmux/harnesses", json!({}), CALL_TIMEOUT).unwrap_or_default();
     drop(link);

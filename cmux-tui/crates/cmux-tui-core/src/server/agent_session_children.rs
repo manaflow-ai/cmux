@@ -185,8 +185,10 @@ impl Attachment {
 /// `agent-session-children`: the attached session's descendants, read from
 /// acpmux's own list, bounded, and followed from now on.
 pub(super) fn list(attachment: &Attachment) -> Result<Value, Refusal> {
-    let all =
-        attachment.link.call("_acpmux/sessions", json!({}), CALL_TIMEOUT).map_err(Refusal::of)?;
+    let all = attachment
+        .link
+        .call_whole_list("_acpmux/sessions", json!({}), CALL_TIMEOUT)
+        .map_err(Refusal::of)?;
     let sessions = all.get("sessions").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     let mut listed = Vec::new();
     let mut bytes = 0;

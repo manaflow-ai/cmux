@@ -123,6 +123,44 @@ impl AcpmuxLink {
         result
     }
 
+    /// A `_acpmux/sessions` or `_acpmux/watch` with no `limit`, its whole list: past
+    /// acpmux's largest reply the list comes with a `nextCursor`, and the rest is read
+    /// by `_acpmux/sessions` with the same params (no `enabled`) from that cursor
+    /// (acpmux `Client::whole_list`). With a `limit` it is one plain call: the caller
+    /// pages itself. A list that fits one reply has no cursor, so an older acpmux
+    /// answers as before. `timeout` bounds each reply.
+    pub(crate) fn call_whole_list(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<Value, LinkError> {
+        if params.get("limit").is_some_and(|limit| !limit.is_null()) {
+            return self.call(method, params, timeout);
+        }
+        let mut reply = self.call(method, params.clone(), timeout)?;
+        let mut rest = params;
+        if let Some(p) = rest.as_object_mut() {
+            p.remove("enabled");
+        }
+        while let Some(Value::String(cursor)) =
+            reply.as_object_mut().and_then(|r| r.remove("nextCursor"))
+        {
+            rest["cursor"] = Value::String(cursor);
+            let mut page = self.call("_acpmux/sessions", rest.clone(), timeout)?;
+            let rows = page.get_mut("sessions").map(Value::take).unwrap_or_default();
+            if let (Some(all), Value::Array(rows)) =
+                (reply.get_mut("sessions").and_then(Value::as_array_mut), rows)
+            {
+                all.extend(rows);
+            }
+            if let Some(next) = page.get_mut("nextCursor").map(Value::take) {
+                reply["nextCursor"] = next;
+            }
+        }
+        Ok(reply)
+    }
+
     /// Sends a request whose reply is not waited for (it is read and
     /// dropped), so it holds no in-flight slot.
     pub(super) fn send_ignoring_reply(&self, method: &str, params: Value) -> Result<(), LinkError> {
