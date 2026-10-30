@@ -193,6 +193,22 @@ import Testing
         #expect(h.sparkle.backgroundChecks == 1, "the pulled running build looked twice")
     }
 
+    @Test func aPulledBuildDoesNotDownloadFromAnOffManagedChannel() async {
+        let h = Base.make(ring: "nightly", pulled: ["100", "300"])
+        h.updater.applyManagedPolicy(channel: "stable", minimumVersion: nil)
+        var downloads = 0
+        h.updater.acceptAvailable = { downloads += 1 }
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.cancels == 1, "the pulled installer must still be cancelled")
+        #expect(h.sparkle.backgroundChecks == 0, "automatic recovery checked the forbidden nightly channel")
+        h.sparkle.staged = nil
+        h.updater.debugIndicatorPhase = .hidden
+        await h.updater.pulledWatch.refresh().value
+        h.updater.debugIndicatorPhase = .available(version: "4.0.0")
+        #expect(downloads == 0, "automatic recovery downloaded from the forbidden nightly channel")
+        #expect(h.updater.newestFetch == nil)
+    }
+
     /// With nothing newer than the pulled running build on the feed, the check ends and nothing shows.
     @Test func aPulledRunningBuildWithNothingNewerEndsQuietly() async throws {
         let h = Base.make(ring: "nightly", pulled: ["100"])

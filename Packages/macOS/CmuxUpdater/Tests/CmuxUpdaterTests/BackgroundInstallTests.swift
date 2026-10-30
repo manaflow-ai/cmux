@@ -234,11 +234,18 @@ import Testing
         harness.finishSparkleCycle()
         let resumed = ChoiceBox()
         find(harness, into: resumed)
+        #expect(resumed.choice == .skip, "the silent installer was not physically cancelled")
+        harness.finishSparkleCycle()
+        #expect(harness.updater.checkForUpdatesCallCount == 2, "no fresh manual cycle cleared Sparkle's skipped version")
+        let download = ChoiceBox(), staged = ChoiceBox()
+        find(harness, into: download)
+        #expect(download.choice == .install)
+        ready(harness, into: staged)
         #expect(harness.controller.stagedUpdate?.versionString == "0.64.17")
         #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17")
 
         harness.controller.installStagedUpdate()
-        #expect(resumed.choice == .install)
+        #expect(staged.choice == .install)
         #expect(harness.controller.stagedUpdate == nil, "the installing update still reads as staged")
     }
 
@@ -265,16 +272,47 @@ import Testing
         let harness = Harness()
         harness.controller.installsUpdatesInBackground = true
         let updater = unsafeBitCast(NSNull(), to: SPUUpdater.self)
-        let held = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
-        #expect(!held, "the uncancellable silent Sparkle cycle was held")
+        _ = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
         harness.finishSparkleCycle()
         let resumed = ChoiceBox()
         find(harness, into: resumed)
+        #expect(resumed.choice == .skip)
+        harness.finishSparkleCycle()
+        #expect(harness.updater.checkForUpdatesCallCount == 2)
+        let download = ChoiceBox(), staged = ChoiceBox()
+        find(harness, into: download)
+        ready(harness, into: staged)
 
-        #expect(harness.controller.cancelStagedUpdate(), "the Sparkle silent installer was not released")
-        #expect(resumed.choice == .skip, "the actual Sparkle installer was not cancelled")
+        #expect(harness.controller.cancelStagedUpdate())
+        #expect(staged.choice == .skip, "ordinary quit did not use the non-version-skipping ready reply")
         #expect(harness.controller.stagedUpdate == nil)
         #expect(harness.model.state.isIdle)
+    }
+
+    @Test func cancellingOrReplacingACheckInvalidatesThePendingAppcast() async {
+        for replace in [false, true] {
+            let harness = Harness()
+            harness.controller.installsUpdatesInBackground = true
+            harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {})
+            let (gate, release) = AsyncStream<Void>.makeStream()
+            var prepared = false
+            harness.controller.prepareUpdate = {
+                for await _ in gate {}
+                prepared = true
+            }
+            let found = ChoiceBox()
+            find(harness, into: found)
+            if replace {
+                harness.controller.driver.replaceActiveState(with: .idle)
+            } else {
+                harness.model.state.cancel()
+            }
+            release.finish()
+            await waitUntil("the cancelled policy read") { prepared }
+            #expect(found.choice == .dismiss, "the cancelled check accepted its old appcast")
+            #expect(harness.model.state.isIdle, "the old appcast resurrected a cancelled check")
+            #expect(harness.controller.stagedUpdate == nil)
+        }
     }
 
     @Test func thePulledListReadFinishesBeforeAFastAppcastItemIsAccepted() async {
