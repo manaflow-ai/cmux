@@ -256,3 +256,83 @@ fn turn_attestation_rejects_replacement_after_journal_validation() {
         }
     }
 }
+
+#[tokio::test]
+async fn turn_attestation_rejects_transfer_instance_before_kill() {
+    let (_dir, enrolled) = enrolled_identity();
+    let (hub, session) = fixture();
+    // Hold kill at harness_use while the real transfer-in retirement boundary seals
+    // the old instance and releases append_lock. Its live turn is still resolvable.
+    let using = session.harness_use.write().await;
+    let retiring = hub.retire_transfer_instance(&session);
+    tokio::pin!(retiring);
+    assert!(futures::poll!(&mut retiring).is_pending());
+    assert!(session.replaced.load(Ordering::SeqCst));
+    assert!(!session.closing.load(Ordering::SeqCst));
+    assert!(session.turn().is_some());
+    assert!(Arc::ptr_eq(&hub.resolve(&session.id).unwrap(), &session));
+    let result = hub.issue_turn_attestation(&session.id, &enrolled, 60_000);
+    drop(using);
+    retiring.await.unwrap();
+    match result {
+        Ok(_) => panic!("replaced transfer instance must not receive an attestation"),
+        Err(error) => assert_eq!(error, refused("turn_attestation.not_live")),
+    }
+    assert!(session.turn().is_none());
+    assert_eq!(session.status(), SessionStatus::Closed);
+    assert!(hub.issue_turn_attestation(&session.id, &enrolled, 60_000).is_err());
+}
+
+#[test]
+fn turn_attestation_rechecks_transfer_fence_after_journal_validation() {
+    let (_dir, enrolled) = enrolled_identity();
+    let (hub, session) = fixture();
+    let changed = session.clone();
+    let transfer_hub = hub.clone();
+    BEFORE_ADMISSION.with(|slot| {
+        *slot.borrow_mut() = Some(Box::new(move || {
+            // The actual transfer-in seal may run before it waits on append_lock.
+            transfer_hub.seal_retry_replacement(&changed);
+        }));
+    });
+    match hub.issue_turn_attestation(&session.id, &enrolled, 60_000) {
+        Ok(_) => panic!("transfer-fenced turn must not receive an attestation"),
+        Err(error) => assert_eq!(error, refused("turn_attestation.not_live")),
+    }
+}
+
+#[test]
+fn turn_attestation_rechecks_terminal_flags_after_journal_validation() {
+    for closing in [false, true] {
+        let (_dir, enrolled) = enrolled_identity();
+        let (hub, session) = fixture();
+        let changed = session.clone();
+        BEFORE_ADMISSION.with(|slot| {
+            *slot.borrow_mut() = Some(Box::new(move || {
+                if closing {
+                    changed.closing.store(true, Ordering::SeqCst);
+                } else {
+                    changed.purged.store(true, Ordering::SeqCst);
+                }
+            }));
+        });
+        assert_eq!(
+            hub.issue_turn_attestation(&session.id, &enrolled, 60_000).unwrap_err(),
+            refused("turn_attestation.not_live")
+        );
+    }
+}
+
+#[tokio::test]
+async fn turn_attestation_rejects_killed_session() {
+    let (_dir, enrolled) = enrolled_identity();
+    let (hub, session) = fixture();
+    hub.kill(&session, false).await.unwrap();
+    assert!(session.turn().is_none());
+    assert!(session.closing.load(Ordering::SeqCst));
+    assert_eq!(session.status(), SessionStatus::Closed);
+    assert_eq!(
+        hub.issue_turn_attestation(&session.id, &enrolled, 60_000).unwrap_err(),
+        refused("turn_attestation.not_live")
+    );
+}

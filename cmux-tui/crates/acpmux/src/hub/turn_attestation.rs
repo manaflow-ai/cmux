@@ -27,6 +27,7 @@ impl Hub {
             .filter(|(seq, _)| *seq > 0)
             .ok_or_else(|| refused("turn_attestation.not_live"))?;
         if session.purged.load(Ordering::SeqCst)
+            || session.replaced.load(Ordering::SeqCst)
             || session.closing.load(Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
             || !self.session_log_loaded(&session)
@@ -66,6 +67,7 @@ impl Hub {
         let live = session.turn.lock().unwrap_or_else(|e| e.into_inner());
         if !live.as_ref().is_some_and(|turn| turn.turn_seq == seq && turn.turn_id == turn_id)
             || session.purged.load(Ordering::SeqCst)
+            || session.replaced.load(Ordering::SeqCst)
             || session.closing.load(Ordering::SeqCst)
             || session.status() == SessionStatus::Closed
             || !self.session_log_loaded(&session)
