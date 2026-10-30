@@ -66,6 +66,8 @@
         "Stand in for the acpmux companion while the tree publishes": {"plumbing": true},
         "Fetch the resolved cmux-tui tree companions": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Build in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle"},
+        "Prepare the OptChat Chief cache key": {"plumbing": true, "note": "combines the portable source key with the Mac SDK, compiler and environment identity"},
+        "Restore the OptChat Chief cache": {"plumbing": true, "note": "restores an exact source and environment keyed Chief artifact; no product check"},
         "Build the OptChat Chief (cmux-next)": {"nightly_only": "cargo build of optchat-chief for the macOS arm64 and x86_64 targets needs the macOS SDK; PR builds skip it (bundle-optchat-chief.sh exits 0 without a binary)"},
         "Build the cmux-next iPhone host (cmux-mobile-host)": {"nightly_only": "cargo build of cmux-mobile-host for macOS arm64 and x86_64 needs the macOS SDK and is never built in PR CI"},
         "Install Zig for fast cmux-tui client": {"plumbing": true},
@@ -94,6 +96,8 @@
         "Pack the nightly app for reuse": {"nightly_only": "records the nightly-next products for a later nightly-next build; a pull request never records one"},
         "Finish the dSYM upload to Sentry": {"nightly_only": "finishes Sentry dSYM upload (token)"},
         "Bundle the OptChat Chief and the iPhone host": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly helper builds beside the Release build", "note": "joins the background Chief and iPhone host builds and runs bundle-optchat-chief.sh and bundle-mobile-host.sh on the Release app; tests/test_nightly_helpers_beside_release_build.py runs the join on fixtures"},
+        "Read whether the OptChat Chief was rebuilt": {"plumbing": true, "note": "reads the build script's reused/built result so only a rebuilt Chief entry is saved; scripts/cmux-next/tests/optchat-chief-input-cache.test.sh checks the result"},
+        "Save the OptChat Chief cache": {"plumbing": true, "note": "publishes a rebuilt Chief artifact as a new generation of the exact source and environment key"},
         "Stop the helper builds still running": {"plumbing": true},
         "Bundle the cmux-tui client": {"pr": "ci-guards.yml:workflow-guard-tests:Validate cmux-tui client installation"}},
       "build-nightly-remote-daemon": {
@@ -113,6 +117,7 @@
         "Build the web bundles": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Generate the third-party notices": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"}},
       "resolve-nightly-cmux-tui-client": {
+        "Compute portable OptChat Chief input key": {"plumbing": true, "note": "computes the source key before the Mac build so the Chief cache is portable across nightly runs; no product check"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Validate the saved unsigned nightly source": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
         "Resolve the original cmux-tui tree": {"plumbing": true},
@@ -216,7 +221,8 @@
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
 
         "Pick the Blacksmith macOS label with a moving queue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"},
-        "List newer pending nightly-next notarizations": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next pending notarization continuation"}},
+        "List newer pending nightly-next notarizations": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next pending notarization continuation"},
+        "Read the visual gate's verdicts": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"}},
       "recover-nightly-next-notarization": {
         "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
         "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
@@ -413,7 +419,31 @@
       "report-nightly-failure": {
         "Open or update the nightly failure issue": {"nightly_only": "writes the nightly failure issue"}},
       "close-nightly-failure-issue": {
-        "Close the nightly failure issue": {"nightly_only": "closes the nightly failure issue"}}},
+        "Close the nightly failure issue": {"nightly_only": "closes the nightly failure issue"}},
+      "route-visual-gate-nightly": {
+        "Resolve the visual gate mode": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"},
+        "Mint the owned-pool routing token": {"nightly_only": "mints the owned-pool routing App token from the ci-routing-agent environment"},
+        "Pick an idle owned session runner": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"}},
+      "visual-gate-nightly": {
+        "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
+        "Select Xcode": {"plumbing": true},
+        "Check the states": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"},
+        "Give this job its own bun": {"plumbing": true},
+        "Claim a tour slot on this Mac": {"plumbing": true},
+        "Bound the tour DerivedData on this Mac": {"plumbing": true},
+        "Download pre-built GhosttyKit.xcframework": {"plumbing": true},
+        "Build the DEV app": {"nightly_only": "builds the DEV app of the nightly's build sha on an owned session runner; the PR build compiles the same app"},
+        "Capture the states": {"nightly_only": "drives the built app on an owned Mac's logged-in console session; capture_states.py is tested on a fake app in tests/test_cmux_next_visual_gate.py"},
+        "Read the text boxes": {"nightly_only": "runs macOS Vision OCR on the captured stills; the overlap check is tested on fixtures in tests/test_cmux_next_visual_gate.py"},
+        "Run the visual gate": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"},
+        "Hold publication": {"plumbing": true},
+        "Enforce the verdict": {"plumbing": true}},
+      "visual-gate-nightly-verdict": {
+        "Wait for the visual gate, at most 15 min in the queue": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"},
+        "Fail with the gate when it holds the build": {"plumbing": true}},
+      "report-visual-gate-nightly": {
+        "Record the verdict in the visual gate issue": {"nightly_only": "writes the verdict comment to the nightly-next visual gate issue with the run's token"}}
+    },
     "nightly-tag-permission-probe.yml": {
       "probe": {
         "Validate workflow-changing target and choose scratch tag": {"nightly_only": "validates the probe's target commit before it pushes a scratch tag; part of a probe that needs contents: write and the ci-routing-agent environment"},

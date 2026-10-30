@@ -146,6 +146,8 @@ export interface Env {
   readonly CLOUD_PLAN_ENTITLEMENTS?: string
   /** Var: "on" = PlatformMachines (platform-machines.ts) answers bound Workers; anything else refuses every call. Development only today. */
   readonly PLATFORM_MACHINES?: string
+  /** Named AgentGateway binding: on only in development; every MCP write still requires exact approval. */
+  readonly PLATFORM_AGENT_GATEWAY?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
