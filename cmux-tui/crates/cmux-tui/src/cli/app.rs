@@ -816,7 +816,11 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             }
             Ran::Done(super::wire::print_local_success(&value, global.output))
         }
-        Err(error) if cli_name && error_code(&error) == Some("not_found") => {
+        // `not_found` with no `reason` is the app saying it has no such CLI action; with one, the
+        // action ran and its target names nothing, which goes to the caller as an error.
+        Err(error)
+            if cli_name && error_code(&error) == Some("not_found") && !names_a_target(&error) =>
+        {
             let name = params["action"].as_str().unwrap_or_default().to_owned();
             let scope = name.split(' ').next().unwrap_or_default().to_owned();
             Ran::NoSuchCliAction { scope, name }
@@ -845,6 +849,11 @@ fn output_shows_notes(output: OutputMode) -> bool {
 
 fn error_code(error: &Value) -> Option<&str> {
     error.get("code").and_then(Value::as_str)
+}
+
+/// Whether a `not_found` is an action's missing target (it gives a `reason`), not a missing action.
+fn names_a_target(error: &Value) -> bool {
+    error.get("data").and_then(|data| data.get("reason")).is_some()
 }
 
 /// A `busy` answer is safe to retry only when the app says the request
