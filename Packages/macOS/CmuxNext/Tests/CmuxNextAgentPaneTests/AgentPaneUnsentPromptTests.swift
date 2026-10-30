@@ -353,6 +353,28 @@ struct AgentPaneUnsentPromptTests {
         #expect(AgentPanePromptJournal(url: url).entries().map(\.promptId).contains("p-a"))
     }
 
+    /// A record whose own write is overtaken by a change that takes it out again (a daemon's close
+    /// hands it to the page): the newer snapshot on disk does not hold it, so it was not kept and
+    /// does not go.
+    @Test func aRecordANewerSnapshotLeftOutIsNotReportedKept() throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let journal = AgentPanePromptJournal(url: url)
+        let entry = AgentPanePromptJournal.Entry(daemon: Self.daemon, sessionId: "s-1", promptId: "p-c", params: "{}", at: journal.now())
+        let fired = Mutex(false)
+        journal.beforeWrite.withLock {
+            $0 = {
+                guard fired.withLock({ let first = !$0; $0 = true; return first }) else { return }
+                journal.forget(daemon: Self.daemon, promptId: "p-c")
+            }
+        }
+        #expect(throws: AgentPanePromptJournal.NotWritten.self, "a prompt the disk does not hold was reported kept") {
+            try journal.record(entry, owner: UUID())
+        }
+        journal.beforeWrite.withLock { $0 = nil }
+        #expect(AgentPanePromptJournal(url: url).entries().isEmpty)
+    }
+
     /// The pane's Retry of a prompt the daemon got but never acknowledged, while the journal cannot
     /// be written: the Retry does not go, and the first send's record stays, so a crash after the
     /// disk recovers still sends that prompt again.
