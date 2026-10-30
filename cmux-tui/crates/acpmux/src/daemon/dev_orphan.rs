@@ -19,7 +19,8 @@
 //! tries every [`ORPHAN_RECHECK`]: an app sends no event when it exits or is
 //! deleted, and one try is a single connect that is closed at once. Release,
 //! NIGHTLY and Cloud daemons never start the watcher; neither does any
-//! platform but macOS.
+//! platform but macOS, nor a daemon run from outside an app bundle (a
+//! checkout's binary, `CMUX_NEXT_ACPMUX_BIN`): no bundle names it a DEV one.
 //!
 //! When the executable is gone, the shutdown ends the daemon's hosted agents
 //! too: no build of it is left to adopt them. When the app only quit (its
@@ -125,9 +126,12 @@ pub(crate) fn decide(absent_since: Option<Instant>, now: Instant, timing: Timing
 /// Info.plist to read later, and one deleted before the first poll would be missed): call it
 /// before the ready line.
 pub(crate) fn watch() -> impl std::future::Future<Output = bool> + Send + 'static {
-    let facts = dev_app_socket()
-        .zip(std::env::current_exe().ok())
-        .map(|(socket, executable)| (socket, Executable::open(&executable)));
+    // One read of the executable's path, opened at once: a second read could name a rebuild
+    // that replaced it in between, and the watch would hold that one.
+    let facts = std::env::current_exe().ok().and_then(|exe| {
+        let executable = Executable::open(&exe);
+        dev_app_socket(&exe).map(|socket| (socket, executable))
+    });
     async move {
         match facts {
             Some((socket, executable)) => watch_app(socket, executable).await,
@@ -206,13 +210,12 @@ pub(crate) fn gone(reachable: bool, answered: bool, executable_gone: bool) -> bo
 }
 
 /// The app's control socket when this executable sits in a DEV bundle.
-fn dev_app_socket() -> Option<PathBuf> {
+fn dev_app_socket(exe: &Path) -> Option<PathBuf> {
     if !cfg!(target_os = "macos") {
         return None;
     }
     let socket = std::env::var_os("CMUX_SOCKET_PATH").filter(|path| !path.is_empty())?;
-    let exe = std::env::current_exe().ok()?;
-    let bundle = containing_app_bundle(&exe)?;
+    let bundle = containing_app_bundle(exe)?;
     is_dev_bundle(&bundle_id(&bundle)?).then(|| PathBuf::from(socket))
 }
 
