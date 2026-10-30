@@ -88,6 +88,26 @@ test("fetched timestamped log lines stay monospace", () => {
   expect(toolResult("2026-10-21 was a quiet day.", undefined, false, { kind: "fetch" }).lang).toBe("markdown");
 });
 
+test("fetched logs with stack trace continuation lines stay monospace", () => {
+  const trace = [
+    "2026-10-21T09:00:12.481Z [INFO] starting upload",
+    "2026-10-21T09:00:13.002Z [ERROR] upload failed",
+    "  Error: socket hang up",
+    "    at connResetException (node:internal/errors:720:14)",
+    "Caused by: ECONNRESET",
+  ].join("\n");
+  expect(toolResult(trace, undefined, false, { kind: "fetch" })).toEqual({ text: trace, lang: "text" });
+  const spaced = "[ERROR] request failed\n\n    at foo (file:1:2)\n[INFO] retrying";
+  expect(toolResult(spaced, undefined, false, { kind: "fetch" })).toEqual({ text: spaced, lang: "text" });
+  const frames = "[ERROR] boom\n    at a (x.ts:1:1)\n    at b (x.ts:2:2)\n    at c (x.ts:3:3)";
+  expect(toolResult(frames, undefined, false, { kind: "fetch" })).toEqual({ text: frames, lang: "text" });
+  // Prose with an indented line, or one log-looking line over indented code, is still Markdown.
+  const prose = "A short summary.\n  indented detail";
+  expect(toolResult(prose, undefined, false, { kind: "fetch" }).lang).toBe("markdown");
+  const code = "[INFO] usage notes\n\n    npm install\n    npm run build\n    npm test";
+  expect(toolResult(code, undefined, false, { kind: "fetch" }).lang).toBe("markdown");
+});
+
 test("source-looking underscores stay literal while structural and fetched Markdown still renders", () => {
   const python = `class Worker:\n    def __init__(self):\n        self.__ready__ = True`;
   expect(toolResult(python)).toEqual({ text: python, lang: "text" });

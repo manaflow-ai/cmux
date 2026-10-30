@@ -374,10 +374,26 @@ function outsideFences(text: string): string {
   return kept.join("\n");
 }
 
+/// A stack frame or cause under a log line, indented or not.
+const LOG_FRAME = /^\s*(?:at\s|Caused by:|\.\.\.)/;
+
+/// Log output: the first line is a log line, every other line is one, a frame, or indented detail,
+/// and at least half are log lines or frames, so Markdown with indented code is not read as a log.
+function isLog(lines: string[]): boolean {
+  const isLine = (line: string) => LOG_LINE.some((pattern) => pattern.test(line));
+  if (!isLine(lines[0]!)) return false;
+  let logged = 0;
+  for (const line of lines) {
+    if (isLine(line) || LOG_FRAME.test(line)) logged += 1;
+    else if (!/^\s/.test(line)) return false;
+  }
+  return logged * 2 >= lines.length;
+}
+
 function isMarkdownText(text: string, web = false): boolean {
   if (text.length > MAX_MARKDOWN_CHARS) return false;
-  const lines = text.split("\n").filter(Boolean);
-  if (!lines.length || lines.every((line) => LOG_LINE.some((pattern) => pattern.test(line)))) return false;
+  const lines = text.split("\n").filter((line) => line.trim());
+  if (!lines.length || isLog(lines)) return false;
   const prose = outsideFences(text);
   if (CODE_DECLARATION.test(prose) || CODE_ASSIGNMENT.test(prose) || DUNDER.test(prose)) return false;
   return web || MARKDOWN.test(text);
