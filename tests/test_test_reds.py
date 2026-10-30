@@ -640,7 +640,8 @@ class BunTestReds(unittest.TestCase):
             f"{UNAVAILABLE} > ChatUnavailableState > a deleted chat names the machine it was on, not the tab's",
             f"{UNAVAILABLE} > ChatUnavailableState > every case keeps the session id and Resume; Close Tab on all but "
             "deleted (Remove from Sidebar)"])
-        self.assertEqual(set(found.messages.values()), {"expect(received).toContain(expected)"})
+        self.assertEqual(sorted(found.messages.values()), [f"expect(received).toContain(expected) at {UNAVAILABLE}:{line}"
+                                                           for line in (133, 140, 155)])
         self.assertEqual((found.crashes, found.truncated), ([], []))
         # The base ran it from webviews/: the same tests by name.
         base = head.replace("##[group]webviews/test/", "##[group]test/")
@@ -654,22 +655,22 @@ class BunTestReds(unittest.TestCase):
                 "with no blank band")
         found = reds.read(head)
         self.assertEqual(found.failed, {name})
-        self.assertEqual(found.messages[name], "expect(received).toBeLessThan(expected)")
+        said = "expect(received).toBeLessThan(expected) at test/reopened-chat-history.test.ts:505"
+        self.assertEqual(found.messages[name], said)
         passing = head.replace("(fail) a reopened pasteWall", "(pass) a reopened pasteWall").replace(" 1 fail", " 0 fail")
         verdict = reds.classify(head, passing, "fast checks", "feat-cmux-next")
         self.assertTrue(verdict.own)
-        self.assertEqual(verdict.reasons, [f"1 failing test(s) pass or do not run on feat-cmux-next: {name} "
-                                           "(expect(received).toBeLessThan(expected))"])
+        self.assertEqual(verdict.reasons, [f"1 failing test(s) pass or do not run on feat-cmux-next: {name} ({said})"])
         self.assertFalse(reds.classify(head, head, "fast checks").own)
 
     def test_bun_raw_output_names_each_failure_with_its_error(self):
         found = reds.read(BUN_RAW.read_text())
         red, load = "test/zz-capture/red.test.ts > chat unavailable > ", "test/zz-capture/load.test.ts > "
         self.assertEqual(found.messages, {
-            red + "shows the notice": "expect(received).toBe(expected)",
-            red + "pasteWall settles at the bottom": "expect(received).toBeLessThan(expected)",
+            red + "shows the notice": "expect(received).toBe(expected) at test/zz-capture/red.test.ts:3",
+            red + "pasteWall settles at the bottom": "expect(received).toBeLessThan(expected) at test/zz-capture/red.test.ts:5",
             red + "reads the slow history": "timed out after 50ms",
-            "test/zz-capture/unhandled.test.ts > waits": "late failure outside a test",
+            "test/zz-capture/unhandled.test.ts > waits": "late failure outside a test at test/zz-capture/unhandled.test.ts:3",
         })
         self.assertEqual(found.failed, set(found.messages) | {
             load + "unhandled error: Cannot find module './does-not-exist' from 'test/zz-capture/load.test.ts'"})
@@ -680,7 +681,7 @@ class BunTestReds(unittest.TestCase):
         found = reds.read(killed)
         self.assertEqual(found.failed, {"test/zz-capture/slow.test.ts > first"})
         self.assertEqual(found.crashes, ["the test process crashed (signal 9)"])
-        self.assertEqual(found.truncated, ["a bun test run printed no ` N pass` / ` N fail` summary after its last result"])
+        self.assertEqual(found.truncated, ["a bun test run printed no ` N pass` / ` N fail` summary after it started"])
         self.assertTrue(reds.classify(killed, killed, "fast checks").own)
 
     def test_the_same_bun_failure_on_both_sides_is_a_base_red_and_a_new_one_is_its_own(self):
@@ -692,8 +693,29 @@ class BunTestReds(unittest.TestCase):
         verdict = reds.classify(head, bun_run(both))
         self.assertTrue(verdict.own)
         self.assertEqual(verdict.reasons, ["1 failing test(s) pass or do not run on the base: "
-                                           "test/b.test.ts > b > rests (expect(received).toEqual(expected))"])
+                                           "test/b.test.ts > b > rests (expect(received).toEqual(expected) at test/b.test.ts:9)"])
         self.assertEqual(verdict.shared, [f"{UNAVAILABLE} > chat > shows the notice"])
+
+    def test_the_same_bun_test_failing_with_another_error_on_the_base_is_its_own(self):
+        # Sol on #28330 at a0afd92b: an assertion on the base must not excuse a new TypeError on the head.
+        base = BUN_PASTE_WALL.read_text()
+        name = ("test/reopened-chat-history.test.ts > a reopened pasteWall chat shows its history under the composer, "
+                "with no blank band")
+        for head in (base.replace("error: expect(received).toBeLessThan(expected)",
+                                  "error: TypeError: undefined is not an object (evaluating 'state.lastLine')"),
+                     base.replace("reopened-chat-history.test.ts:505:30)", "reopened-chat-history.test.ts:503:20)")):
+            with self.subTest(head=head[-200:]):
+                verdict = reds.classify(head, base, "fast checks", "feat-cmux-next")
+                self.assertTrue(verdict.own)
+                self.assertEqual(verdict.shared, [])
+                self.assertIn(f"1 test(s) fail differently on feat-cmux-next: {name} (", verdict.reasons[0])
+                self.assertIn("expect(received).toBeLessThan(expected) at test/reopened-chat-history.test.ts:505 on "
+                              "feat-cmux-next", verdict.reasons[0])
+        # The checkout's path and spacing are not the error: the same failure elsewhere is still the base's.
+        moved = base.replace("/home/runner/_work/cmux/cmux/.fast-checks-checkout/webviews/", "/Users/ci/cmux/webviews/")
+        self.assertFalse(reds.classify(moved, base).own)
+        # Swift names carry no error and still compare by name.
+        self.assertFalse(reds.classify(log(failed("a()"), SUMMARY), log(failed("a()"), SUMMARY)).own)
 
     def test_the_command_line_judges_a_bun_log_instead_of_exiting_2(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -712,7 +734,7 @@ class BunTestReds(unittest.TestCase):
         found = reds.read(bun_run((UNAVAILABLE, [("chat > slow", "timed out", 5000), ("chat > a", "boom")])))
         self.assertEqual(found.failed, {f"{UNAVAILABLE} > chat > slow", f"{UNAVAILABLE} > chat > a"})
         self.assertEqual(found.messages[f"{UNAVAILABLE} > chat > slow"], "timed out after 5000ms")
-        self.assertEqual(found.messages[f"{UNAVAILABLE} > chat > a"], "boom")
+        self.assertEqual(found.messages[f"{UNAVAILABLE} > chat > a"], f"boom at {UNAVAILABLE}:9")
         # A failure only the recap names (it failed before its file's header printed) keeps its bare name.
         recap_only = log("1 tests failed:", "(fail) crashed before its header [3.00ms]", " 0 pass", " 1 fail")
         self.assertEqual(reds.read(recap_only).failed, {"crashed before its header"})
@@ -730,11 +752,14 @@ class BunTestReds(unittest.TestCase):
         tests = (UNAVAILABLE, [("chat > a", "boom"), ("chat > b", None)])
         for cut in (bun_run(tests, recap=False, counts=False), bun_run(tests, counts=False),
                     # a second run that never finished after a whole first one
-                    bun_run(tests) + "\n" + log("##[group]test/c.test.ts:", "(pass) c > d [1.00ms]")):
+                    bun_run(tests) + "\n" + log("##[group]test/c.test.ts:", "(pass) c > d [1.00ms]"),
+                    # ... or that ended before its first result (Sol on #28330 at a0afd92b)
+                    bun_run(tests) + "\n" + log("bun test v1.4.4 (38afee6c8)"),
+                    bun_run(tests) + "\n" + log("::group::test/c.test.ts:")):
             with self.subTest(cut=cut[-80:]):
                 verdict = reds.classify(cut, cut, "fast checks")
                 self.assertTrue(verdict.own)
-                self.assertIn("printed no ` N pass` / ` N fail` summary", verdict.reasons[0])
+                self.assertIn("printed no ` N pass` / ` N fail` summary after it started", verdict.reasons[0])
 
     def test_a_bun_crash_or_a_killed_runner_after_a_whole_run_is_never_a_base_red(self):
         whole = bun_run((UNAVAILABLE, [("chat > a", "boom")]))

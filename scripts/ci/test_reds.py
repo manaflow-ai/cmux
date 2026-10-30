@@ -122,7 +122,10 @@ BUN_FILE = re.compile(r"^(?:##\[group\]|::group::)?(\S+\.(?:test|spec)\.[cm]?[jt
 # webviews_test_results.py names it.
 BUN_PACKAGE = re.compile(r"^(?:\./)*(?:\S*?/)?(?:webviews|web)/|^(?:\./)+")
 BUN_ABSOLUTE = re.compile(r"(?<=['\"(])/\S*?/(?:webviews|web)/")
+BUN_RUN = re.compile(r"^bun test v\d")
 BUN_TEST = re.compile(r"^\((pass|fail)\) (.+?)(?: \[[0-9.]+m?s\])?$")
+# A stack frame of the failure: `at <anonymous> (/abs/webviews/test/x.test.ts:12:5)`.
+BUN_AT = re.compile(r"^\s*at .*?\(?(\S+\.[cm]?[jt]sx?):(\d+):\d+\)?$")
 BUN_ERROR = re.compile(r"^error: (.+)$")
 BUN_TIMED_OUT = re.compile(r"^\s*\^ this test timed out after (\d+)ms")
 BUN_UNHANDLED = re.compile(r"^# Unhandled error between tests")
@@ -285,13 +288,21 @@ def signal_of(text: str) -> str | None:
     return None
 
 
+def bun_diagnostic(said: str, where: str = "") -> str:
+    """A bun failure's error, compared across runs: the `error:` line without the checkout's path, and the test file's
+    line it failed at."""
+    said = " ".join(BUN_ABSOLUTE.sub("", said).split())
+    return f"{said} at {where}" if said and where else said
+
+
 def read_bun(lines: list[str], result: Result) -> None:
     """`bun test`'s failures into `result`: each named `FILE > TEST` under its file's header (webviews_test_results.py's
-    names), or `TEST` when the recap is all that names it, with its `error:` line or timeout as its message. An
-    unhandled error between tests is a failure named by its error. A `(pass)` or `(fail)` line after the last ` N fail`
-    count is a run that was cut short: bun prints the counts only when it finishes (and only those lines count, so
-    web_failures, which hands read() a log without them, judges as before)."""
-    file, said, last, recap, unhandled, counted = "", "", None, False, False, True
+    names), or `TEST` when the recap is all that names it, with its diagnostic (bun_diagnostic, or its timeout) as its
+    message. An unhandled error between tests is a failure named by its error. A bun run is whole only once it prints
+    its ` N fail` count: a run started (`bun test v…`, a file header or a result) with no count after it was cut short.
+    (web_failures hands read() its log without result lines; a red file's log there ends with its count, and a file the
+    wrapper killed is its own red already.)"""
+    file, said, where, last, recap, unhandled, counted = "", "", "", None, False, False, True
     run_file = ""  # the file of the run that just ended, for run-webviews-tests.sh's retry
 
     def fail(name: str, message: str) -> str:
@@ -302,10 +313,12 @@ def read_bun(lines: list[str], result: Result) -> None:
         return name
 
     for text in lines:
-        if BUN_RECAP.match(text):
+        if BUN_RUN.match(text):
+            counted = False
+        elif BUN_RECAP.match(text):
             recap, last = True, None
         elif match := BUN_FILE.match(text):
-            file, said, last, recap = BUN_PACKAGE.sub("", match.group(1)), "", None, False
+            file, said, where, last, recap, counted = BUN_PACKAGE.sub("", match.group(1)), "", "", None, False, False
             run_file = file
         elif text == WEB_RETRY and run_file:
             # run-webviews-tests.sh ran a red file again, alone: only that run counts (webviews_test_results.py).
@@ -316,27 +329,29 @@ def read_bun(lines: list[str], result: Result) -> None:
             result.ran, counted, last = True, False, None
             name = match.group(2)
             if match.group(1) == "fail" and not recap:
-                last = fail(f"{file} > {name}" if file else name, said)
+                last = fail(f"{file} > {name}" if file else name, bun_diagnostic(said, where))
             elif match.group(1) == "fail" and not any(key == name or key.endswith(" > " + name) for key in result.failed):
                 last = fail(name, "")  # failed before its file's header printed
-            said = ""
+            said, where = "", ""
         elif BUN_UNHANDLED.match(text):
             unhandled = True
         elif match := BUN_ERROR.match(text):
             if unhandled:
-                said_where = BUN_ABSOLUTE.sub("", match.group(1))  # the checkout's path differs from run to run
+                said_where = bun_diagnostic(match.group(1))  # the checkout's path differs from run to run
                 fail(f"{file} > unhandled error: {said_where}" if file else f"unhandled error: {said_where}", "")
                 unhandled = False
             elif not said:
                 said = match.group(1)
+        elif (match := BUN_AT.match(text)) and said and not where and BUN_PACKAGE.sub("", match.group(1)) == file:
+            where = f"{file}:{match.group(2)}"
         elif (match := BUN_TIMED_OUT.match(text)) and last:
             result.messages[last] = f"timed out after {match.group(1)}ms"
         elif BUN_COUNT.match(text):
             if unhandled:
                 fail(f"{file} > unhandled error" if file else "unhandled error", "")
-            file, said, last, recap, unhandled, counted = "", "", None, False, False, True
+            file, said, where, last, recap, unhandled, counted = "", "", "", None, False, False, True
     if not counted:
-        result.truncated.append("a bun test run printed no ` N pass` / ` N fail` summary after its last result")
+        result.truncated.append("a bun test run printed no ` N pass` / ` N fail` summary after it started")
 
 
 def read(log: str | None) -> Result:
@@ -443,14 +458,24 @@ def classify(head_log: str | None, base_log: str | None, job: str = "", base: st
     reasons = list(head.crashes)
     if head.truncated:
         reasons.append(f"{job or 'the job'}: per-test results are not whole ({head.truncated[0]})")
-    seen = read(base_log).failed if base_log is not None else set()
+    base_result = read(base_log) if base_log is not None else Result()
+    seen = base_result.failed
     new = sorted(head.failed - seen)
+    # A failure whose log prints its error (bun's) fails the same way only with the same error on both sides: an
+    # assertion on the base does not excuse a TypeError on the head. Names with no error printed compare by name.
+    differ = [name for name in sorted(head.failed & seen)
+              if (head.messages.get(name) or base_result.messages.get(name))
+              and head.messages.get(name) != base_result.messages.get(name)]
     if base_log is None and head.failed:
         reasons.append(f"no {base} log to compare {len(head.failed)} failing test(s) with")
     elif new:
         named = [f"{name} ({head.messages[name]})" if head.messages.get(name) else name for name in new]
         reasons.append(f"{len(new)} failing test(s) pass or do not run on {base}: {'; '.join(named)[:600]}")
-    return Verdict(bool(reasons), reasons, sorted(head.failed & seen))
+    if differ:
+        said = [f"{name} ({head.messages.get(name) or 'no error read'} here; "
+                f"{base_result.messages.get(name) or 'no error read'} on {base})" for name in differ]
+        reasons.append(f"{len(differ)} test(s) fail differently on {base}: {'; '.join(said)[:600]}")
+    return Verdict(bool(reasons), reasons, sorted(head.failed & seen - set(differ)))
 
 
 # The webview tests (scripts/ci/run-webviews-tests.sh, bun), judged per test across jobs. One test file runs in
