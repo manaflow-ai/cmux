@@ -103,74 +103,33 @@ pub(crate) fn envelope(e: &clap::Error, program: &str) -> Option<AppError> {
     Some(AppError::new(Code::Usage, "usage", message).with_data(data))
 }
 
-/// The refusal of `new`'s prompt `words` when one of them is a lone `-`, which would go as the
-/// text "-": `data.try` is the same command without that word and with `--prompt-file -`, which
-/// reads stdin (before a `--`, and only when no `--prompt-file` is given). `argv` is the command
-/// line, its command word at `at`; `new` is its grammar, which says which flags take a value.
+/// The refusal of `new`'s command line when one of its prompt words is a lone `-`, which would
+/// go as the text "-": `data.try` is the same line without those words (by the positions clap
+/// parsed them at, so a flag's own value `-` stays) and with `--prompt-file -`, which reads stdin,
+/// right after the command word, where no flag can take it as its value (none when one is
+/// given). `new` is the command's parse; `argv` is the command line, its command word at `at`.
 pub(crate) fn stdin_dash(
-    words: &[String],
-    new: &clap::Command,
+    new: &clap::ArgMatches,
     argv: &[OsString],
     at: usize,
     program: &str,
 ) -> Option<AppError> {
-    if !words.iter().any(|w| w == "-") {
+    let prompt = new.get_many::<String>("prompt").into_iter().flatten();
+    let indices = new.indices_of("prompt").into_iter().flatten();
+    let dashes: Vec<usize> =
+        prompt.zip(indices).filter(|(w, _)| *w == "-").map(|(_, i)| i).collect();
+    if dashes.is_empty() {
         return None;
     }
-    let rest: Vec<String> = argv
-        .get(at + 1..)
-        .unwrap_or_default()
-        .iter()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect();
-    let takes_value = |a: &clap::Arg| a.get_action().takes_values();
-    let mut kept: Vec<String> = Vec::new();
-    let mut separator = None;
-    let mut has_file = false;
-    let mut i = 0;
-    while let Some(word) = rest.get(i) {
-        i += 1;
-        if separator.is_some() {
-            if word != "-" {
-                kept.push(word.clone());
-            }
-            continue;
-        }
-        if word == "--" {
-            separator = Some(kept.len());
-            kept.push(word.clone());
-            continue;
-        }
-        let value_follows = if let Some(long) = word.strip_prefix("--") {
-            let name = long.split('=').next().unwrap_or(long);
-            has_file |= name == "prompt-file";
-            !long.contains('=')
-                && new.get_arguments().any(|a| a.get_long() == Some(name) && takes_value(a))
-        } else if let Some(shorts) = word.strip_prefix('-').filter(|s| !s.is_empty()) {
-            let last = shorts.chars().last();
-            shorts.chars().count() == 1
-                && new.get_arguments().any(|a| a.get_short() == last && takes_value(a))
-        } else {
-            false
-        };
-        if word == "-" {
-            continue;
-        }
-        kept.push(word.clone());
-        if value_follows && let Some(value) = rest.get(i) {
-            kept.push(value.clone());
-            i += 1;
-        }
+    let words: Vec<String> = argv.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let command = words.get(at).cloned().unwrap_or_default();
+    let mut line = vec![format!("{program} {command}")];
+    if !new.contains_id("prompt_file") {
+        line.extend(["--prompt-file".to_owned(), "-".to_owned()]);
     }
-    if !has_file {
-        let at = separator.unwrap_or(kept.len());
-        kept.splice(at..at, ["--prompt-file".to_owned(), "-".to_owned()]);
-    }
-    let command = argv.get(at).map(|a| a.to_string_lossy().into_owned()).unwrap_or_default();
-    let try_command = std::iter::once(format!("{program} {command}"))
-        .chain(kept.iter().map(|w| quote(w)))
-        .collect::<Vec<_>>()
-        .join(" ");
+    let rest = words.iter().enumerate().skip(at + 1).filter(|(i, _)| !dashes.contains(i));
+    line.extend(rest.map(|(_, w)| quote(w)));
+    let try_command = line.join(" ");
     let message = format!(
         "{command}'s words are its prompt, so `-` would be sent as the text \"-\" (the session \
          name is `-n NAME`); `--prompt-file -` reads the prompt from stdin. Try: {try_command}"
@@ -246,17 +205,11 @@ mod tests {
 
     fn try_for(args: &[&str]) -> Option<String> {
         let cli = crate::cli::command::Cli::command();
-        let new = cli.find_subcommand(args[0]).expect("new");
         let argv = argv(args);
-        let words: Vec<String> = match cli.clone().try_get_matches_from(argv.clone()) {
-            Ok(m) => m
-                .subcommand_matches(new.get_name())?
-                .get_many::<String>("prompt")
-                .map(|v| v.cloned().collect())
-                .unwrap_or_default(),
-            Err(e) => panic!("{args:?}: {e}"),
-        };
-        let refusal = stdin_dash(&words, new, &argv, 1, "acpmux")?;
+        let matches =
+            cli.try_get_matches_from(argv.clone()).unwrap_or_else(|e| panic!("{args:?}: {e}"));
+        let (_, new) = matches.subcommand()?;
+        let refusal = stdin_dash(new, &argv, 1, "acpmux")?;
         Some(refusal.data.unwrap()["try"].as_str().unwrap().to_owned())
     }
 
@@ -264,12 +217,16 @@ mod tests {
     fn a_lone_dash_prompt_word_points_at_prompt_file() {
         assert_eq!(
             try_for(&["new", "fix it", "-", "-m", "codex"]).as_deref(),
-            Some("acpmux new 'fix it' -m codex --prompt-file -")
+            Some("acpmux new --prompt-file - 'fix it' -m codex")
         );
-        // A flag's own value `-` stays; after `--` the option goes before it.
+        // A flag's own value `-` stays, in a short-flag cluster too; after `--` too.
         assert_eq!(
             try_for(&["new", "-n", "-", "--", "fix", "-"]).as_deref(),
-            Some("acpmux new -n - --prompt-file - -- fix")
+            Some("acpmux new --prompt-file - -n - -- fix")
+        );
+        assert_eq!(
+            try_for(&["new", "-dp", "-", "foo", "-"]).as_deref(),
+            Some("acpmux new --prompt-file - -dp - foo")
         );
         // `--prompt-file` already given: it is kept, not added again.
         assert_eq!(

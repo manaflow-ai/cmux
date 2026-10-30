@@ -165,10 +165,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     };
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
     // `new`'s words are its prompt: a lone `-` among them would go as the text "-".
-    if let Some(Command::New(a)) = &cli.command
-        && let Some(new) = argv.get(at).and_then(|w| grammar.find_subcommand(w))
-        && let Some(refusal) =
-            crate::cli::unknown_command::stdin_dash(&a.prompt, new, &argv, at, name)
+    if let Some(Command::New(_)) = &cli.command
+        && let Some((_, new)) = matches.subcommand()
+        && let Some(refusal) = crate::cli::unknown_command::stdin_dash(new, &argv, at, name)
     {
         errors::exit_with(&refusal.into(), json_out)
     }

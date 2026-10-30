@@ -124,7 +124,7 @@ fn a_lone_dash_prompt_word_is_refused_for_prompt_file() {
     let out = cli(&dir, &["new", "-d", "lane", "-"]);
     assert_eq!(out.status.code(), Some(2), "{}", text(&out));
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("Try: acpmux new -d lane --prompt-file -"), "{}", text(&out));
+    assert!(err.contains("Try: acpmux new --prompt-file - -d lane"), "{}", text(&out));
 
     let json = cli(&dir, &["--json", "new", "-d", "-"]);
     assert_eq!(json.status.code(), Some(2), "{}", text(&json));
