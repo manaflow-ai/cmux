@@ -28,7 +28,8 @@ const snapshot = chat([
       tool("bun test src/net/retry.test.ts", "execute", "failed", {
         command: "bun test src/net/retry.test.ts",
         exitCode: 1,
-        output: "retry.test.ts:\n✗ backs off between attempts [212ms]\n  Expected: 2 calls\n  Received: 1 call\n\n0 pass\n1 fail",
+        output:
+          "retry.test.ts:\n✗ backs off between attempts [212ms]\n  Expected: 2 calls\n  Received: 1 call\n\n0 pass\n1 fail",
       }),
       tool("rg -n setTimeout src/net", "execute", "completed", {
         command: "rg -n setTimeout src/net",

@@ -51,7 +51,8 @@ function chatRows(): AcpmuxRow[] {
   return rows;
 }
 
-const quantile = (sorted: readonly number[], q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
+const quantile = (sorted: readonly number[], q: number) =>
+  sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
 const median = (values: readonly number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
 
 const open = await folds();
