@@ -91,8 +91,9 @@ extension IPhoneHostService {
            Self.redeems(request, tokens: &pairTokens, macDeviceID: state.deviceID, pairedUserID: trusted.userID,
                         accountUserID: account?.userID) {
             Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from this Mac's pairing code")
-            var allowed = request
-            allowed.pairToken = nil
+            var withoutToken = request
+            withoutToken.pairToken = nil
+            let allowed = withoutToken
             savePaired { $0.approve(allowed, at: Date()) }
             // An earlier request from this phone (before it scanned) is answered: its prompt closes,
             // so a stale Allow cannot overwrite the keys just approved.
@@ -261,7 +262,7 @@ extension IPhoneHostService {
     }
 
     /// hostd's `devices` line and acpmux's approvers follow the list.
-    private func pushPaired() {
+    func pushPaired() {
         let list = pairedStore.current ?? MobileHostPairedDevices(userID: "")
         // At once: the next hostd start or restart gets this list, never an older one.
         supervisor.setNewestDevices(list)

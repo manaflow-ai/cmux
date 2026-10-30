@@ -207,6 +207,11 @@ public struct MobileHostPairedDevicesFile: Sendable {
     /// Registered in plans/cmux-next/threading-model.md.
     private static let queue = DispatchQueue(label: "com.cmuxterm.mobile.paired-devices", qos: .utility)
 
+    /// Shared-list transactions use the same queue, so quit's flush covers both transports.
+    static func enqueue(_ operation: @escaping @Sendable () -> Void) {
+        queue.async(execute: operation)
+    }
+
     /// Per file, the digest of the newest list this run saved: in this run only that list counts,
     /// so no list a later save replaced (a phone removed, a phone's keys replaced) is trusted again,
     /// also when the Keychain refused to forget its digest and its exact bytes are put back. Empty

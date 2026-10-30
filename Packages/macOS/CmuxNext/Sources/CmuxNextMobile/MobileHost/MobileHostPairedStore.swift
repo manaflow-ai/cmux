@@ -1,152 +1,170 @@
 import CmuxNextCompat
 public import Foundation
 
-/// One owner selects the signed-in user; both phone transports share this list.
-/// Disk work is serialized off the main actor. A failed save publishes no trust.
+/// Both phone transports share base's sealed file and serial I/O queue. Selection and
+/// removal revoke memory trust synchronously; queued transactions are covered by quit's flush.
 public final class MobileHostPairedStore: Sendable {
     public struct Change: Sendable {
         public var list: MobileHostPairedDevices?
         public var removed: [MobileHostPairedDevice]
     }
 
+    private struct Removal: Hashable, Sendable {
+        var id: String
+        var transport: MobileHostPairedDevice.Transport
+    }
     private struct State: Sendable {
         var userID: String?
         var generation: UInt64 = 0
         var revision: UInt64 = 0
         var forgotten: Set<String> = []
-        var pendingRemovals: Set<String> = []
+        var removals: [Removal: UUID] = [:]
         var list: MobileHostPairedDevices?
+        var file: MobileHostPairedDevicesFile?
         var observers: [@Sendable (Change) -> Void] = []
     }
 
     private let state = Mutex(State())
-    private let disk = Persistence()
-    public init() {}
+    private let seal: (any MobileHostPairingSealStore)?
+    public init(seal: (any MobileHostPairingSealStore)? = nil) { self.seal = seal }
     public var current: MobileHostPairedDevices? { state.withLock { $0.list } }
     public var versioned: (list: MobileHostPairedDevices?, revision: UInt64) { state.withLock { ($0.list, $0.revision) } }
     public var generation: UInt64 { state.withLock { $0.generation } }
+    public func trusts(_ request: MobileHostPairRequest) -> Bool { current?.decision(for: request) == .trusted }
+    public func observe(_ handler: @escaping @Sendable (Change) -> Void) { state.withLock { $0.observers.append(handler) } }
 
-    /// Only IPhoneHostService selects the user. Invalidate synchronously before any await,
-    /// including a switch away and back while a question is open.
+    /// Only the account owner selects. Enqueue sign-out before returning, so a quit cannot
+    /// miss it, even when another sign-in overtakes the pending read.
     public func select(userID: String?) {
         let event = state.withLock { state -> (Change, [@Sendable (Change) -> Void])? in
             guard state.userID != userID else { return nil }
             let removed = state.list?.devices ?? []
-            if userID == nil, let previous = state.userID { state.forgotten.insert(previous) }
+            if userID == nil, let previous = state.userID {
+                if let file = state.file {
+                    file.saveInBackground(MobileHostPairedDevices(userID: previous))
+                } else {
+                    state.forgotten.insert(previous)
+                }
+            }
             state.userID = userID
             state.generation &+= 1
             state.revision &+= 1
             state.list = nil
+            state.removals = [:]
             return (Change(list: nil, removed: removed), state.observers)
         }
-        if let (change, observers) = event { observers.forEach { $0(change) } }
+        notify(event)
     }
 
-    public func attach(directory: URL) async { await disk.attach(directory: directory, store: self) }
-    public func reload() async { await disk.load(store: self) }
-    public func trusts(_ request: MobileHostPairRequest) -> Bool { current?.decision(for: request) == .trusted }
-    public func observe(_ handler: @escaping @Sendable (Change) -> Void) { state.withLock { $0.observers.append(handler) } }
+    public func attach(directory: URL) async {
+        state.withLock { state in
+            if state.file == nil {
+                let bundleID = directory.deletingLastPathComponent().lastPathComponent
+                let file = MobileHostPairedDevicesFile(directory: directory,
+                    seal: seal ?? MobileHostKeychainPairingSeal(bundleID: bundleID))
+                state.file = file
+                for user in state.forgotten { file.saveInBackground(MobileHostPairedDevices(userID: user)) }
+                state.forgotten = []
+            }
+        }
+        await reload()
+    }
+
+    public func reload() async {
+        await withCheckedContinuation { continuation in
+            state.withLock { state in
+                guard let file = state.file, let user = state.userID else {
+                    continuation.resume(); return
+                }
+                let selected = state.generation
+                MobileHostPairedDevicesFile.enqueue { [self] in
+                    var list = file.load(userID: user)
+                    let removals = self.state.withLock { state in
+                        state.generation == selected ? state.removals : [:]
+                    }
+                    for removal in removals.keys { list.remove(removal.id, transport: removal.transport) }
+                    // Even an empty/untrusted load must replace its seal after a removal.
+                    if !removals.isEmpty {
+                        do { try file.save(list) }
+                        catch { continuation.resume(); return }
+                    }
+                    publish(list, generation: selected, completed: removals)
+                    continuation.resume()
+                }
+            }
+        }
+    }
+
+    /// A marker is installed before the read finishes; persistence is queued before this
+    /// method returns, and bound to the user who removed the phone, never a later account.
+    public func forget(id: String, transport: MobileHostPairedDevice.Transport = .hostd) {
+        let event = state.withLock { state -> (Change, [@Sendable (Change) -> Void])? in
+            guard let user = state.userID else { return nil }
+            let removal = Removal(id: id, transport: transport)
+            let marker = UUID()
+            let selected = state.generation
+            state.removals[removal] = marker
+            let removed = state.list?.devices.filter { $0.id == id && $0.transport == transport } ?? []
+            state.list?.remove(id, transport: transport)
+            state.revision &+= 1
+            if let file = state.file {
+                MobileHostPairedDevicesFile.enqueue { [self] in
+                    var list = file.load(userID: user)
+                    list.remove(id, transport: transport)
+                    do {
+                        try file.save(list)
+                        publish(list, generation: selected, completed: [removal: marker])
+                    } catch { /* Memory and the marker stay revoked; a later load retries. */ }
+                }
+            }
+            return (Change(list: state.list, removed: removed), state.observers)
+        }
+        notify(event)
+    }
 
     public func change(for user: String, generation: UInt64? = nil,
                        _ edit: @escaping @Sendable (inout MobileHostPairedDevices) -> Void) async throws {
-        try await disk.change(store: self, user: user, generation: generation, edit)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            state.withLock { state in
+                let selected = state.generation
+                guard let file = state.file, state.userID == user, state.list != nil,
+                      generation == nil || generation == selected else {
+                    continuation.resume(throwing: CocoaError(.userCancelled)); return
+                }
+                MobileHostPairedDevicesFile.enqueue { [self] in
+                    guard var next = self.state.withLock({ state in
+                        state.generation == selected ? state.list : nil
+                    }) else { continuation.resume(throwing: CocoaError(.userCancelled)); return }
+                    edit(&next)
+                    do {
+                        try file.save(next)
+                        publish(next, generation: selected)
+                        guard self.generation == selected else { throw CocoaError(.userCancelled) }
+                        continuation.resume()
+                    } catch { continuation.resume(throwing: error) }
+                }
+            }
+        }
     }
 
-    /// Forget a phone even when its initial disk load is still in flight. The marker is
-    /// synchronous, so a load that finishes after this call cannot re-trust the phone.
-    public func forget(id: String, transport: MobileHostPairedDevice.Transport = .hostd) {
-        let key = Self.removalKey(id, transport)
+    private func publish(_ list: MobileHostPairedDevices, generation: UInt64,
+                         completed: [Removal: UUID] = [:]) {
         let event = state.withLock { state -> (Change, [@Sendable (Change) -> Void])? in
-            guard state.userID != nil else { return nil }
-            state.pendingRemovals.insert(key)
-            guard let list = state.list else { return nil }
+            guard state.generation == generation, state.userID == list.userID else { return nil }
+            for (key, marker) in completed where state.removals[key] == marker { state.removals[key] = nil }
             var next = list
-            next.remove(id, transport: transport)
-            guard next != list else { return nil }
-            let removed = list.devices.filter { $0.id == id && $0.transport == transport }
+            for removal in state.removals.keys { next.remove(removal.id, transport: removal.transport) }
+            let removed = (state.list?.devices ?? []).filter { old in
+                !next.devices.contains { $0.id == old.id && $0.transport == old.transport && $0.identityKey == old.identityKey }
+            }
             state.list = next
             state.revision &+= 1
             return (Change(list: next, removed: removed), state.observers)
         }
+        notify(event)
+    }
+
+    private func notify(_ event: (Change, [@Sendable (Change) -> Void])?) {
         if let (change, observers) = event { observers.forEach { $0(change) } }
-        Task { await disk.forget(store: self, id: id, transport: transport, key: key) }
-    }
-
-    private static func removalKey(_ id: String, _ transport: MobileHostPairedDevice.Transport) -> String {
-        transport.rawValue + "\u{0}" + id
-    }
-
-    private func publish(_ list: MobileHostPairedDevices, generation: UInt64) {
-        let event = state.withLock { state -> (Change, [@Sendable (Change) -> Void])? in
-            guard state.generation == generation, state.userID == list.userID else { return nil }
-            let removed = (state.list?.devices ?? []).filter { old in
-                !list.devices.contains { $0.id == old.id && $0.transport == old.transport && $0.identityKey == old.identityKey }
-            }
-            var list = list
-            for key in state.pendingRemovals {
-                let parts = key.split(separator: "\0", maxSplits: 1).map(String.init)
-                if parts.count == 2, let transport = MobileHostPairedDevice.Transport(rawValue: parts[0]) {
-                    list.remove(parts[1], transport: transport)
-                }
-            }
-            state.list = list
-            state.revision &+= 1
-            return (Change(list: list, removed: removed), state.observers)
-        }
-        if let (change, observers) = event { observers.forEach { $0(change) } }
-    }
-
-    private actor Persistence {
-        var file: MobileHostPairedDevicesFile?
-        func attach(directory: URL, store: MobileHostPairedStore) {
-            if file == nil {
-                let bundleID = directory.deletingLastPathComponent().lastPathComponent
-                file = MobileHostPairedDevicesFile(directory: directory,
-                                                   seal: MobileHostKeychainPairingSeal(bundleID: bundleID))
-            }
-            load(store: store)
-        }
-
-        func load(store: MobileHostPairedStore) {
-            let (user, generation, forgotten) = store.state.withLock { ($0.userID, $0.generation, $0.forgotten) }
-            guard let file else { return }
-            // Every later load flushes sign-out first, even if sign-in raced its owner task.
-            for revoked in forgotten {
-                let old = file.load(userID: revoked)
-                do {
-                    if !old.devices.isEmpty || !old.denied.isEmpty { try file.save(MobileHostPairedDevices(userID: revoked)) }
-                    _ = store.state.withLock { $0.forgotten.remove(revoked) }
-                } catch { return }
-            }
-            guard let user else { return }
-            store.publish(file.load(userID: user), generation: generation)
-        }
-
-        func forget(store: MobileHostPairedStore, id: String, transport: MobileHostPairedDevice.Transport, key: String) {
-            let (user, generation, pending) = store.state.withLock { ($0.userID, $0.generation, $0.pendingRemovals) }
-            guard let user, let file else { return }
-            var list = file.load(userID: user)
-            list.remove(id, transport: transport)
-            do {
-                try file.save(list)
-                store.state.withLock { state in
-                    guard state.userID == user, state.generation == generation else { return }
-                    state.pendingRemovals.subtract(pending.intersection([key]))
-                }
-            } catch { }
-        }
-
-        func change(store: MobileHostPairedStore, user: String, generation: UInt64?,
-                    _ edit: @Sendable (inout MobileHostPairedDevices) -> Void) throws {
-            let (current, selected) = store.state.withLock { ($0.list, $0.generation) }
-            guard let file, var next = current, next.userID == user, generation == nil || generation == selected else {
-                throw CocoaError(.userCancelled)
-            }
-            edit(&next)
-            try file.save(next)
-            // Selection may have changed during the write; that answer grants nothing.
-            guard store.generation == selected else { throw CocoaError(.userCancelled) }
-            store.publish(next, generation: selected)
-        }
     }
 }
