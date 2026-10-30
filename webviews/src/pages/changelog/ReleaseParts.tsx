@@ -208,9 +208,9 @@ export function Hero({
   return (
     <>
       {titled ? (
-        <Heading className="cl-headline">{item.title}</Heading>
+        <Heading className="cl-headline">{item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}</Heading>
       ) : (
-        <h3 className="cl-row-title cll-lead">{item.title}</h3>
+        <h3 className="cl-row-title cll-lead">{item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : item.title}</h3>
       )}
       {item.summary
         .split(/\n{2,}/)

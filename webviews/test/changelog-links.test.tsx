@@ -37,6 +37,24 @@ test("a What's New PR URL renders the shared colored chip and keeps its hover ca
   act(() => root.unmount());
 });
 
+test("hero headings in Journal and Rail keep the title and one PR chip", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Hero } = await import("../src/pages/changelog/ReleaseParts");
+  const strings = { language: "en", t: (key: string) => key, format: (key: string) => key };
+  const item = {
+    id: "hero", category: "new" as const, title: "A clearer sidebar", summary: "Find workspaces faster.",
+    pr: "https://github.com/manaflow-ai/cmux/pull/27919",
+  };
+  const root = createRoot(host);
+  for (const titled of [true, false]) {
+    act(() => root.render(<Hero item={item} ctx={{ strings, onTry: () => undefined }} titled={titled} />));
+    const heading = host.querySelector(titled ? ".cl-headline" : ".cl-row-title")!;
+    expect(heading.textContent).toContain(item.title);
+    expect(heading.querySelectorAll("a.cl-pr").length).toBe(1);
+  }
+  act(() => root.unmount());
+});
+
 afterAll(() => {
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
