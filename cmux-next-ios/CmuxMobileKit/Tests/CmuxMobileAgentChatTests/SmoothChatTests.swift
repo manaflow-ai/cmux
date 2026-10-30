@@ -248,6 +248,7 @@ import Testing
     }
 }
 
+#if os(iOS)
 /// Review round 3: native rows at accessibility sizes, and revisions of rows that leave and return.
 @Suite struct ChatNativeEligibilityTests {
     static func row(_ kind: ChatRow.Kind, id: String = "r") -> ChatRow { ChatRow(id: id, turnID: "t", kind: kind, gap: 0) }
@@ -289,6 +290,8 @@ import Testing
         #expect(revisions.bump("w-t1") > again)
     }
 }
+
+#endif
 
 /// Set from the diff's thread (tests).
 final class OnMainFlag: @unchecked Sendable {

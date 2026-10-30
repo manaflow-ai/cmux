@@ -292,6 +292,7 @@ import Testing
 }
 #endif
 
+#if os(iOS)
 @MainActor
 @Suite struct CardViewedKeyTests {
     @Test func aChangedDiffWithTheSameCountsGetsItsOwnKey() {
@@ -316,6 +317,8 @@ import Testing
         #expect(CodeView.PreparedLines().lines(for: first).isEmpty)
     }
 }
+
+#endif
 
 #if os(iOS)
 /// An HTML thumbnail scrolled away while the grid moves leaves the snapshot queue at once:
