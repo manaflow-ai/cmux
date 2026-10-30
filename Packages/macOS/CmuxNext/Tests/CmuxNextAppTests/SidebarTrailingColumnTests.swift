@@ -420,8 +420,9 @@ import Testing
                 defer { row.isHovered = false; row.layoutSubtreeIfNeeded() }
                 return !row.pinButton.isHidden && row.pinButton.alphaValue > 0
             }
-            #expect(try !pinShows(Self.unread), "an unpinned row shows a pin on hover")
-            #expect(try pinShows(Self.busy), "a pinned row lost its hover Unpin")
+            let unpinned = try pinShows(Self.unread), pinned = try pinShows(Self.busy)
+            #expect(!unpinned, "an unpinned row shows a pin on hover")
+            #expect(pinned, "a pinned row lost its hover Unpin")
         }
     }
 }
