@@ -72,6 +72,7 @@ import Testing
         tab.showsExtensionToolbar = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
         let chrome = BrowserChromeView(tab: tab)
         chrome.frame = window.contentLayoutRect

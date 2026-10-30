@@ -25,6 +25,7 @@ import Testing
         let root = LayoutRootView(model: model, contentProvider: provider)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
         window.contentView = root
         root.layoutSubtreeIfNeeded()

@@ -110,7 +110,9 @@ import CmuxNextDesignTokens
     /// nest; an unrelated window never is, and nothing is after the update.
     @Test func theScopeNamesOnlyTheUpdatingWindow() {
         let first = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+        defer { first.closeAfterTest() }
         let second = NSWindow(contentRect: .init(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+        defer { second.closeAfterTest() }
         first.isReleasedWhenClosed = false
         second.isReleasedWhenClosed = false
         #expect(ActiveLookScope.scopedWindow == nil)

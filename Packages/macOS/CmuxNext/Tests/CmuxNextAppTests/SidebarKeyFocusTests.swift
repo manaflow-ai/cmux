@@ -52,6 +52,7 @@ struct SidebarKeyFocusTests {
     @Test func keyFocusHidesWhenTheWindowIsNotKey() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 28), styleMask: [.titled],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let row = SidebarItemRowView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
         row.configure(SidebarItemInfo(title: "Home", symbol: "house"), style: .builtIn)
         window.contentView?.addSubview(row)

@@ -182,6 +182,7 @@ import Testing
     @Test func hostedPagesCountsHostedViewsInAWindowOnly() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless,
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container

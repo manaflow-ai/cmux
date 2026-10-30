@@ -46,6 +46,7 @@ struct CmuxDialogLatencyBench {
     @Test func nativeVersusWeb() async throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
         let center = CmuxDialogCenter()
         let spec = CmuxDialogSpec(title: "Close Workspace “api”?", lines: ["vim and npm are still running."],

@@ -36,6 +36,7 @@ struct PageFocusContentTests {
     @Test func webViewBecomingFirstResponderReportsIt() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         let other = NSTextField(frame: NSRect(x: 0, y: 0, width: 50, height: 20))
         let web = PageWKWebView(frame: NSRect(x: 0, y: 40, width: 200, height: 160), configuration: .init())
         window.contentView?.addSubview(other)

@@ -105,6 +105,7 @@ import WebKit
     @Test func aWebViewInAPanelGetsTheNativePalettes() throws {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240), styleMask: [.titled, .nonactivatingPanel],
                             backing: .buffered, defer: true)
+        defer { panel.closeAfterTest() }
         let webView = WKWebView(frame: panel.contentView?.bounds ?? .zero)
         panel.contentView?.addSubview(webView)
         #expect(panel.makeFirstResponder(webView))
@@ -126,6 +127,7 @@ import WebKit
     @Test func aNativeFieldInAPanelIsNotWebContent() throws {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240), styleMask: [.titled],
                             backing: .buffered, defer: true)
+        defer { panel.closeAfterTest() }
         let field = NSTextView(frame: panel.contentView?.bounds ?? .zero)
         panel.contentView?.addSubview(field)
         #expect(panel.makeFirstResponder(field))
@@ -139,6 +141,7 @@ import WebKit
         registry.setShortcutOverride(Shortcut("e", modifiers: [.command, .shift]), for: "commandPalette")
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240), styleMask: [.titled],
                             backing: .buffered, defer: true)
+        defer { panel.closeAfterTest() }
         let webView = WKWebView(frame: panel.contentView?.bounds ?? .zero)
         panel.contentView?.addSubview(webView)
         #expect(panel.makeFirstResponder(webView))

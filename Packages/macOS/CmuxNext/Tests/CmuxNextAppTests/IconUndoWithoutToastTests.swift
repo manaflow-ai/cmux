@@ -12,6 +12,7 @@ struct IconUndoWithoutToastTests {
     @Test func anIconChangeUndoesFromEditUndoWithoutAToast() throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let manager = try #require(window.undoManager)
         var undone = false
         IconHistory.registerUndo(IconStrings.undoSet, in: window) { undone = true }

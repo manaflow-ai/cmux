@@ -51,6 +51,7 @@ struct FilesScrollerTrackTests {
         let columns = FileColumnsView(actions: Self.actions, icons: FileIconProvider(), lister: Listing())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.contentView = columns.view
         columns.view.frame = NSRect(x: 0, y: 0, width: 420, height: 300)
         let browser = try #require(columns.view as? NSBrowser)

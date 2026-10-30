@@ -27,6 +27,7 @@ import Testing
     @Test func aRemoteDesktopInControlModeKeepsTheButtons() {
         let window = NSWindow(contentRect: CGRect(x: 200, y: 200, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let content = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         window.contentView = content
         let remote = ForwardingView(frame: CGRect(x: 0, y: 0, width: 200, height: 300))

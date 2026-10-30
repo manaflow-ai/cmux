@@ -134,6 +134,7 @@ struct FileExplorerEditTests {
         let model = FileExplorerModel(git: FakeGit(top: "/nowhere", porcelain: ""))
         await model.setRoot(root)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let undo = try #require(window.undoManager)
         let commands = FileExplorerCommands(model: model, effects: FileExplorerTests.Recorder(), files: FolderTrash(bin: bin), undoManager: undo)
         let b = try #require(model.rows.first { $0.name == "b.txt" }).url

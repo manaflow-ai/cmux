@@ -25,6 +25,7 @@ import Testing
                                  backing: .buffered, defer: true)
         let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: true)
+        defer { parent.closeAfterTest() }
         // Bools only: a failing #expect describes its operands, and this class's description
         // asks for its full screen owner, which a standalone one does not have.
         let isChrome = WindowOverlayHost.isAppKitChrome(titlebar)
@@ -38,8 +39,10 @@ import Testing
     @Test func plainWindowsStayPagesAndPanelsStayPanels() {
         let page = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
                             backing: .buffered, defer: true)
+        defer { page.closeAfterTest() }
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
                             backing: .buffered, defer: true)
+        defer { panel.closeAfterTest() }
         #expect(WindowOverlayHost.isPageWindow(page))
         #expect(!WindowOverlayHost.isAppKitChrome(page))
         #expect(!WindowOverlayHost.isPageWindow(panel))

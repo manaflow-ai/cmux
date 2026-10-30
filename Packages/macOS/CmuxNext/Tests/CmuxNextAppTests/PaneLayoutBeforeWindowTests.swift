@@ -50,6 +50,7 @@ import Testing
         let root = LayoutRootView(model: model, contentProvider: Panes())
         root.context.reduceMotionOverride = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         root.isHidden = true

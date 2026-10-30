@@ -15,6 +15,7 @@ import CmuxNextTestSupport
         strip.frame = NSRect(x: 0, y: 0, width: 700, height: TabStripView.preferredHeight)
         parked.addSubview(strip)
         let window = NSWindow(contentRect: parked.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = parked
         strip.layoutSubtreeIfNeeded()
         #expect(strip.cells.count == 3)

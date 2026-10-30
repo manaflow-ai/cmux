@@ -21,6 +21,7 @@ struct DragSendsOneIntentTests {
         let root = LayoutRootView(model: model, contentProvider: provider)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         var intents: [LayoutIntent] = []

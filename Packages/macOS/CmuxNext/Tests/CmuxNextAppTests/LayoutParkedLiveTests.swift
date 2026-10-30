@@ -31,6 +31,7 @@ struct LayoutParkedLiveTests {
         container.addSubview(root)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.contentView = container
         root.layoutSubtreeIfNeeded()
         #expect(root.isLive)

@@ -323,6 +323,7 @@ import Testing
         }
         let behind = window(), front = window()
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 80, height: 40), styleMask: [.nonactivatingPanel], backing: .buffered, defer: true)
+        defer { panel.closeAfterTest() }
         func rules(visible: Set<ObjectIdentifier>) -> DaemonUpdateBoard.NoticeWindowRules {
             var rules = DaemonUpdateBoard.NoticeWindowRules()
             rules.root = { $0 === panel ? front : $0 }

@@ -30,6 +30,7 @@ import CmuxNextDesignTokens
         scope.setOverride(try #require(ThemeSpec("Stress Purple")), input: input, animated: false)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         let root = try #require(window.contentView)
         scope.root(root)
         let expected = scope.tokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value).nsColor

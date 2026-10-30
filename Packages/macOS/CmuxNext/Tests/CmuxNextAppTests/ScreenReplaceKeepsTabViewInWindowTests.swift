@@ -42,6 +42,7 @@ struct ScreenReplaceKeepsTabViewInWindowTests {
         let root = LayoutRootView(model: model, contentProvider: panes)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         #expect(panes.tab.window === window, "the pane shows the tab")

@@ -137,6 +137,7 @@ import Testing
         sidebar.contextMenuProvider = { _ in menuAsked = true; return nil }
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
         defer { SidebarMenuAnchorTests.close(sidebar, window) }
         window.contentView?.addSubview(sidebar)
@@ -175,6 +176,7 @@ import Testing
         var asked: [SidebarContextTarget] = []
         sidebar.contextMenuProvider = { target in asked.append(target); return menu }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
         defer { SidebarMenuAnchorTests.close(sidebar, window) }
         window.contentView?.addSubview(sidebar)
