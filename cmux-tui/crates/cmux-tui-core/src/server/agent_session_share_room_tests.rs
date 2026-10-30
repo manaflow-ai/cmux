@@ -543,17 +543,19 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
     start_link_share_bridge(&mux, Some(&room.url));
     shares.advance(Duration::from_secs(2 * 86_400));
     shares.expired(&mux);
-    let pending = shares
-        .with(Some(&directory), |all, _| {
-            Ok((
-                all.iter()
-                    .filter(|share| !share.pending_room_ops.is_empty())
-                    .count(),
-                false,
-            ))
-        })
-        .unwrap();
-    assert_eq!(pending, 0, "credentialless pending room deletes settle at expiry");
+    // Each settles on the bridge's own worker (`delete`), not inside `expired`.
+    let pending = || {
+        shares
+            .with(Some(&directory), |all, _| {
+                Ok((all.iter().filter(|share| !share.pending_room_ops.is_empty()).count(), false))
+            })
+            .unwrap()
+    };
+    let deadline = Instant::now() + WAIT;
+    while pending() > 0 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(pending(), 0, "credentialless pending room deletes settle at expiry");
     assert!(shares.insert(Some(&directory), SESSION.into(), 1, 3600, 1, false).is_ok());
     drop(mux);
     let _ = std::fs::remove_dir_all(root);
