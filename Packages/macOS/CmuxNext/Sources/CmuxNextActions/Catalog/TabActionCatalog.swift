@@ -397,9 +397,9 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["id", "ref"], category: .tab, symbol: "number.circle", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-identifiers"
             ),
-            // A PNG of the tab's content, never changing focus or selection
-            // (ScreenshotHandlers): Copy menu, palette and automation. Automation gets no
-            // browser tab's pixels here: the browser host's guarded capture masks its secrets.
+            // A PNG of the tab's content as on screen, never changing focus or selection
+            // (ScreenshotHandlers): Copy menu, palette and automation. An agent's or a
+            // script's capture comes back with every browser page and agent chat masked.
             ActionDescriptor(
                 id: "tab.screenshot",
                 title: String(localized: "action.tab.screenshot", defaultValue: "Screenshot Tab", bundle: .module),
