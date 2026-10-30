@@ -47,8 +47,8 @@ import Testing
         #expect(mark.symbol == nil)
     }
 
-    /// The row's label names the machine once (VoiceOver read "gpu-box" twice after #22763): the
-    /// one-list second line leads with it, so the mark adds nothing; with no such line, the mark names it.
+    /// The row's label names the machine once (VoiceOver read "gpu-box" twice after #22763). A compact
+    /// row has no second line of its own (Leo 2026-10-30: "remove the second line"), so its mark names it.
     @Test func theRowsLabelNamesTheMachineOnce() throws {
         let model = SidebarModel(sections: [mac, vm].map(section))
         let o = model.listOptions()
@@ -59,7 +59,7 @@ import Testing
         func names(_ text: String) -> Int { text.components(separatedBy: "gpu-box").count - 1 }
         let oneList = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: o))
         #expect(oneList.machine != nil)
-        #expect(label(oneList).hasPrefix("w, gpu-box · "))
+        #expect(oneList.detail == nil, "a compact row drew a second line naming its computer")
         #expect(names(label(oneList)) == 1)
         var grouped = o
         grouped.flattensMachines = false
@@ -78,7 +78,6 @@ import Testing
         let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(dotted), options: o))
         #expect(content.machine != nil)
         let text = WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
-        #expect(text.hasPrefix("w, gpu · box · "))
         #expect(text.components(separatedBy: "gpu · box").count - 1 == 1, "\(text)")
     }
 

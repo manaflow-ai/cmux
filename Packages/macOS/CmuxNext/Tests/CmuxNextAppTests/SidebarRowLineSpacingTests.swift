@@ -15,11 +15,12 @@ import Testing
     private static func sidebar(density: SidebarDensity) -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let one = SidebarWorkspace(id: single, title: "cmux-next", kind: .terminal)
-        var two = SidebarWorkspace(id: double, title: "a2 · Fix chat composer buttons", kind: .terminal)
-        two.stage = "Chief"
+        // A second line is only what the person turned on (Leo 2026-10-30: "remove the second line"): the folder here.
+        let two = SidebarWorkspace(id: double, title: "a2 · Fix chat composer buttons", directory: "~/code/app", kind: .terminal)
         let model = SidebarModel(sections: [
             SidebarSection(kind: .machine(machine), nodes: [.workspace(one), .workspace(two)]),
         ])
+        model.workspaceRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: WorkspaceRowElements.standard.shown.union([.directory])))
         let design = DesignSettings()
         design.sidebarSections.density = density
         let sidebar = SidebarView(model: model, design: design)
@@ -49,7 +50,7 @@ import Testing
     func aSecondLineKeepsTheRowsRoomAboveAndBelow(_ density: SidebarDensity) throws {
         let sidebar = Self.sidebar(density: density)
         let one = try Self.row(sidebar, Self.single), two = try Self.row(sidebar, Self.double)
-        try #require(!two.subtitle.isHidden, "the staged row shows no second line")
+        try #require(!two.subtitle.isHidden, "the row with its folder turned on shows no second line")
         try #require(one.subtitle.isHidden, "the plain row shows a second line")
         let a = Self.padding(one), b = Self.padding(two)
         #expect(abs(a.top - b.top) <= 1, "\(density): \(a.top) pt above a one-line row's text, \(b.top) pt above a two-line row's")

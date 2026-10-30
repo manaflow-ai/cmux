@@ -131,9 +131,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The front tab's working directory, abbreviated (`~/src/app`): the
     /// bucket Group by Folder puts the row in. Nil when no tab reports one.
     public var folder: String?
-    /// A starting Cloud machine's stage (cx-lu8f): the row's machine label
-    /// carries it whatever `sidebar.workspaceRow` shows, until the machine's
-    /// own workspace replaces the row. Nil for every other row.
+    /// A starting Cloud machine's stage (cx-lu8f), until the machine's own
+    /// workspace replaces the row: an expanded row's meta line shows it (a
+    /// compact row has no second line of its own, Leo 2026-10-30). Nil for
+    /// every other row.
     public var stage: String?
     /// Nobody named the workspace and its title says nothing (the daemon's default name, or a
     /// terminal in the home folder): the row reads quiet while idle (`SidebarTunables.quietUnnamedRows`).
