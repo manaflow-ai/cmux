@@ -1,5 +1,9 @@
 # cmux-next sidebar: owner note
 
+## Link opener placement keeps pane-local relationships (2026-10-30)
+
+- [1cc205d8d16](https://github.com/manaflow-ai/cmux/commit/1cc205d8d16) (carry of #26582): behavior-only opener bookkeeping keeps a tab's opener relationship inside its source pane when placement moves it elsewhere. No sidebar drawing or layout changes; the existing `RightPanePlacementTests` cover placement behavior. Reviewed as `Sidebar-Look: no visual change`.
+
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
   tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown
