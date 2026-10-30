@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type FileMemoryStore, toLines, wake } from "../../packages/brain/src/index.ts";
 import { EVENT_PREFIX } from "./supervisor.ts";
@@ -57,8 +57,32 @@ function seen(ctx: HookContext, sessionID: string): number {
   }
 }
 
+/** A temporary cursor this old was left by a hook killed between its write and its rename. */
+const STALE_TEMP_MS = 60_000;
+
+/** Remove this session's temporary cursors that a killed hook left behind. */
+function sweepStaleTemps(ctx: HookContext, sessionID: string, now: number): void {
+  const prefix = `${sessionID}.json.`;
+  let names: string[];
+  try {
+    names = readdirSync(ctx.sessionsDir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !name.endsWith(".tmp")) continue;
+    const path = join(ctx.sessionsDir, name);
+    try {
+      if (now - statSync(path).mtimeMs > STALE_TEMP_MS) rmSync(path, { force: true });
+    } catch {
+      // Another hook removed or renamed it first.
+    }
+  }
+}
+
 function setSeen(ctx: HookContext, sessionID: string, value: number): void {
   const file = join(ctx.sessionsDir, `${sessionID}.json`);
+  sweepStaleTemps(ctx, sessionID, Date.now());
   // Rename is atomic within the session directory, so a concurrent hook sees either
   // the old cursor or the complete new one, never a truncated JSON document.
   const temp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
