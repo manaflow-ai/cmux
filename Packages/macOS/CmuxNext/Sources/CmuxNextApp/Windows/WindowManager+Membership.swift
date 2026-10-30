@@ -427,8 +427,12 @@ extension WindowManager {
     func isDead(_ id: String) -> Bool {
         if pendingClaims[id] != nil || services.machines.workspace(id: id) != nil { return false }
         if let machine = seenMachine[id] {
-            guard let daemon = services.machines.daemon(machine: machine) else { return cloudSettled }
-            return daemon.store.isLoaded
+            // Its machine connected and loaded without it: gone. Connecting or paused: it waits.
+            if let daemon = services.machines.daemon(machine: machine) { return daemon.store.isLoaded }
+            // No daemon this run: gone only if the machine left the account, never because the
+            // Cloud is not connected (signed out, turned off, its list not loaded; P-AUSTIN B7b).
+            return Self.remoteMachineLeft(listed: services.machines.anyDaemon(machine: machine) != nil,
+                                          accountListLoaded: accountMachineListLoaded)
         }
         return services.machines.local.store.isLoaded && cloudSettled
     }
@@ -436,8 +440,16 @@ extension WindowManager {
     /// Whether a saved workspace whose machine this run has no daemon for is gone (P-AUSTIN B7b).
     /// `listed`: the machine registry has the machine, its feature on or off. `accountListLoaded`:
     /// the signed-in account's machine list has loaded.
+    /// Signed out, Cloud off, the list not loaded, or the machine listed with its feature off: it is
+    /// only not connected, so its workspaces stay in their windows and come back when it connects.
     static func remoteMachineLeft(listed: Bool, accountListLoaded: Bool) -> Bool {
-        true
+        !listed && accountListLoaded
+    }
+
+    /// The signed-in account's Cloud machine list has loaded: a machine it does not list left the account.
+    private var accountMachineListLoaded: Bool {
+        let cloud = services.cloud
+        return cloud.isSignedIn && !cloud.auth.isRestoring && cloud.hasLoadedMachines
     }
 
     /// Where a previous launch last saw each saved workspace (`WindowStateDocument.workspaceMachines`),
