@@ -6064,7 +6064,8 @@ function AcpmuxPane() {
                           currentClient: () => directClient.current,
                           owns: reaches,
                           restore: () => client.resendPrompt(rowId, prompt),
-                          send: (draft) => callNative("chat.send", { text: draft.input, attachments: draft.attachments }),
+                          send: (draft) =>
+                            callNative("chat.send", { text: draft.input, attachments: draft.attachments }),
                         })
                     : undefined,
               });
