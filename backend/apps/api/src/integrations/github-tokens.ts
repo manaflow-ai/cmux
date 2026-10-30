@@ -148,13 +148,14 @@ export const githubToken = (h: LedgerHost, p: Principal, ask: TokenAsk, now: num
  */
 type RepoCursor = { readonly connection: string; readonly page: number; readonly query: string }
 const encodeRepoCursor = (cursor: RepoCursor) => {
-  const raw = btoa(JSON.stringify(cursor))
+  // UTF-8 first: btoa takes Latin-1 only, and a query may be any text.
+  const raw = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(cursor))))
   return raw.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
 }
 const decodeRepoCursor = (value: string): RepoCursor | TokenFail => {
   try {
     const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "===".slice((value.length + 3) % 4)
-    const parsed = JSON.parse(atob(padded)) as { connection?: unknown; page?: unknown; query?: unknown }
+    const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(Uint8Array.from(atob(padded), (c) => c.charCodeAt(0)))) as { connection?: unknown; page?: unknown; query?: unknown }
     if (typeof parsed.connection !== "string" || parsed.connection === "" || typeof parsed.page !== "number" || !Number.isSafeInteger(parsed.page) || parsed.page < 1 || typeof parsed.query !== "string")
       return fail(400, "request.invalid", "cursor is invalid")
     return { connection: parsed.connection, page: parsed.page, query: parsed.query }
@@ -214,7 +215,8 @@ export const githubRepos = async (
     if (!listed) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
     const refusal = "mint" in listed ? listed.mint : listed.response.ok ? null : listed.response
     if (refusal) {
-      const r = await githubRefusal(refusal, Date.now(), true)
+      // A 401 on the mint is GitHub refusing the App's own JWT, not the installation (as on the token path).
+      const r = await githubRefusal(refusal, Date.now(), !("mint" in listed))
       if (r.kind === "relink") {
         // Recorded on the connection, so /status shows the relink and later asks stop minting for it.
         h.needsReauth(connection, r.detail)
