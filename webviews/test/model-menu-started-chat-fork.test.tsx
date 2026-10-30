@@ -268,18 +268,22 @@ test("launch configurations stay inside one Claude and one Codex rail entry", as
   const labels = railTabs().map((tab) => tab.getAttribute("aria-label"));
   expect(labels.filter((name) => name?.startsWith("Claude"))).toEqual(["Claude Code"]);
   expect(labels.filter((name) => name?.startsWith("Codex"))).toEqual(["Codex"]);
-  const launch = itemsOf(menu()!).find((item) => labelOf(item) === "Fork to Claude (work)");
-  expect(launch).toBeDefined();
+  // The chat's own Claude tab switches models in place; it never forks to a Claude launcher.
+  expect(itemsOf(menu()!).map(labelOf).filter((label) => label.startsWith("Fork to"))).toEqual([]);
+  // Another harness's tab still forks there, its launch configurations with it.
+  await showTab("Codex");
+  const launch = itemsOf(menu()!).find((item) => labelOf(item) === "Fork to Codex (work)");
+  expect(launch, itemsOf(menu()!).map(labelOf).join(" | ")).toBeDefined();
   await act(async () => launch!.click());
   await settle();
-  expect(forked).toEqual(["claude-work"]);
+  expect(forked).toEqual(["codex-work"]);
 });
 
 for (const [id, name, family] of [
   ["claude-work", "Claude (work)", "claude-work"],
   ["claude-sr", "Claude (sr)", "claude"],
 ])
-  test(`a started chat can keyboard-fork to the launch profile ${id}`, async () => {
+  test(`a started chat never forks to its own harness's launch profile ${id}`, async () => {
     const catalog = [
       {
         id: "claude",
@@ -292,16 +296,9 @@ for (const [id, name, family] of [
     const { forked, switched } = await mount(1, { ready: true }, "claude", catalog);
     await open();
     expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).toEqual(["Claude Code"]);
+    expect(itemsOf(menu()!).map(labelOf)).not.toContain(`Fork to ${name}`);
+    expect([...menu()!.querySelectorAll('.acpmux-quick-item[role="menuitemradio"]')].map(labelOf)).toContain("Opus");
     expect(forked).toEqual([]);
-    expect(itemsOf(menu()!).map(labelOf)).toContain(`Fork to ${name}`);
-    const variant = itemsOf(menu()!).find((item) => labelOf(item) === `Fork to ${name}`)!;
-    await act(async () => variant.focus());
-    expect(doc().activeElement).toBe(variant);
-    await act(async () =>
-      variant.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
-    );
-    await settle();
-    expect(forked).toEqual([id!]);
     expect(switched).toEqual([]);
   });
 
@@ -398,13 +395,13 @@ test("the chat composer forks through Continue In…'s chat.handoff.prepare", as
 });
 
 // Catalog joining folds aliases for model data, while the picker keeps each installed launch
-// configuration inside its canonical harness. Both exact launch IDs remain reachable without
-// a Profile submenu or duplicate Claude Code rail entries.
+// configuration inside its canonical harness, with no Profile submenu or duplicate Claude Code rail
+// entries. In a chat of that harness they are no fork rows (a New Tab still launches them).
 for (const [id, label] of [
   ["claude-sr", "Claude Code (sr)"],
   ["claude_work", "Claude Code (work)"],
 ]) {
-  test(`a folded family forks to the exact ${id} launch entry`, async () => {
+  test(`a folded family's ${id} launch entry is no fork row in its own harness's chat`, async () => {
     const catalog = [
       {
         id: "claude",
@@ -417,11 +414,8 @@ for (const [id, label] of [
     const { forked, switched } = await mount(1, { ready: true }, "claude", catalog);
     await open();
     expect(itemsOf(menu()!).map(labelOf)).not.toContain("Profile");
-    const variant = itemsOf(menu()!).find((item) => labelOf(item) === `Fork to ${label}`);
-    expect(variant).toBeDefined();
-    await act(async () => variant!.click());
-    await settle();
-    expect(forked).toEqual([id!]);
+    expect(itemsOf(menu()!).map(labelOf)).not.toContain(`Fork to ${label}`);
+    expect(forked).toEqual([]);
     expect(switched).toEqual([]);
   });
 }

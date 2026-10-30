@@ -912,15 +912,37 @@ export function ModelPicker(props: ModelPickerProps) {
       current?.id,
     );
     if (!harnessFixed) return rail;
-    // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
-    // Starred keeps the chat's own models, and another launch profile of any harness forks there.
+    // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it, and
+    // Starred keeps the chat's own models. The chat's own tab switches its model in place: it lists
+    // its harness's models and never forks to that harness's launchers (Leo 2026-10-30: "the fact
+    // that it's asking me to fork while im inside an existing claude code chat is bad"). A chat on a
+    // launcher (claude-sr2) has its tab from that launcher's folded entry, which carries no models,
+    // so its models come from its own catalog entry.
     return rail.flatMap((family): QuickFamily[] => {
       const own = family;
       if (family.starred) {
         const models = family.models.filter((model) => model.family === current?.id);
         return models.length ? [{ ...family, models }] : [];
       }
-      if (family.id === current?.id || family.note) return [own];
+      if (family.id === current?.id) {
+        const { variants: _launchers, ...chats } = family;
+        const listed = list.find((entry) => entry.id === current.id);
+        return [
+          {
+            ...chats,
+            launch: false,
+            ...(listed
+              ? {
+                  models: listed.models,
+                  more: listed.more,
+                  ...(listed.note ? { note: listed.note } : {}),
+                  ...(listed.logIn ? { logIn: listed.logIn } : {}),
+                }
+              : {}),
+          },
+        ];
+      }
+      if (family.note) return [own];
       if (family.launch) return [{ ...own, models: [], more: [], fork: true }];
       return [{ ...own, models: [], more: [], fork: true }];
     });
