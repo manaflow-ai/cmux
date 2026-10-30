@@ -95,6 +95,7 @@ impl ChatSettings {
     /// so two saves at once (two settings pushes) never rename one away from the other.
     pub fn save(&self, path: &Path) -> io::Result<()> {
         static SAVES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        crate::config::refuse_lost_home(path).map_err(io::Error::other)?;
         let dir = path.parent().ok_or_else(|| io::Error::other("no parent folder"))?;
         fs::create_dir_all(dir)?;
         let bytes = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
