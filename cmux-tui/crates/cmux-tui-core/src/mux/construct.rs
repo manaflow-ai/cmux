@@ -146,6 +146,11 @@ impl Mux {
     ) -> anyhow::Result<Arc<Self>> {
         // Continues the registry open's laps: the owner logs them (startup_timings).
         let mut timings = registry.take_open_timings();
+        // Warm the pages the adoption's terminal ends write while the restore
+        // runs (workspace_registry::terminal_end_prefetch).
+        if let Some(database) = registry.session_journal_database_path() {
+            crate::workspace_registry::terminal_end_prefetch::start_terminal_end_prefetch(database);
+        }
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let session_shutdown = crate::session_shutdown::SessionShutdownClock::open(

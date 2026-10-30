@@ -267,6 +267,10 @@ impl Mux {
         }
         let mut steps = MaintenanceSteps::default();
         let ledgers_remain = steps.time("ledgers", || self.run_ledger_maintenance(ledgers));
+        // The roster cursor follows the head, so a start replays one tick. A
+        // settled worker wakes on every journal change, so the head never
+        // moves without a tick that catches the roster up.
+        steps.time("agent_roster", || self.catch_up_agent_roster());
         let result = (|| -> anyhow::Result<TickOutcome> {
             let migration = steps.time("auto_vacuum_migration", || {
                 self.workspace_registry
