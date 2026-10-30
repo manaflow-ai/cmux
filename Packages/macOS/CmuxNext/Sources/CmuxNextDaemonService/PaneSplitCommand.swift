@@ -57,9 +57,9 @@ public struct PaneSplitCommand: Sendable {
         // split's stand-in, which the daemon does not know ("unknown pane"); by the time this goes out (the workspace's
         // creates run in order, each once the store holds the one before) the daemon's pane has taken it over
         // (``DaemonStore/daemonHandle(showing:)``). P0 2026-10-30: a quick second Cmd-D made no pane, 12 of 12.
-        let target: @MainActor @Sendable () -> PaneID = { daemon.store.daemonHandle(showing: pane) ?? pane }
+        let target: @MainActor @Sendable () throws -> PaneID = { try daemon.store.daemonTarget(pane) }
         let send = daemon.intendNow("split", intent, transaction: transaction) { connection in
-            try await connection.split(await target(), direction: direction, options: sent)
+            try await connection.split(try await target(), direction: direction, options: sent)
         }
         return {
             guard let created = await send() else { throw PaneSplitFailure() }

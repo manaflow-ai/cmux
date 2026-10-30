@@ -148,6 +148,7 @@ extension DaemonStore {
         guard !standInTargets.isEmpty else { return }
         let targets = Set(intentLog.entries.compactMap { entry -> PaneID? in
             if case .splitPane(let target, _, _, _) = entry.kind { return target }
+            if case .createTab(let target, _) = entry.kind { return target }
             return nil
         })
         standInTargets = standInTargets.filter { targets.contains($0.key) }
@@ -161,6 +162,15 @@ extension DaemonStore {
     /// stand-in is not confirmed yet (a create pressed on a create still in flight waits for it).
     public func daemonHandle(showing handle: PaneID) -> PaneID? {
         ProvisionalSplit.daemonHandle(showing: handle, in: self)
+    }
+
+    /// The pane a command about `handle` sends (rule: a stand-in id never leaves for the daemon): `handle` for a daemon
+    /// pane; for a pending create's stand-in, the daemon's pane that took it over. The caller sends after that create
+    /// (the workspace's create chain), so a stand-in still unresolved here was never made: ``PendingPaneNotCreated``.
+    public func daemonTarget(_ handle: PaneID) throws -> PaneID {
+        guard handle.rawValue >= ProvisionalPane.firstHandle else { return handle }
+        guard let daemon = daemonHandle(showing: handle) else { throw PendingPaneNotCreated() }
+        return daemon
     }
 
     func confirmedPane(_ snapshot: PaneSnapshot) -> PaneModel {
@@ -216,4 +226,11 @@ extension DaemonStore {
             if !intentLog.setUndo(withCause(entry.cause) { IntentOverlay.restore(entry, to: self) }, at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
     }
+}
+
+/// A command named a stand-in pane whose create never made the daemon's pane (it was refused or closed first).
+public struct PendingPaneNotCreated: Error, CustomStringConvertible {
+    public init() {}
+    /// Plain English, as every ``DaemonError`` text of this module (it has no string catalog).
+    public var description: String { "the pane it was for was not created" }
 }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextLayout
 
 /// Pane and split actions (category `.pane` except columns and screens):
@@ -159,6 +160,9 @@ enum PaneHandlers {
                 landed = true
                 if let shownSizing { content?.layoutModel.commitSplitSizing(shownSizing) }
                 return nil
+            } catch is PaneSplitCancelled {
+                if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
+                return nil // the person closed the new pane first
             } catch {
                 if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
                 logger.error("split failed: \(String(describing: error), privacy: .public)")
@@ -166,7 +170,18 @@ enum PaneHandlers {
             }
         }
         if intended != nil { content?.pendingCreate = work }
-        ctx.registry.track(work)
+        // A refusal never vanishes: the stand-in rolls back and the refusal shows where refusals show (rule a).
+        ctx.registry.trackRollingBack(splitAction(direction), work)
+    }
+
+    /// The action a split in `direction` runs (its title names a refused split).
+    static func splitAction(_ direction: PaneDirection) -> ActionID {
+        switch direction {
+        case .left: "splitLeft"
+        case .right: "splitRight"
+        case .up: "splitUp"
+        case .down: "splitDown"
+        }
     }
 
     static func edge(_ direction: PaneDirection) -> PaneEdge {

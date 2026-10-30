@@ -55,10 +55,13 @@ public struct NewTerminalTabCommand: Sendable {
         let transaction = ClientTransactionID.generate()
         let pane = pane, sent = options
         let intent = Intent.createTab(pane: pane, provisional: provisional.terminal(terminal, cwd: options.cwd))
+        // The target at send time (as Cmd-D, New Column and New Row): a Ctrl-` pressed on a pending split's stand-in
+        // names the daemon's pane that took it over, never the stand-in (``DaemonStore/daemonTarget(_:)``).
+        let target: @MainActor @Sendable () throws -> PaneID = { try daemon.store.daemonTarget(pane) }
         let send = daemon.intendNow("new-tab", intent, transaction: transaction) { connection in
             var sent = sent
             if let cwd, let start = await cwd.value { sent.cwd = start }
-            return try await connection.newTab(in: pane, options: sent)
+            return try await connection.newTab(in: try await target(), options: sent)
         }
         return Pending(tab: provisional.id, surface: provisional.surface) {
             guard let created = await send() else { throw NewTerminalTabFailure() }
