@@ -155,12 +155,26 @@ final class FakeHomeOwner: @unchecked Sendable {
 
 @MainActor
 @Suite struct MacHomeFeedTests {
-    /// Waits (bounded) until `condition` holds on the main actor.
-    func until(_ condition: @escaping @MainActor () -> Bool) async -> Bool {
-        await within(.seconds(5)) {
+    /// Waits until `condition` holds on the main actor, for up to `limit` of the main
+    /// actor's own time. A stretch where another test holds the main thread does not
+    /// count: in the full target a synchronous UIKit test can hold it for seconds on a
+    /// cold simulator, and the feed's reads (main-actor tasks) wait behind it, so a wall
+    /// clock limit ran out while nothing in the feed was slow.
+    func until(_ limit: Duration = .seconds(5), _ condition: @escaping @MainActor () -> Bool) async -> Bool {
+        await within(limit) {
             while await !condition() { await Task.yield() }
             return true
         } ?? false
+    }
+
+    @Test func aHeldMainActorDoesNotUseUpTheWait() async {
+        let held = HeldFlag()
+        // Holds the main thread past the wait's limit, then sets the flag.
+        Task {
+            usleep(600_000)
+            held.done = true
+        }
+        #expect(await until(.milliseconds(300)) { held.done })
     }
 
     @Test func readsTheMacsHomeListOverTheChiefChannel() async throws {
@@ -320,6 +334,11 @@ final class PushLink: MacLink, @unchecked Sendable {
     func push(_ line: Data) {
         for channel in lock.withLock({ channels }) { channel.deliver(line) }
     }
+}
+
+/// Set by a main-actor task in the wait test.
+@MainActor final class HeldFlag {
+    var done = false
 }
 
 final class PushChannel: LinkChannel, @unchecked Sendable {
