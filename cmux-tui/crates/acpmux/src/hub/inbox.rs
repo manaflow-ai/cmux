@@ -810,6 +810,11 @@ impl Hub {
                 None
             }
         };
+        // Its messages wait again. The cap's timer saw them carried, and the inbox steers none
+        // into a turn past its cap: that turn gets the cap's notice (`turn_cap.rs`).
+        if answered.is_none() && !ids.is_empty() && !super::queue::closing(session) {
+            self.turn_cap_recheck(session);
+        }
         if let Some(answer) = answered {
             let mut msg = json!({"noticePromptId": notice_id, "promptIds": ids});
             match answer {
