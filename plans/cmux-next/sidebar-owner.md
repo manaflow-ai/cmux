@@ -596,6 +596,10 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 
 ## Pointing hand over the sidebar's icon buttons (2026-10-29)
 
+## Archive finished agent chats (2026-10-30)
+
+- Pending PR (this lane), Leo: "Finished and closed chats settle into a collapsed group (or drop to the bottom); they never disappear" and "No bulk action by state: closing 234 finished rows took 234 calls." Settled Priority chats remain represented by their existing rows, and the background action archives all settled chats through the same acpmux archive path as an individual row. Working, waiting and CI-failing chats stay visible. Tests: `AgentPriorityRankingTests.settledStatesAreTheOnlyStatesEligibleForFinishedArchive`, `SidebarPriorityRowActionsTests.archiveFinishedArchivesSettledRowsAndLeavesQuestionsVisible`.
+
 - [668f7306170](https://github.com/manaflow-ai/cmux/commit/668f7306170) (PR [#24009](https://github.com/manaflow-ai/cmux/pull/24009)). Leo, verbatim: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE". `SidebarIconButton` now subclasses `ClickableButton` (CmuxNextDesign), so an enabled sidebar icon button shows the pointing-hand cursor. Only the superclass changes: no drawing, layout, hover or row change, so no look change. The commit predates its branch's `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `ClickableCursorTests`.
 
 ## First group fold reads a prepared lookup (2026-10-29)
