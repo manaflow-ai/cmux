@@ -409,6 +409,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/inbox_digest",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/send_queue",
       "params": true,
       "result": true
@@ -3898,6 +3904,9 @@
         "modes": {
           "description": "The agent's ACP session modes."
         },
+        "movedTo": {
+          "description": "Moved to another daemon (`acpmux session move`): where it runs now,\n`{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,\nand from a peer on an older acpmux."
+        },
         "moving": {
           "description": "Being moved to another daemon; it takes no prompt meanwhile.",
           "type": "boolean"
@@ -4036,7 +4045,7 @@
         },
         "state": {
           "default": "",
-          "description": "Effective liveness: `stuck` after three classified harness failures, else `status`.",
+          "description": "Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`.",
           "type": "string"
         },
         "stateSeq": {
@@ -4420,6 +4429,9 @@
             "null"
           ]
         },
+        "movedTo": {
+          "description": "Moved to another daemon (`acpmux session move`): where it runs now,\n`{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,\nand from a peer on an older acpmux."
+        },
         "moving": {
           "description": "Being moved to another daemon; it takes no prompt meanwhile.",
           "type": "boolean"
@@ -4550,7 +4562,7 @@
         },
         "state": {
           "default": "",
-          "description": "Effective liveness: `stuck` after three classified harness failures, else `status`.",
+          "description": "Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`.",
           "type": "string"
         },
         "stateSeq": {
