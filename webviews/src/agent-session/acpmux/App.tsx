@@ -10141,7 +10141,9 @@ function AcpmuxPane() {
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
-            onUnsentDraft={quick ? undefined : onNewChatDraft}
+            // Start Agent's panel keeps a new chat's text with its host too: an update or a quit
+            // never takes it (QuickComposerController's drafts). It warms no tab's start.
+            onUnsentDraft={quick ? postUnsentDraft : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
