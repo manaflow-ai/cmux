@@ -276,6 +276,25 @@ mod tests {
     }
 
     #[test]
+    fn a_secret_in_a_tool_title_or_plan_step_is_masked() {
+        // A fake key, assembled so no file holds one.
+        let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+        let mut doing = TurnActivity::default();
+        doing.note(&json!({"sessionUpdate": "tool_call", "toolCallId": "t1",
+                           "title": format!("curl -H 'x-key: {key}' https://example.com")}));
+        doing.note(&json!({"sessionUpdate": "plan", "entries": [
+            {"content": format!("log in with {key}"), "status": "in_progress"}]}));
+        let (activity, step) = (doing.activity.unwrap(), doing.plan_step.unwrap());
+        assert!(activity.starts_with("curl -H") && !activity.contains(&key), "{activity}");
+        assert!(step.starts_with("log in with") && !step.contains(&key), "{step}");
+        // Masked before the cut: a key straddling it leaves no head.
+        let pad = "x ".repeat((ACTIVITY_CHARS - 10) / 2);
+        let u = json!({"sessionUpdate": "tool_call", "title": format!("{pad}{key}")});
+        let cut = format!("{:?}", activity_of(&u));
+        assert!(cut.contains('…') && !cut.contains("AKIAQ7"), "{cut}");
+    }
+
+    #[test]
     fn a_long_title_is_cut() {
         let u = json!({"sessionUpdate": "tool_call", "title": "x".repeat(500)});
         let Some(Activity::Tool(t)) = activity_of(&u) else { panic!() };
