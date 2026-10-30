@@ -850,9 +850,14 @@ mark {
 .host-footer,
 .host-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin-top: 8px;
+}
+
+.clear-browsing-data-error {
+  flex-basis: 100%;
 }
 
 .host-toggle {

@@ -504,6 +504,7 @@ function ClearBrowsingData({ target }: { target: string }) {
   const [cleared, setCleared] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const title = t("action.browserProfile.clearBrowsingData").replace(/…$/, "");
+  const refusalReason = error === "cmux.app.action.run failed" ? "The browser profile is in use." : error;
   // "Cleared" once the app took the run; a refused run shows the owner's error.
   const clear = async () => {
     setCleared(false);
@@ -563,12 +564,12 @@ function ClearBrowsingData({ target }: { target: string }) {
             {t("settingsWindow.browsingDataCleared")}
           </output>
         )}
-        {error && (
-          <output className="row-error" data-clear-error="" role="alert">
-            {error}
-          </output>
-        )}
       </span>
+      {error && (
+        <output className="row-error clear-browsing-data-error" data-clear-error="" role="alert">
+          {`Couldn’t clear browsing data.${refusalReason ? ` ${refusalReason}` : ""}`}
+        </output>
+      )}
     </div>
   );
 }

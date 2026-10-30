@@ -46,6 +46,6 @@ test("a refused clear shows the native error instead of Cleared", async () => {
   await act(async () => form.querySelector<HTMLButtonElement>("[data-clear]")!.click());
   await settle();
   expect(form.querySelector("[data-cleared]")).toBeNull();
-  expect(form.querySelector<HTMLElement>("[data-clear-error]")?.textContent).toBe("cmux.app.action.run failed");
+  expect(form.querySelector<HTMLElement>("[data-clear-error]")?.textContent).toBe("Couldn’t clear browsing data. The browser profile is in use.");
   page.unmount();
 });
