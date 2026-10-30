@@ -7,15 +7,17 @@ public nonisolated struct PaneTabRowMenuItem: Equatable, Sendable {
     public let enabled: Bool
     public let checked: Bool?
     public let role: String?
+    public let separatorBefore: Bool
     public let children: [PaneTabRowMenuItem]
 
     public init(id: String, label: String, enabled: Bool = true, checked: Bool? = nil,
-                role: String? = nil, children: [PaneTabRowMenuItem] = []) {
+                role: String? = nil, separatorBefore: Bool = false, children: [PaneTabRowMenuItem] = []) {
         self.id = id
         self.label = label
         self.enabled = enabled
         self.checked = checked
         self.role = role
+        self.separatorBefore = separatorBefore
         self.children = children
     }
 }

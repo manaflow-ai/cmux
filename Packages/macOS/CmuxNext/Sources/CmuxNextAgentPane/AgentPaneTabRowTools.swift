@@ -78,7 +78,15 @@ nonisolated enum AgentPaneTabRowTools {
         } else {
             role = nil
         }
-        return PaneTabRowMenuItem(id: id, label: label, enabled: enabled, checked: checked, role: role, children: children)
+        let separatorBefore: Bool
+        if let rawSeparator = object["separatorBefore"], !(rawSeparator is NSNull) {
+            guard let parsed = rawSeparator as? Bool else { return nil }
+            separatorBefore = parsed
+        } else {
+            separatorBefore = false
+        }
+        return PaneTabRowMenuItem(id: id, label: label, enabled: enabled, checked: checked, role: role,
+                                  separatorBefore: separatorBefore, children: children)
     }
 
     private nonisolated static func text(_ value: Any?) -> String? {

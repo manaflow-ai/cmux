@@ -172,7 +172,10 @@ public final class PaneToolbarView: NSView {
         let menu = NSMenu(title: tool.label)
         let invoke = onNativeTool
         menu.autoenablesItems = false
-        for item in tool.menu { menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke)) }
+        for item in tool.menu {
+            if item.separatorBefore { menu.addItem(.separator()) }
+            menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke))
+        }
         return menu
     }
 
@@ -180,7 +183,10 @@ public final class PaneToolbarView: NSView {
         guard !tool.contextMenu.isEmpty else { return nil }
         let menu = NSMenu(title: tool.label)
         menu.autoenablesItems = false
-        tool.contextMenu.forEach { menu.addItem(menuItem($0, tool: tool, ancestorsEnabled: tool.enabled, invoke: onNativeTool)) }
+        for item in tool.contextMenu {
+            if item.separatorBefore { menu.addItem(.separator()) }
+            menu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: onNativeTool))
+        }
         return menu
     }
 
@@ -206,7 +212,10 @@ public final class PaneToolbarView: NSView {
             if !tool.menu.isEmpty {
                 let submenu = NSMenu(title: tool.label)
                 submenu.autoenablesItems = false
-                tool.menu.forEach { submenu.addItem(menuItem($0, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke)) }
+                for item in tool.menu {
+                    if item.separatorBefore { submenu.addItem(.separator()) }
+                    submenu.addItem(menuItem(item, tool: tool, ancestorsEnabled: tool.enabled, invoke: invoke))
+                }
                 row.submenu = submenu
             }
             return row
@@ -230,7 +239,10 @@ public final class PaneToolbarView: NSView {
         if !item.children.isEmpty {
             let submenu = NSMenu(title: item.label)
             submenu.autoenablesItems = false
-            item.children.forEach { submenu.addItem(self.menuItem($0, tool: tool, ancestorsEnabled: enabled, invoke: invoke)) }
+            for child in item.children {
+                if child.separatorBefore { submenu.addItem(.separator()) }
+                submenu.addItem(self.menuItem(child, tool: tool, ancestorsEnabled: enabled, invoke: invoke))
+            }
             row.submenu = submenu
         }
         return row
