@@ -7099,22 +7099,20 @@ function AcpmuxPane() {
       const session = sessionIdRef.current;
       const composer = composerHandle.current;
       if (!composer) return false;
+      const local = chatIsLocal.current;
       const moved = () => session !== sessionIdRef.current || composer !== composerHandle.current;
       try {
-        const recording = await recordingAttachment(
-          audio,
-          translate("dictation.recording"),
-          chatIsLocal.current,
-          async (file) => {
-            const result = await uploadFiles([file], moved);
-            if (result && "paths" in result && result.paths[0]) return result.paths[0];
-            throw new Error(result && "error" in result ? result.error : translate("upload.notRead"));
-          },
-        );
+        const recording = await recordingAttachment(audio, translate("dictation.recording"), local, async (file) => {
+          const result = await uploadFiles([file], moved);
+          if (result && "paths" in result && result.paths[0]) return result.paths[0];
+          throw new Error(result && "error" in result ? result.error : translate("upload.notRead"));
+        });
         if (moved()) return false;
         if (recording) composer.attach(recording);
         else directClient.current?.notice(translate(recordingLeftOutNotice(audio.path ? "elsewhere" : "writeFailed")));
-        return recording !== undefined;
+        // A saved recording on another computer already sent its transcript alone. Preserve that
+        // intentional omission; only a failed upload/write keeps auto-send waiting for recovery.
+        return recording !== undefined || Boolean(audio.path && !local);
       } catch (error) {
         if (!moved()) directClient.current?.notice(errorMessage(error) || String(error));
         return false;

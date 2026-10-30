@@ -47,7 +47,7 @@ const clip = { mimeType: "audio/wav", data: "UklGRg==" };
 
 /// A composer field and the dictation hook on it; returns what the host was asked, what was
 /// attached, and the field's text at each attach.
-async function mount(accepts: boolean, chat?: () => string | undefined, save?: () => Promise<void>) {
+async function mount(accepts: boolean, chat?: () => string | undefined, save?: () => Promise<void | boolean>) {
   const { createRoot } = await import("react-dom/client");
   const { useDictation } = await import("../src/agent-session/acpmux/dictation");
   const calls: [string, unknown][] = [];
@@ -340,6 +340,21 @@ test("auto-send waits for the recording upload before submitting its words", asy
     await pane.whenSubmitted;
   });
   expect(pane.submitted()).toBe(1);
+  configureDictation(undefined);
+  act(() => root?.unmount());
+  root = undefined;
+});
+
+test("a failed recording upload keeps dictated words unsent", async () => {
+  const { deliverDictation, configureDictation } = await import("../src/agent-session/acpmux/dictation");
+  configureDictation({ dictation: { autoSend: true } });
+  const pane = await mount(true, undefined, async () => false);
+  await act(async () => {
+    deliverDictation({ state: "listening", text: "keep audio", level: 0, cancelled: false });
+    deliverDictation({ state: "idle", text: "keep audio", level: 0, cancelled: false, audio: clip });
+  });
+  expect(pane.text()).toBe("keep audio");
+  expect(pane.submitted()).toBe(0);
   configureDictation(undefined);
   act(() => root?.unmount());
   root = undefined;
