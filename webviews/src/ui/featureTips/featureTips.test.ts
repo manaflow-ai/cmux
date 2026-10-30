@@ -1,18 +1,26 @@
 // The feature tip rules (leo-workspace design/feature-tips.md), one test each, on the real
-// scheduler with a test clock and a jsdom page.
+// scheduler with a test clock and a jsdom page, and the app's install-level records in memory as the
+// Swift AgentPaneFeatureTipRecords keeps them. Leo, 2026-10-30: "no this should be very very
+// infrequent like app installation level frequent and if they havent used the browser".
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { createTipController, type ShownTip, type TipAnchor, type TipController } from "./controller";
 import { firstSentence, highlightTip } from "./catalog";
-import { TIP_IDLE_MS, TIP_MAX_LAUNCHES, TIP_SETTLE_MS, type FeatureTipEntry } from "./policy";
-import { memoryTipHost, type TipHost } from "./store";
+import { TIP_IDLE_MS, TIP_SETTLE_MS, type FeatureTipEntry } from "./policy";
+import { memoryTipHost, TIP_INTERVAL_DAYS, type TipHost } from "./store";
 
 const TIPS: FeatureTipEntry[] = [
-  { id: "browser-tip", anchor: "agent.browser", title: "Agents drive the browser", body: "One sentence." },
+  {
+    id: "browser-tip",
+    anchor: "agent.browser",
+    title: "Agents drive the browser",
+    body: "One sentence.",
+    feature: "browser",
+  },
   { id: "inspector-tip", anchor: "agent.inspector", title: "The Inspector", body: "One sentence." },
 ];
 const ANCHORS: Record<string, TipAnchor> = {
-  "agent.browser": { selector: "#browser", side: "bottom" },
+  "agent.browser": { selector: "#browser", side: "bottom", feature: "browser" },
   "agent.inspector": { selector: "#inspector", side: "bottom" },
 };
 
@@ -33,7 +41,9 @@ beforeEach(() => {
   clock = 0;
   timers = [];
   pages = [];
-  launchHost = memoryTipHost();
+  install = memoryTipHost();
+  install.now = () => wall;
+  wall = Date.UTC(2026, 9, 30);
 });
 
 afterEach(() => {
@@ -67,7 +77,7 @@ async function page(options: PageOptions = {}) {
   const controller = createTipController({
     tips: options.tips ?? TIPS,
     anchors: ANCHORS,
-    host: options.host ?? launchHost,
+    host: options.host ?? install,
     doc: dom.window.document,
     typing: options.typing ?? (() => false),
     onChange: (tip) => shown.push(tip),
@@ -92,9 +102,14 @@ async function page(options: PageOptions = {}) {
 const press = (selector: string, type = "pointerdown") =>
   dom.window.document.querySelector(selector)!.dispatchEvent(new dom.window.Event(type, { bubbles: true }));
 
-/** The app's records, shared by every page of a test; `relaunch` starts its next launch. */
-let launchHost: ReturnType<typeof memoryTipHost>;
-const relaunch = () => launchHost.relaunch();
+/** The app's records for this install, shared by every page and launch of a test. */
+let install: ReturnType<typeof memoryTipHost>;
+/** The app's wall clock, for the days between tips. */
+let wall: number;
+/** A relaunch: every page of the last launch is gone; the install's records stay. */
+const relaunch = () => {
+  for (const each of pages.splice(0)) each.stop();
+};
 /** Moves the clock on, then lets the app's answer to a claim arrive. */
 async function settle(ms: number) {
   advance(ms);
@@ -146,49 +161,87 @@ describe("feature tips", () => {
     expect(controller.shown).toBeNull();
   });
 
-  test("one tip at a time, and one per launch across every page", async () => {
+  test("shown once per install: never again after a relaunch, even after it was only put away", async () => {
+    const { controller } = await page();
+    await settle(TIP_SETTLE_MS);
+    expect(controller.shown?.tip.id).toBe("browser-tip");
+    press("#elsewhere", "keydown");
+    expect(controller.shown).toBeNull();
+    expect(install.records["browser-tip"]).toBe("shown");
+    relaunch();
+    wall += 365 * 86_400_000;
+    const next = await page({ tips: [TIPS[0]!] });
+    await settle(TIP_SETTLE_MS * 4);
+    expect(next.controller.shown).toBeNull();
+  });
+
+  test("one tip at a time across pages, and at most one tip every 14 days", async () => {
     const first = await page();
     const second = await page();
     await settle(TIP_SETTLE_MS);
     expect([first.controller.shown, second.controller.shown].filter(Boolean)).toHaveLength(1);
-    press("#elsewhere");
+    relaunch();
+    wall += (TIP_INTERVAL_DAYS - 1) * 86_400_000;
+    const soon = await page();
     await settle(TIP_SETTLE_MS * 4);
-    expect(first.controller.shown).toBeNull();
-    expect(second.controller.shown).toBeNull();
-    const third = await page();
+    expect(soon.controller.shown).toBeNull();
+    relaunch();
+    wall += 2 * 86_400_000;
+    const later = await page();
+    await settle(TIP_SETTLE_MS);
+    expect(later.controller.shown?.tip.id).toBe("inspector-tip");
+  });
+
+  test("never when the browser was used, by any path the app saw", async () => {
+    install.used.add("browser");
+    const { controller } = await page({ tips: [TIPS[0]!] });
     await settle(TIP_SETTLE_MS * 4);
-    expect(third.controller.shown).toBeNull();
+    expect(controller.shown).toBeNull();
+    expect(install.records["browser-tip"]).toBeUndefined();
+  });
+
+  test("an existing install with browser use sees nothing, and its page stops listening", async () => {
+    install.used.add("browser");
+    const { controller } = await page({ tips: [TIPS[0]!] });
+    await settle(TIP_SETTLE_MS * 4);
+    expect(controller.shown).toBeNull();
+    expect(timers).toHaveLength(0);
+  });
+
+  test("browser use before the idle moment cancels the pending tip", async () => {
+    const clicked = await page({ tips: [TIPS[0]!] });
+    await settle(TIP_SETTLE_MS - 1000);
+    press("#browser", "click");
+    await settle(TIP_SETTLE_MS * 4);
+    expect(clicked.controller.shown).toBeNull();
+    expect(install.records["browser-tip"]).toBe("used");
+  });
+
+  test("an agent opening a browser tab before the idle moment cancels it too", async () => {
+    const { controller } = await page({ tips: [TIPS[0]!] });
+    await settle(TIP_SETTLE_MS - 1000);
+    install.used.add("browser");
+    await settle(TIP_SETTLE_MS * 4);
+    expect(controller.shown).toBeNull();
+    expect(install.records["browser-tip"]).toBeUndefined();
   });
 
   test("its X closes it for good", async () => {
-    const host = launchHost;
-    const { controller } = await page({ host, tips: [TIPS[0]!] });
+    const { controller } = await page({ tips: [TIPS[0]!] });
     await settle(TIP_SETTLE_MS);
     controller.close();
     expect(controller.shown).toBeNull();
-    expect(host.records["browser-tip"]).toBe("closed");
-    relaunch();
-    const next = await page({ host, tips: [TIPS[0]!] });
-    await settle(TIP_SETTLE_MS * 4);
-    expect(next.controller.shown).toBeNull();
+    expect(install.records["browser-tip"]).toBe("closed");
   });
 
-  test("using the feature closes it for good, shown or not", async () => {
-    const host = launchHost;
-    const { controller } = await page({ host });
-    press("#inspector", "click");
-    expect(host.records["inspector-tip"]).toBe("used");
+  test("using the feature while the tip shows closes it for good", async () => {
+    const { controller } = await page({ tips: [TIPS[0]!] });
     await settle(TIP_SETTLE_MS);
-    expect(controller.shown?.tip.id).toBe("browser-tip");
     press("#browser");
     expect(controller.shown).not.toBeNull();
     press("#browser", "click");
     expect(controller.shown).toBeNull();
-    expect(host.records["browser-tip"]).toBe("used");
-    relaunch();
-    const next = await page({ host });
-    await settle(TIP_SETTLE_MS * 4);
-    expect(next.controller.shown).toBeNull();
+    expect(install.records["browser-tip"]).toBe("used");
   });
 
   test("the Settings toggle hides every tip", async () => {
@@ -201,32 +254,6 @@ describe("feature tips", () => {
     expect(controller.shown).not.toBeNull();
     controller.update({ enabled: false, streaming: false });
     expect(controller.shown).toBeNull();
-  });
-
-  test("two pages that claim at once: only the app's first claim shows", async () => {
-    const first = await page();
-    const second = await page();
-    advance(TIP_SETTLE_MS);
-    await settle(0);
-    expect([first.controller.shown, second.controller.shown].filter(Boolean)).toHaveLength(1);
-  });
-
-  test("a tip on its last launch still records a use, and still goes away on input", async () => {
-    launchHost.records["browser-tip"] = `shown:${TIP_MAX_LAUNCHES - 1}`;
-    const used = await page({ tips: [TIPS[0]!] });
-    await settle(TIP_SETTLE_MS);
-    expect(used.controller.shown).not.toBeNull();
-    press("#browser");
-    press("#browser", "click");
-    expect(launchHost.records["browser-tip"]).toBe("used");
-    used.controller.stop();
-    relaunch();
-    launchHost.records["browser-tip"] = `shown:${TIP_MAX_LAUNCHES - 1}`;
-    const typed = await page({ tips: [TIPS[0]!] });
-    await settle(TIP_SETTLE_MS);
-    expect(typed.controller.shown).not.toBeNull();
-    press("#elsewhere", "keydown");
-    expect(typed.controller.shown).toBeNull();
   });
 
   test("a control removed from the page puts its tip away", async () => {
@@ -252,23 +279,6 @@ describe("feature tips", () => {
     const { controller } = await page({ host });
     await settle(TIP_SETTLE_MS * 4);
     expect(controller.shown).toBeNull();
-  });
-
-  test(`a tip passed over on ${TIP_MAX_LAUNCHES} launches retires`, async () => {
-    const host = launchHost;
-    for (let launch = 0; launch < TIP_MAX_LAUNCHES; launch++) {
-      relaunch();
-      const { controller } = await page({ host, tips: [TIPS[0]!] });
-      await settle(TIP_SETTLE_MS);
-      expect(controller.shown).not.toBeNull();
-      controller.stop();
-    }
-    expect(host.records["browser-tip"]).toBe(`shown:${TIP_MAX_LAUNCHES}`);
-    relaunch();
-    const last = await page({ host, tips: [TIPS[0]!] });
-    await settle(TIP_SETTLE_MS * 4);
-    expect(last.controller.shown).toBeNull();
-    expect(timers).toHaveLength(0);
   });
 });
 

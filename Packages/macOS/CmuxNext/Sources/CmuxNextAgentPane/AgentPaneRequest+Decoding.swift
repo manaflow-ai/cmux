@@ -145,7 +145,7 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "tips.state":
-            // `{}` reads the records, `{id, state}` keeps one, `{claim}` claims the launch's tip.
+            // `{}` reads the records, `{id, state}` keeps one, `{claim, feature?}` asks to show a tip.
             if let tips = AgentPaneFeatureTipRequest(params) {
                 self = .featureTips(tips)
             } else {

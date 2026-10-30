@@ -1,40 +1,47 @@
 // Where feature tips keep their state (leo-workspace design/feature-tips.md, "State"): the app,
-// through the page's host. An agent page's own storage ends with the launch, and pages do not share
-// it (a WebKit chat page has a store of its own), so the app keeps both:
-// - for good: each tip closed with its X, its feature used, or the launches it showed on;
-// - for this launch: the one tip the launch shows. `claim` is answered on the app's main actor, one
-//   page at a time, so two pages never both take it.
-import type { TipRecord, TipRecords } from "./policy";
+// through the page's host, for the life of the install. An agent page's own storage ends with the
+// launch and pages share none, so the app keeps every record, the features the person used (any
+// browser tab, by any path, is a use of the browser), and when a tip last showed. `claim` asks the
+// app to show one tip: it says yes only to a tip that never showed, about a feature never used, at
+// least 14 days after the last tip (Swift AgentPaneFeatureTipRecords).
+import type { TipRecord, TipState } from "./policy";
 
 export interface TipHost {
-  /** The records; rejects on an app that keeps none. */
-  read(): Promise<TipRecords>;
-  write(id: string, record: TipRecord): Promise<TipRecords | void>;
-  /** Takes this launch's one tip for `id`: true for the first claim of the launch, false after. */
-  claim(id: string): Promise<boolean>;
+  /** The install's state; rejects on an app that keeps none. */
+  read(): Promise<TipState>;
+  write(id: string, record: TipRecord): Promise<unknown>;
+  /** Asks to show tip `id` about `feature`: true at most once per tip per install. */
+  claim(id: string, feature: string | undefined): Promise<boolean>;
 }
 
-/** A host kept in memory, one launch: tests and the gallery. `relaunch` starts the next launch. */
-export function memoryTipHost(initial: TipRecords = {}): TipHost & {
+/** The fewest days between two tips (Swift AgentPaneFeatureTipRecords.minimumDaysBetweenTips). */
+export const TIP_INTERVAL_DAYS = 14;
+
+/** A host kept in memory, as the app keeps it: tests and the gallery. */
+export function memoryTipHost(initial: Record<string, string> = {}): TipHost & {
   records: Record<string, string>;
-  relaunch(): void;
+  used: Set<string>;
+  /** When a tip last showed (ms), and the clock claims read. */
+  lastShownAt: number | null;
+  now: () => number;
 } {
-  const records: Record<string, string> = { ...initial };
-  let claimed: string | null = null;
-  return {
-    records,
-    read: async () => ({ ...records }),
-    write: async (id, record) => {
-      records[id] = record;
-      return { ...records };
+  const host = {
+    records: { ...initial } as Record<string, string>,
+    used: new Set<string>(),
+    lastShownAt: null as number | null,
+    now: () => Date.now(),
+    read: async (): Promise<TipState> => ({ records: { ...host.records }, used: new Set(host.used) }),
+    write: async (id: string, record: TipRecord) => {
+      const kept = host.records[id];
+      if (kept !== "closed" && kept !== "used") host.records[id] = record;
     },
-    claim: async (id) => {
-      if (claimed !== null) return false;
-      claimed = id;
+    claim: async (id: string, feature: string | undefined) => {
+      if (host.records[id] !== undefined || (feature !== undefined && host.used.has(feature))) return false;
+      if (host.lastShownAt !== null && host.now() - host.lastShownAt < TIP_INTERVAL_DAYS * 86_400_000) return false;
+      host.records[id] = "shown";
+      host.lastShownAt = host.now();
       return true;
     },
-    relaunch: () => {
-      claimed = null;
-    },
   };
+  return host;
 }

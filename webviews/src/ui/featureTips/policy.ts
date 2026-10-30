@@ -6,21 +6,27 @@
 // - Never while an agent streams or the person types (a draft in the composer counts as typing).
 // - Never over a menu, popover or dialog, nor in a page that is hidden or not focused.
 // - Never without its control on screen: a tip points at the control, so no control, no tip.
-// - At most one tip at a time, and one per app launch: the first tip a launch shows is its only one.
-// - A tip closed with its X, or whose feature the person used, never shows again; nor one shown on
-//   TIP_MAX_LAUNCHES launches without either (it was seen and passed over).
+// - Install-level (Leo, 2026-10-30: "no this should be very very infrequent like app installation
+//   level frequent and if they havent used the browser"): each tip shows at most once per install,
+//   never once its feature was used, and at most one tip every 14 days. The app decides that
+//   (`TipHost.claim`, Swift AgentPaneFeatureTipRecords); a page only asks at a right moment.
+// - A tip with any record (shown, closed with its X, used) never shows again.
 // - The Settings toggle (updates.showFeatureTips) turns every tip off.
 
 /** A page shows no tip until it has been open this long. */
 export const TIP_SETTLE_MS = 30_000;
 /** ...and the person has not pressed a key, clicked or scrolled for this long. */
 export const TIP_IDLE_MS = 8_000;
-/** A tip shown on this many launches without its X or a use is retired. */
-export const TIP_MAX_LAUNCHES = 3;
-
-/** What the app keeps for one tip: closed with its X, its feature used, or shown on N launches. */
-export type TipRecord = "closed" | "used" | `shown:${number}`;
+/** What a page keeps for one tip: closed with its X, or its feature used. The app records `shown`
+    itself when it grants a tip. */
+export type TipRecord = "closed" | "used";
 export type TipRecords = Readonly<Record<string, string>>;
+
+/** What the app keeps for this install: each tip's record, and the features the person used. */
+export interface TipState {
+  records: TipRecords;
+  used: ReadonlySet<string>;
+}
 
 /** One tip, derived from its What's New highlight (`tip:` line; tips.generated.json). */
 export interface FeatureTipEntry {
@@ -30,6 +36,8 @@ export interface FeatureTipEntry {
   anchor: string;
   title: string;
   body: string;
+  /** The feature it is about (its control's, the anchor table): a use of it means no tip. */
+  feature?: string;
 }
 
 export interface TipMoment {
@@ -43,7 +51,7 @@ export interface TipMoment {
   idleMs: number;
   overlayOpen: boolean;
   focused: boolean;
-  /** This launch's one tip already went to a page (the app's claim, store.ts), or is being claimed. */
+  /** The app was asked for a tip from this page, or said no: this page asks no more. */
   spent: boolean;
 }
 
@@ -60,20 +68,9 @@ export type TipBlock =
   | "no-anchor"
   | "done";
 
-/** How many launches a record says the tip was shown on. */
-export function shownLaunches(record: string | undefined): number {
-  const match = /^shown:(\d+)$/.exec(record ?? "");
-  return match ? Number(match[1]) : 0;
-}
-
-/** Whether a tip never shows again: closed, used, or passed over TIP_MAX_LAUNCHES times. */
-export function isDone(record: string | undefined): boolean {
-  return record === "closed" || record === "used" || shownLaunches(record) >= TIP_MAX_LAUNCHES;
-}
-
-/** The record to keep when a tip shows on one more launch. */
-export function shownRecord(record: string | undefined): TipRecord {
-  return `shown:${shownLaunches(record) + 1}`;
+/** Whether a tip never shows: it has a record (shown once, closed, used), or its feature was used. */
+export function isDone(tip: FeatureTipEntry, state: TipState): boolean {
+  return state.records[tip.id] !== undefined || (tip.feature !== undefined && state.used.has(tip.feature));
 }
 
 /** Why no tip may show now, before looking at any one tip (null: the moment allows one). */
@@ -104,18 +101,18 @@ export function waitMs(moment: TipMoment): number {
 export function pickTip(
   moment: TipMoment,
   tips: readonly FeatureTipEntry[],
-  records: TipRecords,
+  state: TipState,
   anchorVisible: (anchor: string) => boolean,
 ): { tip: FeatureTipEntry } | { block: TipBlock } {
   const block = momentBlock(moment);
   if (block) return { block };
-  const open = tips.filter((tip) => !isDone(records[tip.id]));
+  const open = tips.filter((tip) => !isDone(tip, state));
   if (open.length === 0) return { block: "done" };
   const tip = open.find((entry) => anchorVisible(entry.anchor));
   return tip ? { tip } : { block: "no-anchor" };
 }
 
 /** Whether every tip is done, so the host stops listening for good. */
-export function allDone(tips: readonly FeatureTipEntry[], records: TipRecords): boolean {
-  return tips.every((tip) => isDone(records[tip.id]));
+export function allDone(tips: readonly FeatureTipEntry[], state: TipState): boolean {
+  return tips.every((tip) => isDone(tip, state));
 }

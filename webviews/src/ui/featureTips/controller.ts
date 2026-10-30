@@ -4,8 +4,8 @@
 // Timer and listeners (their stop conditions):
 // - One idle timer, armed only after an event (load, a key, press or scroll, focus, the agent
 //   stopping, the toggle turning on), for the time policy.ts still needs; it never repeats on its own.
-//   It is not armed once this launch showed its tip, every tip is done, the toggle is off or the app
-//   keeps no records, and `stop()` clears it.
+//   It is not armed once this page asked the app for its tip, every tip is done, the toggle is off
+//   or the app keeps no records, and `stop()` clears it.
 // - Capture listeners for keydown, pointerdown, wheel and click, plus focus and visibilitychange.
 //   They stay while some tip is not done or one shows (a use still has to be recorded after this
 //   launch's tip), and `stop()` or the last tip done, once none shows, removes them.
@@ -13,18 +13,20 @@ import {
   allDone,
   isDone,
   pickTip,
-  shownRecord,
   waitMs,
   waitsForTime,
   type FeatureTipEntry,
   type TipMoment,
-  type TipRecords,
+  type TipRecord,
+  type TipState,
 } from "./policy";
 import type { TipHost } from "./store";
 
 export interface TipAnchor {
   /** The control, found in the page by this selector. */
   selector: string;
+  /** The feature the control is: a tip about it never shows once it was used (the app knows). */
+  feature?: string;
   /** Which side of the control the tip opens on. */
   side: "top" | "bottom";
 }
@@ -99,7 +101,7 @@ export function createTipController(options: TipControllerOptions): TipControlle
   const focused = options.focused ?? pageFocused;
   const born = options.openedAt ?? now();
   let lastInput = born;
-  let records: TipRecords | null = null;
+  let state: TipState | null = null;
   let enabled = true;
   let streaming = false;
   let shown: ShownTip | null = null;
@@ -119,7 +121,7 @@ export function createTipController(options: TipControllerOptions): TipControlle
 
   const moment = (): TipMoment => ({
     enabled,
-    hostReady: records !== null,
+    hostReady: state !== null,
     streaming,
     typing: typing(),
     pageAgeMs: now() - born,
@@ -134,24 +136,27 @@ export function createTipController(options: TipControllerOptions): TipControlle
     timer = undefined;
   };
 
-  const keep = (id: string, record: Parameters<TipHost["write"]>[1]) => {
-    records = { ...records, [id]: record };
-    void host.write(id, record).catch(() => undefined);
-    if (!shown && allDone(tips, records)) unlisten();
+  const keep = (tip: FeatureTipEntry, record: TipRecord) => {
+    if (!state) return;
+    const used = new Set(state.used);
+    if (record === "used" && tip.feature) used.add(tip.feature);
+    state = { records: { ...state.records, [tip.id]: record }, used };
+    void host.write(tip.id, record).catch(() => undefined);
+    if (!shown && allDone(tips, state)) unlisten();
   };
 
   const putAway = () => {
     if (!shown) return;
     shown = null;
     onChange(null);
-    if (records && allDone(tips, records)) unlisten();
+    if (state && allDone(tips, state)) unlisten();
   };
 
   const arm = () => {
     disarm();
-    if (stopped || shown || spent || claiming || !records || !enabled || allDone(tips, records)) return;
+    if (stopped || shown || spent || claiming || !state || !enabled || allDone(tips, state)) return;
     const current = moment();
-    const pick = pickTip(current, tips, records, (anchor) => anchorShown(element(anchor)));
+    const pick = pickTip(current, tips, state, (anchor) => anchorShown(element(anchor)));
     if ("tip" in pick) return show(pick.tip);
     if (waitsForTime(pick.block)) timer = setTimer(arm, waitMs(current));
   };
@@ -159,18 +164,24 @@ export function createTipController(options: TipControllerOptions): TipControlle
   const show = (tip: FeatureTipEntry) => {
     claiming = true;
     void host
-      .claim(tip.id)
+      .claim(tip.id, tip.feature)
       .catch(() => false)
-      .then((won) => {
+      .then((granted) => {
         claiming = false;
-        // The moment may have passed while the app answered: the launch's tip is spent either way.
-        const target = element(tip.anchor);
-        const still = records && !stopped && "tip" in pickTip(moment(), [tip], records, () => anchorShown(target));
+        // One ask per page: a no (shown before, feature used, a tip too recently) stays a no.
         spent = true;
-        if (!won || !still || !records) return;
-        // Shown first, so keeping its last launch never stops the listeners it still needs.
+        if (!granted || !state) return;
+        // The app recorded it shown. The moment may have passed while it answered: the rules win.
+        state = { ...state, records: { ...state.records, [tip.id]: "shown" } };
+        const target = element(tip.anchor);
+        if (
+          stopped ||
+          !(
+            "tip" in pickTip({ ...moment(), spent: false }, [tip], { ...state, records: {} }, () => anchorShown(target))
+          )
+        )
+          return;
         shown = { tip, element: target!, side: anchors[tip.anchor]?.side ?? "bottom" };
-        keep(tip.id, shownRecord(records[tip.id]));
         onChange(shown);
       });
   };
@@ -193,12 +204,12 @@ export function createTipController(options: TipControllerOptions): TipControlle
 
   const onClick = (event: Event) => {
     const target = asElement(event.target);
-    if (!target || !records) return;
+    if (!target || !state) return;
     for (const tip of tips) {
       const spec = anchors[tip.anchor];
-      const open = shown?.tip.id === tip.id || !isDone(records[tip.id]);
-      if (!spec || !open || records[tip.id] === "used" || !target.closest(spec.selector)) continue;
-      keep(tip.id, "used");
+      const open = shown?.tip.id === tip.id || !isDone(tip, state);
+      if (!spec || !open || !target.closest(spec.selector)) continue;
+      keep(tip, "used");
       if (shown?.tip.id === tip.id) putAway();
     }
   };
@@ -232,12 +243,12 @@ export function createTipController(options: TipControllerOptions): TipControlle
     async start() {
       try {
         const read = await host.read();
-        records = { ...read };
+        state = { records: { ...read.records }, used: new Set(read.used) };
       } catch {
         // No records in this app: no tip, since a closed one could not stay closed.
         return;
       }
-      if (stopped || allDone(tips, records)) return;
+      if (stopped || allDone(tips, state)) return;
       listen();
       arm();
     },
@@ -251,7 +262,7 @@ export function createTipController(options: TipControllerOptions): TipControlle
     },
     close() {
       if (!shown) return;
-      keep(shown.tip.id, "closed");
+      keep(shown.tip, "closed");
       putAway();
     },
     setPopup(element) {

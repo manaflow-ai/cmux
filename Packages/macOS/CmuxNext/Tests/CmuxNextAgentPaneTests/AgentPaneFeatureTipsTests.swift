@@ -3,9 +3,13 @@ import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
-/// `tips.state` (feature tips, leo-workspace design/feature-tips.md): the page reads the app's
-/// records and keeps one at a time; a closed or used tip stays so, and the page keeps nothing else.
+/// Feature tips (`tips.state`, leo-workspace design/feature-tips.md). Leo, 2026-10-30: "no this
+/// should be very very infrequent like app installation level frequent and if they havent used the
+/// browser". A tip shows once per install, never when its feature was used, and at most one every
+/// 14 days; an existing install never sees the Browser tip.
 struct AgentPaneFeatureTipsTests {
+    private static let browserTip = "agents-drive-visible-browser-tabs"
+
     private func defaults() throws -> UserDefaults {
         let suite = "AgentPaneFeatureTipsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -13,57 +17,91 @@ struct AgentPaneFeatureTipsTests {
         return defaults
     }
 
-    private func records(launch: String = "1@1") throws -> AgentPaneFeatureTipRecords {
-        AgentPaneFeatureTipRecords(defaults: try defaults(), launch: launch)
-    }
-
-    @Test func noParamsReadsAndIdStateKeeps() {
+    @Test func requestsDecodeAndAnythingElseIsRefused() {
         #expect(AgentPaneRequest(body: ["method": "tips.state"]) == .featureTips(.read))
         #expect(AgentPaneRequest(body: ["method": "tips.state", "params": [:] as [String: Any]]) == .featureTips(.read))
-        let keep = AgentPaneRequest(body: ["method": "tips.state", "params": ["id": "agents-drive-visible-browser-tabs", "state": "shown:2"]])
-        #expect(keep == .featureTips(.keep(id: "agents-drive-visible-browser-tabs", state: "shown:2")))
-        let claim = AgentPaneRequest(body: ["method": "tips.state", "params": ["claim": "agents-drive-visible-browser-tabs"]])
-        #expect(claim == .featureTips(.claim(id: "agents-drive-visible-browser-tabs")))
-    }
-
-    @Test func anythingElseIsRefused() {
+        #expect(AgentPaneRequest(body: ["method": "tips.state", "params": ["id": Self.browserTip, "state": "closed"]])
+            == .featureTips(.keep(id: Self.browserTip, state: "closed")))
+        #expect(AgentPaneRequest(body: ["method": "tips.state", "params": ["claim": Self.browserTip, "feature": "browser"]])
+            == .featureTips(.claim(id: Self.browserTip, feature: "browser")))
+        #expect(AgentPaneRequest(body: ["method": "tips.state", "params": ["claim": Self.browserTip]])
+            == .featureTips(.claim(id: Self.browserTip, feature: nil)))
         let refused: [[String: Any]] = [
-            ["id": "tip"], ["state": "closed"], ["id": "Tip", "state": "closed"], ["id": "tip", "state": "open"],
-            ["id": "tip", "state": "shown:0"], ["id": "tip", "state": "shown:100"], ["id": "../tip", "state": "used"],
-            ["id": String(repeating: "a", count: 81), "state": "used"], ["id": 3, "state": "used"],
-            ["claim": "Tip"], ["claim": 1], ["claim": "tip", "id": "tip"], ["id": "tip", "state": "used", "x": 1],
+            ["id": "tip"], ["state": "closed"], ["id": "Tip", "state": "closed"], ["id": "tip", "state": "shown"],
+            ["id": "tip", "state": "open"], ["id": "../tip", "state": "used"], ["id": 3, "state": "used"],
+            ["id": String(repeating: "a", count: 81), "state": "used"], ["claim": "Tip"], ["claim": 1],
+            ["claim": "tip", "feature": "Browser"], ["claim": "tip", "id": "tip"], ["id": "tip", "state": "used", "x": 1],
         ]
         for params in refused {
             #expect(AgentPaneRequest(body: ["method": "tips.state", "params": params]) == .unsupported("tips.state"))
         }
     }
 
+    /// Shown once, then never again, after a relaunch (a new store on the same defaults) or an update.
+    @Test func shownOncePerInstall() throws {
+        let shared = try defaults()
+        let firstLaunch = AgentPaneFeatureTipRecords(defaults: shared)
+        firstLaunch.settleInstall(launchedBefore: false)
+        #expect(firstLaunch.claim(Self.browserTip, feature: "browser"))
+        #expect(!firstLaunch.claim(Self.browserTip, feature: "browser"))
+        let later = Date().addingTimeInterval(365 * 86_400)
+        let relaunched = AgentPaneFeatureTipRecords(defaults: shared, now: { later })
+        relaunched.settleInstall(launchedBefore: true)
+        #expect(!relaunched.claim(Self.browserTip, feature: "browser"))
+        #expect(relaunched.records[Self.browserTip] == "shown")
+    }
+
+    @Test func neverWhenTheBrowserWasUsed() throws {
+        let store = AgentPaneFeatureTipRecords(defaults: try defaults())
+        store.settleInstall(launchedBefore: false)
+        store.noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature)
+        store.noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature)
+        #expect(store.usedFeatures == ["browser"])
+        #expect(!store.claim(Self.browserTip, feature: "browser"))
+        #expect(store.records[Self.browserTip] == nil)
+    }
+
+    /// An install that ran before tips existed never sees the Browser tip, and the decision is made once:
+    /// its later launches (which all have the record) do not change it, nor does a fresh one undo it.
+    @Test func anExistingInstallSeesNoBrowserTip() throws {
+        let shared = try defaults()
+        let existing = AgentPaneFeatureTipRecords(defaults: shared)
+        existing.settleInstall(launchedBefore: true)
+        #expect(!existing.claim(Self.browserTip, feature: "browser"))
+        let fresh = try defaults()
+        let store = AgentPaneFeatureTipRecords(defaults: fresh)
+        store.settleInstall(launchedBefore: false)
+        store.settleInstall(launchedBefore: true)
+        #expect(store.usedFeatures.isEmpty)
+        #expect(store.claim(Self.browserTip, feature: "browser"))
+    }
+
+    @Test func atMostOneTipEveryFourteenDays() throws {
+        let shared = try defaults()
+        var today = Date()
+        let store = AgentPaneFeatureTipRecords(defaults: shared, now: { today })
+        #expect(store.claim("first-tip", feature: nil))
+        today = today.addingTimeInterval(Double(AgentPaneFeatureTipRecords.minimumDaysBetweenTips) * 86_400 - 60)
+        #expect(!store.claim("second-tip", feature: nil))
+        today = today.addingTimeInterval(120)
+        #expect(store.claim("second-tip", feature: nil))
+    }
+
     @Test func closedAndUsedStaySo() throws {
-        let store = try records()
-        store.keep("a", "shown:1")
+        let store = AgentPaneFeatureTipRecords(defaults: try defaults())
+        #expect(store.claim("a", feature: nil))
         store.keep("a", "closed")
-        store.keep("a", "shown:2")
+        store.keep("a", "used")
         store.keep("b", "used")
-        store.keep("b", "shown:1")
+        store.keep("b", "closed")
         #expect(store.records == ["a": "closed", "b": "used"])
     }
 
     @Test func recordsAreBounded() throws {
-        let store = try records()
-        for index in 0..<(AgentPaneFeatureTipRecords.maxRecords + 4) { store.keep("tip-\(index)", "shown:1") }
+        let store = AgentPaneFeatureTipRecords(defaults: try defaults())
+        for index in 0..<(AgentPaneFeatureTipRecords.maxRecords + 4) { store.keep("tip-\(index)", "used") }
         #expect(store.records.count == AgentPaneFeatureTipRecords.maxRecords)
-        #expect(store.keep("tip-0", "closed")["tip-0"] == "closed")
-    }
-
-    /// One tip per launch, whichever page or window asks; the next launch gets its own.
-    @Test func oneClaimPerLaunch() throws {
-        let shared = try defaults()
-        let first = AgentPaneFeatureTipRecords(defaults: shared, launch: "10@100")
-        let otherWindow = AgentPaneFeatureTipRecords(defaults: shared, launch: "10@100")
-        #expect(first.claim("a"))
-        #expect(!otherWindow.claim("b"))
-        #expect(!first.claim("a"))
-        #expect(AgentPaneFeatureTipRecords(defaults: shared, launch: "11@200").claim("b"))
+        #expect(!store.claim("one-more", feature: nil))
     }
 
     @Test func thePageCanCallIt() {

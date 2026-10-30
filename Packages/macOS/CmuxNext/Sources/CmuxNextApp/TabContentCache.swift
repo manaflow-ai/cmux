@@ -96,6 +96,9 @@ final class TabContentCache {
     var crashedPages: Set<String> = []
     /// A restored tab (not opened in this run) started its page (`AppRunMarker.notePageStarted`).
     var onRestoredPageStart: ((String) -> Void)?
+    /// A browser tab is getting its page, whatever opened it (a pane, a link, an agent, a restore):
+    /// the app notes that the browser was used (AgentPaneFeatureTipRecords).
+    var onBrowserTab: (() -> Void)?
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
@@ -245,6 +248,7 @@ final class TabContentCache {
         // A close the daemon makes (`cmux tab close`, another client) frees the page too.
         goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
         if let entry = browsers[key] { return entry }
+        onBrowserTab?()
         if pageRequests.claimCloseOnArrival(tab.surface) {
             // Its page closed before the tab appeared (BrowserPageRequests).
             Task { @MainActor [weak self] in self?.pageRequests.closeTab(key) }

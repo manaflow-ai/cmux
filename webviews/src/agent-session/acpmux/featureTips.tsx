@@ -2,7 +2,7 @@
 // at in this page, the app's tip records (`tips.state`), and the one host App mounts in a chat.
 import { FeatureTipHost, type FeatureTipHostProps } from "../../ui/featureTips/FeatureTipHost";
 import type { TipAnchor } from "../../ui/featureTips/controller";
-import type { FeatureTipEntry, TipRecords } from "../../ui/featureTips/policy";
+import type { FeatureTipEntry, TipRecords, TipState } from "../../ui/featureTips/policy";
 import type { TipHost } from "../../ui/featureTips/store";
 import catalog from "../../ui/featureTips/tips.generated.json";
 import { useFeatureTipsOn } from "./chatDisplay";
@@ -12,38 +12,44 @@ import { postNative } from "./native";
 /** The controls of the chat a highlight's `tip:` line may name. */
 export const PANE_TIP_ANCHORS: Readonly<Record<string, TipAnchor>> = {
   /** The header's Browser button (header/headerQuickTools.ts). */
-  "agent.browser": { selector: '.acpmux-header-tools [data-quick-action="browser"]', side: "bottom" },
+  "agent.browser": {
+    selector: '.acpmux-header-tools [data-quick-action="browser"]',
+    side: "bottom",
+    feature: "browser",
+  },
   /** The header's Inspector or Summary toggle (header/PanelToggle.tsx). */
   "agent.inspector": { selector: ".acpmux-header-tools .acpmux-header-panel-toggle", side: "bottom" },
   /** The composer (ComposerBox.tsx), for a feature typed there (/btw). */
   "composer.prompt": { selector: ".acpmux-composer-box", side: "top" },
 };
 
-/** The tips whose control this page has. */
-export const PANE_TIPS: readonly FeatureTipEntry[] = (catalog as FeatureTipEntry[]).filter(
-  (tip) => tip.anchor in PANE_TIP_ANCHORS,
-);
+/** The tips whose control this page has, each with its control's feature. */
+export const PANE_TIPS: readonly FeatureTipEntry[] = (catalog as FeatureTipEntry[])
+  .filter((tip) => tip.anchor in PANE_TIP_ANCHORS)
+  .map((tip) => ({ ...tip, feature: PANE_TIP_ANCHORS[tip.anchor]?.feature }));
 
 function call<T>(method: string, params: Record<string, unknown>): Promise<T> {
   const direct = window.cmuxAcpmuxActions?.[method];
   return direct ? (direct(params) as Promise<T>) : postNative<T>(method, params);
 }
 
-const records = (reply: unknown): TipRecords => {
-  const states = (reply as { states?: unknown } | null)?.states;
+const tipState = (reply: unknown): TipState => {
+  const { states, used } = (reply ?? {}) as { states?: unknown; used?: unknown };
   if (!states || typeof states !== "object" || Array.isArray(states)) throw new Error("tips.state: no records");
-  return Object.fromEntries(
+  const records: TipRecords = Object.fromEntries(
     Object.entries(states).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   );
+  return { records, used: new Set(Array.isArray(used) ? used.filter((name) => typeof name === "string") : []) };
 };
 
-/** `tips.state {}` reads the records, `{id, state}` keeps one and `{claim}` takes this launch's one
- *  tip (`claimed`). An older app refuses all three: no tips. */
+/** `tips.state {}` reads the install's records and used features, `{id, state}` keeps one, and
+ *  `{claim, feature}` asks the app to show a tip (`claimed`: once per tip per install, never after a
+ *  use of its feature, at most one every 14 days). An older app refuses all three: no tips. */
 export const paneTipHost: TipHost = {
-  read: () => call<unknown>("tips.state", {}).then(records),
-  write: (id, state) => call<unknown>("tips.state", { id, state }).then(records),
-  claim: (id) =>
-    call<unknown>("tips.state", { claim: id }).then(
+  read: () => call<unknown>("tips.state", {}).then(tipState),
+  write: (id, state) => call<unknown>("tips.state", { id, state }),
+  claim: (id, feature) =>
+    call<unknown>("tips.state", feature ? { claim: id, feature } : { claim: id }).then(
       (reply) => (reply as { claimed?: unknown } | null)?.claimed === true,
     ),
 };
