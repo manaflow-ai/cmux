@@ -35,9 +35,34 @@ public final class PushRegistration {
     private var preferences = Preferences(kinds: ["question", "permission", "completed", "chief"])
     /// What the service last accepted, so a repeat sends nothing.
     private var sent: String?
-    private var task: Task<Void, Never>?
+    private var serverStateUncertain = false
+    private(set) var task: Task<Void, Never>?
+    private var taskID: UUID?
+    private var pending: Registration?
+    private let topic: String?
+    private let register: @MainActor (Registration) async throws -> Void
 
-    init() {}
+    struct Registration {
+        let api: LiveAPI
+        let deviceID: String
+        let token: String
+        let environment: String
+        let topic: String
+        let preferences: Preferences
+
+        var key: String { [deviceID, token, environment, preferences.key].joined(separator: "|") }
+    }
+
+    init(topic: String? = Bundle.main.bundleIdentifier,
+         register: @escaping @MainActor (Registration) async throws -> Void = { registration in
+             try await registration.api.putPush(deviceID: registration.deviceID, token: registration.token,
+                                                environment: registration.environment, topic: registration.topic,
+                                                kinds: registration.preferences.kinds, mutedMacs: registration.preferences.mutedMacs,
+                                                previews: registration.preferences.previews)
+         }) {
+        self.topic = topic
+        self.register = register
+    }
 
     /// The APNs device token (app delegate).
     public func didRegister(deviceToken: Data) {
@@ -61,10 +86,14 @@ public final class PushRegistration {
     /// session is still valid.
     public func unregister() async {
         task?.cancel()
+        task = nil
+        taskID = nil
+        pending = nil
         defer {
             api = nil
             deviceID = nil
             sent = nil
+            serverStateUncertain = false
         }
         guard let api, let deviceID, sent != nil else { return }
         do {
@@ -75,20 +104,48 @@ public final class PushRegistration {
     }
 
     private func sync() {
-        guard let api, let deviceID, let token, let topic = Bundle.main.bundleIdentifier else { return }
-        let environment = Self.environment
-        let key = [deviceID, token, environment, preferences.key].joined(separator: "|")
-        guard key != sent else { return }
-        let preferences = preferences
-        task?.cancel()
+        guard let api, let deviceID, let token, let topic else { return }
+        let registration = Registration(api: api, deviceID: deviceID, token: token, environment: Self.environment,
+                                        topic: topic, preferences: preferences)
+        // A write in flight may replace `sent` on the server. Keep the latest
+        // desired value even when it matches the previously accepted value.
+        if task != nil {
+            pending = registration
+            return
+        }
+        guard registration.key != sent || serverStateUncertain else { return }
+        pending = registration
+        let id = UUID()
+        taskID = id
         task = Task { [weak self] in
+            await self?.sendPending(id: id)
+        }
+    }
+
+    private func sendPending(id: UUID) async {
+        defer {
+            if taskID == id {
+                task = nil
+                taskID = nil
+            }
+        }
+        // Drain changes triggered by callers, without a timer or retry loop.
+        // Serial PUTs cannot overtake one another; cancellation cannot undo an
+        // already accepted server mutation.
+        while taskID == id, !Task.isCancelled, let registration = pending {
+            pending = nil
+            guard registration.key != sent || serverStateUncertain else { continue }
             do {
-                try await api.putPush(deviceID: deviceID, token: token, environment: environment, topic: topic, kinds: preferences.kinds,
-                                      mutedMacs: preferences.mutedMacs, previews: preferences.previews)
-                guard !Task.isCancelled else { return }
-                self?.sent = key
-                log.info("push registered (\(environment, privacy: .public), \(preferences.kinds.count, privacy: .public) kinds)")
+                try await register(registration)
+                guard taskID == id, !Task.isCancelled else { return }
+                sent = registration.key
+                serverStateUncertain = false
+                log.info("push registered (\(registration.environment, privacy: .public), \(registration.preferences.kinds.count, privacy: .public) kinds)")
             } catch {
+                guard taskID == id, !Task.isCancelled else { return }
+                // A lost response does not prove the server rejected the PUT.
+                // Reconcile a newer value, but do not retry this one forever.
+                serverStateUncertain = true
                 log.error("push register failed: \(String(describing: error), privacy: .public)")
             }
         }

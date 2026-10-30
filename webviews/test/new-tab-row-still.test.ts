@@ -266,9 +266,13 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
         w.webkit = { messageHandlers: { agentSession: { postMessage: answer } } };
         const records: string[] = [];
         w.__records = records;
+        w.__authNotes = 0;
         const read = () => {
           const composer = document.querySelector(".nt-composer");
           if (!composer?.querySelector(".nt-field")) return;
+          // Even an older daemon settles the initial auth preflight asynchronously. Never
+          // insert a transient checking note while that result is pending.
+          if (composer.querySelector(".acpmux-composer-remote-note")) w.__authNotes = Number(w.__authNotes) + 1;
           // The row's controls: the folder and machine, the access, model and other chips, the mic
           // and Send. Each is named by its kind and its text, so one that appears, goes, swaps or
           // renames shows.
@@ -361,6 +365,7 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
           // The harness list, its models and acpmux's start mode arrive.
           await ready;
           await settled(page);
+          expect(await page.evaluate(() => (window as unknown as { __authNotes: number }).__authNotes)).toBe(0);
           expect(await modeName(page)).toBe(highest);
           const seen = await records(page);
           console.info(`${name} ${look} ${harness}: ${seen.length} record(s)\n  ${seen.join("\n  ")}`);

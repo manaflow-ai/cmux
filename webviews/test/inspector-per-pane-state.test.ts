@@ -72,6 +72,15 @@ test("after a relaunch each pane shows its own state again", async () => {
   expect((await page("chat-right")).inspectorState()).toMatchObject({ open: true, width: 400 });
 });
 
+test("Sources View all persists with the pane's chat", async () => {
+  const left = await page("chat-left");
+  left.setInspectorSourcesAll(true);
+  const relaunched = await page("chat-left");
+  expect(relaunched.inspectorState().sourcesAll).toBe(true);
+  const other = await page("chat-right");
+  expect(other.inspectorState().sourcesAll).toBe(false);
+});
+
 test("a pane with no state of its own starts from the last choice, and the old shared key migrates", async () => {
   // The single key every pane shared before: an old install's closed Inspector stays closed.
   localStorage.setItem("cmux.agentPane.inspector.open", "0");

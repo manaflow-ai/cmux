@@ -259,7 +259,8 @@ extension SidebarDocStore {
         guard isActive else { return nil }
         if let cached = projectionCache, cached.answers(version: version, live: live) { return cached.projection }
         guard let rows = rows(SidebarViewRequest(live: live)) else { return nil }
-        let projection = SidebarDocProjection(rows: rows, records: records, revision: records.revision)
+        let projection = SidebarDocProjection(rows: rows, records: records.addingPendingChief(drawnIn: rows, pending: pendingChief.map(\.add)),
+                                              revision: records.revision)
         projectionCache = SidebarDocProjectionCache(version: version, live: live, projection: projection)
         return projection
     }
@@ -272,7 +273,7 @@ extension SidebarDocStore {
     /// machine stayed connected closed there: the client sends `close` for
     /// it (the home daemon closes its own machine's workspaces itself).
     public func show(live: [SidebarDocWorkspaceRef], connectedRemotes: Set<String> = []) {
-        let previous = shown
+        let previous = lastLiveProjection
         let next = projection(live: live)
         shownVersion = version
         if next != shown { shown = next }
@@ -281,6 +282,7 @@ extension SidebarDocStore {
         let stillConnected = connectedRemotes.intersection(lastConnectedRemotes)
         let closed = lastLive.subtracting(now).filter { stillConnected.contains($0.sessionID) && previous?.items[$0] != nil }
         (lastLive, lastConnectedRemotes) = (now, connectedRemotes)
+        lastLiveProjection = next
         guard isActive, !closed.isEmpty else { return }
         let refs = closed.sorted { ($0.sessionID, $0.workspaceID) < ($1.sessionID, $1.workspaceID) }
             .map { ["session_id": $0.sessionID, "workspace_id": $0.workspaceID] }

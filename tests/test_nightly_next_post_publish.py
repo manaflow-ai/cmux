@@ -2,9 +2,8 @@
 """Keep NEXT feed publication independent of the compatibility identity.
 
 The signed arm64 artifact is the user-facing readiness boundary. The
-NIGHTLY-identity compatibility lane can submit its own copy while the NEXT
-publication writes the feed; it must not become a dependency of
-``publish-nightly``.
+NIGHTLY-identity compatibility lane runs after the NEXT publication; it must
+not become a dependency of ``publish-nightly``.
 """
 
 import re
@@ -40,6 +39,8 @@ for post_job in compatibility_jobs:
     post = job(post_job)
     if "prepare-nightly-variant" not in needs(post):
         failures.append(f"{post_job} must wait for the prepared NEXT artifact")
+    if "publish-nightly" not in needs(post):
+        failures.append(f"{post_job} must run after the primary NEXT publication")
 legacy = job("legacy-identity-target")
 if "build-nightly-app" not in needs(legacy):
     failures.append("legacy identity targeting must know the current build number")
