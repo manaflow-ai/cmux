@@ -81,6 +81,21 @@ struct FeatureDogfoodSetTests {
         #expect(unknown.isEmpty, "not declared in this build's registry: \(unknown)")
     }
 
+    /// Slice 1 turns on no switch that feat-cmux-next lacks (cmux-ad 2026-10-30), so these are off by default in every
+    /// channel; the chrome-parity dogfood builds (DEV-kind builds) turn them on through their set and keep what they
+    /// ran before. drainCauseSplit, terminalStreams and every perfLab switch stay off in the dogfood builds too.
+    @Test func theChromeParitySetKeepsWhatTheSliceOneSwitchesTurnedOff() {
+        let names = FeatureDogfoodSet.chromeParity.names
+        for feature in [Feature.terminalHolder, .chromiumHostChoosers, .chromiumHostHangBanner, .fatalHangReports,
+                        .memoryFreezeEligibility, .sidebarDocChunkedShow, .traceControl] {
+            #expect(names.contains(feature.name), "\(feature.name) is not in the chrome-parity set")
+            #expect(!feature.defaults.dev, "\(feature.name) is on in DEV: the set entry is redundant")
+        }
+        for name in ["drainCauseSplit", "terminalStreams"] {
+            #expect(!names.contains(name), "\(name) stays off in the dogfood builds")
+        }
+    }
+
     /// The chrome-parity dogfood builds keep the built-in ad blocker: with chromiumAdBlockerAtFirstTab on, a fork without
     /// the first-tab load (fork API 41; no pinned fork has it, 2026-10-28) runs no ad blocker, a regression Lawrence
     /// would see. The feature joins the set when a fork with API 41 is pinned.

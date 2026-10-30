@@ -85,7 +85,7 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
     },
     crate::FeatureDef {
         name: "terminalHolder",
-        defaults: crate::Defaults { dev: true, nightly: true, release: true },
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
         kind: crate::Kind::PerfPath,
         process: crate::Process::Both,
     },

@@ -354,10 +354,11 @@ fn a_holder_shell_that_exits_ends_its_terminal_with_its_status() {
     assert_eq!(resolved["exit"]["outcome"], json!({"kind": "exit", "code": 3}), "{resolved}");
 }
 
-/// The `terminalHolder` feature picks the model (the holder by default since
-/// holder item 5), and the env switch it replaced stays an alias of the
-/// feature lists, whose disable wins:
-/// `CMUX_TUI_TERMINAL_HOST_MODEL=hosts` opts out for one release.
+/// The `terminalHolder` feature picks the model (a terminal host process
+/// per terminal by default: slice 1 of the landing turns on no switch that
+/// feat-cmux-next lacks), and the env switch it replaced stays an alias of
+/// the feature lists, whose disable wins:
+/// `CMUX_TUI_TERMINAL_HOST_MODEL=holder` opts in.
 #[test]
 fn the_terminal_holder_feature_and_its_env_alias_pick_the_model() {
     let unset = Path::new("");
@@ -365,7 +366,7 @@ fn the_terminal_holder_feature_and_its_env_alias_pick_the_model() {
         (
             "the default",
             [("CMUX_TUI_TERMINAL_HOST_MODEL", unset), ("CMUX_ENABLE_FEATURES", unset)],
-            true,
+            false,
         ),
         (
             "the alias's opt-out",

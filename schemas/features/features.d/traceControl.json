@@ -3,7 +3,7 @@
   "name": "traceControl",
   "owner": "PL-telemetry",
   "description": "The control socket serves trace.start, trace.stop and trace.status, which record a trace of the app, the daemon and its children into local ring files.",
-  "defaults": { "dev": true, "nightly": false, "release": false },
+  "defaults": { "dev": false, "nightly": false, "release": false },
   "kind": "labs",
   "process": "app",
   "params": [],

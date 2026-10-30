@@ -47,8 +47,8 @@ impl Client {
 }
 
 /// A daemon of this test, with the terminal host model `model`: `hosts`, a
-/// terminal host process per terminal, or `holder`, the default since the
-/// `terminalHolder` feature (holder_runtime.rs).
+/// terminal host process per terminal (the default), or `holder`, the
+/// `terminalHolder` feature's alias (holder_runtime.rs).
 struct Daemon {
     child: Child,
     dir: PathBuf,

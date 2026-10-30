@@ -12,14 +12,16 @@
 //! (`mux::holder_adoption`); a holder crash loses no shell, because the
 //! daemon still holds every master and hands them to a new holder.
 //!
-//! Behind the `terminalHolder` feature (`schemas/features/features.d`), on
-//! on every channel since holder item 5 (2026-10-23). The daemon installs its
-//! resolved features ([`install`]) before it builds the mux, so the managed
-//! policy and the signed document's `DisabledFeatures` turn it off as they
-//! turn off any feature. [`MODEL_ENV`] stays as an alias entry of the env
-//! lists: `CMUX_TUI_TERMINAL_HOST_MODEL=hosts` opts out to a terminal host
-//! process per terminal, kept for one release. Terminal hosts an older build
-//! started keep running and are adopted as before.
+//! Behind the `terminalHolder` feature (`schemas/features/features.d`), off
+//! on every channel (holder item 5 turned it on on 2026-10-23; slice 1 of the
+//! landing turns on no switch that feat-cmux-next lacks, so it is off again
+//! since 2026-10-30). The daemon installs its resolved features
+//! ([`install`]) before it builds the mux, so the managed policy and the
+//! signed document's `DisabledFeatures` turn it off as they turn off any
+//! feature. [`MODEL_ENV`] stays as an alias entry of the env lists:
+//! `CMUX_TUI_TERMINAL_HOST_MODEL=holder` opts in and `hosts` keeps a terminal
+//! host process per terminal. Terminal hosts an older build started keep
+//! running and are adopted as before.
 
 mod service;
 mod sink;
@@ -36,7 +38,7 @@ pub(crate) use sink::HolderSink;
 pub(crate) use terminal::{HolderTerminal, holder_local_launch};
 
 /// The env switch that predates `terminalHolder`: `holder` enables the
-/// feature and `hosts` disables it (the opt-out kept for one release).
+/// feature and `hosts` disables it.
 pub(crate) const MODEL_ENV: &str = "CMUX_TUI_TERMINAL_HOST_MODEL";
 
 /// This process's holder model, fixed at its first read: a session never
@@ -51,9 +53,9 @@ pub fn install(features: &Snapshot) -> bool {
     *ENABLED.get_or_init(|| resolve(features, std::env::var(MODEL_ENV).ok().as_deref()))
 }
 
-/// New session-owned terminals run on the holder: the default (holder item
-/// 5). `CMUX_TUI_TERMINAL_HOST_MODEL=hosts` or a disable of `terminalHolder`
-/// opts out and starts a terminal host process per terminal, as before.
+/// New session-owned terminals run on the holder when `terminalHolder` is
+/// enabled or `CMUX_TUI_TERMINAL_HOST_MODEL=holder` (off by default); else
+/// each starts a terminal host process.
 pub(crate) fn enabled() -> bool {
     // A process that installs nothing (unit tests, a mux outside the daemon)
     // reads the env lists at the default of an unbundled build.
@@ -106,11 +108,11 @@ mod model_tests {
     }
 
     #[test]
-    fn the_default_is_the_holder_on_every_channel() {
+    fn the_default_is_the_terminal_hosts_on_every_channel() {
         for channel in [Channel::Dev, Channel::Nightly, Channel::Release] {
-            assert!(resolve(&Snapshot::defaults(channel), None), "{channel:?}");
-            assert!(resolve(&lists(channel, None, None), None), "{channel:?}");
-            assert!(!resolve(&Snapshot::defaults(channel), Some("hosts")), "{channel:?} opt-out");
+            assert!(!resolve(&Snapshot::defaults(channel), None), "{channel:?}");
+            assert!(!resolve(&lists(channel, None, None), None), "{channel:?}");
+            assert!(resolve(&Snapshot::defaults(channel), Some("holder")), "{channel:?} opt-in");
         }
     }
 
@@ -133,8 +135,8 @@ mod model_tests {
         assert!(resolve(&defaults, Some(" holder\n")));
         assert!(!resolve(&defaults, Some("hosts")));
         assert!(!resolve(&defaults, Some(" hosts\n")));
-        assert!(resolve(&defaults, Some("Hosts")), "values are case-sensitive");
-        assert!(resolve(&defaults, Some("")));
+        assert!(!resolve(&defaults, Some("Holder")), "values are case-sensitive");
+        assert!(!resolve(&defaults, Some("")));
         let on = lists(Channel::Release, Some("terminalHolder"), None);
         assert!(!resolve(&on, Some("hosts")), "the alias's disable wins over an enable");
         assert!(resolve(&on, Some("anything else")), "an unknown value is ignored");

@@ -91,17 +91,41 @@ name is not a claim: write it as "not measured".
    ships behind a default-off setting, as the risk tiers say.
 6. **Dogfood = the channel defaults.** A tagged dogfood build is a DEV-kind build, so it resolves DEV defaults,
    then the person's own local choices (Labs page, Debug tunables a feature `replaces`). A switch's `dev` and
-   `nightly` defaults are equal, so a dogfood build runs what NIGHTLY runs; the one exception today is
-   `traceControl` (DEV only, a telemetry control that NIGHTLY does not serve yet), and any new exception is
-   named in the table. The special list (`FeatureDogfoodSet.chromeParity`, chosen by the `chrome-parity-` tag
+   `nightly` defaults are equal, so a dogfood build runs what NIGHTLY runs; any exception is named in the table
+   (`traceControl`, DEV only until 2026-10-30, is off in every channel since, item 8). The special list (`FeatureDogfoodSet.chromeParity`, chosen by the `chrome-parity-` tag
    prefix) is removed once every switch it holds is on in DEV and NIGHTLY or removed under rule 3, and on
    2026-11-04 at the latest; a dogfood build then has no list of its own. `benchOnly` switches in the list
    (`cefHelperHost`, `chromiumHostIdleExit`) do not count toward that condition: rule 7 never turns them on.
 7. **Never on by default** (lead's additions, 2026-10-28): bench-only switches (`benchOnly`, for example
-   `perfLabCanary`, which delays every key), except `perfLabKillProbe`, which changes nothing and is on so that a
-   remote document can prove the kill path by turning it off; switches whose own description says to wait for something (for
+   `perfLabCanary`, which delays every key). Every `perfLab` switch is off by default in every channel, `perfLabKillProbe`
+   too (cmux-ad, 2026-10-29: a kill probe on in release must never reach feat-cmux-next); a bench turns it on for one
+   launch, and FeatureRegistryGeneratedTests.noPerfLabSwitchIsOnByDefaultInAnyChannel keeps it so.
+   What the kill switch proof (p12 done check 13) loses: with the probe off by default, a remote `off` turns off a switch
+   that is already off, so the proof no longer shows that a remote `off` beats a default that is on, which is what a
+   real kill switch must do. Turning the probe on for one launch with `CMUX_ENABLE_FEATURES` does not restore it: the
+   environment (resolution layer 2) beats the remote document (layer 4), so the remote `off` would lose. Proposed path
+   (not built): a perf lab build-default set at layer 6, under the remote document. A `FeatureDogfoodSet` with its own tag
+   prefix for the lab's bench builds (for example `perf-lab-`), holding only `perfLabKillProbe`, composed in
+   AppServices beside `chromeParity`. In a lab bench build the probe then resolves `on source=buildDefault`, the off
+   document turns it `off source=remote`, and the proof again shows a remote `off` overriding a default that is on. Every
+   channel default stays off, and no shipped build has the set or the probe (benchOnly). Switches whose own description says to wait for something (for
    example `hangReportsSchema3` waits for the server); and switches that change socket, relay, permission or
    auth policy, until they have the `risk:high` review receipt.
+8. **Landing slice 1 turns on no switch that feat-cmux-next lacks** (cmux-ad 2026-10-30, land-faster.md item 2:
+   unproven code lands switched off). feat-cmux-next has no feature registry, so a switch on by default is new
+   behavior there unless feat already does the same thing. Only `agentChromium`, `compressedSnapshots` and
+   `sidebarSlideHoldsContent` stay on (feat ships the same behavior as the tunables `agent.chromium`,
+   `hibernation.compressedSnapshots` and `sidebar.slideHoldsContent`, all default true). Every other switch is
+   off in DEV, NIGHTLY and Release, including the 20 that were on: `terminalHolder`, `drainCauseSplit`,
+   `terminalStreams`, `perfLabKillProbe`, the six `chromiumHost*` host-mode switches (Choosers, FileDialogs,
+   HangBanner, PopupMenus, Suggestions, Widgets), `fatalHangReports`, `featureFlagsCard`, `highEnergyTabs`,
+   `memoryFreezeEligibility`, `memorySaverBackgroundActivity`, `pageHangNotice`, `recentlyAudibleProtection`,
+   `sidebarDocChunkedShow`, `taskManagerMemorySaved` and `traceControl`. Turning one on again under rules 1 and 2
+   is a later slice's change, with its proof. So that chrome-parity dogfood builds keep what they ran,
+   `FeatureDogfoodSet.chromeParity` holds `terminalHolder` again (where it was before it was on by default) and
+   `chromiumHostChoosers`, `chromiumHostHangBanner`, `fatalHangReports`, `memoryFreezeEligibility`,
+   `sidebarDocChunkedShow` and `traceControl`; `drainCauseSplit`, `terminalStreams` and every `perfLab` switch
+   stay off there too.
 
 ## The switch table
 
