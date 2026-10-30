@@ -61,6 +61,9 @@ final class HomeService {
         hostChanged: { [weak self] _ in self?.localChiefHostChanged() })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
     @ObservationIgnored unowned let services: AppServices
+    #if DEBUG || CMUX_BENCH_HOOKS
+    @ObservationIgnored let composition: HomeCompositionDependencies?
+    #endif
     @ObservationIgnored private var availability: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
     /// Home opened in a window this launch; the host starts once the Chief
@@ -135,8 +138,13 @@ final class HomeService {
                                                                                                caches: homeCaches)
     /// The folder of this service's Home caches: the app's (`AppEnvironment.homeCachesDirectory`), else
     /// a temporary folder of its own, so the drafts of one `AppServices` never reach another's.
-    @ObservationIgnored private lazy var homeCaches: URL = services.environment.homeCachesDirectory
-        ?? FileManager.default.temporaryDirectory.appending(path: "cmux-home-\(UUID().uuidString)", directoryHint: .isDirectory)
+    @ObservationIgnored private lazy var homeCaches: URL = {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let composition { return composition.caches }
+        #endif
+        return services.environment.homeCachesDirectory
+            ?? FileManager.default.temporaryDirectory.appending(path: "cmux-home-\(UUID().uuidString)", directoryHint: .isDirectory)
+    }()
     /// The last launch's Chief roster, used until the cloud Chiefs are read (`chiefRoster`).
     @ObservationIgnored var launchRoster: HomeChiefRoster?
     /// The cloud Chiefs were read this launch (`setCloudChiefs`). Observed: the roster changes with it.
@@ -152,7 +160,7 @@ final class HomeService {
     /// a relaunch or another build shows the same history before the owner
     /// answers (home-state-ownership.md section 4).
     @ObservationIgnored private(set) lazy var homeStore = HomeStore(
-        source: homeRouter,
+        source: compositionSource,
         blobCacheDirectory: homeCaches.appending(path: "cmux-home-blobs", directoryHint: .isDirectory),
         cache: HomeCache.standard(owner: chief.home.session, caches: homeCaches))
     @ObservationIgnored var cloudLink: Task<Void, Never>?
@@ -168,8 +176,7 @@ final class HomeService {
         },
         activeTeam: { [weak self] in self?.activeWorkerTeam },
         me: { [weak self] in
-            guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
-            return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
+            self?.compositionAccount
         })
     /// The active team (`ActiveTeam`, Switch Active Team) as the Worker names it: Home lists its people only.
     var activeWorkerTeam: String? {
@@ -196,7 +203,13 @@ final class HomeService {
 
     init(services: AppServices, chiefHome: ChiefHome? = nil) {
         self.services = services
+        #if DEBUG || CMUX_BENCH_HOOKS
+        composition = services.homeComposition?.inputs
+        chief = ChiefConversationOwner(home: chiefHome ?? composition?.chiefHome ?? ChiefHome.resolve(tag: services.environment.tag))
+        if let fixture = services.homeComposition { cloudChiefs = fixture.chiefs; cloudChiefsRead = true }
+        #else
         chief = ChiefConversationOwner(home: chiefHome ?? ChiefHome.resolve(tag: services.environment.tag))
+        #endif
         // MessagesLab's flight recorder (HomeTunables): DEV on, NIGHTLY opt-in, Release and RC never.
         HomeFlightRecording.install(available: DevTools.isEnabled,
                                     logFolder: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "cmux")
@@ -474,5 +487,46 @@ extension HomeService {
             guard let self else { return }
             armReplyTimer(HomeChiefName.select(from: conversations))
         }
+    }
+}
+
+extension HomeService {
+    var compositionSource: any HomeSource {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let composition { return composition.source }
+        #endif
+        return homeRouter
+    }
+
+    var compositionParticipant: ParticipantID {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let composition { return composition.me }
+        #endif
+        return homeSource.me.id
+    }
+
+    /// The same account mapping used by Home's pins and recipient directory.
+    var compositionAccount: String? {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let composition {
+            return composition.account
+        }
+        #endif
+        let auth = services.cloud.auth
+        return auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) }
+    }
+
+    func listedHarnesses() async -> [String] {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let composition { return composition.harnesses.keys.sorted() }
+        #endif
+        return (try? await services.agentHarnesses.listed())?.sorted() ?? []
+    }
+
+    func checkHarness(_ id: String) async -> Bool {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let composition { return composition.harnesses[id] == true }
+        #endif
+        return (try? await services.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true
     }
 }

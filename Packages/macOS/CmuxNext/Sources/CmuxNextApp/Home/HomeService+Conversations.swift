@@ -178,8 +178,7 @@ extension HomeService {
 
     /// The account this Mac's Home pins and marks are kept under: the signed-in Cloud user, else "local".
     var pinAccount: String {
-        let auth = services.cloud.auth
-        return auth.user.map { CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: $0.id) } ?? "local"
+        compositionAccount ?? "local"
     }
 
     /// Reads each listed local Chief's own avatar for its tile (its picture in the daemon's
