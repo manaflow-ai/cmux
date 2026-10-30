@@ -134,6 +134,17 @@ actor AppTestDaemonOwner {
         return getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 1 ? pid : nil
     }
 
+    /// Waits for this recorded process to exit without treating an unreadable identity as exit.
+    /// The exit source is registered first; an already-gone PID is handled by its ESRCH check.
+    static func waitForRecordedExit(pid: Int32, process: AcpmuxUnresponsiveWatch.Daemon,
+                                    timeout: Duration = .seconds(60),
+                                    currentProcess: @Sendable (Int32) -> AcpmuxUnresponsiveWatch.Daemon? = AcpmuxUnresponsiveWatch.kernelProcess(pid:)) async -> Bool {
+        await AgentPaneProcessExit(pid: pid).event(within: timeout) {
+            guard let current = currentProcess(pid) else { return nil }
+            return current == process ? nil : true
+        }
+    }
+
     /// Shared with the failure-path regression: graceful shutdown may throw before identify.
     /// Its fallback uses the existing audit-token signaler and bounded TERM/KILL exit watches.
     static func reap(_ endpoint: DaemonEndpoint, process: AcpmuxUnresponsiveWatch.Daemon?,
@@ -149,10 +160,7 @@ actor AppTestDaemonOwner {
             // Register the exit source before checking identity. A changed or missing identity
             // proves the recorded daemon is gone; the same identity leaves completion to the
             // kernel exit event, so PID reuse cannot be mistaken for a clean reap.
-            return await AgentPaneProcessExit(pid: pid).event(within: .seconds(60)) {
-                guard let current = AcpmuxUnresponsiveWatch.kernelProcess(pid: pid) else { return true }
-                return current == process ? nil : true
-            }
+            return await waitForRecordedExit(pid: pid, process: process, timeout: .seconds(60))
         }
         guard let process, process.pid == pid else {
             // An unverified live pid is evidence to preserve, never permission to signal it.
