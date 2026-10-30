@@ -178,6 +178,14 @@ async fn a_send_the_hub_may_have_taken_is_asked_again_under_its_key_and_never_ke
     let keys: Vec<_> =
         fake.sent.lock().unwrap().iter().map(|m| m.idempotency_key.clone()).collect();
     assert!(keys.len() == 2 && keys[0] == keys[1], "{keys:?}");
+    // Lost, then refused or unreached: the first ask may still be stored, so it is the caller's
+    // error too, never kept here.
+    for second in [Answer::Down, Answer::Unknown] {
+        let (hub, fake) = setup(&[Answer::Lost, second]);
+        let reply = send_queue(&hub, text("box/lane", "prompt-0009")).await;
+        assert!(reply.get("result").is_none(), "{reply}");
+        assert_eq!(fake.sent.lock().unwrap().len(), 2);
+    }
     // Lost twice: an error the caller sees, never a local copy that would run it a second time.
     let (hub, fake) = setup(&[Answer::Lost]);
     let reply = send_queue(&hub, text("box/lane", "prompt-0008")).await;

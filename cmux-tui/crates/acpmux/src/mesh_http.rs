@@ -541,6 +541,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_send_that_fails_for_its_token_never_reached_the_hub() {
+        // The token command fails before any request goes out: the hub surely kept nothing, so
+        // the send may stay in the local outbox (`server/outbox.rs`).
+        for command in [["sh", "-c", "exit 3"], ["sh", "-c", "yes"], ["/nonexistent/x", "", ""]] {
+            let config = MeshRelayConfig {
+                url: "http://127.0.0.1:9".into(),
+                token_command: command
+                    .iter()
+                    .filter(|a| !a.is_empty())
+                    .map(|a| a.to_string())
+                    .collect(),
+                team_messaging: false,
+                control_from: Vec::new(),
+                credential: None,
+            };
+            let hub = HttpHub::new(&config).unwrap();
+            let e = hub
+                .call(reqwest::Method::GET, "/v1/mesh/inbox", None, CALL_WAIT)
+                .await
+                .unwrap_err();
+            assert!(e.unsent && !e.refused, "{command:?}: {e:?}");
+        }
+    }
+
+    #[tokio::test]
     async fn invalid_control_operations_are_refused_before_token_or_http() {
         let hub = HttpHub::new(&MeshRelayConfig {
             url: "http://127.0.0.1:9".into(),
