@@ -821,10 +821,11 @@ test("a truncated resume row's tooltip is the row's own text, never the raw prom
   const clamp = button.firstElementChild as HTMLElement;
   Object.defineProperty(clamp, "scrollWidth", { configurable: true, value: 400 });
   Object.defineProperty(clamp, "clientWidth", { configurable: true, value: 200 });
-  // React makes onPointerEnter from a pointerover that comes from outside the button.
-  const Pointer = (dom!.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom!.window.MouseEvent;
+  // React makes onPointerEnter from a pointerover whose relatedTarget is outside the root.
+  const Pointer =
+    (dom!.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom!.window.MouseEvent;
   await act(async () => {
-    button.dispatchEvent(new Pointer("pointerover", { bubbles: true, relatedTarget: container }));
+    button.dispatchEvent(new Pointer("pointerover", { bubbles: true, relatedTarget: dom!.window.document.body }));
   });
   expect(button.title).toBe("composer.queuedSubagentRetry Cap context cost\n529");
   expect(button.title).not.toContain("agent id");
