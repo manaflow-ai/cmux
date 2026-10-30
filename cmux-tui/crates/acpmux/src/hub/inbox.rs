@@ -508,8 +508,7 @@ impl Hub {
                             0 => 0,
                             at => at.saturating_add(REFUSED_RETRY_MS),
                         };
-                        if !steers || capped(&meta, turn.started_at, now) || prompt_waits(session)
-                        {
+                        if !steers || capped(&meta, turn.started_at, now) || prompt_waits(session) {
                             Next::Nothing
                         } else if retry > now {
                             // A refused steer is tried again no sooner than the backoff: no
@@ -593,7 +592,7 @@ impl Hub {
                 )
             });
             let went_in = hub.notice_written(&s, &notice_id) || answered;
-            hub.notice_done(&s, &notice_id, &ids, waiters, result, went_in, steer);
+            hub.notice_done(&s, &notice_id, &ids, waiters, result, went_in);
         });
     }
 
@@ -608,7 +607,6 @@ impl Hub {
         waiters: Vec<(String, tokio::sync::watch::Sender<Option<super::queue::Answer>>)>,
         result: super::queue::Answer,
         went_in: bool,
-        steer: bool,
     ) {
         let first = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
