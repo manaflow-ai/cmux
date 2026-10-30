@@ -430,34 +430,25 @@ pub(crate) fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
 
 /// A session's agent output streams, one per agent generation and pipe (`Inbound::Stderr`). Only a
 /// stream inside a string control is kept (a closed one is the same as a new one), and it is kept
-/// until its own terminator arrives, after its agent exited too: its reader may still be draining.
-/// At most `MAX_OPEN` are kept, the oldest dropped first, so agents that each die inside a control
-/// cannot grow it without bound.
+/// until its own terminator arrives, after its agent exited too: its reader may still be draining,
+/// and a late line read as a fresh stream would show payload. Nothing is evicted: an entry is a
+/// source and one control kind, left only by an agent that stopped inside a control.
 #[derive(Debug, Default)]
 pub(crate) struct SessionStderr {
-    open:
-        std::collections::VecDeque<((u64, crate::agent::StderrPipe), crate::stderr::StderrStream)>,
+    open: std::collections::HashMap<(u64, crate::agent::StderrPipe), crate::stderr::StderrStream>,
 }
 
 impl SessionStderr {
-    const MAX_OPEN: usize = 64;
-
     /// `line` from `source` (an agent generation and its pipe), cleaned in that source's stream.
     pub(crate) fn clean_line(
         &mut self,
         source: (u64, crate::agent::StderrPipe),
         line: &str,
     ) -> String {
-        let mut stream = match self.open.iter().position(|(s, _)| *s == source) {
-            Some(index) => self.open.remove(index).map(|(_, s)| s).unwrap_or_default(),
-            None => crate::stderr::StderrStream::default(),
-        };
+        let mut stream = self.open.remove(&source).unwrap_or_default();
         let clean = stream.clean_line(line);
         if stream.is_open() {
-            if self.open.len() >= Self::MAX_OPEN {
-                self.open.pop_front();
-            }
-            self.open.push_back((source, stream));
+            self.open.insert(source, stream);
         }
         clean
     }

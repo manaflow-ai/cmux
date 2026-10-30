@@ -33,7 +33,7 @@ pub enum Direction {
 
 /// Which pipe of an agent a line of `Inbound::Stderr` came from: its stderr, or a `[non-json
 /// stdout]` note. The hub cleans each as its own stream.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum StderrPipe {
     Stderr,
     Stdout,

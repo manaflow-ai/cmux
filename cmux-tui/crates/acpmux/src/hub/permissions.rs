@@ -1643,6 +1643,17 @@ mod stderr_tests {
     }
 
     #[test]
+    fn many_agents_left_inside_a_control_never_free_an_older_ones_state() {
+        let mut stream = crate::hub::session::SessionStderr::default();
+        let err = |generation| (generation, crate::agent::StderrPipe::Stderr);
+        for generation in 1..200 {
+            assert_eq!(stream.clean_line(err(generation), "\x1bPsecret"), "");
+        }
+        assert_eq!(stream.clean_line(err(1), "late payload"), "");
+        assert_eq!(stream.clean_line(err(1), "\x1b\\shown"), "shown");
+    }
+
+    #[test]
     fn an_agents_stdout_notes_are_their_own_stream() {
         let mut stream = crate::hub::session::SessionStderr::default();
         let out = (1, crate::agent::StderrPipe::Stdout);
