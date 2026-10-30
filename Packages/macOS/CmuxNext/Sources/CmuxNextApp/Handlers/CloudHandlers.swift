@@ -167,9 +167,12 @@ enum CloudHandlers {
         return id
     }
 
-    /// The first workspace `store` lists, nil when it lists none.
+    /// The first workspace `store` lists, nil when it lists none. A daemon's connection is up
+    /// before its first tree is applied (right after a resume), and an empty list then is not
+    /// "none": the read waits for the tree, up to `limit`, so an open never makes a second workspace.
     static func existingWorkspace(in store: DaemonStore, within limit: Duration = .seconds(10)) async -> String? {
-        store.workspaces.first?.id
+        if !store.isLoaded { _ = await CloudMove.holds(within: limit) { store.isLoaded } }
+        return store.workspaces.first?.id
     }
 
     /// Open Desktop (`cloud open-desktop`): the machine's desktop, as cmux Classic shows it, in a
