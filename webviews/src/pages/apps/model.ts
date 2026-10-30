@@ -146,6 +146,13 @@ export function dimmedWhenSandboxed(row: GrantRow): boolean {
 /** Initials for an app with no image and no host glyph (no SF Symbols on the web; coordinator Q5). */
 export function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
-  const letters = words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? "?").slice(0, 2);
+  const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+  const graphemes = (word: string) => Array.from(segmenter.segment(word), ({ segment }) => segment);
+  const letters =
+    words.length > 1
+      ? graphemes(words[0]!)[0]! + graphemes(words[1]!)[0]!
+      : graphemes(words[0] ?? "?")
+          .slice(0, 2)
+          .join("");
   return letters.toLocaleUpperCase();
 }
