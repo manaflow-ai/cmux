@@ -11,6 +11,10 @@ import CmuxNextDesign
 // button reveals them, and they stay in the accessibility tree.
 extension WindowRootView {
     func setUpTitlebarReveal() {
+        // The mode first: `add` sets each button's alpha from it at once. A fade run
+        // before this view joins a window never applies, so the buttons stayed at 0
+        // with the sidebar open until it was hidden and shown again.
+        applyTitlebarButtonsMode()
         titlebarReveal.add(toolbarBand.sidebarToggle)
         titlebarReveal.add(toolbarBand.backButton)
         titlebarReveal.add(toolbarBand.forwardButton)
@@ -31,13 +35,18 @@ extension WindowRootView {
                 sidebarHoverHold = nil
             }
         }
-        applyTitlebarButtonsMode()
     }
 
-    /// `window.titlebarButtons`: hover hides the buttons at rest; always
-    /// shows them.
+    /// Whether the buttons hide at rest. With the sidebar open they always
+    /// show, as its + button does (Lawrence 2026-10-28 message 15460: "if
+    /// sidebar is open, all the stuff should show"), unless Show Sidebar
+    /// Controls Only on Hover (`sidebar.controlsOnHover`) is on. With the
+    /// sidebar hidden, `window.titlebarButtons` decides: hover (the default)
+    /// hides them at rest; always shows them.
     func applyTitlebarButtonsMode() {
-        titlebarReveal.isEnabled = DesignSettings.shared.titlebarButtons == .hover
+        let design = DesignSettings.shared
+        let hidesAtRest = sidebarHidden ? design.titlebarButtons == .hover : design.sidebarSections.controlsOnHover
+        if titlebarReveal.isEnabled != hidesAtRest { titlebarReveal.isEnabled = hidesAtRest }
     }
 
     /// The region is the top row above a left sidebar, and at least the
@@ -48,12 +57,18 @@ extension WindowRootView {
     /// the traffic lights and the pointer over the top-left tab bar did not
     /// open it (Lawrence 2026-10-09). One fixed region also means the open
     /// band's growth never moves the edge under the pointer (no flicker).
+    /// The region ends at the open band's Forward button, with no margin
+    /// past it: a strip there opened the band with nothing to click and
+    /// pushed the tabs out for nothing (Leo, relaying Austin, 2026-10-28:
+    /// "you only get that hoverable animation when you're in the area of
+    /// the, like, the rightmost area of the go forward button").
     /// The glass patch covers the traffic lights with a small margin.
-    /// - Parameter fullBandMaxX: The open band's trailing edge.
+    /// - Parameter fullBandMaxX: The open band's trailing edge (its Forward
+    ///   button's trailing edge).
     func layoutTitlebarReveal(rowHeight: CGFloat, fullBandMaxX: CGFloat) {
         let sidebarMaxX = sidebarSide == .left && !sidebar.isHidden ? sidebar.frame.maxX : 0
         let bandMaxX = max(fullBandMaxX, toolbarBand.frame.maxX)
-        let width = min(bounds.width, max(sidebarMaxX, bandMaxX + Metrics.space3))
+        let width = min(bounds.width, max(sidebarMaxX, bandMaxX))
         titlebarRevealRegion.frame = CGRect(x: 0, y: bounds.maxY - rowHeight, width: width, height: rowHeight)
         guard let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else {
             trafficLightsGlass.frame = .zero

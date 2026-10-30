@@ -15,6 +15,17 @@ struct OmnibarFilePathDisplayTests {
         #expect(BrowserURLDisplay.displayText(for: url, home: home) == "~/fun/notes/README.md")
     }
 
+    /// A remote desktop tab is the native Swift pane, not a page: its saved record address
+    /// (`cmux://remote-view?…`) never shows in the omnibar, shown or edited; other pages still do.
+    @Test func aRemoteDesktopTabShowsNoAddress() throws {
+        let desktop = try #require(URL(string: "cmux://remote-view?host=vm-4a1ca3aa&target=virtual&mode=control&via=cloud-rd"))
+        #expect(BrowserURLDisplay.displayText(for: desktop) == "")
+        #expect(BrowserURLDisplay.editingText(for: desktop) == "")
+        let page = try #require(URL(string: "https://example.com/a"))
+        #expect(BrowserURLDisplay.displayText(for: page) == "example.com/a")
+        #expect(BrowserURLDisplay.editingText(for: page) == "https://example.com/a")
+    }
+
     @Test func homeItselfIsTilde() {
         #expect(BrowserURLDisplay.displayText(for: URL(fileURLWithPath: "/Users/someone/"), home: home) == "~")
     }

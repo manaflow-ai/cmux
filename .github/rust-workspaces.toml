@@ -62,6 +62,10 @@ root = "Native/OptChat/optchat-chief"
 run = true
 
 [[workspace]]
+root = "Native/OptChat/chief-kernel"
+run = true
+
+[[workspace]]
 root = "Native/OptChat/optchat-core"
 run = true
 

@@ -20,30 +20,72 @@ fn ends_turn(answer: &Value) -> bool {
 
 /// The agent's `session/prompt` for a prompt of turn `turn_id` (its own, or
 /// a `steer` into it): the agent's answer, or the answer of a steer that
-/// ended this turn first.
-pub(super) async fn agent_prompt(
-    session: &Session,
-    child: &ChildAgent,
-    params: Value,
-    turn_id: &str,
-    steer: bool,
-) -> Result<Value, RpcError> {
-    agent_prompt_hook(session, child, params, turn_id, steer, || {}).await
-}
-
-/// The same request, with a synchronous hook after the prompt is written to the child and before
-/// its answer is awaited. The first-message title path uses this gap so a harness title update can
-/// win without waiting for the whole turn.
+/// ended this turn first. With `confirm_written`, `on_sent` requires the harness writer
+/// receipt; otherwise it runs when the transport accepts the prompt. Before its answer is awaited, the first-message title path uses this gap so a harness title update can
+/// win without waiting for the whole turn, and a family message lets go of its gate there
+/// (`full_access_bound.rs` `family_gate`). A `bound` steer goes only into turn `turn_id`: checked
+/// while it holds the input handoff, which no other prompt is written past, so no later turn's
+/// prompt can come between the check and its write (the turn cap's notice, `turn_cap.rs`).
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn agent_prompt_hook<F: FnOnce()>(
     session: &Session,
     child: &ChildAgent,
     params: Value,
     turn_id: &str,
     steer: bool,
+    bound: bool,
+    fence: Option<&crate::agent::Fence>,
+    confirm_written: bool,
     on_sent: F,
 ) -> Result<Value, RpcError> {
     let mut ended = session.steer_end.subscribe();
-    let request = child.request_with_hook(method::SESSION_PROMPT, params, on_sent);
+    // Before transport handoff, an ordinary completion belongs only to prompts the old
+    // turn actually received. An unsent steer must take the existing no-turn fallback.
+    // Once delivery begins it may already have reached a translator, so do not retry it.
+    let delivery_started = std::sync::atomic::AtomicBool::new(false);
+    let settled = |answer: Value| {
+        if steer
+            && !delivery_started.load(std::sync::atomic::Ordering::SeqCst)
+            && answer["stopReason"] != "cancelled"
+        {
+            Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN))
+        } else {
+            Ok(answer)
+        }
+    };
+    // A turn acpmux ended already (a Stop the agent never answered, `cancel.rs`) gets no prompt.
+    if !steer
+        && let Some((turn, answer)) = ended.borrow_and_update().clone()
+        && turn == turn_id
+    {
+        return Ok(answer);
+    }
+    // A session-wide cancel has no turn id. Keep the next prompt behind the current prompt's
+    // handoff so a delayed Stop cannot overtake it (or be overtaken by it) at the child writer.
+    // The guard is released by `on_sent`, once `write_fenced` has handed the frame to the child;
+    // it is also dropped if the request is cut before it is written.
+    let request = async {
+        let input_handoff = session.input_handoff.clone().lock_owned().await;
+        // The turn can settle while this prompt waits behind a Stop's handoff.
+        if let Some((turn, answer)) = session.steer_end.borrow().clone()
+            && turn == turn_id
+        {
+            return settled(answer);
+        }
+        if bound && session.turn().is_none_or(|t| t.turn_id != turn_id) {
+            return Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN));
+        }
+        delivery_started.store(true, std::sync::atomic::Ordering::SeqCst);
+        let callback = move || {
+            drop(input_handoff);
+            on_sent();
+        };
+        if confirm_written {
+            child.request_with_confirmed_hook(method::SESSION_PROMPT, params, fence, callback).await
+        } else {
+            child.request_with_hook(method::SESSION_PROMPT, params, fence, callback).await
+        }
+    };
     tokio::pin!(request);
     loop {
         tokio::select! {
@@ -64,7 +106,7 @@ pub(super) async fn agent_prompt_hook<F: FnOnce()>(
                 if let Some((turn, answer)) = by_steer
                     && turn == turn_id
                 {
-                    return Ok(answer);
+                    return settled(answer);
                 }
             }
         }
@@ -84,10 +126,19 @@ impl Hub {
         accept: &mut impl FnMut(Value),
     ) -> Result<Value, RpcError> {
         let (control, trust_gate) = (opts.control, opts.trust_gate);
+        // A Stop from here on ends the turn this steer is for: it is not written (below).
+        let cancels = session.cancels.load(std::sync::atomic::Ordering::SeqCst);
         let prompt_id = opts.prompt_id.unwrap_or_default();
         self.check_steer(session, control, opts.full_access_device.as_deref())?;
+        if !super::turn_cap::notice_reaches(session, opts.provenance.as_ref(), turn_id) {
+            return Err(RpcError::invalid_params(crate::claude_stdio::STEER_NO_TURN));
+        }
         // A running turn has a live agent.
         let child = self.child_for(session).await?;
+        // A family message is checked again here, as a dispatched one is, and the gate held
+        // until it is written: it was checked before an MDM off push may have come
+        // (`family_gate`).
+        let family_gate = self.family_gate(session, opts.provenance.as_ref()).await?;
         let agent_sid = session
             .meta()
             .agent_session_id
@@ -106,7 +157,12 @@ impl Hub {
         }
         accept(accepted);
         let fallback = (!opts.steer_only).then(|| blocks.clone());
-        let wire_blocks = super::turns::acp_prompt_blocks(session, &blocks)?;
+        let wire_blocks = super::turns::agent_blocks(self, session, &blocks).await?;
+        // Stopped while its copies were made: written now, it would reach no turn, and its
+        // fallback would start one after the Stop.
+        if session.cancels.load(std::sync::atomic::Ordering::SeqCst) != cancels {
+            return Err(super::turns::stopped_before_prompt());
+        }
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
         // Its promptId names it to a withdraw (`queue_edit.rs` `withdraw`).
         params["_meta"] = json!({"steer": true, "promptId": prompt_id});
@@ -115,22 +171,64 @@ impl Hub {
         let step_now = {
             let mut now =
                 session.steer_now.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            now.waiting.insert(prompt_id.clone());
-            now.step.remove(&prompt_id)
+            let author = crate::author::of_provenance(opts.provenance.as_ref());
+            now.waiting.insert(prompt_id.clone(), author.map(str::to_owned));
+            now.step.remove(&prompt_id) || opts.steer_now
         };
         if step_now {
             params["_meta"]["steerNow"] = json!(true);
         }
-        let answer = agent_prompt(session, &child, params, turn_id, true).await;
+        // Another session's plain message goes in with the other agents' messages waiting for
+        // this step, as one message (claude_stdio `steer_batch.rs`). One read now goes alone at
+        // once, and so do a family message (its gate holds until it is written), a slash command
+        // (only a line's first words run one) and one with uploaded files.
+        let sender = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
+        if let Some(from) = sender
+            && !step_now
+            && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
+            && super::forum::slash_command(&blocks).is_none()
+            && !crate::prompt_uploads::any(&blocks)
+        {
+            params["_meta"]["batch"] = json!({"from": from});
+        }
+        // Counted in the turn before the agent can read it (`lane_reports.rs`).
+        let count = self.lane_steer_in(session, opts.provenance.as_ref());
+        let fence = family_gate.map(|hold| self.hold_until_written(session, hold));
+        // A fence no writer took is cut (review 86 of #23322).
+        let _unsent = crate::agent::CutOnDrop(fence.as_ref());
+        // The turn cap's notice goes into the turn it names or nowhere (`turn_cap.rs`).
+        let bound = super::turn_cap::is_notice(opts.provenance.as_ref());
+        let answer = agent_prompt_hook(
+            session,
+            &child,
+            params,
+            turn_id,
+            true,
+            bound,
+            fence.as_ref(),
+            false,
+            || {},
+        )
+        .await;
         session
             .steer_now
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .waiting
             .remove(&prompt_id);
+        if let Some(count) = count {
+            count.done(steer_entered_turn(&answer));
+        }
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
-                let Some(blocks) = fallback else { return Err(e) };
+                let Some(blocks) = fallback else {
+                    // Logged above, it never went: the log says so (a notice whose turn ended).
+                    if bound {
+                        let msg = json!({"promptId": prompt_id, "turnId": turn_id});
+                        self.append(session, "mux", "steer_withdrawn", msg);
+                    }
+                    return Err(e);
+                };
                 // A send-now (`interrupt`) still goes next, but the turn it was for has ended:
                 // it stops no other.
                 let opts = PromptOptions {
@@ -141,6 +239,7 @@ impl Hub {
                     interrupt_turn: opts.interrupt.then(|| turn_id.to_owned()),
                     provenance: opts.provenance,
                     agent: opts.agent,
+                    class: opts.class,
                     // Queued under its key, so a later correction still replaces it.
                     supersede: opts.supersede,
                     display_parts: opts.display_parts,
@@ -161,3 +260,29 @@ impl Hub {
         Ok(r)
     }
 }
+
+/// Whether a steer's answer means it went into the running turn: any answer but one that found
+/// no turn or was withdrawn before the agent read it. One the turn took that ended in an error
+/// was still part of it.
+fn steer_entered_turn(answer: &Result<Value, RpcError>) -> bool {
+    !matches!(answer, Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN)
+        || e.message.starts_with(crate::claude_stdio::STEER_WITHDRAWN))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_steer_the_turn_took_counts_as_in_it() {
+        let err = |m: &str| Err(RpcError::internal(m.to_owned()));
+        assert!(steer_entered_turn(&Ok(json!({}))));
+        assert!(steer_entered_turn(&err("agent process closed")));
+        assert!(!steer_entered_turn(&err(crate::claude_stdio::STEER_NO_TURN)));
+        assert!(!steer_entered_turn(&err(crate::claude_stdio::STEER_WITHDRAWN)));
+    }
+}
+
+#[cfg(test)]
+#[path = "steer_end_race_tests.rs"]
+mod race_tests;

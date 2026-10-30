@@ -22,8 +22,10 @@ struct SpaceSwitchCostTests {
     static func p50(_ samples: [SpaceSwitchBench.Sample]) -> Double { SpaceSwitchBench.percentile(samples.map(\.cpuMs), 0.5) }
 
     /// Not a check: where a switch spends its main-thread time (BASELINE.md), with 120 parked
-    /// workspaces of a terminal and a browser tab each, and with 500 plain ones.
-    @Test func profileOfASpaceSwitch() async throws {
+    /// workspaces of a terminal and a browser tab each, and with 500 plain ones. Opt-in with
+    /// `CMUX_SAMPLE_PROFILE=1` (`SelfSampler`); the checks below run by default.
+    @Test(.enabled(if: SelfSampler.enabled, "self-sampling profile; set CMUX_SAMPLE_PROFILE=1"))
+    func profileOfASpaceSwitch() async throws {
         let parked = try await SpaceSwitchBench(total: 120, panes: true, parked: 120)
         _ = try await parked.run(rounds: 1)
         try await parked.profile(rounds: 30, seconds: 8)

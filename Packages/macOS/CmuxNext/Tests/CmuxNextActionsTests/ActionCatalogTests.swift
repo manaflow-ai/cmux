@@ -109,14 +109,18 @@ import Testing
         }
     }
 
-    /// The agent header calls this panel Session Info. Keep the existing action id and shared
-    /// handler, while making the command-palette row discoverable by the user-facing name.
+    /// Session Info and the ACP event Inspector are separate panels and palette actions.
     @Test func sessionInfoToggleUsesTheHeaderNameAndKeywords() throws {
-        let action = try #require(ActionCatalog.all.first { $0.id == "agentPane.toggleInspector" })
+        let action = try #require(ActionCatalog.all.first { $0.id == "agentPane.toggleSessionInfo" })
         #expect(action.title == "Toggle Session Info")
         #expect(action.surfaces.contains(.palette))
         #expect(action.keywords.contains("session info"))
         #expect(action.keywords.contains("session"))
+        #expect(action.requires.contains(.agentPaneFocused))
+        let events = try #require(ActionCatalog.all.first { $0.id == "agentPane.toggleInspector" })
+        #expect(events.title == "Toggle Event Inspector")
+        #expect(events.surfaces.contains(.palette))
+        #expect(events.cliName == "agent toggle-acp-inspector")
     }
 
     /// Palette and menu titles use title case (HIG): every word is capitalized except

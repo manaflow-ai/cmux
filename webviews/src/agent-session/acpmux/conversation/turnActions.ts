@@ -8,6 +8,7 @@ import type { HarnessHealth } from "../HarnessHealthNotice";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
 import type { MessageBranch } from "./branches";
+import type { SlashCommand } from "../slashCommands";
 import type { RetryModel } from "./retryModelSections";
 import type { QueuedMessageActionsValue } from "./QueuedMessageCard";
 
@@ -54,13 +55,18 @@ export type TurnActions = {
   /// Continue a turn the reader stopped (the last turn's footer, when `resumable`): sends
   /// `CONTINUE_PROMPT` through the composer's send path, so it queues and shows as a prompt.
   resume?: () => Promise<void>;
+  /// Compact the chat (a context-full failure's Compact): sends the harness's own `/compact` through
+  /// the composer's send path. Only where the agent lists `compact` among its slash commands.
+  compact?: () => Promise<void>;
   /// Restart on a subagent's end line (subagents/restart.ts): asks the chat to run it again with
   /// its prompt.
   restartSubagent?: (agent: Subagent) => void;
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
+  /// Explicitly set up this Cloud chat's provider credentials on its machine, then retry the turn.
+  transferCloudCredentials?: (rowId: string, prompt: string) => Promise<void>;
   /// Who serves this chat's turns, for failure copy (cx-w10a): the harness profile's display name and id.
-  route?: { name?: string; harness?: string };
+  route?: { name?: string; harness?: string; hostKind?: "local" | "cloud"; host?: string };
   /// Opens the model and harness picker (a failure's "Switch model" action).
   switchModel?: () => void;
   /// cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx): what the chat's
@@ -93,6 +99,24 @@ export const CONTINUE_PROMPT = "Continue";
 export const resumeThrough =
   (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) => (): Promise<void> =>
     callNative("chat.send", { text: CONTINUE_PROMPT }).then(
+      () => undefined,
+      () => undefined,
+    );
+
+/// The prompt Compact sends: the harness's own slash command (Claude Code's and Codex's).
+/// l10n-allow: a command to the agent, not UI
+export const COMPACT_PROMPT = "/compact";
+
+/// Whether the chat's agent serves `/compact` (its `available_commands_update`).
+export function offersCompact(commands: readonly SlashCommand[] | undefined): boolean {
+  return commands?.some((command) => (command.source ?? "agent") === "agent" && command.name === "compact") ?? false;
+}
+
+/// A context-full failure's Compact: `COMPACT_PROMPT` through the composer's send (`chat.send`), as
+/// Continue sends its prompt. A send that fails says so on its own row. Settles once the send does.
+export const compactThrough =
+  (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) => (): Promise<void> =>
+    callNative("chat.send", { text: COMPACT_PROMPT }).then(
       () => undefined,
       () => undefined,
     );
