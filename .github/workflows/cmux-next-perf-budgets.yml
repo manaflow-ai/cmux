@@ -258,8 +258,8 @@ jobs:
 
       - name: Trim the warm cache to this tip
         # Save once the tip's app is built, even when a measured part failed after it: the build is
-        # the cold part. Only this tip's app goes into the entry (the GhosttyKit archives and the
-        # helpers keep their own small LRU), so an entry is one app plus helpers. Only this trusted
+        # the cold part. Only this tip's app and the cmux-mobile-host it bundled go into the entry (the
+        # GhosttyKit archives and optchat-chief keep their own small LRU). Only this trusted
         # job saves: a manual dispatch in manaflow-ai/cmux by a writer, for a tip already on
         # feat-cmux-next (checked above); no pull request or fork ever runs it.
         id: warm-trim
@@ -275,6 +275,12 @@ jobs:
             exit 0
           fi
           find "$apps" -mindepth 1 -maxdepth 1 ! -name "$TIP_SHA" -exec rm -rf {} +
+          # cmux-mobile-host keeps no LRU of its own: keep only the source key this build bundled.
+          hosts="$CI_SHARED_CACHE_DIR/cmux-mobile-host"
+          used="$(sed -n "s#^==> cmux-next: bundling cmux-mobile-host from $hosts/\([0-9a-f]*\)/.*#\1#p" artifacts/split-spring/reload.log 2>/dev/null | tail -n 1 || true)"
+          if [ -n "$used" ] && [ -d "$hosts/$used" ]; then
+            find "$hosts" -mindepth 1 -maxdepth 1 ! -name "$used" -exec rm -rf {} +
+          fi
           du -sh "$CI_SHARED_CACHE_DIR"/* 2>/dev/null || true
           echo "save=true" >>"$GITHUB_OUTPUT"
 
