@@ -73,6 +73,9 @@ public final class RemoteVNCSession {
     /// Test seam for the race where a manual reconnect supersedes an automatic retry.
     internal var hasPendingRetryForTesting: Bool { retry != nil }
 
+    /// The pending automatic retry, so a test can await its end instead of sleeping past it.
+    internal var pendingRetryForTesting: Task<Void, Never>? { retry }
+
     internal func scheduleAutomaticRetryForTesting(after wait: Duration) {
         scheduleRetry(after: wait)
     }

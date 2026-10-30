@@ -131,11 +131,12 @@ struct RemoteVNCReconnectTests {
             return ConnectedRFBTransport()
         }
         defer { session.close() }
-        session.scheduleAutomaticRetryForTesting(after: .milliseconds(50))
-        #expect(session.hasPendingRetryForTesting)
+        session.scheduleAutomaticRetryForTesting(after: .seconds(30))
+        let staleRetry = try #require(session.pendingRetryForTesting)
 
         let statuses = session.source.statusUpdates()
         session.reconnect(in: nil)
+        #expect(!session.hasPendingRetryForTesting)
         for await status in statuses {
             if status.state == .streaming { break }
             if case .ended = status.state { break }
@@ -144,7 +145,8 @@ struct RemoteVNCReconnectTests {
         let connectedClient = try #require(session.source.client)
         // The RFB handshake succeeded. A stale retry must not replace this connection.
         #expect(attempts.value == 1)
-        try await Task.sleep(for: .milliseconds(100))
+        // The cancelled retry ends without connecting again; awaiting it replaces a sleep past its deadline.
+        await staleRetry.value
         #expect(attempts.value == 1)
         #expect(session.source.client === connectedClient)
         #expect(session.source.status.state == .streaming)
