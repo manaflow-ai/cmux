@@ -871,6 +871,7 @@ impl Spawner {
                     id: id.to_owned(),
                     key,
                     name,
+                    ws: located.map(|r| r.id),
                 });
                 Ok(note)
             }
@@ -1708,6 +1709,14 @@ impl Orchestrator for Spawner {
     fn sleep(&self, call: crate::tools::SleepCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Sleep { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn watch(&self, call: crate::tools::WatchCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Watch { call, reply })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?

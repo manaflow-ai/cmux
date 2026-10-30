@@ -100,31 +100,38 @@ export function ChatUnavailableState({
         </svg>
       )}
       <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
-      {detail && <p className="acpmux-unavailable-detail">{detail}</p>}
-      {session && (
-        <p className="acpmux-unavailable-detail acpmux-unavailable-session">
-          {t("unavailable.session", { session: shortSession(session) })}
-        </p>
-      )}
-      {(action || onResume || closes) && (
-        <div className="acpmux-unavailable-actions">
-          {action && (
-            <button type="button" className="acpmux-unavailable-action" data-action={action.kind} onClick={action.run}>
-              {action.label}
-            </button>
-          )}
-          {onResume && (
-            <button type="button" className="acpmux-unavailable-action" data-action="resume" onClick={onResume}>
-              {t("link.missing.resume")}
-            </button>
-          )}
-          {closes && (
-            <button type="button" className="acpmux-unavailable-action" data-action="close" onClick={onClose}>
-              {t("link.missing.close")}
-            </button>
-          )}
-        </div>
-      )}
+      <div className="acpmux-unavailable-copy">
+        {detail && <p className="acpmux-unavailable-detail">{detail}</p>}
+        {session && (
+          <p className="acpmux-unavailable-detail acpmux-unavailable-session">
+            {t("unavailable.session", { session: shortSession(session) })}
+          </p>
+        )}
+        {(action || onResume || closes) && (
+          <div className="acpmux-unavailable-actions">
+            {action && (
+              <button
+                type="button"
+                className="acpmux-unavailable-action"
+                data-action={action.kind}
+                onClick={action.run}
+              >
+                {action.label}
+              </button>
+            )}
+            {onResume && (
+              <button type="button" className="acpmux-unavailable-action" data-action="resume" onClick={onResume}>
+                {t("link.missing.resume")}
+              </button>
+            )}
+            {closes && (
+              <button type="button" className="acpmux-unavailable-action" data-action="close" onClick={onClose}>
+                {t("link.missing.close")}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
