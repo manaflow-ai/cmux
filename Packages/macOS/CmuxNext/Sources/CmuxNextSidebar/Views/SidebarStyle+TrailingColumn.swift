@@ -13,8 +13,9 @@ extension SidebarStyle {
 
     /// The one additional fixed inset between a row's content edge and its trailing accessory
     /// column. Callers pass row widths after the general horizontal inset, so that inset is not
-    /// repeated here. The extra grid step leaves the resize band clear of the full-size Search.
-    static var trailingColumnInset: CGFloat { Metrics.space1 }
+    /// repeated here. The extra grid step plus the resize band's content clearance leaves the
+    /// full-size Search outside the drag target too.
+    static var trailingColumnInset: CGFloat { Metrics.space1 + SidebarResizeBand.contentInset }
 
     /// The x every trailing indicator centers on, in a row (or header) of `rowWidth`: the width up to
     /// the row's fill end (a band item, whose fill is inset by `horizontalInset`, passes its width
