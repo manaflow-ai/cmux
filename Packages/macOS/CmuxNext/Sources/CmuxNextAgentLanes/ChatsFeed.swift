@@ -1,29 +1,31 @@
 import CmuxNextAgentActivity
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextCompat
-import CmuxNextWakeups
-import Foundation
+public import CmuxNextWakeups
+public import Foundation
 
 /// The app's connection to acpmux's device-wide chat index: the windows native lists show
 /// (``AcpmuxChatWindows``: acpmux sorts, filters and pages; the main thread holds only visible rows
 /// and applies row diffs), and, until the palette, Open Chat and the New Tab cards ask acpmux
 /// themselves (P-RUST step 2), the index mirror they read.
 @MainActor
-final class ChatsFeed {
+public final class ChatsFeed {
     /// The windows over the index that native lists show (the sidebar's chat history).
-    let windows = AcpmuxChatWindows()
+    public let windows = AcpmuxChatWindows()
     /// The mirror. Only this feed holds it: a change applies in place (O(log n)), never a copy of
     /// every chat (v2.2.9: 1,148 ms in `apply` while the sidebar history held the same storage).
     /// No reader may keep it; whole-index work runs in acpmux (`_acpmux/chat_projects`).
     private var store = AcpmuxChatsStore()
     /// Every chat, newest first. O(n) per read: per-change readers use
     /// `chat(id:)` and `newest(_:)`; a publish no longer builds this list.
-    var chats: [AcpmuxChat] { store.chats }
-    private(set) var isEnabled = true
-    private(set) var isReady = false
+    public var chats: [AcpmuxChat] { store.chats }
+    public private(set) var isEnabled = true
+    public private(set) var isReady = false
     private let socket: String
+    /// Each drain's line count and main-actor time (the App's debug timings).
+    private let drained: @MainActor (Int, Duration) -> Void
     /// The acpmux socket this feed reads (ProjectsImport asks it for the grouped projects).
-    var socketPath: String { socket }
+    public var socketPath: String { socket }
     private var observers: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
@@ -53,17 +55,20 @@ final class ChatsFeed {
     ///   - socketPath: acpmux's socket.
     ///   - deadlines: The app's one deadline scheduler: the reconnect backoff and the socket folder's
     ///     notices run on its main-thread scheduler.
-    init(socketPath: String, deadlines: MainDeadlineScheduler) {
+    ///   - drained: Each drain's line count and main-actor time (the App's debug timings).
+    public init(socketPath: String, deadlines: MainDeadlineScheduler,
+                drained: @escaping @MainActor (Int, Duration) -> Void = { _, _ in }) {
         socket = socketPath
+        self.drained = drained
         mainWork = deadlines.work
         reconnect = MainDeadline(owner: "ChatsFeed.reconnect", workClass: .background, scheduler: deadlines)
     }
 
     /// One chat by key, O(1).
-    func chat(id: String) -> AcpmuxChat? { store.chat(id: id) }
+    public func chat(id: String) -> AcpmuxChat? { store.chat(id: id) }
 
     /// The newest `limit` chats, O(limit).
-    func newest(_ limit: Int) -> [AcpmuxChat] { store.newest(limit) }
+    public func newest(_ limit: Int) -> [AcpmuxChat] { store.newest(limit) }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
@@ -73,14 +78,14 @@ final class ChatsFeed {
     }
 
     /// Starts one long-lived watch for the first live observer.
-    func observe(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {
+    public func observe(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {
         observers.append(({ [weak owner] in owner }, changed))
         if subscription == nil, directoryWatch == nil, !reconnect.isScheduled { connect() }
     }
 
     /// Keeps the mirror current for the palette chats page and Open Chat while
     /// no sidebar shows Chats: one idle push connection, no timers.
-    func keepCurrent() {
+    public func keepCurrent() {
         observe(self) {}
     }
 
@@ -109,7 +114,7 @@ final class ChatsFeed {
     }
 
     /// One decoded line of the watch.
-    nonisolated enum Message: Sendable {
+    public nonisolated enum Message: Sendable {
         /// A page response: the whole mirror, decoded off the main actor in acpmux's order.
         case page(store: AcpmuxChatsStore, ready: Bool, enabled: Bool, seq: UInt64?)
         /// One index change and its seq (nil for activity, which is not an index change).
@@ -121,7 +126,7 @@ final class ChatsFeed {
         /// The daemon dropped a notification or the watch lagged: list and ask every window again.
         case lagged
 
-        init?(line: Data) {
+        public init?(line: Data) {
             guard let message = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any] else { return nil }
             if let id = (message["id"] as? NSNumber)?.intValue, id >= 3, message["error"] != nil {
                 self = .answered(id: id, failed: true)
@@ -179,7 +184,7 @@ final class ChatsFeed {
     private func apply(_ drain: MainActorLineDrain<Message>, from connection: AgentActivityLineConnection) {
         guard subscription === connection else { return }
         let started = ContinuousClock.now
-        defer { DebugTimings.chatsFeedApplied(lines: drain.values.count, ContinuousClock.now - started) }
+        defer { drained(drain.values.count, ContinuousClock.now - started) }
         var changed = false
         var lagged = false
         for message in drain.values {
@@ -308,4 +313,4 @@ final class ChatsFeed {
 }
 
 /// Compatibility for code and extensions that still name the old feed.
-typealias AgentRecentsFeed = ChatsFeed
+public typealias AgentRecentsFeed = ChatsFeed
