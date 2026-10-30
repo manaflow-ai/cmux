@@ -456,6 +456,15 @@ export function ComposerContext({
                         label: t(CONTEXT_LABELS.addComputer),
                         onSelect: () => onboardingConnect?.("addMachine"),
                       },
+                      ...(cloudSignedIn !== true
+                        ? [
+                            {
+                              id: "cloudSignIn",
+                              label: t("composer.cloudSignIn"),
+                              onSelect: () => onboardingConnect?.("cloud"),
+                            },
+                          ]
+                        : []),
                       {
                         id: "cloud",
                         label: t(CONTEXT_LABELS.newCloudMachine),
@@ -464,6 +473,15 @@ export function ComposerContext({
                     ]
                   : !started && onConnect && !connectOnlyWhenEmpty
                     ? [
+                          ...(cloudSignedIn !== true
+                            ? [
+                                {
+                                  id: "cloudSignIn",
+                                  label: t("composer.cloudSignIn"),
+                                  onSelect: () => onConnect("cloud"),
+                                },
+                              ]
+                            : []),
                         { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
                         { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onConnect("cloud") },
                       ]

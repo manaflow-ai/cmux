@@ -172,6 +172,27 @@ test("an absent Cloud account state still offers sign-in, while an explicit sign
   expect((await rows()).map(label)).not.toContain("Sign in for Cloud");
 });
 
+test("the plain Computer picker offers Cloud sign-in before the account reply", async () => {
+  const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
+  setCloudMachinesForTestAccount(undefined);
+  await mount(false, { peers: [], cloudMachines: [], onConnect: () => undefined });
+  await openPicker();
+  const labels = [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].map(label);
+  expect(labels).toContain("Sign in for Cloud");
+  expect(labels).toContain(t("composer.connectSSH"));
+  expect(labels).toContain(t("composer.newCloudMachine"));
+
+  act(() => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+  setCloudMachinesForTestAccount(true);
+  await mount(false, { peers: [], cloudMachines: [], onConnect: () => undefined });
+  await openPicker();
+  expect([...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].map(label)).not.toContain(
+    "Sign in for Cloud",
+  );
+});
+
 test("a reply lists the account's machines only once the app holds the signed-in account's list", async () => {
   const { cloudMachinesFromReply } = await import("../src/agent-session/acpmux/cloudMachines");
   const machines = [{ id: "vm-1", name: "one", stage: "paused" }];
