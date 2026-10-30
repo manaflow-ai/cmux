@@ -117,6 +117,62 @@ struct AgentPaneQuestionReturnGestureTests {
         #expect(!gestures.consumeForSend())
     }
 
+    @Test func nativeReturnRepliesAreAnnouncedBeforeLocalAndDaemonRefusals() async throws {
+        typealias Allow = AgentPaneRelayedAllowTests
+        let server = AcpmuxStandInServer()
+        try await server.start()
+        defer { server.stop() }
+        server.answer("initialize", with: #"{"protocolVersion":1,"_meta":{"acpmux":{"origin":"local","personInstance":"\#(Allow.instance)"}}}"#)
+        server.refuse("_acpmux/permission_respond", with: #"{"code":-32000,"message":"approve this on the Mac app","data":{"reason":"permission.person_required"}}"#)
+        let inbox = Allow.PageInbox()
+        let transport = AgentPaneTransport()
+        defer { transport.close(connection: transport.current) }
+        var delivered: [[String: Any]] = []
+        transport.deliver = { event, done in
+            delivered += event.frames.compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+            inbox.deliver(event.frames)
+            done()
+        }
+        let connection = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))
+        _ = await transport.send(connection: connection, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#])
+        _ = await inbox.frame(containing: #""origin":"local""#)
+        transport.sessions.add("s")
+        server.push(Allow.pendingQuestion(), to: 0)
+        _ = await inbox.frame(containing: "permission_pending")
+        let target = PageQuestionKeyTarget(sessionID: "s", permissionID: "p1")
+        let method = "_acpmux/permission_respond"
+
+        // A real Other answer can exceed the relay's per-string limit. The card did not run
+        // onReply, but still needs the host's error and a fresh attempt rather than silence.
+        let tooLong: [String: Any] = ["jsonrpc": "2.0", "id": "question-key-too-long", "method": method, "params": [
+            "sessionId": "s", "permissionId": "p1", "optionId": "yes",
+            "answers": ["q1": String(repeating: "x", count: AcpmuxPaneMethods.maximumAnswerBytes + 1)],
+        ]]
+        transport.submitQuestionKeyReply(connection: connection, requestID: "question-key-too-long", target: target,
+                                         frame: try #require(AcpmuxRequestIds.encode(tooLong)))
+        _ = await inbox.frame(containing: "transport.intent_invalid")
+        #expect(server.peers.first?.frames.contains { $0.contains("permission_respond") } == false)
+
+        let intent = try #require(Allow.intent(option: "yes", answers: ["q1": "My answer"]))
+        let context = try #require(transport.decisions.context(session: "s", permission: "p1"))
+        transport.gestures.recordQuestionReturn(true)
+        let witness = try #require(transport.gestures.questionReturnWitness)
+        transport.offerQuestionKeyCredit(target: target, intent: intent, context: context, connection: connection, witness: witness) { true }
+        let ticket = try #require(transport.reserveGesture(intent))
+        let retry = #"{"jsonrpc":"2.0","id":"question-key-retry","method":"_acpmux/permission_respond","params":{"sessionId":"s","permissionId":"p1","optionId":"yes","answers":{"q1":"My answer"},"_meta":{"cmuxGesture":"\#(ticket)"}}}"#
+        transport.submitQuestionKeyReply(connection: connection, requestID: "question-key-retry", target: target, frame: retry)
+        _ = await inbox.frame(containing: "permission.person_required")
+        for requestID in ["question-key-too-long", "question-key-retry"] {
+            let announced = try #require(delivered.firstIndex { ($0["params"] as? [String: Any])?["id"] as? String == requestID })
+            let answered = try #require(delivered.firstIndex { $0["id"] as? String == requestID && $0["error"] != nil })
+            #expect(announced < answered)
+            let params = try #require(delivered[announced]["params"] as? [String: Any])
+            #expect(delivered[announced]["method"] as? String == "_cmux/question_key_request")
+            #expect(params["sessionId"] as? String == "s")
+            #expect(params["permissionId"] as? String == "p1")
+        }
+    }
+
     @Test func newerInputRevokesTheOriginalReturnWitness() throws {
         let gestures = AgentPaneUserGestures()
         gestures.recordQuestionReturn(true)

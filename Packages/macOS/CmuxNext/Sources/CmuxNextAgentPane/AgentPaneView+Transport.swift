@@ -43,10 +43,12 @@ extension AgentPaneView {
             }
             guard let ticket = self.model.transport.reserveGesture(intent) else { return }
             params["_meta"] = [AcpmuxPaneMethods.gestureTicketKey: ticket]
-            let request: [String: Any] = ["jsonrpc": "2.0", "id": "question-key-" + UUID().uuidString,
+            let requestID = "question-key-" + UUID().uuidString
+            let request: [String: Any] = ["jsonrpc": "2.0", "id": requestID,
                                             "method": "_acpmux/permission_respond", "params": params]
             guard let text = AcpmuxRequestIds.encode(request) else { return }
-            self.model.transport.submit(connection: connection, frames: [text]) { _ in }
+            self.model.transport.submitQuestionKeyReply(connection: connection, requestID: requestID,
+                                                       target: snapshot.target, frame: text)
         }
         questionKeyBinding = bound ? binding : nil
     }

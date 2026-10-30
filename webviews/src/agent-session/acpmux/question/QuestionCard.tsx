@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { experimentArm } from "../../../experiments/experiment";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
@@ -40,6 +40,7 @@ import {
 } from "./model";
 import { cancelledArgs } from "./record";
 import { questionPreviewLayout, type QuestionPreviewLayout } from "./previewLayout.experiment";
+import { QUESTION_KEY_REQUEST_EVENT, type QuestionKeyRequestEvent } from "./keyReply";
 
 /// The keys a pending card answers while focus is inside it (the AgentQuestionCardState inputs).
 /// Arrow keys may repeat; a held digit, Enter or Space answers once.
@@ -150,7 +151,11 @@ function enterReply(question: AgentQuestion, state: CardState): string | undefin
   try {
     const sent = reply(question, cardAnswer(state));
     const { optionId, answers, annotations } = sent;
-    return JSON.stringify({ optionId, answers, ...(annotations === undefined ? {} : { annotations }) });
+    return JSON.stringify({
+      optionId,
+      answers,
+      ...(annotations === undefined ? {} : { annotations }),
+    });
   } catch {
     return undefined;
   }
@@ -181,6 +186,7 @@ function PendingQuestion({
   // The ask a person already answered: the owner clears it a moment later, and until then a
   // second click or key must not answer it again. A refused reply clears it for a retry.
   const [sentFor, setSentFor] = useState<string | undefined>();
+  const [keyPendingFor, setKeyPendingFor] = useState<string | undefined>();
   // The last reply's refusal, shown until the next try: the card's sentence, then the pane's words
   // for a refusal it knows (transportErrors.ts) or a message already in the person's language (the
   // app's or the pane's own). acpmux's English is for its CLI.
@@ -202,28 +208,66 @@ function PendingQuestion({
   // The same, read at once: a second click before the card renders again (a consent's double click)
   // must not answer twice either.
   const sending = useRef<string | undefined>(undefined);
+  const refuseReply = useCallback((askId: string, error: unknown) => {
+    // The ask stays pending: say why on the card and take input again.
+    if (sending.current === askId) sending.current = undefined;
+    setSentFor((current) => (current === askId ? undefined : current));
+    if (isHostRefusal(error)) {
+      setRefused({ reason: errorMessage(error) });
+      return;
+    }
+    const reason = localizedMessage(error);
+    if (reason) setRefused({ reason });
+    else {
+      console.warn("agent pane: an answer was refused", error);
+      setRefused({});
+    }
+  }, []);
   const send = (sentReply: QuestionReply | undefined) => {
     if (!sentReply || sent || sending.current === question.id) return;
     sending.current = question.id;
     setSentFor(question.id);
     setRefused(undefined);
     const askId = question.id;
-    Promise.resolve(onReply(sentReply)).catch((error: unknown) => {
-      // The ask stays pending: say why on the card and take input again.
-      if (sending.current === askId) sending.current = undefined;
-      setSentFor((current) => (current === askId ? undefined : current));
-      if (isHostRefusal(error)) {
-        setRefused({ reason: errorMessage(error) });
-        return;
-      }
-      const reason = localizedMessage(error);
-      if (reason) setRefused({ reason });
-      else {
-        console.warn("agent pane: an answer was refused", error);
-        setRefused({});
-      }
-    });
+    Promise.resolve(onReply(sentReply)).catch((error: unknown) => refuseReply(askId, error));
   };
+  useEffect(() => {
+    const view = group.current?.ownerDocument.defaultView;
+    if (!view) return;
+    let currentRequest: string | undefined;
+    const receive = (event: Event) => {
+      const request = (event as QuestionKeyRequestEvent).detail;
+      if (
+        !request ||
+        request.sessionId !== question.source.session ||
+        request.permissionId !== (question.source.permission ?? question.id)
+      )
+        return;
+      currentRequest = request.id;
+      sending.current = question.id;
+      // Mark only the card busy: disabling Other or changing its editing state before the
+      // native host redeems its snapshot would revoke the exact DOM evidence it is checking.
+      setKeyPendingFor(question.id);
+      setRefused(undefined);
+      void request.result.then(
+        () => {
+          if (currentRequest !== request.id) return;
+          setKeyPendingFor(undefined);
+          setSentFor(question.id);
+        },
+        (error: unknown) => {
+          if (currentRequest !== request.id) return;
+          setKeyPendingFor(undefined);
+          refuseReply(question.id, error);
+        },
+      );
+    };
+    view.addEventListener(QUESTION_KEY_REQUEST_EVENT, receive);
+    return () => {
+      currentRequest = undefined;
+      view.removeEventListener(QUESTION_KEY_REQUEST_EVENT, receive);
+    };
+  }, [question.id, question.source.session, question.source.permission, refuseReply]);
   /// Gives the keyboard back: the composer claims an idle keyboard on this event (composerFocus.ts).
   const resign = () => {
     const card = group.current;
@@ -377,7 +421,7 @@ function PendingQuestion({
         className="acpmux-question"
         data-consent=""
         aria-labelledby={legendId}
-        aria-busy={sent || undefined}
+        aria-busy={sent || keyPendingFor === question.id || undefined}
         data-cmux-question-session={question.source.session}
         data-cmux-question-id={question.source.permission ?? question.id}
         data-cmux-question-enter-reply={enterReply(question, state)}
@@ -453,7 +497,7 @@ function PendingQuestion({
       hidden={hidden}
       className="acpmux-question"
       aria-labelledby={legendId}
-      aria-busy={sent || undefined}
+      aria-busy={sent || keyPendingFor === question.id || undefined}
       data-cmux-question-session={question.source.session}
       data-cmux-question-id={question.source.permission ?? question.id}
       data-cmux-question-enter-reply={enterReply(question, state)}

@@ -329,6 +329,29 @@ import CmuxNextCompat
         Task { [weak self] in await self?.drain() }
     }
 
+    /// Return is captured before the card can create its usual reply promise. Let the client
+    /// adopt this request first, so its normal RPC error, disconnect and timeout paths reach the
+    /// card. The card keeps the original Other field intact until DOM redemption finishes.
+    func submitQuestionKeyReply(connection: Int, requestID: String, target: PageQuestionKeyTarget, frame: String) {
+        guard connection == current, let socket, !socket.isClosed else { return }
+        let announcement: [String: Any] = ["jsonrpc": "2.0", "method": "_cmux/question_key_request", "params": [
+            "id": requestID, "sessionId": target.sessionID, "permissionId": target.permissionID,
+        ]]
+        guard let text = AcpmuxRequestIds.encode(announcement) else { return }
+        // Use the same pacer queue as replies: even an immediate daemon response follows the
+        // announcement, and both stay scoped to this connection when it closes or reconnects.
+        socket.inject(text)
+        submit(connection: connection, frames: [frame]) { error in
+            guard let error,
+                  let rawID = AcpmuxPaneMethods.rawID(requestID) else { return }
+            // Most refusals also arrive through socket.inject. A stopped send (stale connection,
+            // closed socket, overflow) may have no injected reply. The client's pending map
+            // accepts only the first answer, so this fallback cannot reject a request twice.
+            let refusal = AcpmuxPaneMethods.refusal(requestID: rawID, error: error, method: "_acpmux/permission_respond")
+            socket.inject(refusal)
+        }
+    }
+
     nonisolated enum Step: Sendable { case sent, refused(AgentPaneTransportError), stop(AgentPaneTransportError) }
 
     /// One page send in line: its frames still to go, its first error, and where its result goes.
