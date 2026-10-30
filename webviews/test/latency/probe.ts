@@ -2,9 +2,9 @@
 // injects `installLatencyProbe` with `addInitScript`, so it must be self-contained (no imports, no
 // closures over module scope).
 //
-// One measurement: `arm(predicate)` with a predicate source that is false now; the next input
-// event (capture phase, any of pointerdown, mousedown, keydown, input, click, paste) records its
-// `timeStamp`. A MutationObserver (and each animation frame, for shadow DOM) evaluates the
+// One measurement: `arm(predicate, hover)` with a predicate source that is false now; the next input
+// event (capture phase, any of pointerdown, mousedown, keydown, input, click, paste; with `hover`,
+// pointerover only, for a response to the pointer arriving) records its `timeStamp`. A MutationObserver (and each animation frame, for shadow DOM) evaluates the
 // predicate; the first time it holds is the response, and the next animation frame after it is the
 // paint. Long tasks between the input and the paint come from the Long Tasks API where the engine
 // has it (Chromium) and, in every engine, from gaps between animation frames over 50 ms.
@@ -27,7 +27,8 @@ export interface LatencySample {
 export interface LatencyProbe {
   /** Median animation-frame interval over the last frames, ms (the display refresh). */
   frameInterval(): number;
-  arm(predicate: string): void;
+  /** `hover`: the input is the pointer arriving (pointerover), not a press or a key. */
+  arm(predicate: string, hover?: boolean): void;
   readonly state: "idle" | "armed" | "input" | "done" | "timeout";
   result(): LatencySample | null;
   error: string | null;
@@ -48,6 +49,7 @@ export function installLatencyProbe(): void {
   let inputAt = 0;
   let inputType = "";
   let inputFrame = 0;
+  let hoverInput = false;
   let maxGap = 0;
   let frameCount = 0;
   let responseAt = 0;
@@ -66,7 +68,8 @@ export function installLatencyProbe(): void {
       deltas.sort((a, b) => a - b);
       return deltas.length ? deltas[Math.floor(deltas.length / 2)] : 16.7;
     },
-    arm(predicate: string) {
+    arm(predicate: string, hover = false) {
+      hoverInput = hover;
       // The harness installs the predicate as `__latencyCheck` (page.evaluate of its source).
       const fn = (window as unknown as { __latencyCheck?: () => unknown }).__latencyCheck ?? (() => false);
       const evaluate = () => {
@@ -110,7 +113,7 @@ export function installLatencyProbe(): void {
   w.__latency = probe;
 
   const onInput = (event: Event) => {
-    if (state !== "armed") return;
+    if (state !== "armed" || (event.type === "pointerover") !== hoverInput) return;
     state = "input";
     inputAt = event.timeStamp;
     inputType = event.type;
@@ -118,7 +121,7 @@ export function installLatencyProbe(): void {
     maxGap = 0;
     // A response applied inside this very handler chain is caught by the observer's microtask.
   };
-  for (const type of ["pointerdown", "mousedown", "keydown", "beforeinput", "input", "click", "paste"]) {
+  for (const type of ["pointerdown", "mousedown", "keydown", "beforeinput", "input", "click", "paste", "pointerover"]) {
     window.addEventListener(type, onInput, { capture: true });
   }
 

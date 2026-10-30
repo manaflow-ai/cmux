@@ -15,6 +15,8 @@ export interface LatencyAction {
   prepare(page: Page): Promise<string>;
   /** The user input. */
   input(page: Page): Promise<void>;
+  /** The input is the pointer arriving on a target (pointerover starts the clock), not a press or a key. */
+  hover?: boolean;
   /** After a run (not measured): lets the page settle before the next one. */
   settle?(page: Page): Promise<void>;
 }
@@ -90,7 +92,7 @@ export async function measureOnce(
   }
   trace("arm");
   await page.evaluate(`window.__latencyCheck = () => (${predicate});`);
-  await page.evaluate((source) => window.__latency!.arm(source), predicate);
+  await page.evaluate(([source, hover]) => window.__latency!.arm(source, hover), [predicate, action.hover ?? false] as const);
   const armError = await page.evaluate(() => window.__latency!.error);
   if (armError) return { sample: null, error: armError };
   trace("input");

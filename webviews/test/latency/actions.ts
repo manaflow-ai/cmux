@@ -662,6 +662,7 @@ const railLanded = (index: number) =>
 const railActions: LatencyAction[] = [
   {
     name: "hover card",
+    hover: true,
     async prepare(page) {
       await railRest(page);
       const point = await railPoint(page);
