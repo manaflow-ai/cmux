@@ -984,4 +984,26 @@ mod tests {
                 .any(|e| e.kind == "auto_resume_restored")
         );
     }
+
+    #[tokio::test]
+    async fn retry_restore_does_not_replay_a_manual_retry_stopped_before_dispatch() {
+        let (hub, session) = idle_chat();
+        failed_retry(&hub, &session);
+        hub.append(
+            &session,
+            "mux",
+            "auto_resume_manual",
+            json!({
+                "turnId": "cut",
+                "promptId": "original",
+                "manualPromptId": "original~resume-1",
+                "error": "stream disconnected",
+                "control": "local",
+                "trustGate": false
+            }),
+        );
+        hub.append(&session, "mux", "auto_resume_stopped", json!({"turnId": "cut"}));
+        hub.restore_auto_resume(&session);
+        assert_eq!(hub.session_summary(&session)["retry"], Value::Null);
+    }
 }
