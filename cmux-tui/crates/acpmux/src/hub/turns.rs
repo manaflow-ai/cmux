@@ -1150,6 +1150,12 @@ impl Hub {
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;
         }
+        // The agent's end came with a shutdown that hands the chat to the next daemon, or after
+        // it began: the turn is cut, not ended, and that daemon continues it. Nothing here writes
+        // its end, puts its messages back or holds the queue, whoever took the turn first.
+        if result.is_err() && self.hands_off(session) {
+            return result;
+        }
         // acpmux ended a turn whose model said nothing for `stalledTurnEndMs`: it failed.
         let stalled = result.as_ref().ok().and_then(Self::stalled_error);
         if let Some(e) = stalled {

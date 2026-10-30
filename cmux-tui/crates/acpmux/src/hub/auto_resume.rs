@@ -426,6 +426,9 @@ impl Hub {
         turn_id: &str,
         cut: Option<CutTurn<'_>>,
     ) {
+        // A cut a shutdown that hands the chat on caused is the next daemon's to continue
+        // (`restart_resume.rs`): none waits here to fire in this one.
+        let cut = cut.filter(|_| !self.hands_off(session));
         let mut pending = session.auto_resume.lock();
         let ending = match pending.as_ref() {
             Some(Mark::Ending(t)) if t == turn_id => Some(true),

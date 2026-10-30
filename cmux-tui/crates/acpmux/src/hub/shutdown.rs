@@ -35,6 +35,15 @@ impl Hub {
 
     /// The shutdown has begun (it read its plan): no agent may start from
     /// here on, or it would outlive the daemon with nothing to end it.
+    /// Whether a shutdown began that hands `session`'s agent to the next daemon (no `endAgents`
+    /// for it): a turn its agent's end cuts from now on is that daemon's to continue
+    /// (`restart_resume.rs`). Agents are ended only after `started` is set, so an end read after
+    /// this is false was not the shutdown's.
+    pub(super) fn hands_off(&self, session: &Session) -> bool {
+        let plan = self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        plan.started && !(plan.end_agents && !plan.keep.contains(&session.id))
+    }
+
     pub(crate) fn shutting_down(&self) -> bool {
         // A poisoned plan still says whether the shutdown began.
         self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner).started
