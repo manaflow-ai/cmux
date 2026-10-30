@@ -30,8 +30,7 @@ mod workspace_update;
 pub use closed::{
     ClosedAgentSessionRecord, ClosedDeleteResult, ClosedDeleteTarget, ClosedItemSnapshot,
     ClosedListOptions, ClosedMemberRecord, ClosedReopenOptions, ClosedReopenResult,
-    ClosedScreenRecord,
-    ClosedTabRecord, WorkspaceCloseResult,
+    ClosedScreenRecord, ClosedTabRecord, WorkspaceCloseResult,
 };
 pub use column_update::{ColumnEdge, ColumnMode};
 pub use home::CONVERSATION_TABS_CAPABILITY;
