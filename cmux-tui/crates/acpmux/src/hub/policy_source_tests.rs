@@ -3,6 +3,7 @@ use super::{
 };
 use crate::config::PermissionPolicy;
 use crate::hub::Hub;
+use crate::store::Store as _;
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta};
 use serde_json::{Value, json};
 use std::collections::HashSet;
