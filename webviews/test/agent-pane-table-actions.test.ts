@@ -78,7 +78,13 @@ await requireBrowserLane("agent-pane-table-actions.test.ts", async () => {
         column: { right: column.right },
         gap: parseFloat(getComputedStyle(tools).gap),
         table: { top: table.top, right: table.right },
-        buttons: rects.map((rect) => ({ top: rect.top, right: rect.right, width: rect.width, height: rect.height, center: rect.top + rect.height / 2 })),
+        buttons: rects.map((rect) => ({
+          top: rect.top,
+          right: rect.right,
+          width: rect.width,
+          height: rect.height,
+          center: rect.top + rect.height / 2,
+        })),
         icons: icons.map((rect) => ({ width: rect.width, height: rect.height, center: rect.top + rect.height / 2 })),
       };
     });
