@@ -321,6 +321,8 @@ extension SettingsSchema {
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
         "app.quitBehavior": .destructive,
+        // Off, Cmd-Q quits without asking.
+        "app.confirmQuit": .destructive,
         // Voice Room records mic and screen text and posts it to the configured room.
         "labs.voiceRoom": .privacy,
         // The room address chooses the network endpoint that receives that capture.

@@ -30,7 +30,10 @@ struct QuitAlertContent: Equatable {
     /// confirmation: Quit and Cancel.
     static func main(_ prompt: QuitPrompt) -> QuitAlertContent {
         guard prompt.offersSessionChoice else {
-            return QuitAlertContent(title: ConfirmationStrings.quitIncognitoTitle, lines: [], buttons: [.quit, .cancel],
+            // Quit applies the remembered choice; the title names incognito
+            // windows only when they are what is at stake.
+            let title = prompt.incognitoPrograms.isEmpty ? QuitStrings.title : ConfirmationStrings.quitIncognitoTitle
+            return QuitAlertContent(title: title, lines: [], buttons: [.quit, .cancel],
                                     showsSuppression: false)
         }
         // Statuses only, no explanation of what quitting does.

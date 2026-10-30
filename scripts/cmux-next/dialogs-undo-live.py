@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Live behavior proof for the dialog removal of cx-7vu (closes run at once,
-undo toasts, no "Quit cmux?" prompt), through the tagged app's own sockets.
+undo toasts) and of Cmd-Q's "Quit cmux?" (on by default, #25567), through the
+tagged app's own sockets.
 
 Checks, on one tagged DEBUG app with a bounded, never-activated window:
   forget      Forget Machine from a person's run asks nothing, shows the
@@ -11,7 +12,8 @@ Checks, on one tagged DEBUG app with a bounded, never-activated window:
   tabgroup    Closing a tab group asks nothing (idle terminals) and shows the
               "tab-closed" undo toast; Undo brings the tab back.
   quit        Cmd-Q (debug.quit open, the interactive origin) with a foreground
-              program running quits at once with no dialog; the program and the
+              program running asks "Quit cmux?" (app.confirmQuit unset is
+              "always"); Keep Sessions Running quits; the program and the
               daemon survive; a relaunch shows the same terminal.
 
 Teardown: quit with End Sessions (`action.run quit {endSessions}`, explicit and
@@ -203,13 +205,13 @@ try:
         check("quit-setup-program", loop_pid, loop_pid)
     reply = rpc("debug.quit", {"open": True})
     print("quit open:", json.dumps(reply)[:200])
-    asked = False
+    asked = wait(lambda: app.poll() is None and (rpc("debug.quit", timeout=2) or {}).get("asking") is True, 20)
+    check("quit-asks-by-default", asked, dialogs())
+    if asked:
+        print("quit press keep:", json.dumps(rpc("debug.quit", {"press": "keep"}))[:200])
     deadline = time.time() + 20
     while app.poll() is None and time.time() < deadline:
-        q = rpc("debug.quit", timeout=2) or {}
-        asked = asked or q.get("asking") is True or any(d.get("identifier") == "cmux.dialog.quit" for d in dialogs())
-        time.sleep(0.25)
-    check("quit-no-prompt", not asked)
+        time.sleep(0.25)  # test harness: the quit after Keep
     check("quit-app-exits", app.poll() is not None, app.poll())
     time.sleep(5)  # test harness: past the quit, before the survival read
     check("quit-program-survives", loop_pid and alive(loop_pid), loop_pid)

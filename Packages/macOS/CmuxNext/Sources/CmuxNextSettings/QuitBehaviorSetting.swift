@@ -46,3 +46,33 @@ extension SettingsController {
         return true
     }
 }
+
+/// Whether an interactive quit (Cmd-Q, the Quit menu, the Dock) asks first.
+/// The values are classic cmux's `app.confirmQuit`, which reads the same
+/// cmux.json.
+public nonisolated enum ConfirmQuitMode: String, Sendable, Hashable, CaseIterable {
+    /// Ask on every interactive quit.
+    case always
+    /// Ask only while a local program runs or an agent is in a turn.
+    case dirtyOnly = "dirty-only"
+    /// Quit at once.
+    case never
+}
+
+/// `app.confirmQuit` in cmux.json: "always" (default, as in classic, #25567),
+/// "dirty-only" or "never", strings only, as in classic.
+extension ConfirmQuitMode {
+    public static let configPath = ["app", "confirmQuit"]
+    public static let fallback: ConfirmQuitMode = .always
+
+    /// A missing key is the default with no diagnostic; a bad value is the
+    /// default plus a diagnostic.
+    static func parse(_ root: JSONValue) -> (ConfirmQuitMode, SettingsDiagnostic?) {
+        guard let value = root.value(at: configPath) else { return (fallback, nil) }
+        guard let text = value.stringValue, let mode = ConfirmQuitMode(rawValue: text) else {
+            let choices = allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "app.confirmQuit", message: "expected one of \(choices)"))
+        }
+        return (mode, nil)
+    }
+}

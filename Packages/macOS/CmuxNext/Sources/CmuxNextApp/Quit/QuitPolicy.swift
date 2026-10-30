@@ -24,14 +24,18 @@ enum QuitPolicy {
     static func needsFacts(_ origin: QuitOrigin) -> Bool { origin == .interactive }
 
     /// Quit at once with a choice, or ask. `facts` is read only for an
-    /// interactive quit. Quitting never asks about sessions (Lawrence
-    /// 2026-10-07, no "Quit cmux?"): Keep, the default, loses no work,
-    /// because local terminals and agents run in their daemons and reattach
-    /// on the next launch; a remembered end choice applies as set. The one
-    /// question left is incognito windows' running programs, which end with
-    /// the windows and cannot come back, and it is asked at most once
-    /// (#17501): never after the unsaved-changes question (`alreadyAsked`).
-    static func decide(_ origin: QuitOrigin, behavior: QuitBehavior, facts: QuitFacts, alreadyAsked: Bool = false) -> QuitDecision {
+    /// interactive quit. Keep, the default choice, loses no work, because
+    /// local terminals and agents run in their daemons and reattach on the
+    /// next launch; a remembered end choice applies as set. `confirm`
+    /// (`app.confirmQuit`, classic's key) asks "Quit cmux?" before an
+    /// interactive quit: "always" (the default, as in classic, #25567), or
+    /// "dirty-only" while a program runs or an agent is in a turn; "never"
+    /// quits at once (Lawrence 2026-10-07). Otherwise the one question left is
+    /// incognito windows' running programs, which end with the windows and
+    /// cannot come back. Either is asked at most once (#17501): never after
+    /// the unsaved-changes question (`alreadyAsked`).
+    static func decide(_ origin: QuitOrigin, behavior: QuitBehavior, confirm: ConfirmQuitMode = ConfirmQuitMode.fallback,
+                       facts: QuitFacts, alreadyAsked: Bool = false) -> QuitDecision {
         let remembered: QuitSessionsChoice? = switch behavior {
         case .ask: nil
         case .keep: .keep
@@ -45,15 +49,22 @@ enum QuitPolicy {
         case .scripted: return .quit(remembered ?? .keep)
         case .interactive: break
         }
-        guard !alreadyAsked, !facts.incognitoPrograms.isEmpty else { return .quit(remembered ?? .keep) }
-        // The incognito close confirmation: Quit applies the remembered choice (else Keep).
+        let confirms = switch confirm {
+        case .always: true
+        case .dirtyOnly: !facts.programs.isEmpty || (facts.agents?.inTurn ?? 0) > 0
+        case .never: false
+        }
+        guard !alreadyAsked, confirms || !facts.incognitoPrograms.isEmpty else { return .quit(remembered ?? .keep) }
+        // "Quit cmux?" when confirming, else the incognito close confirmation:
+        // Quit applies the remembered choice (else Keep).
         return .ask(QuitPrompt(
             terminals: facts.terminals,
             runningPrograms: facts.programs.count,
             busiest: busiest(facts.programs),
             incognitoPrograms: facts.incognitoPrograms,
             remoteSessions: facts.remoteSessions,
-            offersSessionChoice: false,
+            // With a remembered choice the dialog only confirms it (Quit and Cancel).
+            offersSessionChoice: confirms && remembered == nil,
             defaultChoice: remembered ?? .keep,
             agents: facts.agents?.live,
             agentsInTurn: facts.agents?.inTurn ?? 0,

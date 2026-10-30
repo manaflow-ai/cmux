@@ -343,6 +343,17 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
+    "app.confirmQuit" : {
+      "default" : "always",
+      "description" : "Asks before Cmd-Q, the Quit menu or the Dock quits cmux.",
+      "enum" : [
+        "always",
+        "dirty-only",
+        "never"
+      ],
+      "title" : "Confirm Before Quitting",
+      "type" : "string"
+    },
     "app.globalHotKey" : {
       "default" : false,
       "description" : "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.",
