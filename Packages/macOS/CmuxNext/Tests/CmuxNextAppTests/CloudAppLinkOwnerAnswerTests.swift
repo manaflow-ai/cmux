@@ -10,15 +10,17 @@ import Testing
 /// with `agent_session.host_unverified`.
 @MainActor
 struct CloudAppLinkOwnerAnswerTests {
-    private static let key = CloudLinkKey(machine: "vm_aaaaaaaaaaaaaaaaaaaa")
+    // The resolver's `run` closure is `@Sendable` and runs off the main actor, so the fixture
+    // it calls is nonisolated: it reads only this Sendable constant and its argument.
+    nonisolated private static let key = CloudLinkKey(machine: "vm_aaaaaaaaaaaaaaaaaaaa")
 
-    private static func answer(_ vmKind: String?) -> Data {
+    nonisolated private static func answer(_ vmKind: String?) -> Data {
         var object: [String: Any] = ["machine": key.machine, "state": "up", "generation": 3, "socket": "/tmp/cmux-link.sock"]
         if let vmKind { object["vm_kind"] = vmKind }
         return (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
     }
 
-    private static func resolver(_ vmKind: String?) -> CloudConnectOpResolver {
+    nonisolated private static func resolver(_ vmKind: String?) -> CloudConnectOpResolver {
         CloudConnectOpResolver(run: { _, _, _, _ in answer(vmKind) }, check: { _ in })
     }
 
