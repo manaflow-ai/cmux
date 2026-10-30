@@ -403,4 +403,25 @@ import Testing
             }
         } }
     }
+
+    /// Leo 2026-10-21: "no empty pin symbol by default" (cmux#24371). An expanded unpinned row draws no pin on
+    /// hover (Pin Workspace stays in its ⋮ menu); an expanded pinned row still offers Unpin there.
+    @Test func anExpandedUnpinnedRowDrawsNoPinOnHover() throws {
+        try SidebarGroupRailAlignmentTests.with(.expanded, .off) {
+            let h = KindHarness(width: 260)
+            defer { h.window.close() }
+            h.model.workspacePin = (isPinned: { $0 == Self.busy }, toggle: { _ in })
+            h.list.reload(animated: false)
+            h.sidebar.layoutSubtreeIfNeeded()
+            @MainActor func pinShows(_ id: WorkspaceID) throws -> Bool {
+                let row = try #require(h.list.rowViews[.workspace(id)] as? WorkspaceRowView)
+                row.isHovered = true
+                row.layoutSubtreeIfNeeded()
+                defer { row.isHovered = false; row.layoutSubtreeIfNeeded() }
+                return !row.pinButton.isHidden && row.pinButton.alphaValue > 0
+            }
+            #expect(try !pinShows(Self.unread), "an unpinned row shows a pin on hover")
+            #expect(try pinShows(Self.busy), "a pinned row lost its hover Unpin")
+        }
+    }
 }
