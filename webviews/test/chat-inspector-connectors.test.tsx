@@ -110,16 +110,22 @@ test("a failed server's Reconnect asks for that server, waits, and offers Try ag
   });
   // Only the failed server has one.
   const buttons = reconnectButtons(connectors);
-  expect(buttons.map((button) => button.textContent)).toEqual([translate("chatInspector.connectors.reconnectAction")]);
+  expect(buttons.map((button) => button.querySelector(".ui-stable-label__current")?.textContent)).toEqual([
+    translate("chatInspector.connectors.reconnectAction"),
+  ]);
   expect(buttons[0]!.closest("li")!.textContent?.startsWith("linear")).toBe(true);
 
   await act(async () => buttons[0]!.click());
   expect(asked).toEqual(["linear"]);
-  expect(buttons[0]!.textContent).toBe(translate("chatInspector.connectors.reconnecting"));
+  expect(buttons[0]!.querySelector(".ui-stable-label__current")?.textContent).toBe(
+    translate("chatInspector.connectors.reconnecting"),
+  );
   expect(buttons[0]!.disabled).toBe(true);
 
   await act(async () => answer!.reject());
-  expect(buttons[0]!.textContent).toBe(translate("chatInspector.connectors.retry"));
+  expect(buttons[0]!.querySelector(".ui-stable-label__current")?.textContent).toBe(
+    translate("chatInspector.connectors.retry"),
+  );
   expect(buttons[0]!.disabled).toBe(false);
   expect(buttons[0]!.dataset.state).toBe("failed");
 
@@ -127,7 +133,9 @@ test("a failed server's Reconnect asks for that server, waits, and offers Try ag
   await act(async () => buttons[0]!.click());
   expect(asked).toEqual(["linear", "linear"]);
   await act(async () => answer!.resolve());
-  expect(buttons[0]!.textContent).toBe(translate("chatInspector.connectors.reconnectAction"));
+  expect(buttons[0]!.querySelector(".ui-stable-label__current")?.textContent).toBe(
+    translate("chatInspector.connectors.reconnectAction"),
+  );
   const after = await show(container, () => Promise.resolve(), [
     { name: "github", status: "connected" as const },
     { name: "linear", status: "connected" as const },

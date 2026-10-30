@@ -192,7 +192,7 @@ test("a repository's chat lists its project by name, its path only in the toolti
   expect(save.textContent).toBe(translate("chatInspector.environment.save"));
   await act(async () => save.click());
   expect(saves).toBe(1);
-  expect(save.textContent).toBe(translate("artifact.saved"));
+  expect(save.querySelector(".ui-stable-label__current")?.textContent).toBe(translate("artifact.saved"));
   expect(save.disabled).toBe(true);
 });
 
