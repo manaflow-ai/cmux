@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   checkoutSessionIdempotencyKey,
+  isIdempotentReplay,
   teamCustomerIdempotencyKey,
 } from "../services/billing/stripeIdempotency";
 
@@ -31,5 +32,14 @@ describe("Stripe checkout idempotency keys", () => {
     expect(teamCustomerIdempotencyKey("team-1", params)).toBe(teamCustomerIdempotencyKey("team-1", { ...params }));
     expect(teamCustomerIdempotencyKey("team-2", params)).not.toBe(teamCustomerIdempotencyKey("team-1", params));
     expect(teamCustomerIdempotencyKey("t".repeat(500), params).length).toBeLessThanOrEqual(255);
+  });
+
+  test("recognize Stripe's Idempotent-Replayed header from either HTTP client", () => {
+    expect(isIdempotentReplay({ lastResponse: { headers: { "idempotent-replayed": "true" } } })).toBe(true);
+    expect(isIdempotentReplay({ lastResponse: { headers: new Headers({ "Idempotent-Replayed": "true" }) } })).toBe(true);
+    expect(isIdempotentReplay({ lastResponse: { headers: { "idempotent-replayed": "false" } } })).toBe(false);
+    expect(isIdempotentReplay({ lastResponse: { headers: {} } })).toBe(false);
+    expect(isIdempotentReplay({ id: "cs_1" })).toBe(false);
+    expect(isIdempotentReplay(null)).toBe(false);
   });
 });

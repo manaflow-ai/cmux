@@ -22,7 +22,12 @@ const getUser = mock(async (options?: unknown) => {
   if (typeof options === "string") return currentUser?.id === options ? currentUser : null;
   return currentUser;
 });
-const createSession = mock(async (_params: unknown) => ({ id: "cs_team", url: "https://checkout.stripe.com/c/team" }));
+const newSession = async (_params: unknown, _options?: unknown): Promise<Record<string, unknown>> =>
+  ({ id: "cs_team", url: "https://checkout.stripe.com/c/team" });
+const openSession = async (id: string): Promise<Record<string, unknown>> =>
+  ({ id, url: "https://checkout.stripe.com/c/team", status: "open" });
+const createSession = mock(newSession);
+const retrieveSession = mock(openSession);
 const createCustomer = mock(async (_params: unknown, _options?: unknown) => ({ id: "cus_new_team" }));
 const deleteCustomer = mock(async (_id: string) => ({ id: _id, deleted: true }));
 const createPortal = mock(async (_params: unknown) => ({ url: "https://billing.stripe.com/p/team" }));
@@ -42,7 +47,7 @@ mock.module("../services/billing/stripe", () => ({
   isStripeBillingConfigured: () => true,
   resolveTeamPrice: async () => "price_team_month",
   stripe: () => ({
-    checkout: { sessions: { create: createSession } },
+    checkout: { sessions: { create: createSession, retrieve: retrieveSession } },
     customers: { create: createCustomer, del: deleteCustomer },
     billingPortal: { sessions: { create: createPortal } },
   }),
@@ -237,7 +242,10 @@ describe("team checkout idempotency", () => {
   beforeEach(() => {
     dbRows = emptyBillingDbRows();
     currentUser = fixtureStackUser({ id: USER_ID, teams: [teamB, teamC], adminTeamIds: ["team-b", "team-c"] });
-    createSession.mockClear();
+    createSession.mockReset();
+    createSession.mockImplementation(newSession);
+    retrieveSession.mockReset();
+    retrieveSession.mockImplementation(openSession);
     createCustomer.mockClear();
     deleteCustomer.mockClear();
   });
@@ -262,6 +270,37 @@ describe("team checkout idempotency", () => {
     expect(sessionKeys[2]).not.toBe(sessionKeys[0]);
     expect(customerKeys[0]).not.toBe(sessionKeys[0]);
   });
+
+  function replayedSession(id: string, url: string) {
+    return { id, url, lastResponse: { headers: { "idempotent-replayed": "true" } } };
+  }
+
+  test("a replayed Checkout Session that is still open is reused", async () => {
+    createSession.mockImplementationOnce(async () => replayedSession("cs_team", "https://checkout.stripe.com/c/team"));
+
+    const response = await checkoutGet("plan=team&teamId=team-b");
+
+    expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/team");
+    expect(retrieveSession).toHaveBeenCalledWith("cs_team");
+    expect(createSession).toHaveBeenCalledTimes(1);
+  });
+
+  for (const status of ["complete", "expired"]) {
+    test(`a replayed Checkout Session that is ${status} is replaced by a new one`, async () => {
+      createSession.mockImplementationOnce(async () => replayedSession("cs_stale", "https://checkout.stripe.com/c/stale"));
+      retrieveSession.mockImplementationOnce(async (id: string) => ({ id, url: null, status }));
+      createSession.mockImplementationOnce(async () => ({ id: "cs_fresh", url: "https://checkout.stripe.com/c/fresh" }));
+
+      const response = await checkoutGet("plan=team&teamId=team-b");
+
+      expect(response.headers.get("location")).toBe("https://checkout.stripe.com/c/fresh");
+      const [first, second] = idempotencyKeys(createSession.mock.calls);
+      expect(createSession.mock.calls[1]?.[0]).toEqual(createSession.mock.calls[0]?.[0]);
+      expect(typeof second).toBe("string");
+      expect(second).not.toBe(first);
+      expect((second as string).length).toBeLessThanOrEqual(255);
+    });
+  }
 
   test("a checkout that loses the customer insert race deletes its Stripe customer and uses the winner's", async () => {
     dbRows.beforeInsert = () => {
