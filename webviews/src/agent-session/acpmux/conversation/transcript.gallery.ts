@@ -1811,9 +1811,9 @@ export default agentPaneEntry({
       ),
     },
     "steer-ended": {
-      note: "A turn Leo steered, once it ended: each part folds its own work, as Codex draws it. The call before the steer folds under Worked for over the prompt's part, the call after it under its own Worked for below the steer, timed from the steer, then the answer. Nothing moves above the steer it came after. Play: the steer's fold opens on its own call.",
+      note: "A turn Leo steered, once it ended: the whole connected turn folds under one Worked for keyed by its prompt, with the answer below it. Play: that fold opens on the call before the steer, the reply, the steer, then the call after it, in the order they ran.",
       snapshot: chat([
-        user("Fix the flaky login test", 3),
+        user("Fix the flaky login test", 3, { id: "steer-ended-prompt" }),
         activity(
           [
             thought("The login test fails one run in five; check how the retry waits for the session."),
@@ -1831,9 +1831,11 @@ export default agentPaneEntry({
         summary(1.2, { status: "completed", toolCount: 2, durationMs: 108_000 }),
       ]),
       play: async (ctx: PlayContext) => {
-        const fold = '[data-row-id="worked-steer-ended-steer"] .cv-worked';
+        // A finished turn draws one fold, the prompt's; the steer and the work after it open inside it.
+        const fold = '[data-row-id="worked-steer-ended-prompt"] .cv-worked';
         await ctx.click({ selector: fold });
         await ctx.waitFor(() => ctx.find({ selector: fold }).getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="steer-ended-steer"]'));
       },
     },
     "working-tokens": {
