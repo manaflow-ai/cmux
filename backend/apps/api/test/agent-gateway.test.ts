@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import type { Http } from "../src/integrations/providers.ts"
+import { memberUpsert } from "../src/domains/team-members.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 type Reply = { ok: boolean; op: string; value?: unknown; error?: { code: string; details?: { request?: string } }; replayed: boolean }
@@ -40,7 +41,7 @@ const setup = async (label: string) => {
   const state = new URL(connect.json.value.authorize_url as string).searchParams.get("state")!
   const installation = 400 + seq
   const calls: Array<{ url: string; body: string }> = []
-  let mode: "normal" | "lost" | "race" = "normal"
+  let mode: "normal" | "lost" | "race" | "casing" = "normal"
   const connection = e.CONNECTION_DO.get(e.CONNECTION_DO.idFromName(team))
   const http: Http = async (req) => {
     const body = await req.clone().text()
@@ -54,7 +55,7 @@ const setup = async (label: string) => {
     }
     if (req.url.includes("/comments")) {
       if (mode === "lost") { calls.push({ url: "provider-accepted", body }); throw new Error("ack lost after provider accepted") }
-      return json({ id: 9000 + calls.length, html_url: `https://github.com/acme/web/issues/7#issuecomment-${9000 + calls.length}` }, 201)
+      return json({ id: 9000 + calls.length, html_url: `https://github.com/${mode === "casing" ? "Acme/Web" : "acme/web"}/issues/7#issuecomment-${9000 + calls.length}` }, 201)
     }
     return new Response("not found", { status: 404 })
   }
@@ -84,10 +85,12 @@ describe("hosted MCP agent gateway", { timeout: 60_000 }, () => {
     expect(gateway).toBeDefined()
     if (!gateway) return
     const s = await setup("shared")
+    const member = await setup("shared-member")
+    expect(member.team).not.toBe(s.team)
     await inDO(e.TEAM_DO.get(e.TEAM_DO.idFromName(s.team)), async (instance) => {
-      instance.boundEngine.rows.apply([{ table: "member", op: "insert", key: s.user, value: { user: s.user, role: "member", display_name: s.user } }])
+      instance.boundEngine.rows.apply([memberUpsert({ user: member.user, role: "member", display_name: "Synthetic member" })])
     })
-    const shared = await gateway.dispatchIssueComment(s.input())
+    const shared = await gateway.dispatchIssueComment(s.input({ authorization: `Bearer ${member.session}` }))
     expect(shared.error?.code).toBe("approval.pending")
   })
 
@@ -95,6 +98,7 @@ describe("hosted MCP agent gateway", { timeout: 60_000 }, () => {
     expect(gateway).toBeDefined()
     if (!gateway) return
     const s = await setup("approve")
+    s.setMode("casing")
     const input = s.input({ requestId: "approve" })
     const pending = await gateway.dispatchIssueComment(input)
     const request = pending.error?.details?.request
@@ -104,7 +108,10 @@ describe("hosted MCP agent gateway", { timeout: 60_000 }, () => {
     await fireAlarm(s.feed)
     expect(s.calls.filter((x) => x.url.includes("/comments"))).toHaveLength(1)
     const done = await gateway.dispatchIssueComment(input)
-    expect(done).toMatchObject({ ok: true, replayed: true, value: { id: expect.any(Number), url: expect.stringContaining("issuecomment-") } })
+    expect(done).toMatchObject({ ok: true, replayed: true, value: { id: expect.any(Number), url: expect.stringContaining("https://github.com/Acme/Web/issues/7#issuecomment-") } })
+    const mints = s.calls.filter((call) => call.url.includes("/access_tokens"))
+    expect(mints).toHaveLength(1)
+    expect(JSON.parse(mints[0]!.body)).toEqual({ repositories: ["web"], permissions: { issues: "write" } })
     expect((await gateway.dispatchIssueComment({ ...input, body: "changed" })).error?.code).toBe("idempotency.conflict")
     await inDO(s.connection, async (instance) => {
       expect(instance.ctx.storage.sql.exec("SELECT status FROM external_calls").toArray()).toHaveLength(1)
