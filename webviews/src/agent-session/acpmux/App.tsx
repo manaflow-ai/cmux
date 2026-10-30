@@ -6654,13 +6654,18 @@ function AcpmuxPane() {
   }, []);
   // A pane opened on a subagent shows the chat's other subagents in place, and its "Subagent of" pill goes
   // back to the chat: its tab's name follows what it shows (review of #28497 at 995299ff). Not before
-  // the subagent it was opened on has shown, or the name the app gave the tab would flash away.
-  const shownSubagentTitle = ownSubagentPane && subagentView ? subagentTitle(subagentView) : undefined;
+  // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
+  // while this page has no rows for the subagent yet (they load after the pane opens), which would name
+  // it "Subagent of" over the name the chat's page gave it.
+  const shownSubagentKnown = !!subagentView && freshAgents.some((agent) => agent.id === subagentView);
+  const shownSubagentTitle = ownSubagentPane && subagentView && shownSubagentKnown ? subagentTitle(subagentView) : undefined;
   const subagentShownOnce = useRef(false);
   useEffect(() => {
     if (!ownSubagentPane) return;
-    if (subagentView) subagentShownOnce.current = true;
-    else if (!subagentShownOnce.current) return;
+    if (subagentView) {
+      subagentShownOnce.current = true;
+      if (!shownSubagentTitle) return;
+    } else if (!subagentShownOnce.current) return;
     void callNative(
       "chat.subagentShown",
       subagentView ? { subagent: subagentView, title: shownSubagentTitle } : {},
