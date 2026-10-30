@@ -422,10 +422,10 @@ export function QuickModelMenu({
     };
     const look = menu.effortLook ?? "list";
     const shown = running ? choices.find((choice) => choice.id === effort?.current) : undefined;
-    // The row stays one line: the model, and at its trailing edge the running model's level and a
-    // chevron. Its levels open as a vertical side dropdown in that column, beside the model, while
-    // the row is under the pointer or the keyboard is on it or on a level (CSS), and close when it
-    // leaves. Each level is a menu item, so Down walks the model's levels before the next model.
+    // The row stays one line: the model, then its effort item at the trailing edge (the running
+    // model's level and a chevron). Pointing at it or ArrowRight opens the model's levels as a side
+    // dropdown beside the row, a vertical list in its own popup (never clipped by the list's scroll,
+    // never over the next row), and a level lands the model and its effort together.
     return (
       <div
         className="acpmux-quick-model-effort"
@@ -434,22 +434,29 @@ export function QuickModelMenu({
         data-running={running ? "" : undefined}
       >
         {name}
-        <span className="acpmux-quick-effort-now" aria-hidden="true">
-          {shown?.name}
-          <span className="acpmux-quick-effort-chevron" />
-        </span>
-        <fieldset className="acpmux-quick-efforts" aria-label={`${model.name} · ${t("effort.title")}`}>
-          {look === "slider" && running && effort ? (
-            <div className="acpmux-quick-effort-vertical">
+        <Submenu
+          className="acpmux-quick-item acpmux-quick-effort-trigger"
+          popupClassName="acpmux-quick-menu acpmux-quick-submenu acpmux-quick-effort-menu"
+          disabled={model.disabled}
+          label={
+            <span className="acpmux-quick-effort-now">
+              {shown?.name}
+              <span className="sr-only">{`${model.name} · ${t("effort.title")}`}</span>
+            </span>
+          }
+        >
+          {look === "slider" ? (
+            <div className="acpmux-quick-effort-vertical" data-effort-look="slider">
               <EffortTrack
                 efforts={choices}
-                current={effort.current}
+                current={running ? effort?.current : undefined}
                 fallback={choices.find((choice) => choice.recommended)?.id}
-                sliderStyle={effort.sliderStyle}
+                sliderStyle={effort?.sliderStyle}
                 onPick={pickEffort}
                 onRangeKey={(event) => {
                   if (EFFORT_SLIDER_KEYS.has(event.key)) event.stopPropagation();
                 }}
+                focusOnMount
               />
             </div>
           ) : (
@@ -457,13 +464,12 @@ export function QuickModelMenu({
               {choices.map((choice) => (
                 <MenuRadioItem
                   key={choice.id}
-                  className="acpmux-quick-effort-segment"
-                  disabled={model.disabled}
+                  className="acpmux-quick-item acpmux-quick-effort-segment"
                   label={`${model.name} · ${choice.name}`}
                   value={choice.id}
                   closeOnClick
                 >
-                  <span data-selected={running && effort?.current === choice.id ? "" : undefined}>{choice.name}</span>
+                  <span className="acpmux-menu-label">{choice.name}</span>
                   {look === "list" && choice.recommended && (
                     <span className="acpmux-quick-effort-badge">{t("picker.modeRecommended")}</span>
                   )}
@@ -471,7 +477,7 @@ export function QuickModelMenu({
               ))}
             </MenuRadioGroup>
           )}
-        </fieldset>
+        </Submenu>
       </div>
     );
   };

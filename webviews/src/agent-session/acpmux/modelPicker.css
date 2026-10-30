@@ -562,108 +562,50 @@
   mask-image: none;
 }
 
-/* One row per model (no wall of effort words): the model, then a trailing effort column with the
-   running model's level and a chevron. The model's levels open as a vertical side dropdown in that
-   column, beside the model, while the row is under the pointer or the keyboard is on it or on one
-   of its levels, and close when it leaves; nothing fades in (Leo 2026-10-24: menus open on the
-   click). Leo 2026-10-30: "we dont like horizontal text for effort. just make it vertical. hell,
-   why not do a vertical slider?". Model names and levels are sibling menu items, so a level lands
-   the model and its effort together. */
+/* One row per model (no wall of effort words): the model, then its effort item at the trailing
+   edge, the running model's level and a chevron. The item opens the model's levels as a side
+   dropdown beside the row, a vertical list in its own popup (Leo 2026-10-30: "we dont like
+   horizontal text for effort. just make it vertical. hell, why not do a vertical slider?"). */
 .acpmux-quick-model-effort {
-  --acpmux-effort-column: 112px;
-  position: relative;
   display: flex;
   align-items: center;
 }
-.acpmux-quick-model-effort > .acpmux-quick-item {
+.acpmux-quick-model-effort > .acpmux-quick-item:first-child {
   flex: 1 1 auto;
   min-width: 0;
 }
-.acpmux-quick-effort-now {
-  display: flex;
+.ui-menu-item.acpmux-quick-effort-trigger {
   flex: none;
-  align-items: center;
   justify-content: flex-end;
   gap: var(--ds-space-1);
-  width: var(--acpmux-effort-column);
-  padding-inline-end: var(--ui-row-padding-inline);
+  min-width: 0;
+  padding-inline: var(--ds-space-2) var(--ui-row-padding-inline);
   color: var(--agent-muted);
   font-size: var(--text-caption);
-  pointer-events: none;
   white-space: nowrap;
 }
-.acpmux-quick-effort-chevron {
-  width: 6px;
-  height: 6px;
-  border-block-start: 1.25px solid currentColor;
-  border-inline-end: 1.25px solid currentColor;
-  transform: rotate(45deg);
+/* A row that is not the running one shows its effort item only while pointed at or reached. */
+.acpmux-quick-model-effort:not([data-running]):not(:hover):not(:has([data-highlighted], [data-popup-open]))
+  .acpmux-quick-effort-trigger {
   opacity: 0;
 }
-.acpmux-quick-model-effort:is(:hover, :has([data-highlighted])) .acpmux-quick-effort-chevron { opacity: 1; }
-.acpmux-quick-efforts {
-  position: absolute;
-  z-index: 2;
-  inset-block-start: 0;
-  inset-inline-end: 0;
-  min-inline-size: var(--acpmux-effort-column);
-  margin: 0;
-  padding: var(--ui-popup-padding, 4px);
-  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-  border-radius: var(--ds-radius-control);
-  background: var(--surface-popup, var(--agent-bg));
-  box-shadow: var(--elevation-2, 0 6px 18px rgb(0 0 0 / 0.28));
-  /* Laid out but unseen and unclickable until its row is active: the levels stay in the menu's
-     roving focus, so Down from a model reaches them (a display:none item would be skipped). */
-  opacity: 0;
-  pointer-events: none;
-}
-.acpmux-quick-model-effort:is(:hover, :has([data-highlighted]), :focus-within) > .acpmux-quick-efforts {
-  opacity: 1;
-  pointer-events: auto;
-}
-.acpmux-quick-efforts > [role="group"] {
-  display: flex;
-  flex-direction: column;
-}
-.ui-menu-item.acpmux-quick-effort-segment {
-  display: flex;
-  align-items: center;
-  gap: var(--ds-space-2);
-  min-height: var(--ui-row-height);
-  padding: 0 var(--ui-row-padding-inline);
-  border-radius: var(--ui-row-radius);
-  color: var(--agent-text);
-  white-space: nowrap;
-}
-.acpmux-quick-effort-segment .ui-menu-check { display: none; }
-.acpmux-quick-effort-segment[data-highlighted] { background: var(--acpmux-menu-hover); }
-.acpmux-quick-effort-segment:has([data-selected]) { font-weight: var(--weight-emphasis); }
-.acpmux-quick-effort-segment:has([data-selected])::after {
-  content: "";
-  width: 4px;
-  height: 8px;
-  margin-inline-start: auto;
-  border-block-end: 1.5px solid currentColor;
-  border-inline-end: 1.5px solid currentColor;
-  transform: translateY(-1px) rotate(45deg);
-}
+.acpmux-quick-effort-menu .acpmux-quick-effort-segment { gap: var(--ds-space-2); }
 .acpmux-quick-effort-badge {
   padding: 0 6px;
   border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 999px;
   color: var(--agent-muted);
   font-size: var(--text-caption);
-  font-weight: normal;
   line-height: 16px;
+  white-space: nowrap;
 }
 /* The slider version: the stepped track stood on end, Low at the bottom. */
 .acpmux-quick-effort-vertical {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 132px;
-  margin-inline: auto;
+  width: 40px;
+  height: 140px;
+  padding: var(--ds-space-2) 0;
 }
 .acpmux-quick-effort-vertical .acpmux-effort-track {
   width: 124px;

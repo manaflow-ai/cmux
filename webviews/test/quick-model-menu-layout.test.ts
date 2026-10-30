@@ -248,40 +248,63 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const page = await open(variant, 640, 560, entry);
       try {
         await page.locator(".acpmux-quick-model-effort").first().waitFor();
-        // Every model one 28 px row, and no level shows until a row is pointed at.
+        // Every model one 28 px row, and no level in the menu itself.
         const rows = await page
           .locator(".acpmux-quick-model-effort")
           .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().height)));
         expect(rows.length).toBeGreaterThan(1);
         expect(rows.every((height) => height === 28), `row heights ${rows.join(",")}`).toBe(true);
-        const shownLevels = () =>
-          page
-            .locator(".acpmux-quick-efforts")
-            .evaluateAll((nodes) => nodes.filter((node) => getComputedStyle(node).opacity !== "0").length);
-        expect(await shownLevels()).toBe(0);
-        // Pointing at the running model opens its levels beside it, one under another.
+        expect(await page.locator(".acpmux-quick-menu:not(.acpmux-quick-effort-menu) .acpmux-quick-effort-segment").count()).toBe(0);
+        // The keyboard reaches it: from the running model, Right on its effort item opens the levels.
         const row = page.locator(".acpmux-quick-model-effort[data-running]").first();
-        await row.locator("> .acpmux-quick-item").hover();
-        const levels = row.locator(".acpmux-quick-effort-segment");
-        await levels.first().waitFor();
+        const trigger = row.locator(".acpmux-quick-effort-trigger");
+        await trigger.focus();
+        await page.keyboard.press("ArrowRight");
+        const dropdown = page.locator(".acpmux-quick-effort-menu");
+        await dropdown.waitFor();
+        const levels = dropdown.locator(".acpmux-quick-effort-segment");
         const boxes = await levels.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
         expect(boxes.length).toBeGreaterThan(1);
+        // One under another, in a popup of its own beside the row, whole inside the window.
         for (let index = 1; index < boxes.length; index++) {
           expect(boxes[index].y).toBeGreaterThanOrEqual(boxes[index - 1].y + boxes[index - 1].height - 0.5);
           expect(Math.abs(boxes[index].x - boxes[0].x)).toBeLessThan(1);
         }
-        // At the row's trailing side, beside the model's name.
-        const name = await row.locator("> .acpmux-quick-item").boundingBox();
-        expect(boxes[0].x).toBeGreaterThan(name!.x + name!.width / 2);
-        // Only that row's levels show.
-        expect(await shownLevels()).toBe(1);
-        // The keyboard reaches the levels: Down from the running model lands on its first level.
-        await row.locator("> .acpmux-quick-item").focus();
-        await page.keyboard.press("ArrowDown");
-        expect(await row.locator(".acpmux-quick-effort-segment").first().evaluate((node) => node === document.activeElement || node.hasAttribute("data-highlighted"))).toBe(true);
+        const rowBox = (await row.boundingBox())!;
+        const menuBox = (await dropdown.boundingBox())!;
+        expect(menuBox.x).toBeGreaterThanOrEqual(rowBox.x + rowBox.width - 8);
+        const viewport = page.viewportSize()!;
+        expect(menuBox.y).toBeGreaterThanOrEqual(0);
+        expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(viewport.height);
+        // The last level takes a click at its centre: nothing covers it.
+        const last = boxes.at(-1)!;
+        expect(
+          await page.evaluate(
+            ([x, y]) => !!document.elementFromPoint(x, y)?.closest(".acpmux-quick-effort-menu"),
+            [last.x + last.width / 2, last.y + last.height / 2] as const,
+          ),
+        ).toBe(true);
       } finally {
         await page.close();
       }
+    }
+  });
+
+  test("the bottom model's effort dropdown is whole, and pointing at the next model leaves the first", async () => {
+    const page = await open("chat", 640, 360, "agent-pane.inline-model-effort");
+    try {
+      const rows = page.locator(".acpmux-quick-model-effort");
+      const lastRow = rows.last();
+      await lastRow.locator(".acpmux-quick-effort-trigger").hover();
+      const dropdown = page.locator(".acpmux-quick-effort-menu");
+      await dropdown.waitFor();
+      const box = (await dropdown.boundingBox())!;
+      expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+      // The first row's model takes the pointer and closes the dropdown it does not own.
+      await rows.first().locator("> .acpmux-quick-item").hover();
+      await dropdown.waitFor({ state: "detached" });
+    } finally {
+      await page.close();
     }
   });
 
