@@ -156,7 +156,7 @@ describe("hold timing", () => {
     expect(scroller.scrollTop).toBe(20);
     expect(anchor.until).toBe(190 + FOLD_SETTLE_MS);
     top = 140;
-    expect(keepFold(anchor, scroller, anchor.cap - 1)).toBe(true);
+    for (let now = 300; now < anchor.cap; now += 100) expect(keepFold(anchor, scroller, now)).toBe(true);
     expect(anchor.until).toBe(anchor.cap);
     expect(keepFold(anchor, scroller, anchor.cap + 1)).toBe(false);
   });
