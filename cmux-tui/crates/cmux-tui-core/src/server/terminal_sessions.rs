@@ -96,7 +96,7 @@ mod tests {
 
         let held = mux.state.lock().unwrap();
         set(&[]);
-        assert!(!sessions.contains_peer(&mux, Some(&key)), "a miss under a held lock does not wait");
+        assert!(!sessions.contains_peer(&mux, Some(&key)), "a held lock is not waited for");
         set(&[session]);
         assert!(sessions.contains_peer(&mux, Some(&key)), "answered from the last read");
         drop(held);
