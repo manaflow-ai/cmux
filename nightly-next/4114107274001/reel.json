@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4114107274001",
+  "notes": "notes/4114107274001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28117,
+      "title": "carry of #26582: avoid opener relation across pane placement",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28542,
+      "title": "acpmux: a peer from before #28182 whose list is too large still links (pages of rows)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28286,
+      "title": "acpmux: a refused Stop is never dropped and answers only its own turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28552,
+      "title": "chat-open bench: show the workspace each open created, by its ref",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
