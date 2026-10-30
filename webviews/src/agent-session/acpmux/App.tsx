@@ -431,6 +431,7 @@ import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { archiveClosesTab, deleteClosesTab } from "./header/archiveClose";
 import { afterDeleteDismiss } from "./header/deleteDismiss";
+import { DeleteChatDialog } from "./header/DeleteChatDialog";
 import { avatarRows } from "./header/avatarRow";
 import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
 import { copyRow } from "./header/copyRow";
@@ -11587,7 +11588,7 @@ function AcpmuxPane() {
             onClose={() => setImageView(undefined)}
           />
         )}
-        <Dialog
+        <DeleteChatDialog
           open={deleteConfirmOpen}
           onOpenChange={(next) => {
             setDeleteConfirmOpen(next);
@@ -11599,39 +11600,16 @@ function AcpmuxPane() {
               );
             }
           }}
-          label={t("permission.verb.delete")}
-          className="acpmux-delete-dialog"
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" || (event.target as HTMLElement).closest("button")) return;
-            event.preventDefault();
-            ignoreFailure(deleteChat());
+          onDismiss={() => {
+            setDeleteConfirmOpen(false);
+            setDeleteConfirmSession(undefined);
+            deleteInFlight.current = afterDeleteDismiss(deleteInFlight.current, directClient.current?.purgeInFlight === true);
           }}
-        >
-          <h2>{t("permission.verb.delete")}</h2>
-          <p>{t("chatMenu.deleteConfirmBody")}</p>
-          <div className="acpmux-delete-dialog-actions">
-            <DialogButton
-              dialogKey="escape"
-              onClick={() => {
-                setDeleteConfirmOpen(false);
-                setDeleteConfirmSession(undefined);
-                deleteInFlight.current = afterDeleteDismiss(
-                  deleteInFlight.current,
-                  directClient.current?.purgeInFlight === true,
-                );
-              }}
-            >
-              {t("chatMenu.close")}
-            </DialogButton>
-            <DialogButton
-              dialogKey="return"
-              className="acpmux-delete-dialog-confirm"
-              onClick={() => ignoreFailure(deleteChat())}
-            >
-              {t("permission.verb.delete")}
-            </DialogButton>
-          </div>
-        </Dialog>
+          onConfirm={() => ignoreFailure(deleteChat())}
+          title={t("permission.verb.delete")}
+          body={t("chatMenu.deleteConfirmBody")}
+          closeLabel={t("chatMenu.close")}
+        />
         {workflowSideTab &&
           !harnessesOpen &&
           !showNewTab &&
