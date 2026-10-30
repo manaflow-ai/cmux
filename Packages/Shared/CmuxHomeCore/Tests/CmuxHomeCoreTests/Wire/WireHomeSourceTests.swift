@@ -345,12 +345,12 @@ import Testing
 
     @Test func aMultipartPartIsReadWholeAcrossShortReads() throws {
         // A read may return fewer bytes than asked without being at the end: the part is filled before it is sent.
-        var chunks = [Data("ab".utf8), Data("c".utf8), Data("defg".utf8), Data("h".utf8)]
+        // Each read returns at most 2 bytes and never more than asked, as a pipe or network volume may.
+        var rest = Data("abcdefgh".utf8)
         let read: (Int) throws -> Data? = { limit in
-            guard !chunks.isEmpty else { return Data() }
-            let next = chunks.removeFirst()
-            #expect(next.count <= limit)
-            return next
+            let next = rest.prefix(min(limit, 2))
+            rest.removeFirst(next.count)
+            return Data(next)
         }
         #expect(try WireHomeSource.readPart(size: 4, read) == Data("abcd".utf8))
         #expect(try WireHomeSource.readPart(size: 4, read) == Data("efgh".utf8))
