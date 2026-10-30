@@ -34,25 +34,11 @@ public nonisolated final class AgentPaneStateLoss: Sendable {
         }
     }
 
-    /// Logs and records `names`; nothing when it is empty.
-    func keep(_ names: [String]) {
-        guard !names.isEmpty else { return }
-        Self.logger.fault("quit ended with state files still saving: \(names.joined(separator: ", "), privacy: .public)")
-        guard let record, let data = try? JSONEncoder().encode(names) else { return }
-        try? data.blockingWrite(to: record, options: .atomic)
-    }
+    /// Red-proof ref: nothing is logged or recorded.
+    func keep(_ names: [String]) {}
 
-    /// The names the last quit recorded; empty when none. The first call (from any thread but the main
-    /// one: it reads the disk) reads the record and removes it, and every later call gets the same names.
-    public func lastQuitNames() -> [String] {
-        lastQuit.withLock { cached in
-            if let cached { return cached }
-            let names = record.flatMap { try? Data(blockingContentsOf: $0) }.flatMap { try? JSONDecoder().decode([String].self, from: $0) } ?? []
-            if !names.isEmpty, let record { try? FileManager.checked.removeItem(at: record) }
-            cached = names
-            return names
-        }
-    }
+    /// Red-proof ref: no record is kept.
+    public func lastQuitNames() -> [String] { [] }
 
     /// ``lastQuitNames()`` off the calling thread.
     public func take() async -> [String] {
@@ -74,22 +60,7 @@ public nonisolated final class AgentPaneStateLoss: Sendable {
     /// the paired list's seal for a save that quit cut off (`pairedSealCleared`), that every phone pairs
     /// again. A scroll place comes back by itself at the next scroll.
     @MainActor
-    public static func notices(for names: [String], pairedSealCleared: Bool) -> [String] {
-        var notices: [String] = []
-        if names.contains(AgentUnsentDrafts.fileName) {
-            notices.append(String(localized: "agentPane.stateLoss.unsentDraft",
-                                  defaultValue: "Text typed in a new chat just before cmux quit was not saved.", bundle: .module))
-        }
-        if names.contains(pairedPhonesFileName) {
-            logger.error("the last quit cut off a paired-phones save (seal cleared at launch: \(pairedSealCleared, privacy: .public))")
-        }
-        if pairedSealCleared {
-            notices.append(String(localized: "agentPane.stateLoss.pairedPhones",
-                                  defaultValue: "A change to your paired iPhones was cut off when cmux quit. Pair your iPhones again.",
-                                  bundle: .module))
-        }
-        return notices
-    }
+    public static func notices(for names: [String], pairedSealCleared: Bool) -> [String] { [] }
 
     /// Shows the last quit's notices in `window`: the unsent-draft notice at once, and the pair-again
     /// notice once `pairedSealCleared` answers that this launch cleared the seal (a slow Keychain never

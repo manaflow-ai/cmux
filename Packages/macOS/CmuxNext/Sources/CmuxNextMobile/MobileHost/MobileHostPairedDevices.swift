@@ -274,35 +274,14 @@ public final class MobileHostPairedDevicesFile: Sendable {
     /// A quit deadline's end, on its own thread, while a save may be cut off (a removal among them):
     /// when one is queued or running, it writes the cut-off marker. It never calls the Keychain (a hung
     /// securityd must not hold the process's end): the next launch clears the seal (``distrustIfCutOff(recorded:)``).
-    public func markCutOffIfSaving() -> CutOff {
-        guard isSaving else { return .notSaving }
-        do {
-            try writeMarker(cutOffMarker)
-            return .marked
-        } catch {
-            Self.logger.fault("iPhone pairing: a quit cut off a paired-phones save and its marker was not written (\(String(describing: error), privacy: .public)); only the quit's record names it")
-            return .unmarked
-        }
-    }
+    public func markCutOffIfSaving() -> CutOff { .notSaving }
 
     /// On the file's queue, first: when the last quit cut off a save (its marker, or its record:
     /// `recorded`), no stored list counts in this run, and the seal is cleared, so after it the stored
     /// list no longer matches its seal and every phone pairs again (the digest rule of ``load(userID:)``).
     /// A Keychain that refuses the clear keeps the list refused for this run and the marker (written now
     /// when only the record named the save) for the next launch (a fault).
-    private func distrustIfCutOff(recorded: Bool) {
-        let marked = FileManager.checked.fileExists(atPath: cutOffMarker.path)
-        guard marked || recorded else { return }
-        inForce.withLock { $0 = Data() }
-        guard seal.clearDigest() || seal.clearDigest() else {
-            if !marked { try? writeMarker(cutOffMarker) }
-            Self.logger.fault("iPhone pairing: the last quit cut off a paired-phones save and the Keychain refuses to clear the seal; no phone is trusted in this run")
-            return
-        }
-        try? FileManager.checked.removeItem(at: cutOffMarker)
-        clearedForCutOff.withLock { $0 = true }
-        Self.logger.error("iPhone pairing: the last quit cut off a paired-phones save; the seal is cleared, every phone pairs again")
-    }
+    private func distrustIfCutOff(recorded: Bool) {}
 
     /// Whether this launch cleared the seal for a save the last quit cut off (its notice says so).
     public func sealClearedForCutOff() async -> Bool {

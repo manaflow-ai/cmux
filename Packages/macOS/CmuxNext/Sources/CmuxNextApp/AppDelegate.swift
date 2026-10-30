@@ -45,12 +45,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ForcedQuitExit(prepare: {
             services()?.crashRecovery.applicationWillTerminate()
             AppProcessRoot.shared.hangReports?.applicationWillTerminate()
+            allowBlocking(.terminate) { services()?.agentPaneStateFiles.flushAll(within: 2) }
             services()?.home.applicationWillTerminate()
         }, save: {
-            guard let services = services() else { return }
-            async let files: Void = services.stateFilesDrained()
-            await services.home.flushCacheForQuit()
-            await files
+            await services()?.home.flushCacheForQuit()
         }, armDeadline: armDeadline, deadlineEnd: services()?.quitDeadlineEnd(), end: end)
     }
     private var settings: SettingsController?
