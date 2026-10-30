@@ -1804,6 +1804,10 @@ mod remote_config_tests {
 }
 
 #[cfg(test)]
+#[path = "peer_briefs_tests.rs"]
+mod briefs_tests;
+
+#[cfg(test)]
 mod link_epoch_tests {
     use super::*;
 
