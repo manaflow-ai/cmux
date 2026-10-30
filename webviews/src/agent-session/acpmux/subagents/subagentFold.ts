@@ -235,6 +235,9 @@ export class SubagentFold {
     for (const change of events) this.apply(change, event, spawn);
     // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
     const owner = tag !== undefined && !this.isChat(tag) ? this.agents.get(tag) : undefined;
+    // A subagent's own `acpmux run --parent` never becomes one of the chat's calls, but its child
+    // comes to the chat's log too: it competes for the parent's child records, as a start_session does.
+    if (tag !== undefined && !this.isChat(tag) && call) this.reduceNestedRun(`${tag}\u0000${call}`, update);
     if (owner) {
       // What it does now is its newest call: a later update of an older call (its end) keeps it.
       const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
@@ -496,6 +499,26 @@ export class SubagentFold {
     this.children.set(child, agent.id);
     if (pending.last) this.updateRun(agent, pending.last.event, pending.last.update);
     return call;
+  }
+
+  /// A subagent's shell call (`key` is its tag and call id): while it runs, an `acpmux run --parent`
+  /// it made is a competing start; once it ends, its identity is a tombstone, since its child may
+  /// still arrive.
+  private reduceNestedRun(key: string, update: any): void {
+    const kind = update?.sessionUpdate;
+    if (kind !== "tool_call" && kind !== "tool_call_update") return;
+    if (!this.sessionStarts.has(key)) {
+      const command = update?.rawInput?.command;
+      if (typeof command !== "string" && !Array.isArray(command)) return;
+      const run = typeof command === "string" ? agentRun(command) : agentRunOf(command.map(String));
+      if (run?.parent === undefined) return;
+      this.sessionStarts.set(key, runIdentity(run));
+    }
+    const identity = this.sessionStarts.get(key)!;
+    if (isTerminal(update.status)) {
+      this.sessionStarts.delete(key);
+      this.retire(identity);
+    } else this.markAmbiguous(identity);
   }
 
   private markAmbiguous(identity: ChildIdentity): void {
