@@ -289,7 +289,7 @@ extension AgentPaneRequest {
         case "chat.folder.choose": self = .chooseChatFolder
         case "chat.attach.choose": self = .chooseAttachments
         case "chat.attach.dropped":
-            if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)), kind != .choose,
                let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
                names.allSatisfy(AgentPaneDroppedPaths.isAskedName) {
                 self = .attachDropped(kind, names: names)

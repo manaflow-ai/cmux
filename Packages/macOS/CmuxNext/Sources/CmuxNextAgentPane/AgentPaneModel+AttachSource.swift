@@ -4,10 +4,11 @@ extension AgentPaneModel {
     /// Where the files of the person's drop or paste came from (`chat.attach.source {kind, names}`,
     /// ``AttachmentSource``): `{sources: [source | null]}` in the order of `names`.
     ///
-    /// It answers only from what the person's own native drop or paste recorded as it reached the
-    /// page (``AgentPaneDroppedPaths/stashSource(_:items:claimed:kind:)``), once, within its lifetime, and
-    /// only for that gesture's own files (``AgentPaneDroppedPaths/source(_:names:)``).
-    /// Page script can make neither, so it can't ask about a pasteboard the person did not paste. A
+    /// It answers only from what the person's own native drop or paste, or pick in the file input
+    /// (``PageOpenPanel``), recorded as it reached the page
+    /// (``AgentPaneDroppedPaths/stashSource(_:items:claimed:kind:)``), once, within its lifetime, and
+    /// only for that gesture's own files (``AgentPaneDroppedPaths/source(_:names:)``). Page script
+    /// can make none of them, so it can't ask about a pasteboard or file the person did not bring. A
     /// file the record names by URL answers its own metadata's source (AttachmentSourceFiles.swift),
     /// read off the main actor. Any other (a pasted picture, an image dragged from a page) answers the
     /// app the pasteboard said wrote it (`org.nspasteboard.source`), else none. A chat on another

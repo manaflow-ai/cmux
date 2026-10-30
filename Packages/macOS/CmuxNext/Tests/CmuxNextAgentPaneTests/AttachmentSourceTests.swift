@@ -98,6 +98,11 @@ struct AttachmentSourceTests {
         record.stashSource([URL(fileURLWithPath: "/tmp/f.png")], items: 1, claimed: "com.apple.finder", kind: .paste)
         let next = record.source(.paste, names: ["f.png"])
         #expect(next?.urls == [URL(fileURLWithPath: "/tmp/f.png")] && next?.claimed == "com.apple.finder")
+        // A pick in the file input: its files by their URLs, with no claim, for that pick's ask only.
+        record.stashSource([URL(fileURLWithPath: "/tmp/g.png")], items: 1, claimed: nil, kind: .choose)
+        #expect(record.source(.paste, names: ["g.png"]) == nil)
+        let chosen = record.source(.choose, names: ["g.png"])
+        #expect(chosen?.urls == [URL(fileURLWithPath: "/tmp/g.png")] && chosen?.claimed == nil)
         // A pasted picture (no file): only as many files as the pasteboard held items.
         record.stashSource([], items: 1, claimed: "com.google.Chrome", kind: .paste)
         #expect(record.source(.paste, names: ["image.png", "other.png"]) == nil)
@@ -192,7 +197,12 @@ struct AttachmentSourceTests {
         #expect(AgentPageOps.methods["attachment.sourceIcon"] == "attachment.sourceIcon")
         #expect(AgentPaneRequest(body: ["method": "attachment.sourceIcon", "params": ["bundleId": "com.apple.finder"]])
             == .attachmentSourceIcon("com.apple.finder"))
-        for params: [String: Any] in [["kind": "choose", "names": ["a"]], ["kind": "drop", "names": [String]()], ["kind": "drop"]] {
+        // The file input's pick asks for its source; it never asks where its files are.
+        #expect(AgentPaneRequest(body: ["method": "chat.attach.source", "params": ["kind": "choose", "names": ["a.png"]]])
+            == .attachSource(.choose, names: ["a.png"]))
+        #expect(AgentPaneRequest(body: ["method": "chat.attach.dropped", "params": ["kind": "choose", "names": ["a.png"]]])
+            == .unsupported("chat.attach.dropped"))
+        for params: [String: Any] in [["kind": "pick", "names": ["a"]], ["kind": "drop", "names": [String]()], ["kind": "drop"]] {
             #expect(AgentPaneRequest(body: ["method": "chat.attach.source", "params": params]) == .unsupported("chat.attach.source"))
         }
         #expect(AgentPaneRequest(body: ["method": "attachment.sourceIcon", "params": ["bundleId": "../x"]]) == .unsupported("attachment.sourceIcon"))

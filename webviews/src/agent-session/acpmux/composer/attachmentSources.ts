@@ -4,7 +4,7 @@
 // icon that says, Oh, hey, this came from Cmax, this came from Claude, or whatever."). The host says
 // it (AttachmentSource.swift): a paste's pasteboard owner, a drop's dragging app, a file's own
 // metadata, cmux's own captures. The page never guesses one: an unknown source is none.
-import type { AttachmentSource, DroppedKind } from "../attachments";
+import type { AttachmentSource, SourceKind } from "../attachments";
 import { attachmentSource } from "../attachments";
 import { postNative } from "../native";
 
@@ -22,7 +22,7 @@ const callHost: Call = (method, params) => {
 /// The host's `chat.attach.source {kind, names}` answer for `files`: each file's source in order,
 /// undefined for one it does not know (and for all of them from an older host, or past the deadline).
 export async function attachSources(
-  kind: DroppedKind,
+  kind: SourceKind,
   files: readonly File[],
   call: Call = callHost,
 ): Promise<(AttachmentSource | undefined)[]> {

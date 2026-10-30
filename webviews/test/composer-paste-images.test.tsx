@@ -348,6 +348,36 @@ test("attachment intake wires local link deduplication through its hook state", 
   expect(held.map((chip) => chip.path)).toEqual(["/Users/you/assets"]);
 });
 
+test("a file chosen in + > Attach files asks the host where it came from, and its chip keeps the answer", async () => {
+  const asked: unknown[] = [];
+  const shot = { name: "Screenshot", bundleId: "com.apple.screenshot.launcher" };
+  const actions = dom.window as unknown as {
+    cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => unknown>;
+  };
+  actions.cmuxAcpmuxActions = {
+    "chat.attach.source": (params) => {
+      asked.push(params);
+      return { sources: [shot] };
+    },
+  };
+  try {
+    const composer = await openComposer();
+    const input = host.querySelector<HTMLInputElement>("input.acpmux-attach-input")!;
+    const file = new File([PNG], "Screenshot 2026-10-29 at 10.14.02.png", { type: "image/png" });
+    // What WebKit does once the person picks in the open panel: the input holds the files, then `change`.
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    await act(async () => {
+      input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    await until(() => (composer.current!.wakeState().attachments ?? []).length > 0, "the chosen screenshot's chip");
+    // Asked as a pick, never as a drop or paste: the host answers from the panel's own record.
+    expect(asked).toEqual([{ kind: "choose", names: ["Screenshot 2026-10-29 at 10.14.02.png"] }]);
+    expect(composer.current!.wakeState().attachments?.map((chip) => chip.source)).toEqual([shot]);
+  } finally {
+    delete actions.cmuxAcpmuxActions;
+  }
+});
+
 test("an image copied as HTML into a plain text field comes in as a chip and the text still goes in", async () => {
   const { createRoot } = await import("react-dom/client");
   const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");

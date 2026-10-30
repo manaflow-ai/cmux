@@ -1237,7 +1237,8 @@ export function NewTabScreen(props: Props) {
           const files = [...(event.currentTarget.files ?? [])];
           // Clear the chooser so picking the same file again still fires change.
           event.currentTarget.value = "";
-          void attach(files, true);
+          // The host says where each came from, as for the chat composer's chooser.
+          void attach(files, true, "choose");
         }}
       />
       <Picker
