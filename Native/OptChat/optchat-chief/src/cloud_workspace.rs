@@ -161,10 +161,14 @@ struct Reservation {
     at: Instant,
     /// The attempt (key suffix) its run uses.
     attempt: u64,
-    /// The app answered the run (pending or done), as the [`State::answers`]
-    /// count then: a `creating` list read after it that names neither the
-    /// create nor the machine is authoritative; one read before it is stale.
-    answered: Option<u64>,
+    /// The [`State::seq`] it was made at: only a list read after it (at a
+    /// later or equal `seq`) may say its create is over.
+    seq: u64,
+    /// The app answered its run done (a machine, not `pending`), at this
+    /// `seq`: a list read after that names neither the create nor the
+    /// machine is authoritative. A pending create keeps its name until the
+    /// list names it made or failed, or it expires.
+    done: Option<u64>,
 }
 
 /// The reservations and attempts, under one lock so that releasing a
@@ -180,21 +184,31 @@ struct State {
     /// finished create, so only a retry of a run still going reuses a key
     /// (and joins that run).
     attempts: HashMap<String, u64>,
-    /// How many creates the app has answered: a call reads it before its
-    /// list, so it knows which answers its list could have seen.
-    answers: u64,
+    /// Counts reservations made and creates answered done: a call reads it
+    /// before its list, so it knows which of them its list could have seen.
+    seq: u64,
 }
 
 impl State {
-    /// Marks the reservation of `name` answered, if it is still for `attempt`.
-    fn answer(&mut self, name: &str, attempt: Option<u64>) {
-        self.answers += 1;
-        let n = self.answers;
-        if let Some(r) = self.creating.get_mut(name)
-            && attempt.is_none_or(|a| r.attempt == a)
-        {
-            r.answered = Some(n);
-        }
+    /// The next `seq`, for a reservation or a done answer.
+    fn tick(&mut self) -> u64 {
+        self.seq += 1;
+        self.seq
+    }
+
+    /// A list read at `seen` says the create of `name` is over (made or
+    /// failed): its reservation goes and its key moves on, unless the
+    /// reservation is newer than the list, which then cannot speak for it.
+    fn settle(&mut self, name: &str, base: &str, seen: u64) {
+        let attempt = match self.creating.get(name).copied() {
+            Some(r) if r.seq > seen => return,
+            Some(r) => {
+                self.creating.remove(name);
+                r.attempt
+            }
+            None => *self.attempts.entry(base.to_owned()).or_default(),
+        };
+        self.advance(base, attempt);
     }
 
     /// Moves `base` on past `attempt`, unless another call already did.
@@ -351,9 +365,9 @@ impl CloudWorkspaces {
     /// still being made.
     fn new_machine(&self, request: &Request) -> Result<String, String> {
         let name = machine_name(&request.title)?;
-        // Read before the list: an answer counted after it came after the
-        // list was read, so the list may not name that create yet.
-        let seen = self.state.lock().expect("state").answers;
+        // Read before the list: a reservation or answer counted after it
+        // came after the list was read, which may not name that create yet.
+        let seen = self.state.lock().expect("state").seq;
         let list = self
             .app
             .run("cloudListMachines", None, json!({}), None)
@@ -385,16 +399,13 @@ impl CloudWorkspaces {
         // restarts is in the app's `creating` list, which answers for it.
         let base_key = machine_key_base(&name);
         if let Some(machine) = existing {
-            let mut state = self.state.lock().expect("state");
             // A listed machine is a finished create: a later create of the
             // name (once this one is deleted or renamed) is a new action,
             // never a replay of this one.
-            let attempt = match state.creating.remove(&name) {
-                Some(r) => r.attempt,
-                None => *state.attempts.entry(base_key.clone()).or_default(),
-            };
-            state.advance(&base_key, attempt);
-            drop(state);
+            self.state
+                .lock()
+                .expect("state")
+                .settle(&name, &base_key, seen);
             let target = machine["target"].as_str().unwrap_or_default();
             let status = machine["status"].as_str().unwrap_or("unknown");
             return Ok(format!(
@@ -414,34 +425,29 @@ impl CloudWorkspaces {
                 if let Some(create) = creates.iter().find(|c| named(c, "name")) {
                     if create["status"] == "failed" {
                         // That create is over: a later one is a new action.
-                        let attempt = match state.creating.remove(&name) {
-                            Some(r) => r.attempt,
-                            None => *state.attempts.entry(base_key.clone()).or_default(),
-                        };
-                        state.advance(&base_key, attempt);
+                        state.settle(&name, &base_key, seen);
                         let reason = create["reason"].as_str().unwrap_or("no reason given");
                         return Err(format!(
                             "cloud_workspace: the create of Cloud machine {name} failed ({reason}); it is in the sidebar, where the person can Retry or dismiss it. Tell them; do not make another."
                         ));
                     }
-                    state.answer(&name, None);
                     return Ok(format!(
                         "outcome: noop. Cloud machine {name} is still being made; its workspace opens in the sidebar when it is up. Never ask for a second one."
                     ));
                 }
-                // Named nowhere: a create the app answered before this list
-                // was read is over (it failed and was dismissed). A create
-                // still running, with no answer, or answered after the list
-                // was read keeps its name, as the list can lag it.
+                // Named nowhere: a create the app answered done before this
+                // list was read is over (its machine was deleted). A create
+                // pending, with no answer, or answered after the list was
+                // read keeps its name, as the list can lag it.
                 if let Some(r) = state.creating.get(&name).copied()
-                    && r.answered.is_some_and(|n| n <= seen)
+                    && r.done.is_some_and(|n| n <= seen)
                 {
                     state.release(&name, r.attempt);
                     state.advance(&base_key, r.attempt);
                 }
             }
-            // Expire only after the list had its say: an answered create the
-            // list no longer names moves its key on above, whatever its age.
+            // Expire only after the list had its say: a done create the list
+            // no longer names moves its key on above, whatever its age.
             // An expired create is over too: its key moves on, or every retry
             // would replay its old answer and never make the machine.
             let expired: Vec<(String, u64)> = state
@@ -461,12 +467,14 @@ impl CloudWorkspaces {
                 ));
             }
             let attempt = *state.attempts.entry(base_key.clone()).or_default();
+            let seq = state.tick();
             state.creating.insert(
                 name.clone(),
                 Reservation {
                     at: now,
                     attempt,
-                    answered: None,
+                    seq,
+                    done: None,
                 },
             );
             attempt
@@ -490,8 +498,13 @@ impl CloudWorkspaces {
                 }
                 Err(RunError::NoAnswer(_)) => {}
                 Ok(result) => {
-                    state.answer(&name, Some(attempt));
                     if result["pending"] != true && result["machine_id"].as_str().is_some() {
+                        let seq = state.tick();
+                        if let Some(r) = state.creating.get_mut(&name)
+                            && r.attempt == attempt
+                        {
+                            r.done = Some(seq);
+                        }
                         state.advance(&base_key, attempt);
                     }
                 }
@@ -963,7 +976,7 @@ mod tests {
         );
         assert!(app.runs().iter().all(|r| r.0 != "newCloudMachine"));
 
-        // This host's create of the name was answered, but the app lists no
+        // This host's create of the name was answered done, but the app lists no
         // such create: it failed and was dismissed, so a create goes, as a
         // new action.
         let reserved = |answered: bool| {
@@ -983,7 +996,8 @@ mod tests {
                 Reservation {
                     at: Instant::now(),
                     attempt: 0,
-                    answered: answered.then_some(0),
+                    seq: 0,
+                    done: answered.then_some(0),
                 },
             );
             (app, tool)
@@ -1020,7 +1034,8 @@ mod tests {
             Reservation {
                 at: Instant::now(),
                 attempt: 1,
-                answered: None,
+                seq: 0,
+                done: None,
             },
         );
         state.release("fix-login-bug", 0);
@@ -1085,49 +1100,37 @@ mod tests {
         );
     }
 
-    /// A list read before another call's create was answered is stale: it
-    /// not naming that create never releases it, so no second create goes.
-    #[test]
-    fn a_list_read_before_a_create_was_answered_never_releases_it() {
-        /// Holds the first list run until the test lets it answer.
-        struct HeldList {
-            app: Arc<FakeApp>,
-            held: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
-        }
-        impl AppActions for HeldList {
-            fn run(
-                &self,
-                action: &str,
-                target: Option<&str>,
-                args: Value,
-                key: Option<&str>,
-            ) -> Result<Value, RunError> {
-                let held = if action == "cloudListMachines" {
-                    self.held.lock().unwrap().take()
-                } else {
-                    None
-                };
-                // Read the list now, answer it only once released.
-                let answer = self.app.run(action, target, args, key);
-                if let Some((entered, release)) = held {
-                    entered.send(()).unwrap();
-                    release.recv().unwrap();
-                }
-                answer
+    /// Holds the first list run, read but unanswered, until the test lets
+    /// it answer: a list snapshot taken before what other calls do next.
+    struct HeldList {
+        app: Arc<FakeApp>,
+        held: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    }
+
+    impl AppActions for HeldList {
+        fn run(
+            &self,
+            action: &str,
+            target: Option<&str>,
+            args: Value,
+            key: Option<&str>,
+        ) -> Result<Value, RunError> {
+            let held = if action == "cloudListMachines" {
+                self.held.lock().unwrap().take()
+            } else {
+                None
+            };
+            let answer = self.app.run(action, target, args, key);
+            if let Some((entered, release)) = held {
+                entered.send(()).unwrap();
+                release.recv().unwrap();
             }
+            answer
         }
-        let app = FakeApp::new(vec![
-            (
-                "cloudListMachines",
-                Ok(
-                    json!({"loaded": true, "machines": [], "creating": [], "account": {"signed_in": true}}),
-                ),
-            ),
-            (
-                "newCloudMachine",
-                Ok(json!({"pending": true, "status": "creating"})),
-            ),
-        ]);
+    }
+
+    /// Runs one call whose list is read now and answered only after `then`.
+    fn with_a_stale_list(app: &Arc<FakeApp>, then: impl FnOnce(&CloudWorkspaces)) -> String {
         let (entered_tx, entered) = std::sync::mpsc::channel();
         let (release, release_rx) = std::sync::mpsc::channel();
         let tool = Arc::new(CloudWorkspaces::new(Arc::new(HeldList {
@@ -1138,13 +1141,16 @@ mod tests {
             let tool = Arc::clone(&tool);
             std::thread::spawn(move || tool.call(&request("Fix login bug")))
         };
-        // The stale call has read its (empty) list; another call creates.
         entered.recv().unwrap();
-        let first = tool.call(&request("Fix login bug")).unwrap();
-        assert!(first.starts_with("outcome: queued."), "{first}");
+        then(&tool);
         release.send(()).unwrap();
-        let second = stale.join().unwrap().unwrap();
-        assert!(second.starts_with("outcome: noop."), "{second}");
+        let answer = stale.join().unwrap().unwrap();
+        then_check(&tool, app);
+        answer
+    }
+
+    /// After the stale call: one create only, and its reservation stands.
+    fn then_check(tool: &CloudWorkspaces, app: &FakeApp) {
         assert_eq!(
             app.runs()
                 .iter()
@@ -1152,9 +1158,95 @@ mod tests {
                 .count(),
             1
         );
-        // A list read after the answer that names nothing is authoritative.
-        let third = tool.call(&request("Fix login bug")).unwrap();
-        assert!(third.starts_with("outcome: queued."), "{third}");
+        let state = tool.state.lock().unwrap();
+        assert_eq!(state.creating["fix-login-bug"].attempt, 0);
+        assert_eq!(state.attempts["optchat-cloud-machine-fix-login-bug"], 0);
+    }
+
+    fn listed(machines: Value) -> Result<Value, RunError> {
+        Ok(
+            json!({"loaded": true, "machines": machines, "creating": [], "account": {"signed_in": true}}),
+        )
+    }
+
+    /// A list read before another call's create started is stale: it not
+    /// naming that create never releases it, so no second create goes.
+    #[test]
+    fn a_list_read_before_a_create_never_releases_it() {
+        let app = FakeApp::new(vec![
+            ("cloudListMachines", listed(json!([]))),
+            (
+                "newCloudMachine",
+                Ok(json!({"pending": true, "status": "creating"})),
+            ),
+        ]);
+        let answer = with_a_stale_list(&app, |tool| {
+            let first = tool.call(&request("Fix login bug")).unwrap();
+            assert!(first.starts_with("outcome: queued."), "{first}");
+        });
+        assert!(answer.starts_with("outcome: noop."), "{answer}");
+    }
+
+    /// A pending create keeps its name even against a list read after its
+    /// answer that names nothing (the list can lag the create): only the
+    /// list naming it made or failed, or its expiry, lets another go.
+    #[test]
+    fn a_pending_create_outlasts_a_list_that_lags_it() {
+        let app = FakeApp::new(vec![
+            ("cloudListMachines", listed(json!([]))),
+            (
+                "newCloudMachine",
+                Ok(json!({"pending": true, "status": "creating"})),
+            ),
+        ]);
+        let tool = CloudWorkspaces::new(app.clone());
+        assert!(
+            tool.call(&request("Fix login bug"))
+                .unwrap()
+                .starts_with("outcome: queued.")
+        );
+        let again = tool.call(&request("Fix login bug")).unwrap();
+        assert!(again.starts_with("outcome: noop."), "{again}");
+        then_check(&tool, &app);
+    }
+
+    /// A list read before a create started that shows a machine of the name
+    /// (since deleted) never drops that newer create's reservation or moves
+    /// its key on: a later call is answered by the reservation.
+    #[test]
+    fn a_stale_listed_machine_never_drops_a_newer_reservation() {
+        let app = FakeApp::new(vec![
+            (
+                "cloudListMachines",
+                listed(json!([{"title": "fix-login-bug", "target": "machine:vm-1"}])),
+            ),
+            ("cloudListMachines", listed(json!([]))),
+            (
+                "newCloudMachine",
+                Ok(json!({"pending": true, "status": "creating"})),
+            ),
+        ]);
+        let answer = with_a_stale_list(&app, |tool| {
+            let first = tool.call(&request("Fix login bug")).unwrap();
+            assert!(first.starts_with("outcome: queued."), "{first}");
+        });
+        assert!(answer.contains("already exists"), "{answer}");
+    }
+
+    /// A done create whose machine a list read after the answer no longer
+    /// names (it was deleted) is over: the next create goes, under a new key.
+    #[test]
+    fn a_done_create_a_later_list_no_longer_names_is_over() {
+        let app = FakeApp::new(vec![
+            ("cloudListMachines", listed(json!([]))),
+            (
+                "newCloudMachine",
+                Ok(json!({"machine_id": "vm-1", "target": "machine:vm-1"})),
+            ),
+        ]);
+        let tool = CloudWorkspaces::new(app.clone());
+        tool.call(&request("Fix login bug")).unwrap();
+        tool.call(&request("Fix login bug")).unwrap();
         let keys: Vec<_> = app
             .runs()
             .into_iter()
