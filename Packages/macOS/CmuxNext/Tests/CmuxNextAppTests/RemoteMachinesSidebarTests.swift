@@ -12,9 +12,10 @@ import Testing
 @MainActor
 struct RemoteMachinesSidebarTests {
     static func lane(_ name: String, peer: String?, _ state: AgentActivityLane.State = .idle, since: TimeInterval = 0,
-                     title: String? = nil) -> AgentActivityLane {
+                     title: String? = nil, spawnedBy: String? = nil) -> AgentActivityLane {
         AgentActivityLane(id: "id-" + name, name: peer.map { "\($0)/\(name)" } ?? name, title: title ?? (peer.map { "\($0)/\(name)" } ?? name),
-                          peer: peer, parent: nil, state: state, since: Date(timeIntervalSince1970: since), error: nil, harness: "codex")
+                          peer: peer, parent: nil, state: state, since: Date(timeIntervalSince1970: since), error: nil, harness: "codex",
+                          spawnedBy: spawnedBy)
     }
 
     static func rows(_ machines: [RemoteMachinesSidebar.Machine], expanded: Set<String> = [], pages: [String: Int] = [:]) -> [SidebarTransientItem] {
@@ -26,6 +27,14 @@ struct RemoteMachinesSidebarTests {
                                                               Self.lane("local", peer: nil)], peers: nil)
         #expect(machines.map(\.peer) == ["big-red", "huge-blue"])
         #expect(machines.allSatisfy { $0.online && $0.chats.count == 1 })
+    }
+
+    @Test func liveFleetLineageChildStaysWithItsParent() {
+        let parent = Self.lane("parent", peer: "build-mac")
+        let child = Self.lane("child", peer: "build-mac", spawnedBy: parent.id)
+        let machines = RemoteMachinesSidebar.machines(lanes: [parent, child], peers: nil)
+        #expect(machines.count == 1)
+        #expect(machines[0].chats.map(\.id) == [parent.id])
     }
 
     @Test func newestStateChangeFirstAndTitlesDropThePeerPrefix() {

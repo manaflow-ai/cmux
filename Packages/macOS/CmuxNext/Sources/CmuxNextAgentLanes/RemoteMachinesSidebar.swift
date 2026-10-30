@@ -264,12 +264,20 @@ public final class RemoteMachinesSidebar {
     /// The groups: every peer the daemon lists (none listed yet: every peer a lane names), each
     /// with its live chats newest first, reachable machines first. A peer the daemon cannot reach has no chats.
     static func machines(lanes: some Collection<AgentActivityLane>, peers: [AcpmuxPeerList.Peer]?) -> [Machine] {
-        // Fleet sessions always enter the existing machine group keyed by peer;
-        // local sessions stay with their workspace/lineage projection instead of
-        // becoming loose rows in this feed.
+        // Lineage wins over machine grouping. A child whose spawnedBy parent is
+        // live in this daemon stays in the session tree under that parent; only
+        // an orphan (remote/closed parent) enters the existing machine group.
+        let all = Array(lanes)
+        let liveIDsByPeer = Dictionary(grouping: all, by: \.peer).mapValues { Set($0.map(\.id)) }
         var byPeer: [String: [AgentActivityLane]] = [:]
-        for lane in lanes {
-            guard case .fleet(let peer) = SidebarLaneGroup.forLane(peer: lane.peer, workspaceID: lane.workspaceID, parent: lane.parent) else { continue }
+        for lane in all {
+            guard let peer = lane.peer else { continue }
+            let liveIDs = liveIDsByPeer[peer] ?? []
+            let lineageParent = lane.spawnedBy ?? lane.parent
+            if case .lineage = SidebarLaneGroup.forLane(peer: peer, workspaceID: lane.workspaceID, parent: lineageParent,
+                                                        hasLiveParent: lineageParent.map(liveIDs.contains) == true) {
+                continue
+            }
             byPeer[peer, default: []].append(lane)
         }
         let online = Dictionary((peers ?? []).map { ($0.name, $0.connected) }, uniquingKeysWith: { first, _ in first })
