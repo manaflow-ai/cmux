@@ -293,9 +293,10 @@ jobs:
 
       # FAST_CHECKS_OUT is an empty directory the command may write files to (screenshots,
       # reports, logs); whatever is there when it ends, passed or not, is uploaded as the
-      # fast-checks-output artifact below. Printing a capture into the job log instead
-      # (base64) gets truncated. Read it with
-      # gh api repos/manaflow-ai/cmux/actions/runs/RUN/artifacts, then .../artifacts/ID/zip.
+      # fast-checks-output artifact below. Names starting with a dot are left out (the
+      # action's include-hidden-files default). Write captures there instead of printing
+      # them into the job log as base64, which gets truncated. Read it with
+      # gh run download RUN -R manaflow-ai/cmux -n fast-checks-output -D DIR.
       - name: Run fast checks
         env:
           FAST_CHECKS_COMMAND: ${{ inputs.command }}
