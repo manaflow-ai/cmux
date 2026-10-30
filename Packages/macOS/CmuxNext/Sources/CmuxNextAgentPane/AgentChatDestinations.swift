@@ -26,6 +26,21 @@ public struct AgentChatDestinations {
         .init(id: "local", title: title, state: nil, symbol: "laptopcomputer", isReady: true, route: .local)
     }
 
+    /// The id of the row a picker shows while this Mac's acpmux has not listed its peers yet.
+    public static let peersPendingID = "peers-pending"
+
+    /// The rows a picker shows, over time. Today: one list once everything answered.
+    public func updates(peerBound: Duration = .seconds(2)) -> AsyncStream<[Destination]> {
+        let (stream, continuation) = AsyncStream.makeStream(of: [Destination].self)
+        // task-owner: ends with the stream's consumer (onTermination cancels it)
+        let task = Task {
+            continuation.yield(await load())
+            continuation.finish()
+        }
+        continuation.onTermination = { _ in task.cancel() }
+        return stream
+    }
+
     public func load() async -> [Destination] {
         let peers = (try? await peers()) ?? []
         let inventory = await cloud()
