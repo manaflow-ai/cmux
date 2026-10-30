@@ -315,6 +315,37 @@ A phone browser tab streams from a CEF remote browser host the Mac app runs,
 | Mutates or destroys objects the session does not own? | No: a fresh cache per host, removed on exit; the person's browser profiles are not used. |
 | Reads local state the remote should not see? | Only what a web page sees in a fresh profile (no cookies, history or saved logins of the person), files in the shared folders (the same files the `file` previews read), and pages the Mac already shows. Never home itself, `~/.ssh`, `~/Library` or the other credential trees unless the Mac's own browser has that page open (that page, not its folder's other files); the host checks every file load, subresources included. |
 
+## `localhost`: a native browser tab reaches the Mac's loopback (2026-10-30)
+
+A browser tab the person opened on the iPhone ("Open on iPhone", a WKWebView
+on the phone) at `http(s)://localhost:<port>` loads the Mac's page: the phone
+listens on its own `127.0.0.1:<port>` and `[::1]:<port>` and opens one
+`localhost` channel per connection, which hostd connects to that port on the
+Mac's loopback (`localhost.rs`, PROTOCOL.md `localhost`). Proposed in
+manaflow-ai/cmux#13742 (comment 6534420678).
+
+- **What the phone names.** A port only. hostd connects to `127.0.0.1`, then
+  `[::1]`; never a host, an interface or a path the phone chooses.
+- **Who may.** A paired phone (the pairing gate, like `browser`), which is
+  one of the account owner's own phones (above). That phone already reaches
+  every loopback port: the `browser` service loads any `http(s)` address on
+  the Mac, `localhost` included, and `daemon` types into the Mac's terminals.
+  This channel adds no reach; it moves where the page renders.
+- **On the phone.** The listeners accept local connections only
+  (`acceptLocalOnly`), so other devices on the phone's network can't use them.
+  They run while a native tab needs the port and the app is in use. Another
+  app on the phone could connect to the listener while it runs; it would
+  reach the same Mac port a paired phone already reaches.
+- **App Transport Security.** The app adds `NSAllowsLocalNetworking`, so iOS
+  lets the web view load `http://localhost` (also `.local` and unqualified
+  hosts). Other plain `http://` sites stay refused.
+
+| Rule 2 question | Answer |
+| --- | --- |
+| Executes commands or opens content on local objects? | No command or path: bytes to a loopback port the phone could already load through `browser`. |
+| Mutates or destroys objects the session does not own? | Only what the server on that port does with a request, as the same request through `browser` would. |
+| Reads local state the remote should not see? | What the loopback server serves, which `browser` already shows the phone. |
+
 ## `surface`: streamed simulator tabs (2026-10-22)
 
 A phone streams a Mac phone tab's iOS simulator (PROTOCOL.md `surface`,

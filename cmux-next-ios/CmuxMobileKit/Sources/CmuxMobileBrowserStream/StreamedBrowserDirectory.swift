@@ -43,6 +43,20 @@ public final class StreamedBrowserDirectory {
 
     public var isLive: Bool { opener != nil || macOpener != nil }
 
+    /// Native browser tabs' `localhost:<port>` pages, forwarded to their Mac's loopback.
+    public private(set) lazy var localhost = LocalhostForwarder { [weak self] macID, port in
+        guard let link = await self?.link(macID: macID) else {
+            throw LinkError(code: "no-link", message: "Not connected to the Mac")
+        }
+        return try await link.openLocalhost(port: port)
+    }
+
+    /// A Mac's link (`macID`: its own; nil: the focused Mac's), or nil when not linked.
+    func link(macID: String?) async -> (any BrowserStreamOpening)? {
+        if let macID, !macID.isEmpty, let macOpener { return await macOpener(macID) }
+        return await opener?()
+    }
+
     /// Hears the tabs the Macs list (``retain(tabs:)``) and placeholder tabs that
     /// became real (``rename(tab:to:)``): pages opened on the iPhone follow them.
     public var tabsRetained: (@MainActor (Set<String>) -> Void)?
@@ -183,5 +197,7 @@ public final class StreamedBrowserDirectory {
     public func reset() {
         for model in models.values { model.close() }
         models = [:]
+        // No link: nothing to forward `localhost` pages to.
+        localhost.retain(ports: [])
     }
 }

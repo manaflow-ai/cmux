@@ -31,6 +31,11 @@ public final class BrowserTabModel: BrowserTabState {
     /// The person navigated (typed an address, followed a link, went back or forward),
     /// as opposed to the page redirecting by itself.
     @ObservationIgnored var personNavigated: (@MainActor () -> Void)?
+    /// Readies a Mac `localhost:<port>` page before it loads (the port forwarded to
+    /// the Mac's loopback). Nil: those pages are the Mac's only.
+    @ObservationIgnored var forwardLoopback: (@MainActor (URL) async -> LoopbackForward)?
+    /// The Mac's last refusal of a forwarded port ("Nothing is listening on port 3000 on this Mac.").
+    @ObservationIgnored var loopbackRefusal: (@MainActor (URL) -> String?)?
     /// Opened on the iPhone from a Mac's page: the Mac's own addresses (`localhost`)
     /// are not loaded here, and an unreachable host says so.
     @ObservationIgnored private var guardian: MacAddressGuard?
@@ -44,6 +49,16 @@ public final class BrowserTabModel: BrowserTabState {
         /// iOS refused a plain `http://` page (App Transport Security).
         public var isInsecure = false
         public var message: String
+        /// What the card says instead of its usual explanation.
+        public var detail: String?
+    }
+
+    /// Whether a Mac `localhost:<port>` page may load here.
+    enum LoopbackForward: Equatable {
+        /// This iPhone listens on the port and forwards it to the Mac.
+        case forwarded
+        /// Only the Mac can show it (its `detail`, if any, says why).
+        case macOnly(detail: String?)
     }
 
     public init(url: URL?, guardsMacAddresses: Bool = false) {
@@ -67,7 +82,8 @@ public final class BrowserTabModel: BrowserTabState {
     /// Loads an address; on a page opened from the Mac, one only the Mac can open
     /// shows why instead.
     public func load(_ target: URL) {
-        if guardian != nil, PhoneReach(target) == .macOnly {
+        let reach = PhoneReach(target)
+        if guardian != nil, reach == .macOnly || (reach == .macLoopback && forwardLoopback == nil) {
             refuse(target)
             return
         }
@@ -78,9 +94,9 @@ public final class BrowserTabModel: BrowserTabState {
         webView.load(URLRequest(url: target))
     }
 
-    func refuse(_ target: URL) {
+    func refuse(_ target: URL, detail: String? = nil) {
         url = target
-        problem = Problem(url: target, isMacOnly: true, isPrivateNetwork: false, message: "")
+        problem = Problem(url: target, isMacOnly: true, isPrivateNetwork: false, message: "", detail: detail)
     }
 
     func unreachable(_ target: URL, _ error: any Error) {
@@ -88,7 +104,8 @@ public final class BrowserTabModel: BrowserTabState {
         url = target
         problem = Problem(url: target, isMacOnly: false, isPrivateNetwork: PhoneReach(target) == .privateNetwork,
                           isInsecure: (error as NSError).domain == NSURLErrorDomain && code == NSURLErrorAppTransportSecurityRequiresSecureConnection,
-                          message: error.localizedDescription)
+                          message: error.localizedDescription,
+                          detail: PhoneReach(target) == .macLoopback ? loopbackRefusal?(target) : nil)
     }
 
     public func clearProblem() { problem = nil }
@@ -204,7 +221,22 @@ final class MacAddressGuard: NSObject, WKNavigationDelegate {
         }
         // A tap or Back/Forward; a form a page submits by itself (a sign-in step) is not the person's.
         if [.linkActivated, .backForward].contains(action.navigationType) { model?.personNavigated?() }
-        if PhoneReach(target) == .macOnly {
+        let reach = PhoneReach(target)
+        if reach == .macLoopback, let model, let forward = model.forwardLoopback {
+            // The Mac's dev server: this iPhone's listener on the port must be up first.
+            // task-owner: one navigation's decision; WebKit waits for it
+            Task { @MainActor in
+                switch await forward(target) {
+                case .forwarded:
+                    decisionHandler(.allow)
+                case .macOnly(let detail):
+                    model.refuse(target, detail: detail)
+                    decisionHandler(.cancel)
+                }
+            }
+            return
+        }
+        if reach == .macOnly || reach == .macLoopback {
             model?.refuse(target)
             decisionHandler(.cancel)
             return
