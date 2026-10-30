@@ -218,12 +218,11 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       await page.close();
     });
 
-    test("a started signed-out chat keeps the existing card and composer line", async () => {
+    test("a started signed-out chat keeps only the existing card", async () => {
       const page = await newChat({ started: true });
       await page.locator('[data-harness-notice="signedOut"]').waitFor();
       expect(await page.locator('[data-harness-notice="signedOut"]').count()).toBe(1);
-      await page.locator(".acpmux-composer-trust-note").waitFor();
-      expect(await page.locator(".acpmux-composer-trust-note").count()).toBe(1);
+      expect(await page.locator(".acpmux-composer-trust-note").count()).toBe(0);
       await page.close();
     });
 

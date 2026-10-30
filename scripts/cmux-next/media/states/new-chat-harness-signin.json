@@ -10,6 +10,19 @@
       "wait": 5
     },
     {
+      "title": "Wait for the New Agent Chat composer and catalog",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "readiness",
+          "wait_animations": true
+        }
+      },
+      "record": "file",
+      "shot": false,
+      "wait": 1
+    },
+    {
       "title": "Record available composer models",
       "rpc": {
         "method": "debug.agent_pane",
