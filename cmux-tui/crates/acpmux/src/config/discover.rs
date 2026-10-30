@@ -400,7 +400,9 @@ pub fn discover_harnesses_from(
     // codex's `account/read`, which a ChatGPT login behind a routing proxy
     // (subrouter) fails, so its chats never started; the bridge does not.
     if !codex_imported
-        && let Some(codex) = crate::managed_codex::codex_binary()
+        && let Some(codex) = which("codex").or_else(|| {
+            crate::managed_codex::configured_path().map(|p| p.to_string_lossy().into_owned())
+        })
     {
         if let Some(adapter) = agents.remove("codex") {
             agents.entry(CODEX_ACP.to_owned()).or_insert(adapter);
