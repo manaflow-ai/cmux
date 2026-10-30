@@ -127,3 +127,25 @@ test("two files with identical bytes keep their own entries in the image viewer"
   expect(opened.index).toBe(1);
   expect(viewerImages(rows, data, "", a).index).toBe(0);
 });
+
+test("a load that ends before the second tile subscribes still reaches it", async () => {
+  const src = "https://example.com/shared-fast.png";
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const { ReplyImage } = await import("../src/agent-session/acpmux/chips/ReplyImage");
+  seedLinkStore({ policy: { remoteImages: "always" } });
+  let calls = 0;
+  // The host answers at once, so the first load ends in microtasks, before effects subscribe.
+  setChipHost(async () => (calls++ === 0 ? undefined : { src: data }));
+  await dom.render(
+    <>
+      <ReplyImage src={src} alt="a" fallback={null} />
+      <ReplyImage src={src} alt="b" fallback={null} />
+    </>,
+  );
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(calls).toBe(2);
+  expect(dom.host().querySelectorAll("img").length).toBe(1);
+});

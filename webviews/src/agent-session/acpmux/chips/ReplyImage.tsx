@@ -110,8 +110,8 @@ function useImageLoad(src: string, auto: boolean, clickFree = false) {
       const known = clicked.get(src) ?? loaded.get(src);
       setState(known ? { kind: "shown", src: known } : { kind: "idle" });
     };
-    const known = clicked.get(src) ?? loaded.get(src);
-    if (known) return wake();
+    // The load may have ended before this effect ran (a fast host answers before the commit): hear it now.
+    if (clicked.has(src) || loaded.get(src) !== undefined || !started.has(src)) return wake();
     const set = waiting.get(src) ?? new Set<() => void>();
     waiting.set(src, set.add(wake));
     return () => {
