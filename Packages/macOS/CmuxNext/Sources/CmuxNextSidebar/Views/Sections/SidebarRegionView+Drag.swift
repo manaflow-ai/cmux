@@ -13,6 +13,10 @@ final class SidebarRegionDrag {
     let hidden: [NSView]
     /// A workspace item over the workspace list: the drop takes it out of the band.
     var dropsToList = false
+    /// An item the App removes on a drag out, beside the sidebar: the drop removes it.
+    var removesOnDrop = false
+    /// The app's release monitor while this drag is the region's (`followPointerEnd`).
+    var pointerEnd: Any?
 
     init(subject: SidebarRegionDragSubject, lift: DragLiftView, grab: CGPoint, followsBothAxes: Bool, hidden: [NSView]) {
         self.subject = subject
@@ -82,6 +86,7 @@ extension SidebarRegionView {
         } else {
             SidebarReorderLift.follow(drag.lift, top: origin.y, visible: host.visibleRect)
         }
+        if holdsDragOut(drag, at: convert(point, to: nil)) { return } // the band keeps its order; a release out there removes the item
         if isWorkspaceItem(drag.subject), let probe = dropToListProbe {
             drag.dropsToList = probe(convert(point, to: nil))
             if drag.dropsToList {
@@ -105,19 +110,26 @@ extension SidebarRegionView {
         relayout(animated: true)
     }
 
-    func finishDrag() {
+    /// Ends the drag released at `windowPoint` (a tile's mouse-up): the release, not the last move, decides
+    /// whether an item the App removes on a drag out comes off. Nil: no release point (a programmatic end).
+    func finishDrag(at windowPoint: NSPoint? = nil) {
         if let list = docList {
             docSpentPress = nil
-            if list.drag?.tileSource != nil { list.finishDrag() }
+            if list.drag?.tileSource != nil { list.finishDrag(at: windowPoint) }
             endDocPress()
             return
         }
         guard let drag = reorder else { return }
+        if let windowPoint { _ = holdsDragOut(drag, at: windowPoint) }
         reorder = nil
         _ = dropToListProbe?(nil)
         if drag.dropsToList, case let .item(id) = drag.subject {
             // The document moves the item into the list (no remove): the band shows it until the move lands.
             onDropToList?(id)
+            return land(drag)
+        }
+        if drag.removesOnDrop, case let .item(id) = drag.subject {
+            onDragOutRemove?(id.rawValue)
             return land(drag)
         }
         if let sections = reorderSections, sections != content?.sections { onReorder?(drag.subject, sections) }
@@ -208,5 +220,16 @@ extension SidebarRegionDragSubject {
     /// The dragged item, or nil for a section.
     var itemID: LayoutItemID? {
         if case let .item(id) = self { id } else { nil }
+    }
+}
+
+extension SidebarRegionView {
+    /// While an item the App removes on a drag out (`removesOnDragOut`) is past the sidebar's side edges (`windowPoint`),
+    /// its card dims and a release there removes it. True while it is out there.
+    func holdsDragOut(_ drag: SidebarRegionDrag, at windowPoint: NSPoint) -> Bool {
+        guard case let .item(id) = drag.subject, removesOnDragOut?(id.rawValue) == true else { return false }
+        let outside = SidebarDragOut.isBeside(windowPoint, sidebar: enclosingScrollView ?? self)
+        if outside != drag.removesOnDrop { drag.removesOnDrop = outside; drag.lift.setRefused(outside) }
+        return outside
     }
 }

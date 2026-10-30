@@ -79,6 +79,7 @@ import Testing
             #expect(Array(actions.prefix(3).map(\.id.rawValue)) == ["newSurface", "openBrowser.chromium", "palette.newAgentChat"])
             #expect(actions.prefix(3).allSatisfy { $0.target == paneTarget })
             #expect(chooser.isHighlighted == expectsHighlight, "only the menu's owning chooser stays lit while it tracks")
+            #expect(plus.isMenuOpen == !expectsHighlight, "the + stays lit only for its own hold/right-click menu")
         }
         let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown,
                                                   location: strip.convert(chooserPoint, to: nil), modifierFlags: [], timestamp: 0,
