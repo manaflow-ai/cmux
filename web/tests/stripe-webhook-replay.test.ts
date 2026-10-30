@@ -122,6 +122,35 @@ describe("Stripe webhook inbox drain", () => {
     expect(await store.inbox.complete(current, null)).toBe(true);
   });
 
+  test("an effect still running after the lease expires prevents another worker from applying", async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    let effects = 0;
+    const { replay, store, enqueue } = replayer({
+      applySubscriptionUpdate: async () => {
+        effects += 1;
+        started();
+        await held;
+        return { scope: "user", stackUserId: "user_1", isActive: true };
+      },
+    });
+    await enqueue("evt_slow", 20);
+    const running = replay(NOW);
+    await entered;
+    try {
+      const later = new Date(NOW.getTime() + 6 * 60_000);
+      expect(await store.inbox.claim("evt_slow", later, new Date(later.getTime() + 60_000))).toBeNull();
+      await enqueue("evt_sibling", 10);
+      expect(await store.inbox.claim("evt_sibling", later, new Date(later.getTime() + 60_000))).toBeNull();
+      expect(effects).toBe(1);
+    } finally {
+      release();
+      await running;
+    }
+  });
+
   test("records an event Stripe no longer serves as a failure for the alert", async () => {
     const { replay, store, enqueue } = replayer({
       applySubscriptionUpdate: async () => ({ scope: "user", stackUserId: "user_1", isActive: true }),
