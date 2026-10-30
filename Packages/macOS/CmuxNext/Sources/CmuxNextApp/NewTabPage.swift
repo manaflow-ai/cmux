@@ -65,9 +65,10 @@ enum NewTabPage {
             AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
         }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
-        let actionIDs: Set<String> = ["palette.openCmuxSettingsFile", "keybindings.open"]
-        let actions = services.registry.descriptors.filter { actionIDs.contains($0.id.rawValue) }.map {
-            AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, keywords: $0.keywords)
+        // Every Commands palette (Cmd-Shift-P) action, from the palette's own rows (one source).
+        let actions = services.palette.commandEntries().map {
+            AgentPaneOmnibar.Action(id: $0.id.rawValue, title: $0.title, detail: $0.section, keywords: $0.keywords,
+                                    keycaps: $0.keycaps.isEmpty ? nil : $0.keycaps)
         }
         return AgentPaneOmnibar(
             tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history)
@@ -244,8 +245,8 @@ enum NewTabPage {
                 }.value
             },
             action: { [weak services] id in
-                guard let services else { return }
-                _ = services.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+                // As the palette runs its row: an action that needs arguments asks for them there.
+                services?.palette.runCommand(ActionID(rawValue: id), relativeTo: services?.windows.active?.window)
             }
         )
     }
