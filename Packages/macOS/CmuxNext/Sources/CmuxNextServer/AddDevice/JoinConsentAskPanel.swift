@@ -14,7 +14,9 @@ public final class JoinConsentAskPanel: NSPanel {
     public var isPersonEvent: @MainActor (NSEvent) -> Bool = { _ in false }
     /// The event the app is handling now (tests set it).
     var eventInHand: @MainActor () -> NSEvent? = { NSApp.currentEvent }
-    /// The person's own mouse-down this sheet is dispatching now (a button tracks the click inside it).
+    /// The person's own mouse-down that began the click going on now, held until that click's mouse-up has
+    /// been dispatched: a button may track the click inside the mouse-down's dispatch, or (the displayed,
+    /// non-activating sheet) take the mouse-up as an event of its own and send its action there (HQ#5121).
     private var personDown: NSEvent?
     /// The last mouse-up that answered Allow: each click answers once.
     private var spentUp: (number: Int, time: TimeInterval)?
@@ -40,21 +42,32 @@ public final class JoinConsentAskPanel: NSPanel {
         contentView = glass
     }
 
-    /// The sheet's own events: the person's mouse-down is kept for the length of its dispatch (a button
-    /// tracks the click and sends its action inside it); any other event dispatched here clears it.
+    /// The sheet's own events: the person's mouse-down is kept until its click ends. The click ends with the
+    /// mouse-up's dispatch, or with the mouse-down's when the button took the mouse-up in its own tracking
+    /// loop there. A drag or pressure change while the button is held keeps it; any other event clears it.
     override public func sendEvent(_ event: NSEvent) {
         dispatch(event) { super.sendEvent(event) }
     }
 
     func dispatch(_ event: NSEvent, _ body: () -> Void) {
-        let outer = personDown
-        personDown = event.type == .leftMouseDown && isPersonEvent(event) ? event : nil
-        defer { personDown = outer }
-        body()
+        switch event.type {
+        case .leftMouseDown:
+            personDown = isPersonEvent(event) ? event : nil
+            body()
+            if eventInHand()?.type == .leftMouseUp { personDown = nil }
+        case .leftMouseDragged, .pressure:
+            body()
+        case .leftMouseUp:
+            body()
+            personDown = nil
+        default:
+            personDown = nil
+            body()
+        }
     }
 
-    /// SECURITY: a click on `button` that is the person's own, taken once. The sheet is dispatching the
-    /// person's mouse-down on the button, and the event current now is the person's mouse-up on the same
+    /// SECURITY: a click on `button` that is the person's own, taken once. The sheet holds the person's
+    /// mouse-down on the button, and the event current now is the person's mouse-up on the same
     /// button (the end of that click's tracking), not one taken before. An Accessibility press, a
     /// programmatic click, a click another process (or DEBUG automation) posts, a press while the button
     /// is still held, and a press on anything else find none.
