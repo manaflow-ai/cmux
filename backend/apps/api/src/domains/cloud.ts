@@ -96,7 +96,7 @@ export interface LedgerRow {
   readonly capture_protocol?: 1
   readonly transport?: import("../cloud-vm-api-config.ts").CloudTransport
   readonly key: string
-  readonly op: "create" | "delete" | "pause" | "start" | "resize" | "snapshot" | "snapshot_delete" | "env_build"
+  readonly op: "create" | "delete" | "pause" | "start" | "resize" | "snapshot" | "snapshot_delete" | "env_build" | "env_cleanup"
   /** env_build: the environment, the build digest, and the warm-boot machine's provider name (cloud-environment.ts). */
   readonly environment?: string
   readonly env_digest?: string
@@ -386,9 +386,10 @@ const driverResult = (config: CloudConfig, state: CloudState, params: unknown, c
   const machine = machineRow(ctx.rows, l.machine)
   const pending = withoutPending(state, r.key)
   const retainedCapture = l.transport === "vm-api" && !r.ok && (l.op === "snapshot_delete" || (l.op === "snapshot" && r.snapshot_outcome === undefined))
-  if (retainedCapture) {
+  // Cleanup only stops cost. A refusal or exhausted retry budget must never forget a running builder.
+  if (retainedCapture || (l.op === "env_cleanup" && !r.ok)) {
     const attempts = l.attempts + 1
-    const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "snapshot capture is still being confirmed" }
+    const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "provider cleanup is still being confirmed" }
     return { ok: true, state: next(state, { pending: { ...state.pending, [r.key]: { machine: l.machine, due_at: ctx.now + retryDelayMs(attempts) } } }),
       value: { applied: true, final: false }, writes: [upsertLedger({ ...l, attempts, error, updated_at: ctx.now }, stored.n)] }
   }
@@ -418,6 +419,7 @@ const driverResult = (config: CloudConfig, state: CloudState, params: unknown, c
     return { ok: true, state: next(state, { pending, active }, { machine: row.id, removed: false }), value: { applied: true, final: true }, writes }
   }
   const done = upsertLedger({ ...l, state: "done", provider_id: r.provider_id ?? l.provider_id, error: null, updated_at: ctx.now }, stored.n)
+  if (l.op === "env_cleanup") return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done] }
   // The VM exists and holds its bind token; the machine stays provisioning until its bind agent
   // binds it (5.8). The token expires 15 minutes after the provider reported the VM running.
   if (l.op === "create" && machine && r.bind_token_sha256) {
