@@ -264,7 +264,7 @@ extension CaptureSceneRegistry {
     /// it saw: a still that missed them would prove nothing. Then the machines go away again.
     func renderAgentCloudMachines(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
                                   windowID: String) async -> CmuxNextSettings.JSONValue {
-        guard let controller = services.windows.controller(for: windowID), let window = controller.window else {
+        guard let controller = services.windows.controller(for: targetWindowID), let window = controller.window else {
             return .object(["error": .string("no window"), "scene": .string(definition.name)])
         }
         for id in Self.agentMachineIDs { services.machines.remove(id)?.disconnect() }
@@ -275,8 +275,8 @@ extension CaptureSceneRegistry {
         let added = addAgentCloudMachines()
         // The window that took them (the most recent one), else the scene's.
         let registry = services.windows.registry.value
-        let windowID = Self.agentMachineIDs.lazy.compactMap { registry.owner(of: "ws-\($0)") }.first ?? windowID
-        guard let controller = services.windows.controller(for: windowID) else {
+        let targetWindowID = Self.agentMachineIDs.lazy.compactMap { registry.owner(of: "ws-\($0)") }.first ?? windowID
+        guard let controller = services.windows.controller(for: targetWindowID) else {
             removeAgentCloudMachines()
             return .object(["error": .string("the window that took the machines has no controller"), "scene": .string(definition.name)])
         }

@@ -377,7 +377,7 @@ extension WindowManager {
             // Only the ids that resolve to this machine: a VM made from another's snapshot keeps its
             // workspace keys, and a window holding the other machine's copy does not open this one.
             if services.machines.session(daemon.machineID) != nil {
-                cloud.append(ids.filter { services.machines.workspace(id: $0)?.1 === daemon })
+                cloud.append(ids.filter { daemon.store.workspace(id: $0) != nil })
             }
         }
         var placements = pendingClaims
