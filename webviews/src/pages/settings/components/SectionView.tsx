@@ -1,3 +1,4 @@
+import { CloudEnvironmentsCard } from "./CloudEnvironmentsCard";
 import type { ReactNode } from "react";
 import { categoryById, type CategoryCard } from "../categories";
 import { sections } from "../schema";
@@ -27,7 +28,7 @@ import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
 import { ServerCard } from "./ServerCard";
 import { SectionActions } from "./SectionActions";
-import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
+import { ACCENT_KEY, APP_THEME_KEY, HIGHLIGHT_COLOR_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
 
 const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
 
@@ -59,6 +60,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   voiceInput: () => <VoiceInputCard />,
   notices: () => <NoticesCard />,
   server: () => <ServerCard />,
+  cloudEnvironments: () => <CloudEnvironmentsCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
@@ -72,10 +74,11 @@ export function SectionView({
   workspace?: string | null;
 }) {
   const category = categoryById(section);
-  // The theme studio draws appearance.theme, appearance.appTheme and appearance.accent itself; the
-  // schema's group for them would draw each a second time (a second "App Theme" card).
+  // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent and
+  // appearance.highlightColor itself; the schema's group for them would draw each a second time (a
+  // second "App Theme" card).
   const studio = category.lead.includes("themeStudio");
-  const drawn = new Set(studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY] : []);
+  const drawn = new Set(studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY] : []);
   // The background picker draws appearance.background and its Opacity while it shows.
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
   // The Chief Pet card draws home.chiefPetEnabled and home.chiefPetMascot.

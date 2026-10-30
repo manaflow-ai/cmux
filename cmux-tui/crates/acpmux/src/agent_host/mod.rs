@@ -214,6 +214,10 @@ pub struct SpawnSpec {
     /// (`cwd_pin.rs`). The host's harness spawn fails when `cwd` leads elsewhere by then.
     #[serde(default)]
     pub cwd_pin: Option<crate::cwd_pin::CwdPin>,
+    /// The CPU class the harness starts at (`cpu_class.rs`), decided by the daemon. A spec from
+    /// a daemon that predates it starts the harness as before.
+    #[serde(default)]
+    pub cpu_class: crate::cpu_class::CpuClass,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -498,9 +502,15 @@ pub enum Liveness {
 /// to this incarnation even when the PID has been reused.
 #[cfg(unix)]
 pub fn liveness(dir: &Path, session_id: &str, start_nonce: &str) -> Liveness {
+    liveness_of(&live_path(dir, session_id, start_nonce))
+}
+
+/// [`liveness`] of any lock file a process holds for its life (a background task's runner,
+/// `bg_run.rs`).
+#[cfg(unix)]
+pub fn liveness_of(path: &Path) -> Liveness {
     use std::os::fd::AsRawFd;
-    let path = live_path(dir, session_id, start_nonce);
-    let file = match std::fs::OpenOptions::new().read(true).write(true).open(&path) {
+    let file = match std::fs::OpenOptions::new().read(true).write(true).open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Liveness::Dead,
         Err(_) => return Liveness::Unknown,

@@ -116,7 +116,7 @@ The user's rule for cmux-next (2026-10-28): no Postgres. New tables go in `cmux-
   same transaction.
 - Read model: the CloudDO projects a summary row of each environment to Vitess
   (`cloud_environments`: id, team, name, repo, status, snapshot id, creator, times). The table is
-  created by `backend/db/drizzle-mysql/0002_cloud_environments.sql` (`-- phase: expand`), has an `id`
+  created by `backend/db/drizzle-mysql/0003_cloud_environments.sql` (`-- phase: expand`), has an `id`
   primary key and a `(team_id, deleted_at)` index, and has no foreign keys and no triggers. The
   projection kinds `cloud.environment.upsert` and `cloud.environment.delete` exist only for MySQL;
   the Postgres drain skips them. A delete is a soft delete under the `(source_stream, source_seq)`
@@ -144,7 +144,7 @@ every write. A build or a boot with a secret variable answers `cloud.environment
 | `CloudSandbox` interface, `GuardedCloudSandbox` over `RawCloudDriver` | Landed |
 | Measured on Freestyle through the CloudDO driver stack | Landed (section 9) |
 | CloudDO ops `cloud.environment.{list,set,delete,build,boot}`, `environment` rows | Landed, 7 tests in the Workers runtime |
-| Vitess table and projection `cloud_environments` | Ready, held: CI applies Vitess migrations to staging only with the `CMUX_NEXT_VITESS_STAGING_ADMIN_URL` secret, which `cmux-next-staging` lacks. Until then, both drains skip the `cloud.environment.*` kinds. |
+| Vitess table and projection `cloud_environments` | Landed (migration 0003, expand; CI applies it to staging with `CMUX_NEXT_VITESS_STAGING_ADMIN_URL`) |
 | Generated clients (catalog, TS, Rust `cmux-cloud-wire`) | Landed |
 | Mac: wizard source "Environment", "Save as environment", Settings list | Next, after the ops |
 | Secrets at boot from the hosted vault | Waits on the hosted vault (a714, its section 9) |

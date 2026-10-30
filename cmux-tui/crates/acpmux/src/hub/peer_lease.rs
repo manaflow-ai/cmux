@@ -59,10 +59,13 @@ impl Hub {
             )));
         }
         let pc = crate::config::PeerConfig {
+            wireguard: None,
             url: url.to_owned(),
             token: Some(token),
             peer_token,
             vm_boundary,
+            // A Cloud VM gets its own GitHub App token; the Mac's login is not lent to it.
+            github_broker: false,
         };
         // Held while the peer starts, so none of its notices finds it unleased
         // and saves its sessions (`save_peer_cache`).
@@ -95,6 +98,7 @@ impl Hub {
         };
         let Some(peer) = peer else { return };
         peer.stop();
+        self.note_peer_removed(&peer);
         self.purge_peer_rows(&lease.name);
         tracing::info!(peer = %lease.name, "peer lease ended");
     }
@@ -136,10 +140,12 @@ mod tests {
         cfg.peers.insert(
             "box".into(),
             crate::config::PeerConfig {
+                wireguard: None,
                 url: "ssh://box".into(),
                 token: None,
                 peer_token: None,
                 vm_boundary: false,
+                github_broker: false,
             },
         );
         let e =

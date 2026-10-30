@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { ConnectionId } from "./integrations.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Google Calendar and Gmail ops (spec integrations.md "APIs and ops", D14,
@@ -12,24 +13,24 @@ import { ConnectionId } from "./integrations.ts"
 
 const Text = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max))
 /** One header line: no CR or LF, so a value cannot add a header (header injection). */
-const HeaderText = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max), Schema.isPattern(/^[^\r\n]*$/))
-const Email = Schema.String.check(Schema.isMaxLength(254), Schema.isPattern(/^[^\s@<>,;:"\\()\[\]]+@[^\s@<>,;:"\\()\[\]]+\.[^\s@<>,;:"\\()\[\]]+$/)).annotate({
+const HeaderText = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max), isPattern(/^[^\r\n]*$/))
+const Email = Schema.String.check(Schema.isMaxLength(254), isPattern(/^[^\s@<>,;:"\\()\[\]]+@[^\s@<>,;:"\\()\[\]]+\.[^\s@<>,;:"\\()\[\]]+$/)).annotate({
   identifier: "EmailAddress"
 })
 const Recipients = (max: number) => Schema.Array(Email).check(Schema.isMaxLength(max))
 /** Gmail message, thread and label ids (opaque; restricted to URL-safe characters). */
-const GmailId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,64}$/))
-const LabelId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,100}$/))
-const CalendarId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(254), Schema.isPattern(/^(?!\.{1,2}$)[^\s/?#%]+$/))
-const EventId = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,1024}$/))
+const GmailId = Schema.String.check(isPattern(/^[A-Za-z0-9_-]{1,64}$/))
+const LabelId = Schema.String.check(isPattern(/^[A-Za-z0-9_-]{1,100}$/))
+const CalendarId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(254), isPattern(/^(?!\.{1,2}$)[^\s/?#%]+$/))
+const EventId = Schema.String.check(isPattern(/^[A-Za-z0-9_-]{1,1024}$/))
 const PageToken = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000))
-const Rfc3339 = Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/))
+const Rfc3339 = Schema.String.check(isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/))
 const When = Schema.Struct({
   /** A timed event: RFC 3339 with an offset. */
   date_time: Schema.optionalKey(Rfc3339),
   /** An all-day event: YYYY-MM-DD. */
-  date: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/))),
-  time_zone: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64), Schema.isPattern(/^[A-Za-z0-9_+/-]+$/)))
+  date: Schema.optionalKey(Schema.String.check(isPattern(/^\d{4}-\d{2}-\d{2}$/))),
+  time_zone: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64), isPattern(/^[A-Za-z0-9_+/-]+$/)))
 })
 
 const errors = [...mutationErrors, "selector.not_found", "integration.unavailable", "provider.error", "mutation.indeterminate", "policy.denied"]
@@ -129,7 +130,7 @@ export const MailSend = mutation(
     /** Gmail thread to add the message to (a reply). */
     thread_id: Schema.optionalKey(GmailId),
     /** RFC 5322 Message-ID of the message replied to, for example `<abc@mail.example.com>`. */
-    in_reply_to: Schema.optionalKey(HeaderText(998).check(Schema.isPattern(/^<[^<>\s]+>$/)))
+    in_reply_to: Schema.optionalKey(HeaderText(998).check(isPattern(/^<[^<>\s]+>$/)))
   }),
   "Send a plain-text email from the connected Gmail account."
 )

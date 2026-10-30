@@ -21,6 +21,7 @@
 
 use super::*;
 use crate::web_modes::WebModeTable;
+use cmux_json::JsonSet as _;
 
 /// What the table was built from (`webAskingModes` and the refused
 /// families, which follow the profiles), and the table.
@@ -75,11 +76,16 @@ impl Hub {
         };
         let m = s.meta();
         let family = crate::web_modes::family_of(&m);
-        out["session"] =
-            json!({"sessionId": s.id, "family": family, "mode": crate::web_modes::mode_of(&m)});
+        out.set(
+            "session",
+            json!({"sessionId": s.id, "family": family, "mode": crate::web_modes::mode_of(&m)}),
+        );
         let text = |k: &str| params.get(k).and_then(Value::as_str);
         if let (Some(id), Some(value)) = (text("configId"), text("value")) {
-            out["session"]["asks"] = json!(table.config_value_asks(&family, Some(id), Some(value)));
+            out.set_path(
+                &["session", "asks"],
+                json!(table.config_value_asks(&family, Some(id), Some(value))),
+            );
         }
         Ok(out)
     }

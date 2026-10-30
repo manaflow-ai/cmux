@@ -202,31 +202,36 @@ public final class MessagesLabHomeView: NSView {
     }
 
     /// The theme's palette (the key window's: every Home window draws its
-    /// bubbles with it in both key states, MessagesLab 806ef0c / macOS 27).
-    /// One theme per app: the palette is process-wide (`Fixture.theme`).
+    /// bubbles with it in both key states, MessagesLab 806ef0c / macOS 27), with
+    /// this chat's Chat Colors. Each view draws with its own palette
+    /// (`PaletteScope`): two chats on screen with different bubble colours keep
+    /// their own rows. The process palette (`Fixture.theme` outside a view's
+    /// work: its composer and send) is the first view's, then the chat the
+    /// person types or clicks in.
     /// `measuredAccent`: the theme names no accent, so sent bubbles keep
     /// MessagesLab's measured blue and gradient.
     public func applyTheme(active: HomePalette, measuredAccent: Bool = false) {
         let theme = FixtureTheme(active: active, measuredAccent: measuredAccent)
-        defer {
-            // Per view: a second Home tab finds the process-wide theme set.
-            controller.host.headerBackdrop.setTint(Fixture.background)
-            // cmux: the window background is per view too; a view made after the
-            // process-wide theme was set would keep the one it was made with.
-            controller.demo?.backgroundColor = Fixture.background
-            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText, edge: theme.active.fieldEdge)
-            controller.host.paneHeader.light = theme.active.isLight
-        }
+        let box = PaletteScope.box(for: theme)
         // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
         if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
-        if Fixture.theme != theme { Fixture.theme = theme; RowBitmaps.shared.removeAll() }
-        // This view draws again whenever its rows were made with another palette: also a second Home window,
-        // which finds the process-wide theme already set (its own applied generation, not the theme compare).
-        guard let demo = controller.demo, appliedPalette != Fixture.paletteGeneration else { return }
-        appliedPalette = Fixture.paletteGeneration
-        demo.chrome.setNeedsDisplay(); demo.refreshVisibleCells()
-        demo.backgroundColor = Fixture.background
-        demo.compose.rescale()  // the placeholder, waveform and chips are drawn once with the palette
+        let focused = (controller.host.window?.firstResponder as? NSView)?.isDescendant(of: controller.host) ?? false
+        if PaletteScope.process == nil || focused { PaletteScope.claimProcess(box) }
+        controller.demo?.setPalette(box)
+        PaletteScope.with(box) {
+            controller.host.headerBackdrop.setTint(Fixture.background)
+            controller.demo?.backgroundColor = Fixture.background
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.composeText, edge: theme.active.fieldEdge)
+            controller.host.paneHeader.light = theme.active.isLight
+        }
+        // This view draws again whenever its rows were made with another palette (its own applied generation).
+        let generation = Fixture.generation(of: box)
+        guard let demo = controller.demo, appliedPalette != generation else { return }
+        appliedPalette = generation
+        demo.scope {
+            demo.chrome.setNeedsDisplay(); demo.refreshVisibleCells()
+            demo.compose.rescale()  // the placeholder, waveform and chips are drawn once with the palette
+        }
     }
 
     /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
@@ -306,6 +311,21 @@ public final class MessagesLabHomeView: NSView {
             controller.host.needsLayout = true
         }
     }
+
+    /// cmux: who else has the conversation open, as faces beside the header's name pill (chat
+    /// multiplayer); empty shows none. `label` is what VoiceOver reads for them.
+    public func setHeaderFaces(_ faces: [PaneHeaderFace], label: String) {
+        controller.host.paneHeader.faces = faces
+        controller.host.paneHeader.facesLabel = label
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The header's faces as drawn now, and their VoiceOver label (tests and `debug.home.drive`).
+    public var debugHeaderFaces: (faces: [PaneHeaderFace], shown: Bool, label: String) {
+        let header = controller.host.paneHeader
+        return (header.faces, !header.facesView.isHidden && header.facesView.frame.width > 0, header.facesLabel)
+    }
+    #endif
 
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.

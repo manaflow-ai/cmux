@@ -105,9 +105,9 @@ public final class MacScreenPane {
     }
 
     /// A tab restored on an old pairing-link record: link pairing is no
-    /// longer supported, so it says so (Close Tab, Open Mac Screen).
+    /// longer supported, so it says so (Close Tab, Open Screen Sharing).
     public init(unsupportedLink: Void) {
-        model = MacScreenPaneModel(session: nil, name: L.t("macScreen.tab.homeTitle", "Mac Screen"), gate: .unsupported)
+        model = MacScreenPaneModel(session: nil, name: L.t("macScreen.tab.homeTitle", "Screen Sharing"), gate: .unsupported)
         inputSink = nil
         view = MacScreenPaneView(model: model)
         view.chrome.actions.openHome = { [weak self] in self?.handlers.openHome() }

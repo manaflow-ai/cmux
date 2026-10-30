@@ -3,7 +3,7 @@ import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { afterEach, describe, expect, it } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
-import { holdTurns } from "../src/chief-brain/fake.ts"
+import { fakeCalls, holdTurns } from "../src/chief-brain/fake.ts"
 
 /**
  * Cloud Chief D (chief-durable/, plans/cmux-next/cloud-chief-durable-DESIGN.md) through the product
@@ -237,5 +237,17 @@ describe("Cloud Chief D (pi-durable)", { timeout: 120_000 }, () => {
     await say(token, conv, "z1", "zoom(0, 1)")
     const replies = await chiefReplies(token, conv, chief.id, 2, durable(chief.id, conv))
     expect(textOf(replies[1])).toContain("ORCHID")
+  })
+  it("runs on the kernel's cloud prompt: only the tools it offers, no shell, the owner rule", async () => {
+    const { token, chief } = await ownerWithChief("durable-prompt", "durable")
+    const conv = chief.main_conversation
+    await say(token, conv, "q1", "what can you do here?")
+    await chiefReplies(token, conv, chief.id, 1, durable(chief.id, conv))
+    const call = [...fakeCalls].reverse().find((c) => c.kind === "turn" && c.firstUser.some((b) => b.includes("what can you do here?")))
+    expect(call, "the turn's model request").toBeDefined()
+    expect(call!.system).toContain("You run in cmux Cloud")
+    expect(call!.system).toContain("owner approval required")
+    for (const absent of ["spawn(", "sleep(", "react(", "remember(", "transcript("]) expect(call!.system, absent).not.toContain(absent)
+    expect(call!.tools.map((t) => t.name).sort()).toEqual(["date", "reply", "send", "stop", "zoom"])
   })
 })
