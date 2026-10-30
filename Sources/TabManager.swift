@@ -4821,6 +4821,9 @@ class TabManager: ObservableObject {
                 workspaceCommands: workspaceCommands
             )
         }
+        for dockStore in liveWindowDockStores {
+            dockStore.applySurfaceTabBarButtons(buttons)
+        }
     }
 
     // MARK: - Pane Focus Navigation

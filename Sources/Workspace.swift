@@ -3010,6 +3010,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     lastRememberedTerminalFontSizeLineageForConfigInheritance()
             )
         }
+        store.applySurfaceTabBarButtons(dockSurfaceTabBarButtons)
         _dockSplit = store
         return store
     }
@@ -3033,6 +3034,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var surfaceTabBarButtonSourcePath: String?
     private var surfaceTabBarButtonGlobalConfigPath: String?
     private var surfaceTabBarButtonConfiguration: SurfaceTabBarButtonConfiguration?
+    /// Resolved buttons are retained so a Dock created after config loading
+    /// receives the same list as the workspace split bar.
+    private var dockSurfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
     private var featureFlagsObserver: NSObjectProtocol?
     private var browserAvailabilityObserver: NSObjectProtocol?
 
@@ -4787,6 +4791,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalCommandSourcePaths: [String: String],
         workspaceCommands: [String: CmuxResolvedCommand]
     ) {
+        dockSurfaceTabBarButtons = buttons
+        _dockSplit?.applySurfaceTabBarButtons(buttons)
         surfaceTabBarButtonConfiguration = SurfaceTabBarButtonConfiguration(
             buttons: buttons,
             sourcePath: sourcePath,
