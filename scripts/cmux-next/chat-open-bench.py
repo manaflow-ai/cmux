@@ -492,7 +492,8 @@ def main():
 def markdown(results):
     lines = [f"chat-open-bench on {results['host']} ({results['model']}, {results['ncpu']} CPUs); "
              f"median of {opts.runs} opens, milliseconds from the action to the first frame of chat content; "
-             f"a cell reads FAILED when an open of its case showed no content or no empty time (no median over the rest)",
+             f"a cell reads FAILED when an open of its case timed out, errored, or showed no content or no empty time "
+             f"(no median over the rest)",
              "", "| case | " + " | ".join(CONDITIONS) + " |", "|---|" + "---|" * len(CONDITIONS)]
     for case in CASES:
         cells = []
