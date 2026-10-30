@@ -7,7 +7,9 @@ public import CmuxNextDesignTokens
 ///
 /// ```swift
 /// edge.top = [bar.topAnchor.constraint(equalTo: topAnchor), page.topAnchor.constraint(equalTo: bar.bottomAnchor)]
-/// edge.bottom = [page.topAnchor.constraint(equalTo: topAnchor), bar.topAnchor.constraint(equalTo: page.bottomAnchor)]
+/// edge.bottom = [ToolbarEdgeConstraints.yielding(page.topAnchor.constraint(equalTo: topAnchor)),
+///                bar.topAnchor.constraint(equalTo: page.bottomAnchor)]
+/// page.heightAnchor.constraint(greaterThanOrEqualToConstant: 0).isActive = true
 /// edge.activate(.bottom)
 /// ```
 @MainActor
