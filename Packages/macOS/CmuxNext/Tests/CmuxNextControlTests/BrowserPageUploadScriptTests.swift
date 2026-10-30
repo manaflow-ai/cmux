@@ -113,4 +113,32 @@ import WebKit
         #expect(try await page.read("window.changes") == 3)
         #expect(try await page.read("document.getElementById('upload').__cmuxUploads.size") == 0)
     }
+
+    /// A snapshot can move an `eN` ref to another element mid-upload. The upload keeps its own input:
+    /// later chunks and the cleanup reach the input it started on, and the other input is untouched.
+    @Test func anUploadKeepsItsInputWhenItsRefMovesToAnother() async throws {
+        let page = BrowserPageSnapshotTests.Page()
+        await page.load()
+        // A window made in code is released by close() unless told not to (see above).
+        defer { page.window.isReleasedWhenClosed = false; page.window.close() }
+        _ = try await page.read("(() => { document.body.innerHTML = '<input id=\"a\" type=\"file\" data-cmux-ref=\"e1\"><input id=\"b\" type=\"file\">'; document.getElementById('b').__cmuxUploads = new Map([['other', { files: [] }]]); return true; })()")
+
+        func run(_ script: String) async throws -> JSONValue {
+            let value = try await page.read(script)
+            #expect(value["error"] == nil, "page script failed: \(value)")
+            return value
+        }
+        _ = try await run(BrowserPageScripts.startUpload("@e1", id: "R", files: [("R.txt", "text/plain")]))
+        _ = try await run(BrowserPageScripts.uploadChunk("@e1", id: "R", index: 0, base64: Data("first".utf8).base64EncodedString()))
+        _ = try await page.read("(() => { document.getElementById('a').removeAttribute('data-cmux-ref'); document.getElementById('b').setAttribute('data-cmux-ref', 'e1'); return true; })()")
+
+        _ = try await run(BrowserPageScripts.uploadChunk("@e1", id: "R", index: 0, base64: Data("second".utf8).base64EncodedString()))
+        #expect(try await page.read("document.getElementById('a').__cmuxUploads.get('R').files[0].parts.length") == 2,
+                "the chunk after the ref moved missed the upload's own input")
+        _ = try await run(BrowserPageScripts.cancelUpload("@e1", id: "R"))
+
+        #expect(try await page.read("document.getElementById('a').__cmuxUploads.size") == 0, "the original input kept the cancelled upload")
+        #expect(try await page.read("document.getElementById('b').__cmuxUploads.size") == 1, "cleanup touched the other input")
+        #expect(try await page.read("document.getElementById('b').__cmuxUploads.has('other')") == true)
+    }
 }
