@@ -8,7 +8,14 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+// The benchmarks' bounds and sizes, read by `env_or`; numbers, no credential.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(&[
+    "ACPMUX_MEMORY_BENCH_LEFTOVERS",
+    "ACPMUX_MEMORY_BENCH_CHATS",
+    "ACPMUX_MEMORY_BUDGET_MB",
+    "ACPMUX_PEER_SNAPSHOT_PEAK_MB",
+    "ACPMUX_PEER_SNAPSHOT_CPU_MS",
+]);
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
