@@ -419,6 +419,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                         self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
                                                  reason: AcpmuxSessionSource.message(error)))
                     }
+                case .retryFailedTurn:
+                    _ = try await hub.request("_acpmux/retry", .object(["sessionId": session]))
                 case .cancel:
                     try await hub.notify("session/cancel", .object(["sessionId": session]))
                 case .respondPermission(let permissionID, let optionID):
@@ -484,22 +486,27 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     func promptBlocks(text: String, attachments: [AgentAttachment], hub: AcpmuxHub) async throws -> [JSONValue] {
         var uploaded: [String: String] = [:]
         for attachment in attachments where attachment.imageMIMEType == nil {
-            guard let data = attachment.data else {
+            let payload: LinkUpload.Payload
+            if let data = attachment.data {
+                payload = .data(data)
+            } else if let url = attachment.fileURL {
+                payload = .file(url)
+            } else {
                 throw AgentFeatureUnavailable("\(attachment.name) has no contents to send. Attach it again.")
             }
             guard let link = hub.macLink else { throw LinkError(code: "offline", message: "Connect to \(summary.macName) to send \(attachment.name).") }
-            uploaded[attachment.id] = try await Self.upload(data, name: attachment.name, cwd: baseDirectory, link: link, macName: summary.macName)
+            uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: baseDirectory, link: link, macName: summary.macName)
         }
         return Self.promptBlocks(text: text, attachments: attachments, uploaded: uploaded)
     }
 
     /// Uploads into the session's folder; a folder the Mac won't write to
     /// (not one of its tabs' folders) falls back to its uploads folder.
-    static func upload(_ data: Data, name: String, cwd: String?, link: any MacLink, macName: String) async throws -> String {
+    static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String) async throws -> String {
         do {
-            return try await LinkUpload.upload(data, name: name, cwd: LinkUpload.folder(cwd), over: link)
+            return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link)
         } catch let failure as LinkUpload.Failure where failure.code == "forbidden" || failure.code == "not_found" {
-            return try await LinkUpload.upload(data, name: name, cwd: nil, over: link)
+            return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
         } catch let failure as LinkUpload.Failure {
             throw AgentFeatureUnavailable("Couldn't send \(name) to \(macName): \(failure.message)")
         }
@@ -523,7 +530,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 } else {
                     var link: [String: JSONValue] = ["type": .string("resource_link"), "uri": .string(uri),
                                                      "name": .string(attachment.name), "mimeType": .string(mime)]
-                    if let size = attachment.data?.count { link["size"] = .number(Double(size)) }
+                    if let size = attachment.data?.count ?? attachment.byteCount { link["size"] = .number(Double(size)) }
                     blocks.append(.object(link))
                 }
             }

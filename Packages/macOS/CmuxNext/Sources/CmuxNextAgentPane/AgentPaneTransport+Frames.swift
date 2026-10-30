@@ -353,7 +353,9 @@ extension AgentPaneTransport {
                 // The start's credit is spent by the first prompt, whatever grants it.
                 let credit = facts.method == "session/prompt"
                     && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
-                granted = !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures) && gestures.consume()) || credit
+                // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``).
+                granted = !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
+                    && (facts.method == "session/prompt" ? gestures.consumeForSend() : gestures.consume())) || credit
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
                 // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.

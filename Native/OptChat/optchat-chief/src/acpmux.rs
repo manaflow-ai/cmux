@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use cmux_chief::acp::{AcpmuxEvent, SessionSummary};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::rpc::{Notification, RpcClient, RpcError};
@@ -667,10 +668,16 @@ impl Acpmux {
                     json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "optchat-chief", "version": env!("CARGO_PKG_VERSION")}}),
                 )
                 .map_err(|e| format!("initialize: {e}"))?;
-            client
+            // The watch answers with the session list: reading it again at once spent
+            // the connection's second paced list (acpmux `hub/list_guard.rs`).
+            let watched = client
                 .request("_acpmux/watch", json!({"enabled": true}))
                 .map_err(|e| format!("watch: {e}"))?;
-            Ok::<_, String>((sessions(&client)?, builtin_presets(&init)))
+            let list = match session_rows(&watched) {
+                Some(list) => list,
+                None => sessions(&client)?,
+            };
+            Ok::<_, String>((list, builtin_presets(&init)))
         })();
         match result {
             Ok((list, builtins)) => {
@@ -841,13 +848,131 @@ pub fn sessions(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
     let result = client
         .request("_acpmux/sessions", json!({}))
         .map_err(|e| format!("sessions: {e}"))?;
-    Ok(result
-        .get("sessions")
-        .and_then(Value::as_array)
+    Ok(session_rows(&result).unwrap_or_default())
+}
+
+/// A list answer's rows (`_acpmux/sessions`, `_acpmux/watch`), those that do
+/// not parse skipped; None when it has no `sessions` (an acpmux whose watch
+/// answers without the list).
+pub(crate) fn session_rows(result: &Value) -> Option<Vec<SessionSummary>> {
+    Some(
+        result
+            .get("sessions")?
+            .as_array()?
+            .iter()
+            .filter_map(|s| SessionSummary::deserialize(s).ok())
+            .collect(),
+    )
+}
+
+/// acpmux's code for "no such session" (`RpcError::not_found`).
+const NOT_FOUND: i64 = -32002;
+/// acpmux's code for bad params (`RpcError::invalid_params`), a key that names
+/// several sessions among them.
+const INVALID_PARAMS: i64 = -32602;
+
+/// What `_acpmux/info` resolves a key to.
+enum Resolved {
+    One(Box<SessionSummary>),
+    None,
+    /// A name several sessions share, or a prefix of several (acpmux's
+    /// `Hub::resolve_here`: "... matches N sessions; use the id").
+    Several,
+}
+
+/// Why `_acpmux/info` gave no answer.
+enum InfoError {
+    /// acpmux answered with an error (a peer whose link is down, an acpmux
+    /// without info): the session list may still hold the row.
+    Refused(String),
+    /// No answer at all (closed, timed out): asking again does not help.
+    Unanswered(String),
+}
+
+/// `_acpmux/info` for `key` (an id, a name, a unique prefix of either).
+/// `waitLogs: false`: only the summary is read, so a daemon still loading chat
+/// logs answers at once.
+fn info(client: &RpcClient, key: &str) -> Result<Resolved, InfoError> {
+    match client.request("_acpmux/info", json!({"sessionId": key, "waitLogs": false})) {
+        Ok(detail) => SessionSummary::deserialize(&detail)
+            .map(|s| Resolved::One(Box::new(s)))
+            .map_err(|e| InfoError::Refused(format!("info: unreadable answer for {key:?}: {e}"))),
+        Err(RpcError::Remote {
+            code: Some(NOT_FOUND),
+            ..
+        }) => Ok(Resolved::None),
+        Err(RpcError::Remote {
+            code: Some(INVALID_PARAMS),
+            message,
+        }) if message.contains(" sessions; use the id") => Ok(Resolved::Several),
+        Err(e @ RpcError::Remote { .. }) => Err(InfoError::Refused(format!("info: {e}"))),
+        Err(e) => Err(InfoError::Unanswered(format!("info: {e}"))),
+    }
+}
+
+/// The session list, after `_acpmux/info` refused with `error`; an unanswered
+/// info is the error itself.
+fn listed(client: &RpcClient, error: InfoError) -> Result<Vec<SessionSummary>, String> {
+    match error {
+        InfoError::Refused(e) => sessions(client).map_err(|list| format!("{e}; {list}")),
+        InfoError::Unanswered(e) => Err(e),
+    }
+}
+
+/// One session's summary by id, from `_acpmux/info` (None: no such session).
+///
+/// Not from the session list: acpmux paces full lists per connection and for
+/// all clients together, and refuses one that would wait over 30 s ("session
+/// lists are paced"). The Chief asks this before every turn, subagent prompt
+/// and compactor session (`harness_gate::session_harness`), all on its one
+/// connection, so the lists it spent refused those, and the memory compactor
+/// stopped building summaries. The list is read only when acpmux refuses info.
+pub fn session_info(client: &RpcClient, id: &str) -> Result<Option<SessionSummary>, String> {
+    match info(client, id) {
+        // A name or an id prefix resolves too; only this exact session counts.
+        Ok(Resolved::One(s)) => Ok((s.session_id == id).then_some(*s)),
+        // A prefix of several: no session has this id.
+        Ok(Resolved::None | Resolved::Several) => Ok(None),
+        Err(e) => Ok(listed(client, e)?.into_iter().find(|s| s.session_id == id)),
+    }
+}
+
+/// Whether session `id` is this daemon's own, not a peer's that acpmux
+/// forwarded to: a qualified `local/` id resolves only here.
+fn is_local(client: &RpcClient, id: &str) -> Result<bool, InfoError> {
+    Ok(matches!(info(client, &format!("local/{id}"))?, Resolved::One(s) if s.session_id == id))
+}
+
+/// The id of the session named `name`, from `_acpmux/info` (unpaced, as
+/// [`session_info`]), as the session list names them: a bare name is this
+/// daemon's own session, a peer's is `peer/name`. The paced list only when
+/// acpmux names several (several share the name, or none has it and it is a
+/// prefix of several) or refuses info.
+pub fn find_named(client: &RpcClient, name: &str) -> Result<Option<String>, String> {
+    let error = match info(client, name) {
+        // acpmux resolves an exact id, then a name only one session has, then a
+        // unique prefix, here and then on its peers: a session of another name
+        // means none has it.
+        Ok(Resolved::One(s)) if s.name == name => match is_local(client, &s.session_id) {
+            // A peer's session of the same bare name is listed as `peer/name`.
+            Ok(local) => return Ok(local.then_some(s.session_id)),
+            Err(e) => e,
+        },
+        // A peer's session asked as `peer/name`: its peer answers with `name`.
+        Ok(Resolved::One(s)) => {
+            let qualified = name
+                .strip_suffix(s.name.as_str())
+                .is_some_and(|peer| peer.len() > 1 && peer.ends_with('/'));
+            return Ok(qualified.then_some(s.session_id));
+        }
+        Ok(Resolved::None) => return Ok(None),
+        Ok(Resolved::Several) => InfoError::Refused(format!("info: {name:?} names several")),
+        Err(e) => e,
+    };
+    Ok(listed(client, error)?
         .into_iter()
-        .flatten()
-        .filter_map(|s| serde_json::from_value(s.clone()).ok())
-        .collect())
+        .find(|s| s.name == name)
+        .map(|s| s.session_id))
 }
 
 /// `_acpmux/events` after `after`, every page (`hasMore`: a page ends at the daemon's byte limit).
@@ -1051,16 +1176,11 @@ impl AgentPort for Acpmux {
     }
 
     fn find(&self, name: &str) -> Result<Option<String>, String> {
-        Ok(sessions(&*self.client()?)?
-            .into_iter()
-            .find(|s| s.name == name)
-            .map(|s| s.session_id))
+        find_named(&*self.client()?, name)
     }
 
     fn session(&self, id: &str) -> Result<Option<SessionSummary>, String> {
-        Ok(sessions(&*self.client()?)?
-            .into_iter()
-            .find(|s| s.session_id == id))
+        session_info(&*self.client()?, id)
     }
 
     fn cancel(&self, session: &str) -> Result<(), String> {

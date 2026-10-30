@@ -576,6 +576,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
 
+    #[cfg(all(unix, feature = "tailnet"))]
+    let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
     let shutdown = async {
         #[cfg(unix)]
         {
@@ -606,6 +608,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // Fence tailnet supervision first: its ingress then ends through the
+    // WebSocket shutdown below (1012 on restart), never as a listener failure.
+    // A supervisor action under way finishes first, within its own bounds.
+    #[cfg(all(unix, feature = "tailnet"))]
+    tailnet.fence().await;
     // Its home is gone (`daemon/home_watch.rs`): no later daemon can adopt its agents from
     // there, so they end; and this shutdown removes nothing at the old paths, which may be
     // another daemon's now (`config::mark_home_lost` refuses its writes there).
@@ -637,6 +644,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         let _ = task.await;
         tracing::warn!("websocket clients did not drain before the shutdown deadline");
     }
+    // The ingress has had the WebSocket drain to close its clients; stop and
+    // join whatever remains within the service's own bound.
+    #[cfg(all(unix, feature = "tailnet"))]
+    tailnet.shutdown().await;
     // Keep encrypted bridges alive until WebSocket close/restart frames have drained.
     if let Some(transport) = wireguard
         && tokio::time::timeout(SHUTDOWN_BUDGET, transport.shutdown()).await.is_err()
