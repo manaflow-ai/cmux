@@ -19,7 +19,7 @@ Only people (author __typename User) with OWNER, MEMBER or COLLABORATOR associat
 verdict decides, not the newest SHIP: the newest verdict naming the head must be a SHIP, and no independent verdict
 on any head of the pull request (a receipt line, the marker or a change request) may be a newer BLOCK, so a later
 BLOCK beats an earlier SHIP wherever it sits. A first line that says it carries ("Review (codex; carried): SHIP at
-<new head>", a lane's claim that an older head's SHIP carries across a base merge) is not a verdict: it counts as the
+<new head>" with the word in the reviewer label, or "carried from"/"carried over" on the line; CARRIED), a lane's claim that an older head's SHIP carries across a base merge) is not a verdict: it counts as the
 head's receipt only when no independent verdict names the head and the newest independent verdict on the pull
 request is a SHIP (next-autoland's ship_receipt, cmuxterm-hq#4975). cmux#27189 landed 2026-10-29 on
 "Review (Astra; carried): SHIP at 127a023e" while the box review of its pre-merge head had returned BLOCK.
@@ -67,8 +67,13 @@ WAIT = re.compile(LABELLED + r"(?:block(?:ed|ing|s)?|fix|not ship|hold|changes n
 MARKER = re.compile(r"<!-- autoreview verdict=(SHIP|BLOCK) sha=([0-9a-f]{40}) -->")
 SHA_TOKEN = re.compile(r"\b[0-9a-f]{7,40}\b")
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])", re.I)
-# A carried receipt: a lane's claim that an older head's SHIP carries to a new head, not a review (cmux#27189).
-CARRIED = re.compile(r"\bcarr(?:y|ies|ied|ying)\b", re.I)
+# A carried receipt: a lane's claim that an older head's SHIP carries to a new head, not a review (cmux#27189). It is
+# written "Review (<reviewer>; carried): SHIP at <head>" (skills/cmux-review/SKILL.md): the word in the reviewer label.
+# "carried from" or "carried over" anywhere on the first line is a carry claim too. Any other "carries" in the verdict's
+# own text is not: cmux#27632's "Review (independent review subagent): SHIP at feae7301... the warning carries the
+# whole finding" was read as carried and refused (2026-10-29). As cmuxterm-hq next_autoland.CARRIED.
+CARRIED = re.compile(r"^\W*(?:independent\s+)?review\s*\([^)\n]*\bcarr(?:y|ies|ied|ying)\b[^)\n]*\)\s*:"
+                     r"|\bcarried\s+(?:from|over)\b", re.I)
 QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){"
          "headRefOid "
          f"reviews(last:{REVIEWS_WINDOW})"
