@@ -4210,7 +4210,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var textEditingGestureConsumedKeyUps: Set<UInt16> = []
     /// The alternate-screen state read on the last gesture press, reused by its
     /// auto-repeats so a held chord does not serialize the viewport per repeat.
-    private var textEditingGestureAlternateScreenAtPress: (keyCode: UInt16, onAlternateScreen: Bool)?
+    private var textEditingGestureAlternateScreenAtPress: (keyCode: UInt16, onAlternateScreen: Bool?)?
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var manualNamedKeyConsumedKeyUps: Set<UInt16> = []
     /// Deferred native input actions retain their authored order until the
@@ -6648,7 +6648,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let onAlternateScreen = alternateScreenActiveAtKeyPress(event) {
                 terminalSurface?.isAlternateScreenActive() == true
             }
-            guard !onAlternateScreen else { return false }
+            guard onAlternateScreen != true else { return false }
         }
         guard
             let chordKeyCode = Self.textEditingChordKeyCodes[chord.letter],
@@ -6679,7 +6679,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     /// Reads the screen mode once per held text-editing key, avoiding repeated viewport exports.
-    func alternateScreenActiveAtKeyPress(_ event: NSEvent, read: () -> Bool) -> Bool {
+    /// `nil` is an unreadable screen, cached like any other answer.
+    func alternateScreenActiveAtKeyPress(_ event: NSEvent, read: () -> Bool?) -> Bool? {
         if event.isARepeat,
            let cached = textEditingGestureAlternateScreenAtPress,
            cached.keyCode == event.keyCode {
@@ -6709,8 +6710,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         guard keystroke.shouldReplay(
             isAlternateScreenActive: {
+                // Fail closed: without a live surface or a readable export,
+                // the screen may be a full-screen application's.
                 alternateScreenActiveAtKeyPress(event) {
-                    terminalSurface?.isAlternateScreenActive() == true
+                    terminalSurface?.alternateScreenStateIfReadable()
                 }
             }
         ) else { return false }

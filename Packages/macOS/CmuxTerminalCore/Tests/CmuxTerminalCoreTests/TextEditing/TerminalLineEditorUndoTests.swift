@@ -21,6 +21,15 @@ struct TerminalLineEditorUndoTests {
         ).shouldReplay(isAlternateScreenActive: { true }))
     }
 
+    @Test func anUnreadableScreenKeepsTheOriginalKeystroke() {
+        #expect(!TerminalLineEditorUndo(
+            isUndoChord: true,
+            hasGhosttyBinding: false,
+            isComposing: false,
+            keyboardCopyModeActive: false
+        ).shouldReplay(isAlternateScreenActive: { nil }))
+    }
+
     struct OtherOwner: Sendable, CustomTestStringConvertible {
         var isUndoChord = true
         var hasGhosttyBinding = false

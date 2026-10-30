@@ -542,20 +542,26 @@ struct WindowKeyDownReplayGuardTests {
     func heldUndoReadsTheViewportOnlyOnce() throws {
         let view = GhosttyNSView(frame: .zero)
         var reads = 0
-        var alternateScreen = false
-        let read = { reads += 1; return alternateScreen }
+        var alternateScreen: Bool? = false
+        let read: () -> Bool? = { reads += 1; return alternateScreen }
         let press = try #require(makeCommandKeyDownEvent(
             charactersIgnoringModifiers: "z", keyCode: UInt16(kVK_ANSI_Z)
         ))
         let repeatEvent = try #require(makeCommandKeyDownEvent(
             charactersIgnoringModifiers: "z", keyCode: UInt16(kVK_ANSI_Z), isARepeat: true
         ))
-        #expect(!view.alternateScreenActiveAtKeyPress(press, read: read))
+        #expect(view.alternateScreenActiveAtKeyPress(press, read: read) == false)
         alternateScreen = true
-        #expect(!view.alternateScreenActiveAtKeyPress(repeatEvent, read: read))
+        #expect(view.alternateScreenActiveAtKeyPress(repeatEvent, read: read) == false)
         #expect(reads == 1)
-        #expect(view.alternateScreenActiveAtKeyPress(press, read: read))
+        #expect(view.alternateScreenActiveAtKeyPress(press, read: read) == true)
         #expect(reads == 2)
+        // An unreadable screen is remembered for the held key too.
+        alternateScreen = nil
+        #expect(view.alternateScreenActiveAtKeyPress(press, read: read) == nil)
+        alternateScreen = false
+        #expect(view.alternateScreenActiveAtKeyPress(repeatEvent, read: read) == nil)
+        #expect(reads == 3)
     }
 
     /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/10872.

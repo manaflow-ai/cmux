@@ -36,4 +36,12 @@ struct TerminalSurfaceAlternateScreenExportTests {
         #expect(TerminalSurface.renderGridExportIsAlternateScreen(spaced))
         #expect(!TerminalSurface.renderGridExportIsAlternateScreen(Data("not json".utf8)))
     }
+
+    /// A caller that fails closed can tell an unreadable export from the
+    /// primary screen.
+    @Test func reportsAnUnreadableExportAsUnknown() {
+        #expect(TerminalSurface.renderGridExportActiveScreenIsAlternate(Data("not json".utf8)) == nil)
+        #expect(TerminalSurface.renderGridExportActiveScreenIsAlternate(export(activeScreen: "primary")) == false)
+        #expect(TerminalSurface.renderGridExportActiveScreenIsAlternate(export(activeScreen: "alternate")) == true)
+    }
 }

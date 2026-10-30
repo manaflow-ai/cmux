@@ -53,13 +53,15 @@ public struct TerminalLineEditorUndo: Equatable, Sendable {
     /// - Parameter isAlternateScreenActive: Read only when every other
     ///   condition holds, because it serializes the viewport. A full-screen
     ///   application decides what its own keys mean, so it keeps the original
-    ///   keystroke.
+    ///   keystroke. `nil` means the screen could not be read, which also keeps
+    ///   the original keystroke rather than writing `0x1F` into an
+    ///   application that may be full-screen.
     /// - Returns: `true` when the caller should send ``bindingAction`` and
     ///   consume the keystroke.
-    public func shouldReplay(isAlternateScreenActive: () -> Bool) -> Bool {
+    public func shouldReplay(isAlternateScreenActive: () -> Bool?) -> Bool {
         guard isUndoChord, !hasGhosttyBinding, !isComposing, !keyboardCopyModeActive else {
             return false
         }
-        return !isAlternateScreenActive()
+        return isAlternateScreenActive() == false
     }
 }
