@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextControl
 import class CmuxNextDaemon.DaemonStore // only the store: the whole module makes JSONValue ambiguous (CmuxNextSettings has one too)
@@ -17,6 +18,10 @@ import Testing
 ///
 /// The symbolicator waits until the test ends, so the only changes are the writes the test makes.
 @MainActor @Suite struct DebugSettingsHangWatchTests {
+    /// AppServices reads `NSApp` (an implicitly unwrapped Optional) from its observers and services;
+    /// a suite run in its own process has no shared application until something makes it.
+    init() { _ = NSApplication.shared }
+
     @Test(.timeLimit(.minutes(1))) func aPageThatLeavesAndComesBackFollowsTheHangFilesAgain() async throws {
         let (directory, symbolsMayRun, recorder) = Self.recorder()
         defer { Self.finish(directory, symbolsMayRun, recorder) }

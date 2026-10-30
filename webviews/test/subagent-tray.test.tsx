@@ -365,6 +365,8 @@ describe("the tray", () => {
     try {
       const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
       expect(head.getAttribute("aria-expanded")).toBe("true");
+      expect(head.querySelector('svg[data-icon="agent.session"]')).not.toBeNull();
+      expect(head.querySelector('[role="progressbar"]')).toBeNull();
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 command");
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
       // The header's time is its own, not a fourth line's.
@@ -392,6 +394,41 @@ describe("the tray", () => {
       expect(folded.root.querySelectorAll(".acpmux-agent-line").length).toBe(TRAY_OPEN_MAX + 1);
     } finally {
       await folded.done();
+    }
+  });
+
+  test("tray rows reserve the time, status and stop tracks when values are missing", async () => {
+    const running = agent("Reviewer", { startedAt: Date.now() - 5_000 });
+    const chat: StartedSession = { sessionId: "child", title: "Started chat", state: "running" };
+    const { root, done } = await render(
+      createElement(SubagentTray, {
+        items: trayItems([running], [], [chat], true),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+        onOpenSession: () => {},
+        stop: async () => {},
+      }),
+    );
+    try {
+      const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
+      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time")).not.toBeNull();
+      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__status")).not.toBeNull();
+      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__stop-slot")).not.toBeNull();
+      const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
+      expect(lines).toHaveLength(2);
+      expect(lines.every((line) => line.querySelector(".acpmux-agent-line__time"))).toBe(true);
+      expect(lines.every((line) => line.querySelector(".acpmux-agent-line__status"))).toBe(true);
+      expect(lines.every((line) => line.querySelector(".acpmux-agent-line__stop-slot"))).toBe(true);
+      expect(
+        lines.find((line) => line.textContent?.includes("Started chat"))?.querySelector(".acpmux-agent-line__time")
+          ?.textContent,
+      ).toBe("");
+      expect(
+        lines.find((line) => line.textContent?.includes("Reviewer"))?.querySelector(".cv-subagent__stop"),
+      ).not.toBeNull();
+    } finally {
+      await done();
     }
   });
 
@@ -1115,6 +1152,32 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       // The whole doing line is still the chat line's tooltip.
       const chat = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line__button")][2]!;
       expect(chat.title).toContain("cd /Users/you/Projects/checkouts/ws/broker");
+    } finally {
+      await done();
+    }
+  });
+});
+
+describe("a failed sub-session's line", () => {
+  test("says why its chat failed, as acpmux recorded it on the chat's own session row", async () => {
+    const { SubagentDoneLine } = await import("../src/agent-session/acpmux/subagents/SubagentDoneLine");
+    const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+    const store = new SubsessionStore();
+    store.set([{ sessionId: "child", startedBy: "parent", lane: "failed", laneError: "model overloaded" }]);
+    const failed = agent("Overview", { state: "failed", endedAt: at(40), child: "child" });
+    const { root, done } = await render(
+      createElement(
+        SubsessionContext.Provider,
+        { value: { store, open: () => {} } },
+        createElement(SubagentDoneLine, {
+          row: row(`${SUBAGENT_DONE}:Overview`, SUBAGENT_DONE, 40, { subagents: [failed] }),
+        }),
+      ),
+    );
+    try {
+      expect(root.querySelector(".cv-subagent-done")?.textContent).toBe(
+        "Subagent failed: Overview · 30s · model overloaded",
+      );
     } finally {
       await done();
     }

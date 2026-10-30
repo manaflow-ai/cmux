@@ -714,6 +714,33 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done"));
       },
     },
+    "run-messages": {
+      note: "Chief's tell and an agent report remain visible with the finished run folded.",
+      props: { select: "c-chief", runs: "messages" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done"));
+      },
+    },
+    "run-messages-open": {
+      note: "Either message expands independently of the run, preserving its complete body.",
+      props: { select: "c-chief", runs: "messages" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-run-messages .cv-agentmsg").length === 2);
+        await ctx.click({
+          selector: '.lg-run-messages [data-direction="sent"] .cv-agentmsg__toggle',
+        });
+        await ctx.click({
+          selector: '.lg-run-messages [data-direction="received"] .cv-agentmsg__toggle',
+        });
+      },
+    },
+    "run-messages-narrow": {
+      note: "Both message rows remain readable in a narrow Home conversation.",
+      props: { width: 380, pane: "conversation", select: "c-chief", runs: "messages" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-run-messages .cv-agentmsg").length === 2);
+      },
+    },
     "run-open": {
       note: "The run sheet: every step in order (shell output, the read, a folded thought, the diff, the reply), time, tokens and the cost labelled as API prices.",
       props: { select: "c-chief", runs: "done" },

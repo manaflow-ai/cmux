@@ -90,7 +90,7 @@ public final class Commands {
     public static final CommandMetadata CONVERSATION_OP = new CommandMetadata("conversation-op", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_RUN = new CommandMetadata("conversation-run", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_RUN_APPEND = new CommandMetadata("conversation-run-append", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata CONVERSATION_RUNS = new CommandMetadata("conversation-runs", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CONVERSATION_RUNS = new CommandMetadata("conversation-runs", Authority.LOCAL_ADMIN, 12, "conversation-runs-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("answers", "conversation-run-answers-v1")));
     public static final CommandMetadata CONVERSATION_SEARCH = new CommandMetadata("conversation-search", Authority.LOCAL_ADMIN, 12, "conversation-search-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_SNAPSHOT = new CommandMetadata("conversation-snapshot", Authority.LOCAL_ADMIN, 12, "local-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CONVERSATION_THREAD = new CommandMetadata("conversation-thread", Authority.LOCAL_ADMIN, 12, "conversation-thread-v1", StreamKind.NONE, Map.of(), Map.of());

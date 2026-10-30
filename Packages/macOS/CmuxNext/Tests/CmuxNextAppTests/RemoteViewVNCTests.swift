@@ -119,3 +119,42 @@ struct RemoteVNCMappingTests {
         #expect(scroll.add(dx: 0, dy: -1500, precise: true) == (0, -1))
     }
 }
+
+#if DEBUG
+@MainActor
+struct RemoteVNCReconnectTests {
+    @Test func manualReconnectCancelsStaleAutomaticRetry() async throws {
+        let record = try #require(RemoteViewTabRecord(host: "vm-test", target: .virtual, mode: .view, cloudDesktop: true))
+        let attempts = AttemptCounter()
+        let session = RemoteVNCSession(cloudRecord: record) {
+            attempts.increment()
+            return CountingRFBTransport()
+        }
+        session.scheduleAutomaticRetryForTesting(after: .milliseconds(50))
+        #expect(session.hasPendingRetryForTesting)
+
+        // This is the user's successful manual reconnect attempt. The delayed automatic task
+        // must not open a second transport after it has been superseded.
+        session.reconnect(in: nil)
+        #expect(attempts.value == 1)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(attempts.value == 1)
+        session.close()
+    }
+}
+
+private nonisolated final class CountingRFBTransport: RFBTransport, @unchecked Sendable {
+    func open() async throws {}
+    func receive() async throws -> [UInt8] { throw RFBError.connectionClosed }
+    func send(_ bytes: [UInt8]) async throws {}
+    func close() {}
+}
+
+private nonisolated final class AttemptCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int { lock.withLock { count } }
+    func increment() { lock.withLock { count += 1 } }
+}
+#endif
