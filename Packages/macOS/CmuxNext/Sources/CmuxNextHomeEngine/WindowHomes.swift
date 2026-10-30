@@ -121,9 +121,9 @@ public final class WindowHomes {
         } catch {
             logger.error("window home: \(String(describing: error), privacy: .public)")
             // A workspace made without its page would stay as an empty "Home" row.
+            host.windowHomeDropClaim(key.rawValue)
             if host.windowHomeWorkspace(key.rawValue) != nil {
                 close(key.rawValue)
-                host.windowHomeDropClaim(key.rawValue)
             } else {
                 pendingClose.insert(key.rawValue)
             }
