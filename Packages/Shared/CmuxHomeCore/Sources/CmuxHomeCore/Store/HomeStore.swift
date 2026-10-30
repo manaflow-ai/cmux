@@ -39,6 +39,9 @@ public final class HomeStore {
     @ObservationIgnored var carriedDrafts: Set<ConversationID> = []
     public internal(set) var me: Participant?
     public internal(set) var typing: [ConversationID: Set<ParticipantID>] = [:]
+    /// Who has each conversation open (``HomeEvent/presence(_:viewing:)``), cleared with the
+    /// connection as typing is; a conversation nobody has open has no entry.
+    public internal(set) var viewing: [ConversationID: Set<ParticipantID>] = [:]
     /// The running agent reply of each conversation, while it is written.
     public internal(set) var drafts: [ConversationID: HomeTurnDraft] = [:]
     @ObservationIgnored var draftBook = HomeDraftBook()
