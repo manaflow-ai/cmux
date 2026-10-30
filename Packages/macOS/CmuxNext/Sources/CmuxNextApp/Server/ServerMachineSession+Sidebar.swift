@@ -29,7 +29,7 @@ extension ServerMachineSession {
             let onThisMac = if case .unix = session.reach.route { true } else { false }
             let store = session.daemon.store
             status = switch store.connectionState {
-            case .failed where !store.isInDropGrace, .disconnected where !store.isInDropGrace:
+            case .failed where !store.dropGrace.isActive, .disconnected where !store.dropGrace.isActive:
                 base == .updateRequired ? base : .unreachable
             case .failed, .disconnected, .connecting, .connected: onThisMac && base == .updateAvailable ? .connected : base
             }

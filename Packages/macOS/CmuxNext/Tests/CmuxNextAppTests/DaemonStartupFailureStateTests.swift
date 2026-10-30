@@ -59,18 +59,18 @@ struct DaemonStartupFailureStateTests {
         let reach = try ServerReach.localChief(homeID: "abcd1234", socket: "/private/tmp/cn-drop-grace.sock", name: "Chief")
         let (chief, machines) = try ChiefRowUpdateStatusTests.olderServer(reach)
         let store = chief.daemon.store
-        store.dropGraceClock = NowClock()
+        store.dropGrace.clock = NowClock()
         store.connectionState = .disconnected("daemon shut down")
-        #expect(store.isInDropGrace)
+        #expect(store.dropGrace.isActive)
         #expect(chief.sidebarMachine(machines: machines).status == .connecting)
-        for await grace in ObservationStream({ store.isInDropGrace }) where !grace { break }
+        for await grace in ObservationStream({ store.dropGrace.isActive }) where !grace { break }
         #expect(chief.sidebarMachine(machines: machines).status == .unreachable)
     }
 
     @Test func aFirstConnectThatFailedIsNoDrop() {
         let store = DaemonStore()
         store.markFailed("incompatible")
-        #expect(!store.isInDropGrace, "only a connection that was up starts the drop grace")
+        #expect(!store.dropGrace.isActive, "only a connection that was up starts the drop grace")
     }
 
     /// One list's "Connecting…" label waits out the grace; a connected or local machine is never held.

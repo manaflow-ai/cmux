@@ -158,7 +158,6 @@ public final class DaemonService {
                                                 terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: Self.firstPartyAppsEnvironment, webSocketPageOrigins: Self.pageOrigins)
             } catch {
-                // Nothing retries after this: it shows at once.
                 noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)), retries: false)
                 return
             }
@@ -351,19 +350,12 @@ public final class DaemonService {
         relaunchKeptLayoutIfNeeded(connection)
     }
 
-    /// Records a failed first-connect attempt. Shows as unavailable once the
-    /// deadline has passed, or at once when retrying cannot help. Before then
-    /// the store stays `.connecting`: the first attempts fail while the daemon
-    /// (or this Mac's Chief owner) still starts, and a `.failed` store read
-    /// "Unreachable" and "offline" on every launch. After a connection was up
-    /// the store already shows the drop, and each failed attempt says why.
-    /// `retries` false: no attempt follows this one (the launcher could not be made).
+    /// Records a failed connect attempt (`DaemonStartupState.showsFailure`): unavailable after the deadline, or at once when no retry can help.
     func noteStartupFailure(_ error: DaemonError, retries: Bool = true) {
         logger.error("cmux-tui daemon unavailable: \(error.description, privacy: .public)")
         lastStartupError = error
-        let permanent = DaemonStartup.shared.isPermanent(error)
-        if permanent || !retries || startup != .connecting { store.markFailed(error.description) }
-        if startup.isUnavailable || permanent || !retries {
+        if startup.showsFailure(error, retries: retries) { store.markFailed(error.description) }
+        if startup.isUnavailable || DaemonStartup.shared.isPermanent(error) || !retries {
             startup = .unavailable(error)
             resumeConnectionWaiters()
         }
@@ -375,7 +367,6 @@ public final class DaemonService {
         startupDeadlineTimer = timer
         timer.schedule(after: startupDeadline) { @MainActor [weak self] in
             guard let self, self.startup == .connecting else { return }
-            // The failed attempts so far show now (a first attempt still running keeps the store connecting).
             if let error = self.lastStartupError { self.store.markFailed(error.description) }
             self.startup = .unavailable(self.lastStartupError ?? .timedOut("first connection to cmux-tui"))
             self.resumeConnectionWaiters()

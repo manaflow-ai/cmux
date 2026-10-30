@@ -52,7 +52,7 @@ final class RemoteTerminalService {
                     guard let session = daemon.identity?.sessionID else { continue }
                     // The drop grace too: its end turns a reconnecting placeholder offline.
                     map[session] = "\(daemon.connection != nil)#\(daemon.store.isLoaded)#\(daemon.store.generation?.rawValue ?? "")"
-                        + "#\(daemon.store.isInDropGrace)"
+                        + "#\(daemon.store.dropGrace.isActive)"
                 }
                 return map
             }
@@ -176,7 +176,7 @@ final class RemoteTerminalService {
         case nil: .unknown
         case .connecting?, .connected?: .reconnecting
         // A drop reads reconnecting for the store's drop grace (a restart or a handoff is back by then).
-        case .disconnected?, .failed?: daemon?.store.isInDropGrace == true ? .reconnecting : .offline
+        case .disconnected?, .failed?: daemon?.store.dropGrace.isActive == true ? .reconnecting : .offline
         }
         view.show(machine: name, state: state, snapshot: view.snapshotText == RemoteStrings.placeholderNoSnapshot ? nil : view.snapshotText)
         return view
