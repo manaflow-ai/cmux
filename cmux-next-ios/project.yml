@@ -237,6 +237,11 @@ targets:
         # which keeps side-by-side installs apart (demo-build.sh sets it).
         # PRODUCT_NAME stays CmuxMobileApp: the scripts look for CmuxMobileApp.app.
         CFBundleName: cmux
+        # The languages the CmuxMobileKit string catalogs carry. Without them
+        # the app declares only English and iOS picks English for every
+        # package bundle on a non-English device.
+        CFBundleLocalizations: [en, de, fr, ar, es, zh-Hant, zh-Hans, ko, ja]
+        CFBundleAllowMixedLocalizations: true
         LSRequiresIPhoneOS: true
         CmuxMobileTag: $(CMUX_MOBILE_TAG)
         CmuxMobileAPIBase: $(CMUX_MOBILE_API_BASE)
