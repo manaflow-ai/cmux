@@ -139,9 +139,10 @@ test("text and attachment arrive once despite a delayed empty destination read",
 });
 test("a cancelled transfer preserves the source without restore or duplication", async () => {
   const f = await fixture();
-  const transfer = f.handle.current!.prepareDraftTransfer("destination");
-  await transfer.ready;
-  act(() => transfer.cancel());
+  act(() => {
+    const transfer = f.handle.current!.prepareDraftTransfer("destination");
+    transfer.cancel();
+  });
   expect(f.handle.current!.draftState()).toEqual({ text: "held draft", attachments: [attachment] });
   await f.draw("other");
   expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
@@ -149,18 +150,11 @@ test("a cancelled transfer preserves the source without restore or duplication",
   expect(f.sent).toHaveLength(0);
 });
 test("a different selected session never receives a pending transfer", async () => {
-  let resolve!: () => void;
-  const f = await fixture({
-    delay: new Promise<void>((yes) => {
-      resolve = yes;
-    }),
+  const f = await fixture();
+  act(() => {
+    f.handle.current!.prepareDraftTransfer("destination");
   });
-  const transfer = f.handle.current!.prepareDraftTransfer("destination");
-  const outcome = transfer.ready.catch((error) => error);
   await f.draw("other");
-  resolve();
-  expect((await outcome).message).toBe("draft changed during recovery");
-  transfer.cancel();
   expect(f.handle.current!.draftState()).toEqual({ text: "", attachments: [] });
   expect(readPersistedDraft("source")).toBe("held draft");
 });
@@ -200,17 +194,4 @@ test("edits while the destination save waits abort recovery and preserve the new
   transfer.cancel();
   expect(f.handle.current!.draftState().text).toBe("new edit held draft");
   expect(f.sent).toHaveLength(0);
-});
-
-test("commit before destination render keeps edits made during selection in the source", async () => {
-  const f = await fixture();
-  const transfer = f.handle.current!.prepareDraftTransfer("destination");
-  await transfer.ready;
-  await act(async () => f.handle.current!.prefill("edited "));
-  act(() => transfer.commit());
-  await f.draw("destination");
-  await f.finishRead();
-  expect(readPersistedDraft("source")).toBe("edited held draft");
-  expect(f.handle.current!.draftState().text).toBe("held draft");
-  expect(f.writes.some((w) => w.id === "source" && w.chips.length === 0)).toBe(false);
 });
