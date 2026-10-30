@@ -36,5 +36,11 @@ import Testing
                 "fixture: the active screen's frames hold none of the chat's screen")
         #expect(RightColumnPlacement.column(beside: PaneID("chat"), frames: root.navigationFrames(ofScreenContaining: "chat")) == ["diff"],
                 "the chat's right column read empty from another screen, so the open would split again")
+        // Review of #28044 at 1cfd9d14: LinkOpener's right-hand neighbour (PaneHandlers.neighbor) read the
+        // active screen too, so a link from that chat found no pane on its right and split again.
+        #expect(FocusNavigation.neighbor(of: "chat", direction: .right, frames: root.navigationFrames) == nil,
+                "fixture: the active screen's frames give the chat no neighbour")
+        #expect(FocusNavigation.neighbor(of: "chat", direction: .right, frames: root.navigationFrames(ofScreenContaining: "chat")) == "diff",
+                "the chat's right-hand neighbour was lost on a screen the person left")
     }
 }
