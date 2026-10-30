@@ -4,7 +4,7 @@ import { settlePolicy } from "./integration-policy-settle.ts"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { aadFor, open, seal } from "../src/integrations/crypto.ts"
-import { github, linear, slack, type Http } from "../src/integrations/providers.ts"
+import { github, installationToken, linear, slack, type Http } from "../src/integrations/providers.ts"
 
 const testEnv = env as unknown as Record<string, any>
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -75,11 +75,38 @@ describe("provider clients (fake HTTP)", () => {
         expect(req.headers.get("authorization")).toMatch(/^Bearer ey/)
         return ok({ token: "ghs_inst", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201)
       },
-      "https://api.github.com/repos/manaflow-ai/cmux/issues/9/comments": () => ok({ id: 1, html_url: "https://github.com/c/1" }, 201)
+      "https://api.github.com/repos/manaflow-ai/cmux/issues/9/comments": () => ok({ id: 1, html_url: "https://github.com/manaflow-ai/cmux/issues/9#issuecomment-1" }, 201)
     })
     const r = await github.call(e, f.http, { kind: "github_installation", installation_id: 42 }, "github.issue.comment", { repo: "manaflow-ai/cmux", issue: 9, body: "hi" })
-    expect(r.value).toEqual({ id: 1, url: "https://github.com/c/1" })
+    expect(r.value).toEqual({ id: 1, url: "https://github.com/manaflow-ai/cmux/issues/9#issuecomment-1" })
     expect(f.calls.at(-1)!.auth).toBe("Bearer ghs_inst")
+  })
+
+  it("GitHub: repository-list tokens never supply a comment token, and comment tokens stay repo-scoped", async () => {
+    const installation = 984321
+    const f = fakeHttp({
+      [`https://api.github.com/app/installations/${installation}/access_tokens`]: async (req) => {
+        const body = await req.text()
+        const scope = body ? JSON.parse(body) : null
+        if (scope) expect(scope.permissions).toEqual({ issues: "write" })
+        return ok({ token: scope ? `comment-${scope.repositories[0]}` : "repository-list", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201)
+      },
+      "https://api.github.com/repos/acme/": (req) => {
+        const repo = new URL(req.url).pathname.split("/")[3]!
+        expect(req.headers.get("authorization")).toBe(`Bearer comment-${repo}`)
+        return ok({ id: 1, html_url: `https://github.com/acme/${repo}/issues/9#issuecomment-1` }, 201)
+      }
+    })
+    expect(await installationToken(e, f.http, installation)).toBe("repository-list")
+    for (const repo of ["web", "other", "web"]) {
+      await github.call(e, f.http, { kind: "github_installation", installation_id: installation }, "github.issue.comment", { repo: `acme/${repo}`, issue: 9, body: "hi" })
+    }
+    expect(await installationToken(e, f.http, installation)).toBe("repository-list")
+    expect(f.calls.filter((c) => c.url.endsWith("/access_tokens")).map((c) => c.body ? JSON.parse(c.body) : null)).toEqual([
+      null,
+      { repositories: ["web"], permissions: { issues: "write" } },
+      { repositories: ["other"], permissions: { issues: "write" } }
+    ])
   })
 
   it("Linear: refresh returns a new credential only when expired; the call uses what it is given", async () => {
@@ -264,7 +291,7 @@ describe("connections end to end (workerd)", () => {
       "https://api.github.com/app/installations/99/access_tokens": () => ok({ token: "ghs_x", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
       "https://api.github.com/repos/": (req) => {
         posts.push(new URL(req.url).pathname)
-        return ok({ id: 1, html_url: "https://github.com/c" }, 201)
+        return ok({ id: 1, html_url: "https://github.com/ACME/WEB/issues/1#issuecomment-1" }, 201)
       }
     })
     const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
@@ -322,9 +349,9 @@ describe("connections end to end (workerd)", () => {
     const state = new URL(connect.json.value.authorize_url).searchParams.get("state")!
     const fake = fakeHttp({
       "https://github.com/login/oauth/access_token": () => ok({ access_token: "ghu_user" }),
-      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 77, account: { login: "acme", type: "Organization" } }] }),
+      "https://api.github.com/user/installations": () => ok({ installations: [{ id: 77, account: { login: "acme", type: "Organization" }, permissions: { issues: "write" } }] }),
       "https://api.github.com/app/installations/77/access_tokens": () => ok({ token: "ghs_x", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
-      "https://api.github.com/repos/": () => ok({ id: 1 }, 201)
+      "https://api.github.com/repos/": () => ok({ id: 1, html_url: "https://github.com/acme/any/issues/1#issuecomment-1" }, 201)
     })
     const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
     await inDO(connections, async (instance) => {
