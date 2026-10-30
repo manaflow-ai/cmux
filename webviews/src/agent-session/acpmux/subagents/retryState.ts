@@ -190,6 +190,9 @@ const RETRY_ERROR = /^ failed on a transient upstream error \(([^\n]*?)\)\. Resu
 const CUT_IN_ID = /^Your subagent (?:"([^"\n]*)" )?\(agent id ([^)\s]*)…$/;
 // l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
 const CUT_IN_NAME = /^Your subagent "([^"\n]*)…$/;
+// l10n-allow: acpmux's words to the agent (retry_text), matched, never shown
+const CUT_AFTER_NAME = /^Your subagent "([^"\n]*)"(.*)…$/;
+const AGENT_ID_LEAD = " (agent id ";
 
 /// The subagent, agent id and error `retry_text` wrote in `text`, a preview of it included.
 function retryWords(text: string): SubagentRetryNotice | undefined {
@@ -202,6 +205,9 @@ function retryWords(text: string): SubagentRetryNotice | undefined {
   }
   const inId = CUT_IN_ID.exec(text);
   if (inId) return notice(inId[1], undefined);
+  // Cut after the name, inside " (agent id ".
+  const afterName = CUT_AFTER_NAME.exec(text);
+  if (afterName && AGENT_ID_LEAD.startsWith(afterName[2]!)) return notice(afterName[1], undefined);
   const inName = CUT_IN_NAME.exec(text);
   return inName ? notice(`${inName[1]}…`, undefined) : undefined;
 }

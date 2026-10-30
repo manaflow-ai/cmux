@@ -45,6 +45,10 @@ test("a preview a long name cuts before the error, or in the agent id or the nam
   expect(subagentRetryNotice(preview(full.indexOf(" failed")))).toEqual({ name: long, agentId: "abc123" });
   // Cut in the agent id: the name alone.
   expect(subagentRetryNotice(preview(full.indexOf("abc123") + 3))).toEqual({ name: long });
+  // Cut right after the name, or inside " (agent id ": the name alone.
+  const named180 = `Your subagent "${"x".repeat(180)}" (agent id abc123) failed on a transient upstream error (529).`;
+  for (const n of [196, 198, 200, 205])
+    expect(subagentRetryNotice(`${named180.slice(0, n)}…`)).toEqual({ name: "x".repeat(180) });
   // Cut in the name: as much of it as there is.
   expect(subagentRetryNotice(preview(60))).toEqual({ name: `${full.slice(15, 60)}…` });
   // Something else after the agent id is no resume.
