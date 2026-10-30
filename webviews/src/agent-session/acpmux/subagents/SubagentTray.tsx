@@ -55,7 +55,8 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../inspector/processes";
 import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
-import { STATUS_LABEL, type SubagentStatus, subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
+import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
+import { retryLabel, sessionRetry } from "./retryState";
 import { AgentLine } from "./AgentLine";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
@@ -329,7 +330,7 @@ export const SubagentTray = memo(function SubagentTray({
           mark={item.agent.harness}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}
-          state={t(subagentStatusLabel(item.agent, waiting))}
+          state={subagentStateText(t, item.agent, waiting)}
           time={formatDuration(elapsed(item.agent, now))}
           depth={item.depth}
           title={item.agent.task}
@@ -402,6 +403,9 @@ export const SubagentTray = memo(function SubagentTray({
         </>
       );
     }
+    // The chat's retry, as every surface reads it (retryState.ts ``sessionRetry``).
+    const sessionPhase = sessionRetry(item.session);
+    const sessionRetrying = sessionPhase.kind === "retrying" ? sessionPhase.retry : undefined;
     return (
       <AgentLine
         name={item.session.title}
@@ -410,9 +414,9 @@ export const SubagentTray = memo(function SubagentTray({
         kind={t("tray.kind.subagent")}
         chevron
         icon="agent.chat"
-        status={SESSION_STATUS[item.session.state]}
-        working={item.session.state === "running"}
-        state={t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
+        status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
+        working={sessionRetrying !== undefined || item.session.state === "running"}
+        state={sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
         trayColumns
         onOpen={onOpenSession && (() => onOpenSession(item.session.sessionId))}
       />
