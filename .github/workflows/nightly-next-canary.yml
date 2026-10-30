@@ -53,7 +53,8 @@ jobs:
       build: ${{ steps.feed.outputs.build }}
       url: ${{ steps.feed.outputs.url }}
       length: ${{ steps.feed.outputs.length }}
-      checked: ${{ steps.seen.outputs.cache-hit }}
+      # Checked only when the marker and the durable verdict document both exist.
+      checked: ${{ steps.seen.outputs.cache-hit == 'true' && steps.durable.outputs.written == 'true' }}
       mode: ${{ steps.mode.outputs.mode }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -102,9 +103,8 @@ jobs:
           PY
           cat "$GITHUB_OUTPUT"
 
-      # One verdict per build: a scheduled tick skips a build whose pass or
-      # fail an earlier tick wrote durably (the verdict job saves this marker
-      # only after its dispatch). A dispatch or a pull request always runs.
+      # One verdict per build: a scheduled tick skips a build an earlier tick
+      # checked (pass or fail). A dispatch or a pull request always runs.
       - name: Skip a build already checked
         id: seen
         if: github.event_name == 'schedule'
@@ -113,6 +113,24 @@ jobs:
           path: canary-verdict
           key: ${{ env.CANARY_CACHE_PREFIX }}${{ steps.feed.outputs.build }}
           lookup-only: true
+
+      # The marker says only that a dispatch was accepted. nightly-next-verdict.yml
+      # can still fail after that, so the build counts as checked only while its
+      # verdicts/<build>.json is readable; otherwise this tick checks it again.
+      - name: Read the build's durable verdict
+        id: durable
+        if: github.event_name == 'schedule' && steps.seen.outputs.cache-hit == 'true'
+        env:
+          BUILD: ${{ steps.feed.outputs.build }}
+        run: |
+          set -uo pipefail
+          url="${NIGHTLY_NEXT_FEED%/*}/verdicts/${BUILD}.json"
+          if curl -fsSL --retry 3 -A "cmux-nightly-next-canary/1" -H "Cache-Control: no-cache" -o verdict.json "$url?canary=$GITHUB_RUN_ID" \
+            && python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); sys.exit(d.get("build") != sys.argv[2] or d.get("verdict") not in ("pass", "fail"))' verdict.json "$BUILD"; then
+            echo "written=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning title=nightly-next canary::build $BUILD is marked checked but has no readable verdict at $url; checking it again"
+          fi
 
   canary:
     name: canary ${{ needs.pick.outputs.build }}

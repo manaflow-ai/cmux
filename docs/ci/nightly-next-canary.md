@@ -81,7 +81,9 @@ checked once through an Actions cache; `workflow_dispatch -f build=N` checks a
 specific build. A scheduled verdict is written through
 `nightly-next-verdict.yml` for the existing train and release-ring machinery,
 and the build is marked checked only after that dispatch is accepted: a failed
-dispatch fails the run, and the next tick checks the build again. Only the
+dispatch fails the run, and the next tick checks the build again. A tick also
+checks a marked build again while its `verdicts/<build>.json` is missing, so a
+verdict run that fails after the dispatch is repaired too. Only the
 artifact check itself decides `pass` or `fail`; a runner or download error
 records no verdict, so it is retried rather than kept as a failure.
 A failed static check remains a visible failed workflow; rollback remains a
