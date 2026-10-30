@@ -404,18 +404,36 @@ def cache_root() -> Path:
     return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "cmux-pr-media"
 
 
+# The userinfo of an http(s) or ssh URL: `user:secret@` or `token@`.
+URL_USERINFO = re.compile(r"(?i)\b((?:https?|ssh)://)[^/@\s]+@")
+
+
+def without_userinfo(url: str) -> str:
+    """URL with any `user:password@` or `token@` of an http(s) URL dropped, so a secret in a clone's origin
+    never reaches a command line, the cache clone's config or an error message; git's credential helper
+    (or GH_TOKEN, credential_args) authenticates instead. An ssh or scp-like URL keeps its user (`git@`)."""
+    if re.match(r"(?i)https?://", url):
+        return URL_USERINFO.sub(r"\1", url, count=1)
+    return url
+
+
+def redact(text: str) -> str:
+    """TEXT with the userinfo of every http(s) or ssh URL in it replaced, for error messages."""
+    return URL_USERINFO.sub(r"\1***@", text)
+
+
 def remote_url(repo: str) -> str:
     """Where the media branch lives. The origin URL of a local clone of REPO when there is one (this host
-    already authenticates that way, often over ssh), else https."""
+    already authenticates that way, often over ssh), else https. Never carries an http(s) credential."""
     explicit = os.environ.get(REMOTE_ENV)
     if explicit:
-        return explicit
+        return without_userinfo(explicit)
     for candidate in (Path.cwd(), Path.home() / "Projects" / "cmux"):
         done = subprocess.run(["git", "-C", str(candidate), "remote", "get-url", "origin"],
                               capture_output=True, text=True)
         url = done.stdout.strip()
         if done.returncode == 0 and origin_is(url, repo):
-            return url
+            return without_userinfo(url)
     return f"https://github.com/{repo}.git"
 
 
@@ -462,7 +480,7 @@ class MediaBranch:
 
     def __init__(self, repo: str, branch: str, url: str | None = None, root: Path | None = None):
         self.repo, self.branch = repo, safe_branch(branch)
-        self.url = url or remote_url(repo)
+        self.url = without_userinfo(url or remote_url(repo))
         root = root or cache_root()
         self.dir = root / (re.sub(r"[^A-Za-z0-9._-]", "_", repo) + ".git")
         self.lock_path = root / (self.dir.name + ".lock")
@@ -478,7 +496,7 @@ class MediaBranch:
         except subprocess.TimeoutExpired as error:
             raise MediaError(f"git {args[0]} took longer than {timeout:.0f} s") from error
         if check and done.returncode != 0:
-            raise MediaError(f"git {args[0]} failed: {(done.stderr or done.stdout).strip()}")
+            raise MediaError(redact(f"git {args[0]} failed: {(done.stderr or done.stdout).strip()}"))
         return done
 
     def ls_remote(self, ref: str) -> str | None:
@@ -489,7 +507,7 @@ class MediaBranch:
         if done.returncode == 2:  # --exit-code: the remote answered and has no such ref
             return None
         if done.returncode != 0:
-            raise MediaError(f"git ls-remote {self.url} failed: {(done.stderr or done.stdout).strip()}")
+            raise MediaError(redact(f"git ls-remote {self.url} failed: {(done.stderr or done.stdout).strip()}"))
         for line in done.stdout.splitlines():
             sha, _, name = line.partition("\t")
             if name == ref:
@@ -527,7 +545,7 @@ class MediaBranch:
         done = self.git("fetch", "-q", "--no-tags", "--depth", "1", "--filter=blob:none", "origin",
                         f"+refs/heads/{self.branch}:{self.tracking}", check=False)
         if done.returncode != 0:
-            said = (done.stderr or done.stdout).strip()
+            said = redact((done.stderr or done.stdout).strip())
             if "couldn't find remote ref" in said:
                 raise MediaError(f"no {self.branch} branch on {self.repo}. It holds PR media only; "
                                  "create it before uploading.")
@@ -617,7 +635,7 @@ class MediaBranch:
                 if done.returncode == 0:
                     self.tip = commit.stdout.strip()
                     return self.tip
-                said = (done.stderr or done.stdout).strip()
+                said = redact((done.stderr or done.stdout).strip())
                 if attempt == PUSH_ATTEMPTS or not PUSH_RETRYABLE.search(said):
                     raise MediaError(f"upload of {', '.join(files)} failed: {said}")
                 time.sleep(0.5 * attempt + random.random())

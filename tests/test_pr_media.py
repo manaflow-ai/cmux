@@ -603,6 +603,31 @@ class UploadTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertEqual(MODULE.credential_args(), [])
 
+    def test_a_credential_in_a_remote_url_never_reaches_git_or_an_error(self):
+        # Review of #28265: an origin like https://user:PAT@github.com/... was passed to ls-remote and
+        # printed in its error. The userinfo is dropped before git runs, and any URL in an error is redacted.
+        self.assertEqual(MODULE.without_userinfo("https://user:DUMMY_PAT@github.com/o/r.git"),
+                         "https://github.com/o/r.git")
+        self.assertEqual(MODULE.without_userinfo("https://x-access-token@github.com/o/r"), "https://github.com/o/r")
+        self.assertEqual(MODULE.without_userinfo("git@github.com:o/r.git"), "git@github.com:o/r.git")
+        self.assertNotIn("DUMMY_PAT", MODULE.redact("fatal: unable to access 'https://u:DUMMY_PAT@github.com/o/r/'"))
+        Origin(self)
+        os.environ["PR_MEDIA_REMOTE_URL"] = "https://u:DUMMY_PAT@127.0.0.1:9/o/r.git"
+        store = MODULE.MediaBranch("o/r", "pr-media")
+        self.assertNotIn("DUMMY_PAT", store.url)
+        seen = []
+        real_run = subprocess.run
+
+        def run(argv, *args, **kwargs):
+            seen.append(" ".join(map(str, argv)))
+            return real_run(argv, *args, **kwargs)
+
+        with mock.patch.object(MODULE.subprocess, "run", side_effect=run), \
+                self.assertRaises(MODULE.MediaError) as raised:
+            store.ls_remote("refs/heads/pr-media")
+        self.assertNotIn("DUMMY_PAT", str(raised.exception))
+        self.assertFalse([call for call in seen if "DUMMY_PAT" in call])
+
     def test_the_remote_is_a_local_clones_origin_when_there_is_one(self):
         for url in ("git@github.com:o/r.git", "https://github.com/O/R", "https://x-access-token@github.com/o/r.git",
                     "ssh://git@github.com/o/r.git"):
