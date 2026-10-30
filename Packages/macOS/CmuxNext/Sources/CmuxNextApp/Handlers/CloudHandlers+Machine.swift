@@ -186,10 +186,13 @@ extension CloudHandlers {
                 try await cloud.resumeMachine(session.machineID)
             }
         }
-        // A paused machine's menu offers Resume and a live one's Pause; the palette refuses the other.
-        for id: ActionID in ["cloudPauseMachine", "cloudResumeMachine"] {
-            ActionTargetVisibility.hide(id, in: registry) { pauseResumeMismatch(id, $0, context) != nil }
-            context.setTargetReason(id) { pauseResumeMismatch(id, $0, context) }
+        // A live daemon proves Resume is redundant. Cached API status cannot: idle-pause
+        // and app-link resume can both change the server without refreshing that record.
+        // This only changes menu visibility; explicit commands remain idempotent.
+        ActionTargetVisibility.hide("cloudResumeMachine", in: registry) { invocation in
+            guard let session = try? machine(invocation, context) else { return false }
+            if case .connected = session.daemon.store.connectionState { return true }
+            return false
         }
         bind("cloudCopyMachineID", registry, reason: reason) { invocation in CloudPresenter.copy(try machine(invocation, context).machineID) }
         bind("cloudCopyPort", registry, reason: reason) { invocation in
@@ -581,17 +584,6 @@ extension CloudHandlers {
             throw ActionFailure(message: CloudStrings.filePathRequired)
         }
         return path
-    }
-
-    /// Why Pause or Resume does not apply to the machine a person's run acts on, as the app shows
-    /// it: Pause on a paused machine, Resume on a running or starting one. A failed or unknown
-    /// machine keeps both. A CLI, MCP or script run gets no reason: both calls are idempotent on
-    /// the server, and the record of a machine with no link may be stale (the idle auto-pause).
-    static func pauseResumeMismatch(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext) -> String? {
-        guard origin(of: invocation) == .user, let session = try? machine(invocation, context) else { return nil }
-        let status = session.effectiveStatus
-        if id == "cloudPauseMachine" { return status == .paused ? CloudStrings.alreadyPaused : nil }
-        return status.isLive ? CloudStrings.notPaused : nil
     }
 
     /// `cloud set-idle-pause --target machine:<id> --minutes off|15|30|60|120`. A CLI, agent or
