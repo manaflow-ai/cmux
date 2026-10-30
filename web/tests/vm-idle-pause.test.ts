@@ -484,7 +484,6 @@ function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     destroyedAt: null,
     failureCode: null,
     failureMessage: null,
-    providerMetadata: { networkIpv4: "10.192.0.5" },
     networkPolicy: null,
     networkPolicyStatus: null,
     agentUpdates: null,
