@@ -87,6 +87,7 @@ impl Hub {
         let mut carried_ids: Vec<String> = Vec::new();
         let mut control_ended = false;
         let mut floor_cancelled = false;
+        let mut stopped = false;
         let kinds = [
             "turn_started",
             "user_message",
@@ -94,6 +95,7 @@ impl Hub {
             "remote_control_ended",
             "remote_control_restored",
             "remote_floor_cancel",
+            "turn_stop_requested",
         ];
         let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
             let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
@@ -130,6 +132,7 @@ impl Hub {
                         steered.insert(id, (text, named.cloned().unwrap_or_default()));
                     }
                 }
+                "turn_stop_requested" if is_turn => stopped = true,
                 "user_message" if is_turn => {
                     let named = e.msg.get("images").and_then(Value::as_array);
                     let shown = named.map_or(0, Vec::len);
@@ -159,6 +162,9 @@ impl Hub {
         let prompts = carried_prompts;
         carried_images.append(&mut images);
         let images = carried_images;
+        if stopped {
+            return None;
+        }
         let prompt_id = prompt_id.filter(|p| !p.is_empty())?;
         let (root, done) = split_attempt(&prompt_id);
         let attempt = done + 1;

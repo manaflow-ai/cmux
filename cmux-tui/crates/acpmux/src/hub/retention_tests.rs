@@ -112,6 +112,10 @@ async fn a_closed_chat_stopped_again_keeps_its_age() {
     let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &root).unwrap());
     let session = hub.resolve("old").unwrap();
     hub.kill(&session, false).await.unwrap();
+    // Both repeated close and a failed idle cancel reach stop_auto_resume. Neither
+    // should journal a fresh retry-cancellation boundary for an already closed chat.
+    hub.kill(&session, false).await.unwrap();
+    assert!(hub.cancel(&session).await.is_err());
     assert_eq!(session.meta().updated_at, 2, "a stop that changed nothing dates nothing");
     assert_eq!(hub.events("old", 0, 10).unwrap().len(), 1, "and logs nothing");
     // The default 14 days: the chat closed long ago is compacted.

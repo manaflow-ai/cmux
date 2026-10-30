@@ -22,6 +22,8 @@ mod reconnect_priority;
 mod restart_fence;
 #[path = "durable_agents/restart_reattach.rs"]
 mod restart_reattach;
+#[path = "durable_agents/retry_restore.rs"]
+mod retry_restore;
 #[path = "durable_agents/stalled_turn.rs"]
 mod stalled_turn;
 // This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes

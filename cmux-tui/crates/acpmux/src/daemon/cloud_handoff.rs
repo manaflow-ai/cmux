@@ -120,8 +120,15 @@ pub(super) enum Step {
     /// A failed turn's automatic continuation will not come (`auto_resume_settled`,
     /// `auto_resume_exhausted`, `auto_resume_skipped`).
     NoRetry,
+    /// A terminal retry decision observed after reporter restart, before its failed
+    /// turn was seen. Carries the named hand-off turn so it can be closed.
+    NoRetryFor { turn: u64, why: String },
     /// A failed turn's automatic continuation is scheduled (`auto_resume_scheduled`).
     RetryScheduled,
+    /// A retry restored after a daemon restart, before the reporter has seen its
+    /// original failed turn. Carries the named hand-off turn and failure summary
+    /// so terminal skip/stop events can close the hand-off after reporter restart.
+    RetryRestored { turn: u64, why: String },
     /// The session was closed.
     Closed,
     /// A closed session was opened again.
@@ -152,10 +159,30 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
     let named = || named_turn(msg["promptId"].as_str());
     match kind {
         "turn_started" => Some(Step::Began(named())),
-        "auto_resume_settled" | "auto_resume_exhausted" | "auto_resume_skipped" => {
-            Some(Step::NoRetry)
+        "auto_resume_settled" | "auto_resume_exhausted" | "auto_resume_stopped" => {
+            let Some(turn) = named_turn(msg["promptId"].as_str()) else {
+                return Some(Step::NoRetry);
+            };
+            let why = msg["why"].as_str().or_else(|| msg["reason"].as_str()).unwrap_or("policy");
+            Some(Step::NoRetryFor { turn, why: format!("Automatic retry settled ({why}).") })
+        }
+        "auto_resume_skipped" => {
+            let Some(turn) = named_turn(msg["promptId"].as_str()) else {
+                return Some(Step::NoRetry);
+            };
+            let skipped = msg["skipped"].as_str().unwrap_or("policy");
+            Some(Step::NoRetryFor { turn, why: format!("Automatic retry skipped ({skipped}).") })
         }
         "auto_resume_scheduled" => Some(Step::RetryScheduled),
+        "auto_resume_restored" => {
+            let turn = named_turn(msg["promptId"].as_str())?;
+            let why = match msg["reason"].as_str().unwrap_or("transport") {
+                "capacity" => "The provider had no capacity.".to_owned(),
+                "agent_exited" => "The agent exited before finishing.".to_owned(),
+                _ => "The connection was interrupted.".to_owned(),
+            };
+            Some(Step::RetryRestored { turn, why })
+        }
         "permission_request" => Some(Step::Asks(ask_text(&msg["request"]))),
         "reopened" => Some(Step::Reopened),
         "status" => match msg["status"].as_str()? {
@@ -419,9 +446,25 @@ impl<I: Io> Reporter<I> {
                 self.begin(session, named).await;
             }
             (Step::NoRetry, Now::Retrying { turn, .. }) => self.give_up_retry(session, turn).await,
+            (Step::NoRetryFor { turn, why }, Now::Quiet) => {
+                self.finish(session, turn, "failed", Some(why)).await;
+            }
+            (Step::NoRetryFor { turn, .. }, Now::Retrying { turn: current, .. })
+                if turn == current =>
+            {
+                self.give_up_retry(session, turn).await;
+            }
             (Step::RetryScheduled, Now::Retrying { turn, why, .. }) => {
                 let until = queued + RETRY_WAIT_MAX;
                 self.set_now(session, Now::Retrying { turn, why, until });
+            }
+            (Step::RetryRestored { turn, why }, Now::Quiet) => {
+                let until = queued + RETRY_WAIT_MAX;
+                self.set_now(session, Now::Retrying { turn, why, until });
+            }
+            (Step::RetryRestored { turn: _, .. }, Now::Retrying { turn: current, why, .. }) => {
+                let until = queued + RETRY_WAIT_MAX;
+                self.set_now(session, Now::Retrying { turn: current, why, until });
             }
             (Step::Asks(what), Now::Reporting { turn, last })
                 if last != Some("needs-you") || what.is_some() =>
