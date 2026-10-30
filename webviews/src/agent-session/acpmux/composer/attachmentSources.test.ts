@@ -91,7 +91,7 @@ test("a chip's source goes with its prompt block, and comes back from acpmux's p
     { kind: "file", blockIndex: 2, name: "notes.txt", mimeType: "text/plain", size: 4, source: file.source },
   ]);
   expect(inlinePrompt(`see ${inlineToken(image.id)}`, [image])?.display).toEqual([
-    { kind: "image", blockIndex: 1, name: "a.png", mimeType: "image/png", size: 1, source: chrome },
+    { kind: "image", blockIndex: 1, name: "a.png", mimeType: "image/png", size: 1, placed: true, source: chrome },
   ]);
   expect(normalizePromptContentPart({ kind: "image", id: "x", mimeType: "image/png", source: chrome })).toMatchObject({
     source: chrome,

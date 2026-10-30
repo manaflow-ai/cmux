@@ -35,7 +35,8 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
   for (const entry of queue) {
     const message = entry.message;
     if (!message) continue;
-    // The first of them carries the run's one "Read after this turn"; it changes as the queue drains.
+    // The first of them carries the run's one "Read after this turn" (or, while the person's Stop
+    // holds them, what holds them and what lets them in); it changes as the queue drains.
     const lead = rows.length === 0;
     let row = rowsByEntry.get(entry);
     if (!row || Boolean(row.queuedMessage?.lead) !== lead) {
@@ -46,7 +47,12 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
         kind: QUEUED_MESSAGE,
         text: message.text,
         incoming: { kind: "message", message },
-        queuedMessage: { promptId: entry.id, ...(entry.next ? { next: true } : {}), ...(lead ? { lead: true } : {}) },
+        queuedMessage: {
+          promptId: entry.id,
+          ...(entry.next ? { next: true } : {}),
+          ...(lead ? { lead: true } : {}),
+          ...(entry.heldByStop ? { heldByStop: true } : {}),
+        },
         untyped: true,
         ...(entry.images?.length ? { images: entry.images } : {}),
       };
