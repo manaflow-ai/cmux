@@ -56,7 +56,7 @@ async function fixture(origin: string | undefined, supported = true) {
   return {
     client,
     socket: () => socket,
-    waitForState: (state: string) =>
+    waitForState: (state: string | undefined) =>
       new Promise<void>((resolve) => {
         onSnapshot = (snapshot) => {
           if (snapshot.peerStates?.["studio-mac"] === state) {
@@ -169,6 +169,31 @@ test("a restarting peer in the snapshot stays restarting, so the picker never of
     };
     const [machine] = knownMachines(["studio-mac"], [], peers.kinds, [], peers.connected, peers.states);
     expect(machine).toMatchObject({ state: "restarting", connected: false });
+    expect(environmentReady(machine!)).toBe(false);
+  } finally {
+    f.client.close();
+  }
+});
+
+test("a peer the status lists but the snapshot omits is not offered as ready", async () => {
+  const { environmentReady, knownMachines } = await import("./environments");
+  const f = await fixture("local");
+  try {
+    // Removed between the `_acpmux/status` read and the `_acpmux/peers` read (or an invalid row).
+    f.peers([]);
+    const omitted = f.waitForState(undefined);
+    f.socket().onmessage?.({
+      data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { dropped: 1 } }),
+    });
+    await omitted;
+    const latest = f.latest();
+    expect(latest.peerConnected?.["studio-mac"]).toBe(false);
+    const peers = {
+      kinds: { "studio-mac": "ssh" as const },
+      connected: latest.peerConnected,
+      states: latest.peerStates,
+    };
+    const [machine] = knownMachines(["studio-mac"], [], peers.kinds, [], peers.connected, peers.states);
     expect(environmentReady(machine!)).toBe(false);
   } finally {
     f.client.close();
