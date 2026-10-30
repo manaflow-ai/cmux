@@ -5,7 +5,7 @@
 
 use super::person::{REASON, person_required, valid_key};
 use super::*;
-use crate::stderr::clean_stderr_line;
+use crate::stderr::clean_stderr_tail;
 use cmux_json::JsonSet as _;
 
 mod preset_bind;
@@ -522,13 +522,9 @@ impl Hub {
             return e;
         }
         let last = || {
-            session
-                .stderr_tail
-                .lock()
-                .unwrap()
-                .iter()
+            clean_stderr_tail(session.stderr_tail.lock().unwrap().iter())
+                .into_iter()
                 .rev()
-                .map(|line| clean_stderr_line(line))
                 .find(|l| super::exit_reason::explains_exit(l))
         };
         Self::drain_inbound(session).await;

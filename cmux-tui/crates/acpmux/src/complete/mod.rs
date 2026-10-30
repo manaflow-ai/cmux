@@ -40,7 +40,7 @@ pub mod recipes;
 pub mod run;
 
 use crate::rpc::RpcError;
-use crate::stderr::clean_stderr_line;
+use crate::stderr::clean_stderr_lines;
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -277,10 +277,9 @@ pub fn finish(
             return Err(CompleteError::SignedOut { harness: harness.to_owned() });
         }
         let stderr = String::from_utf8_lossy(&out.stderr);
-        let last = stderr
-            .lines()
+        let last = clean_stderr_lines(&stderr)
+            .into_iter()
             .rev()
-            .map(clean_stderr_line)
             .find(|line| !line.is_empty())
             .unwrap_or_default();
         let detail = match out.code {

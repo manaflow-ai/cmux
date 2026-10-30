@@ -179,9 +179,13 @@ mod tests {
     #[test]
     fn a_string_control_spanning_lines_leaks_nothing() {
         use super::{clean_stderr_lines, clean_stderr_tail};
-        assert_eq!(clean_stderr_lines("\x1bPsecret\nleaked \x1b\\visible error"), vec!["", "visible error"]);
+        assert_eq!(
+            clean_stderr_lines("\x1bPsecret\nleaked \x1b\\visible error"),
+            vec!["", "visible error"]
+        );
         assert_eq!(clean_stderr_lines("\x1b]8;;https://x\ny\x07ok\nnext"), vec!["", "ok", "next"]);
-        let tail = vec!["\x1b_Gpayload".to_owned(), "more payload\x1b\\request timed out".to_owned()];
+        let tail =
+            vec!["\x1b_Gpayload".to_owned(), "more payload\x1b\\request timed out".to_owned()];
         assert_eq!(clean_stderr_tail(&tail), vec!["", "request timed out"]);
     }
 

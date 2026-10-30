@@ -142,9 +142,8 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     let text =
         format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     // Warnings (a peer that could not be reached) are not failures.
-    let first = text
-        .lines()
-        .map(crate::stderr::clean_stderr_line)
+    let first = crate::stderr::clean_stderr_lines(&text)
+        .into_iter()
         .find(|l| !l.is_empty() && !l.starts_with("warning:"))
         .unwrap_or_default();
     if !out.status.success()
