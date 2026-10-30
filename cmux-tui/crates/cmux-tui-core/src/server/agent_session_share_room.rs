@@ -377,6 +377,30 @@ enum Held {
     Owner(Zeroizing<String>),
 }
 
+/// A [`delete`] worker's claim on its share, released when the worker ends.
+struct DeleteGuard {
+    mux: Weak<Mux>,
+    share_id: String,
+    /// The worker ended for want of a credential, before the share's expiry.
+    tokenless: bool,
+}
+
+impl Drop for DeleteGuard {
+    fn drop(&mut self) {
+        let Some(mux) = self.mux.upgrade() else { return };
+        let shares = shares(&mux);
+        shares.release_room_delete(&self.share_id);
+        shares.rearm();
+        // A late PUT that found this worker in flight wrote its host token after the worker's
+        // last read: the queued `DELETE` runs now with it, not at the share's expiry.
+        if self.tokenless
+            && view(&mux, &self.share_id).is_some_and(|v| v.delete && v.host_token.is_some())
+        {
+            delete(&mux, &self.share_id, None);
+        }
+    }
+}
+
 /// Runs the share's queued `DELETE` until the room acknowledges it (2xx, or 404/410: gone),
 /// retrying any other answer (401/403 included) with backoff, with the host token (the record's,
 /// else the one held) or the owner's. The queued op survives a restart. With no credential at
@@ -385,12 +409,15 @@ enum Held {
 fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
     let link_shares = shares(mux);
     if !link_shares.claim_room_delete(share_id) {
-        if let Some(Held::Host(url, token)) = &held {
-            // A late PUT may carry the only host token while another cleanup worker is in
-            // flight. Preserve it in the record so that worker can use it before it exits.
-            let _ = retire(mux, share_id, url, token);
+        // A late PUT may carry the only host token while another cleanup worker is in flight.
+        // Preserve it in the record for that worker: one that exits without a credential runs
+        // the DELETE again with it ([`DeleteGuard`]); one that exited before this write released
+        // its claim, so the claim is this call's now.
+        let Some(Held::Host(url, token)) = &held else { return };
+        let _ = retire(mux, share_id, url, token);
+        if !link_shares.claim_room_delete(share_id) {
+            return;
         }
-        return;
     }
     // Remove this share's expiry from the timer before the worker starts. The worker owns the
     // operation now and will re-arm if it exits while the queued operation remains.
@@ -404,22 +431,7 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
     let (timing, weak, id) = (bridge.timing(), Arc::downgrade(mux), share_id.to_owned());
     let fallback = bridge.room().map(|room| room.url);
     runtime.spawn(async move {
-        struct DeleteGuard {
-            mux: Weak<Mux>,
-            share_id: String,
-        }
-
-        impl Drop for DeleteGuard {
-            fn drop(&mut self) {
-                if let Some(mux) = self.mux.upgrade() {
-                    let shares = shares(&mux);
-                    shares.release_room_delete(&self.share_id);
-                    shares.rearm();
-                }
-            }
-        }
-
-        let _guard = DeleteGuard { mux: weak.clone(), share_id: id.clone() };
+        let mut guard = DeleteGuard { mux: weak.clone(), share_id: id.clone(), tokenless: false };
         let op = json!({"op": "delete"});
         let mut wait = timing.backoff_min;
         let mut attempted = false;
@@ -486,7 +498,10 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
                         wait = (wait * 2).min(timing.backoff_max);
                         continue;
                     }
-                    _ => return,
+                    _ => {
+                        guard.tokenless = true;
+                        return;
+                    }
                 }
             };
             let url = format!("{}/v1/chat-shares/{id}", target.0);

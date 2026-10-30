@@ -462,6 +462,12 @@ pub enum Command {
     RestartAgent { session: String },
     #[command(hide = true)]
     ResumeQueue { session: String },
+    #[command(hide = true)]
+    InboxDigest {
+        session: String,
+        #[arg(long)]
+        dry_run: bool,
+    },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
     #[command(hide = true)]
@@ -788,6 +794,21 @@ pub enum SessionCmd {
     Restart { session: String },
     /// Rename a session.
     Rename { session: String, new_name: String },
+    /// The other agents' messages waiting in a busy session's queue. With --digest they go in
+    /// as ONE prompt, now: steered into its running turn when its agent steers, else at the head
+    /// of the agents' messages in its queue, behind the person's prompts (which it never
+    /// touches). Each original keeps its full text in the log under its promptId. Without
+    /// --digest, or with --dry-run, prints that digest and changes nothing. Only this machine's
+    /// person or the session's own agent may drain it.
+    Inbox {
+        session: String,
+        /// Drain them into one digest prompt now.
+        #[arg(long)]
+        digest: bool,
+        /// Print the digest and change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Run the queued prompts a failed turn held. An agent or a script may resume a
     /// queue; only answering a permission or a question needs the cmux app.
     Resume {
@@ -1064,7 +1085,10 @@ pub struct NewArgs {
     /// inside the peer's webRoots (made when missing; left out, a scratch folder). The peer
     /// starts it asking: `--mode`, and a `--policy` other than ask from a peer that serves this
     /// machine as a remote client, are refused with the command that works instead.
-    /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick.
+    /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick. Left out on a
+    /// machine the fleet registry marks interactive (a person's own Mac), the session is placed
+    /// as with `auto`, off every such machine, unless `--cwd` or `-w` names a folder here;
+    /// `local` keeps it on this machine.
     #[arg(long)]
     pub host: Option<String>,
     /// Session name. Generated when omitted. With a launcher flag it is lowercased
@@ -1163,6 +1187,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Resume { session, mesh } if !mesh.mesh => Command::ResumeQueue { session },
+            SessionCmd::Inbox { session, digest, dry_run } => {
+                Command::InboxDigest { session, dry_run: dry_run || !digest }
+            }
             control @ (SessionCmd::Start(_)
             | SessionCmd::Receipt { .. }
             | SessionCmd::Stop { .. }

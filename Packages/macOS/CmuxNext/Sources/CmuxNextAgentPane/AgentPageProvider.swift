@@ -15,7 +15,7 @@ public extension PageDescriptor {
     static let agent = PageDescriptor(
         id: "cmux.agent", resource: "agent-pane", namespaces: [AgentPageOps.namespace],
         csp: PageCSP(connect: ["'none'"],
-                     frame: [AgentPaneRenderFrame.source, "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
+                     frame: [AgentPaneRenderFrame.source, "cmux-page://cmux.agent/__artifact", "http://localhost:*", "http://127.0.0.1:*", "https://localhost:*", "https://127.0.0.1:*"],
                      script: ["'wasm-unsafe-eval'"], inlineScript: false),
         // Permission cards (Allow once, Allow for chat), tool cards, Push, Apply and Remove act on one click and
         // appear when the agent decides: a click meant only to bring the window forward must not answer them.
@@ -31,7 +31,7 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView",
+            "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView",
             "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump",
             "newTab.remember", "newTab.setTemplate", "newTab.editWidgets", "nowPlaying.command", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.icon", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "chat.attach.choose", "chat.attach.dropped", "app.action", "chats.open", "chats.openInTerminal", "chats.watch", "chats.page",
