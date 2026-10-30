@@ -4,8 +4,8 @@
 // chat (replay/replayFixture.ts: a thought, a read, test runs and an edit).
 //
 // - Normal is today's transcript: the finished turn folds its work under "Worked for".
-// - Thinking, picked from the menu, opens that fold: the thought shows, the commands stay folded.
-// - Verbose also opens each command and its output.
+// - Thinking, picked from the menu, opens that fold: the thought shows, each call's output stays folded.
+// - Verbose also opens each call to its output.
 // - Closing the turn's fold by hand in Verbose keeps it closed there; Normal keeps its own folds.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
@@ -133,8 +133,9 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       await page.getByText(ANSWER).waitFor();
       const worked = page.locator(".cv-worked").first();
       const thought = page.locator(".cv-thought");
-      const commands = page.locator(".cv-command");
-      const openCommands = page.locator('.cv-command[aria-expanded="true"]');
+      // Each call's own row: a command (CommandRow) or another tool (ToolRow), each opening its output.
+      const commands = page.locator(".cv-tools .cv-tool.is-toggle:not(.cv-thought)");
+      const openCommands = page.locator('.cv-tools .cv-tool.is-toggle:not(.cv-thought)[aria-expanded="true"]');
       const normal = {
         worked: await worked.getAttribute("aria-expanded"),
         thoughts: await thought.count(),
