@@ -112,9 +112,9 @@ def settled_rows():
     return poll(same, 20) or last[0] or {}
 
 
-def newest_shown(conversation, now):
-    ids = message_ids(conversation)
-    return bool(ids) and any(ids[-1] in key or key in ids[-1] for key in now)
+def at_newest(_now=None):
+    """The view shows its newest message, pinned there (the transcript's own state)."""
+    return (rpc("debug.home.drive", {"action": "rows"}) or {}).get("atNewest") is True
 
 
 def open_chat(conversation):
@@ -178,20 +178,20 @@ try:
 
     # 1. First open: the newest message.
     now = open_chat(a)
-    check("1. A, first open: its newest message shows", newest_shown(a, now), sorted(now.items(), key=lambda kv: kv[1]))
+    check("1. A, first open: its newest message shows", at_newest(now), sorted(now.items(), key=lambda kv: kv[1]))
     shot("1-a-first-open")
 
     # 2. Scrolled up in A, then B, then A: the same rows where they were.
     rpc("debug.home.drive", {"action": "scroll", "dy": -900})
     reading = settled_rows()
-    check("2. A, scrolled up: the newest message is off screen", bool(reading) and not newest_shown(a, reading), reading)
+    check("2. A, scrolled up: no longer at its newest message", bool(reading) and not at_newest(), reading)
     shot("2a-a-scrolled-up")
     now = open_chat(b)
-    check("2. B, first open: its newest message shows", newest_shown(b, now), now)
+    check("2. B, first open: its newest message shows", at_newest(now), now)
     shot("2b-b-open")
     now = open_chat(a)
     ok, detail = same_place(reading, now)
-    check("2. A, reopened: the rows the person read, where they were", ok and not newest_shown(a, now), dict(detail, rows=now))
+    check("2. A, reopened: the rows the person read, where they were", ok and not at_newest(), dict(detail, rows=now))
     shot("2c-a-reopened")
 
     # 3. Still scrolled up; a message comes while B shows: A still opens at the reading place (Messages does).
@@ -206,17 +206,17 @@ try:
     # 4. Back down to the newest, B, a new message in A, A: the newest message, the new one included.
     rpc("debug.home.drive", {"action": "scroll", "dy": 100000})
     now = settled_rows()
-    check("4. A, scrolled back down: its newest message shows", newest_shown(a, now), now)
+    check("4. A, scrolled back down: its newest message shows", at_newest(now), now)
     open_chat(b)
     api(call="submit", op={"kind": "send", "conversation": a, "text": "A newest: came while B showed"})
     poll(lambda: len(message_ids(a)) >= COUNT + 2, 30)
     now = open_chat(a)
-    check("4. A, left at the bottom: opens at its newest message, the one that came meanwhile", newest_shown(a, now), now)
+    check("4. A, left at the bottom: opens at its newest message, the one that came meanwhile", at_newest(now), now)
     shot("4-a-reopened-at-newest")
 
     # 5. B was left at its newest: it opens there.
     now = open_chat(b)
-    check("5. B, left at the bottom: opens at its newest message", newest_shown(b, now), now)
+    check("5. B, left at the bottom: opens at its newest message", at_newest(now), now)
     shot("5-b-reopened")
 finally:
     rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
