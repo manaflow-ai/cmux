@@ -173,6 +173,14 @@ final class TopHomePageView: NSView {
             }
             return items + [colors]
         }
+        // Delete Conversation… and a row's left swipe: asks as Messages does, then takes it off the list
+        // (`home.hideConversation`; a newer message or Show Hidden Conversations lists it again).
+        list.onDelete = { [weak self] id in
+            guard id != HomeSidebarView.draftRowID, home.homeStore.rows.contains(where: { $0.id == id }) else { return }
+            self?.confirmDelete {
+                _ = registry.perform("home.hideConversation", invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
+            }
+        }
         // Search: teammates with no DM yet, under the conversations; choosing one starts the DM.
         list.teammates = { [weak sidebar] query in
             guard let sidebar else { return [] }
@@ -596,6 +604,21 @@ final class TopHomePageView: NSView {
         let panel = NSWindow(contentViewController: sheet)
         panel.adoptThemeScope(of: self)
         window.beginSheet(panel)
+    }
+
+    /// Delete Conversation…'s question (as Messages asks); `delete` runs on Delete.
+    private func confirmDelete(_ delete: @escaping @MainActor () -> Void) {
+        let alert = NSAlert()
+        alert.messageText = MiscHandlerStrings.deleteConversationTitle
+        alert.informativeText = MiscHandlerStrings.deleteConversationMessage
+        alert.addButton(withTitle: MiscHandlerStrings.deleteConversationConfirm)
+        alert.addButton(withTitle: MiscHandlerStrings.deleteConversationCancel)
+        alert.buttons.first?.hasDestructiveAction = true
+        guard let window else { return }
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            MainActor.assumeIsolated { delete() }
+        }
     }
 
     /// I left `id` while it showed: its neighbor in the list shows (else the default conversation).
