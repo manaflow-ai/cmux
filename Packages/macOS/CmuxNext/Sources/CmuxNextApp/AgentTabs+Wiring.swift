@@ -227,7 +227,8 @@ extension AgentTabStore {
         }
         tabs.selectInPane = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTab(key) else { return }
-            services.paneController(for: pane)?.selectWhenReported(surface: tab.surface)
+            // Shown, and no keyboard focus moved: the chat keeps it (an unfocused subagent's tab, AgentBesidePlacement).
+            services.paneController(for: pane)?.selectWhenReportedKeepingFocus(surface: tab.surface)
         }
         tabs.openInMainPane = { [weak services] chat, focus, open, created, finished in
             guard let services, let (_, pane) = services.locateTab(chat), let controller = services.paneController(for: pane),
