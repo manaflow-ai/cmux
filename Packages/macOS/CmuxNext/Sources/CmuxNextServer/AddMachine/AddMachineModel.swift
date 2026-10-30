@@ -355,6 +355,9 @@ public final class AddMachineModel {
         task = Task { [weak self] in
             guard let self else { return }
             var report = await stream(.enroll(host: host, name: name))
+            // Cancel can end the stream after it has parsed a report. Do not start the
+            // app-install fallback from that retained report.
+            guard !Task.isCancelled else { return }
             if let first = report, Self.needsAppInstall(first) {
                 // The app's own install path (remote.connect, remote.install) puts the right-arch
                 // build on the host; enroll then runs again from the top.
