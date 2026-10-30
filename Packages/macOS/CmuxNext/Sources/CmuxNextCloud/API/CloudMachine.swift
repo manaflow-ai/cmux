@@ -261,10 +261,11 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// Why the last pause, resume or resize failed; nil when it did not (or
     /// the server does not say). The next change clears it on the server.
     public var lastChangeFailure: ChangeFailure?
-    /// A Pause, Resume or Kill this app sent and the server has not answered yet (`pausing`,
-    /// `starting` or `deleting`): shown from the click. Never decoded, so the next list's record
-    /// replaces it.
+    /// The newest unresolved Pause, Resume or Kill (`pausing`, `starting` or `deleting`).
+    /// Never decoded: CloudMachineChanges reapplies the local overlay to incoming records.
     public var pendingChange: Status?
+    /// Local mutation identity; never decoded from a server record.
+    public var pendingMutationID: UUID?
 
     /// The status the app shows: a change sent from here, else the record's.
     public var shownStatus: Status { pendingChange ?? status }
@@ -282,11 +283,12 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     }
 
     /// Whether New Cloud Workspace with no machine named may open on this machine instead
-    /// of starting (and billing) a new VM: it runs or starts, or the idle timer paused it
-    /// (opening resumes it). A failed machine, a destroyed one or one a person paused is
-    /// never picked (Lawrence msg 1334: Cloud workspaces sit in their machine's one group).
+    /// of starting (and billing) a new VM: it runs, or the idle timer paused it
+    /// (opening resumes it). A changing, failed, destroyed or person-paused machine is
+    /// never picked until its terminal record arrives (Lawrence msg 1334: Cloud workspaces
+    /// sit in their machine's one group).
     public var takesUnnamedWorkspaces: Bool {
-        status.isLive || (status == .paused && pauseReason == .idle)
+        !shownStatus.isChanging && (status.isLive || (status == .paused && pauseReason == .idle))
     }
 
     /// Sidebar and menu title: the user's name, else the slug, else the id.

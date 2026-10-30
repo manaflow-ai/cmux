@@ -51,6 +51,7 @@ struct CloudMachineChangeStateTests {
     private actor ResumeLinkResolver: CloudLinkResolver {
         private(set) var attempts = 0
         private var opened: CheckedContinuation<Void, Never>?
+        private var releaseWaiter: CheckedContinuation<Void, Never>?
         private var released = false
         private var secondAttempt: CheckedContinuation<Void, Never>?
 
@@ -61,8 +62,8 @@ struct CloudMachineChangeStateTests {
 
         func release() {
             released = true
-            opened?.resume()
-            opened = nil
+            releaseWaiter?.resume()
+            releaseWaiter = nil
         }
 
         func waitForAttempts(_ count: Int) async {
@@ -75,7 +76,7 @@ struct CloudMachineChangeStateTests {
             if attempts == 1 {
                 opened?.resume()
                 opened = nil
-                if !released { await withCheckedContinuation { continuation in opened = continuation } }
+                if !released { await withCheckedContinuation { releaseWaiter = $0 } }
             } else if let continuation = secondAttempt {
                 secondAttempt = nil
                 continuation.resume()
@@ -144,14 +145,20 @@ struct CloudMachineChangeStateTests {
         session.connect()
         await resolver.waitForOpen()
         for await phase in ObservationStream({ session.linkPhase }) where phase == .starting { break }
+        let mutation = UUID()
         session.machine.pendingChange = .pausing
+        session.machine.pendingMutationID = mutation
         await resolver.release()
         for await phase in ObservationStream({ session.linkPhase }) where phase == .idle { break }
 
         // CloudMachineChanges rolls back the failed pause and invokes this callback only while
         // it still owns the mutation; a newer mutation must not reconnect this session.
         session.machine.pendingChange = nil
-        session.mutationFailed(.pausing)
+        session.machine.pendingMutationID = nil
+        session.mutationFailed(UUID())
+        #expect(session.linkPhase == .idle, "an unrelated rollback cannot authorize reconnect")
+        #expect(await resolver.attempts == 1)
+        session.mutationFailed(mutation)
         await resolver.waitForAttempts(2)
         #expect(await resolver.attempts == 2)
     }
@@ -193,6 +200,57 @@ struct CloudMachineChangeStateTests {
         }
         #expect(session.machine.pendingChange == .deleting)
         #expect(changes.pendingStatus(for: CloudMachine(id: session.machineID, status: .running)) == .deleting)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aFailedKillCannotRecoverThePausesInterruptedConnection() async {
+        let services = MachineIconTests.services()
+        let resolver = ResumeLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "overlapping-power", status: .running),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "overlapping-power"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        let changes = CloudMachineChanges()
+        defer { changes.stop(); session.disconnect() }
+        session.connect()
+        await resolver.waitForOpen()
+        await #expect(throws: ActionFailure.self) {
+            try await changes.run(.pausing, machineID: session.machineID, of: { session },
+                                  onRollback: { session.mutationFailed($0) }) {
+                let pauseID = session.machine.pendingMutationID
+                await resolver.release()
+                for await phase in ObservationStream({ session.linkPhase }) where phase == .idle { break }
+                await #expect(throws: ActionFailure.self) {
+                    try await changes.run(.deleting, machineID: session.machineID, of: { session },
+                                          onRollback: { session.mutationFailed($0) }) {
+                        #expect(session.machine.pendingMutationID != pauseID)
+                        throw ActionFailure(message: "kill rejected")
+                    }
+                }
+                #expect(session.machine.pendingMutationID == pauseID)
+                #expect(session.machine.shownStatus == .pausing)
+                #expect(await resolver.attempts == 1)
+                throw ActionFailure(message: "pause rejected")
+            }
+        }
+        await resolver.waitForAttempts(2)
+        #expect(await resolver.attempts == 2)
+    }
+
+    @Test func aProviderKillFailureDoesNotRetireAnOlderPause() async throws {
+        let session = Self.session(status: .running)
+        let changes = CloudMachineChanges()
+        defer { changes.stop(); session.disconnect() }
+        try await changes.run(.pausing, machineID: session.machineID, of: { session }) {}
+        let pauseID = session.machine.pendingMutationID
+        try await changes.run(.deleting, machineID: session.machineID, of: { session }) {}
+        let failure = CloudMachine(id: session.machineID, status: .running,
+            lastChangeFailure: .init(code: "delete_failed", message: "provider refused"))
+        let restored = changes.applyingPending(to: failure)
+        #expect(restored.pendingMutationID == pauseID)
+        #expect(restored.shownStatus == .pausing)
+        #expect(changes.applyingPending(to: failure).pendingMutationID == pauseID,
+                "inspecting the same provider error twice cannot retire the older pause")
+        #expect(changes.pendingStatus(for: CloudMachine(id: session.machineID, status: .paused)) == nil)
     }
 
     @Test func anAcceptedMutationSurvivesAStaleListUntilItsTerminalRecord() async throws {

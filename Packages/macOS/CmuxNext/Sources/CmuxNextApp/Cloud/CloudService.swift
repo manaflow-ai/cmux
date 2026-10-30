@@ -494,9 +494,7 @@ final class CloudService {
             if let session = machines.session(machine.id) {
                 applyRecord(machine, to: session)
             } else {
-                var shown = machine
-                shown.pendingChange = changes.pendingStatus(for: machine)
-                addSession(shown)
+                addSession(changes.applyingPending(to: machine))
             }
         }
         let ids = Set(visible.map(\.id))
@@ -524,9 +522,7 @@ final class CloudService {
     func applyRecord(_ record: CloudMachine, to session: CloudMachineSession) {
         guard !policyDisabled, record.id == session.machineID,
               machines.session(record.id) === session else { return }
-        var shown = record
-        shown.pendingChange = changes.pendingStatus(for: record)
-        session.applyRecord(shown)
+        session.applyRecord(changes.applyingPending(to: record))
     }
 
     @discardableResult
@@ -643,7 +639,7 @@ final class CloudService {
         // Retain credentials and broker registration until a list confirms removal. Both
         // the request and the asynchronous provider deletion can still fail.
         try await changes.run(.deleting, machineID: machineID, of: { machines.session(machineID) },
-                              onRollback: { [weak self] in self?.machines.session(machineID)?.mutationFailed(.deleting) }) {
+                              onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
             try await api.deleteMachine(machineID)
         }
         // A list in flight was asked while this machine still existed.
@@ -655,7 +651,7 @@ final class CloudService {
 
     func pauseMachine(_ machineID: String) async throws {
         try await changes.run(.pausing, machineID: machineID, of: { machines.session(machineID) },
-                              onRollback: { [weak self] in self?.machines.session(machineID)?.mutationFailed(.pausing) }) {
+                              onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
             try await api.pauseMachine(machineID)
         }
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("paused machine \(machineID, privacy: .public)")
@@ -663,7 +659,7 @@ final class CloudService {
 
     func resumeMachine(_ machineID: String) async throws {
         try await changes.run(.starting, machineID: machineID, of: { machines.session(machineID) },
-                              onRollback: { [weak self] in self?.machines.session(machineID)?.mutationFailed(.starting) }) {
+                              onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
             try await api.resumeMachine(machineID)
         }
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("resumed machine \(machineID, privacy: .public)")

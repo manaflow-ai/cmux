@@ -49,7 +49,11 @@ final class CloudMachineSession {
     @ObservationIgnored private var connectHop: Task<Void, Never>?
     /// A transition overtook a connect after its carrier answered. If that transition
     /// rolls back, reconnect the interrupted live session unless another change replaced it.
-    @ObservationIgnored private var reconnectAfterFailedMutation = false
+    private struct InterruptedMutation {
+        let id: UUID
+        var rolledBack = false
+    }
+    @ObservationIgnored private var interruptedMutation: InterruptedMutation?
     @ObservationIgnored private var disconnected = false
     /// Whether this session was removed permanently because its machine disappeared.
     /// A delete transition must leave this false until a list confirms removal.
@@ -99,7 +103,14 @@ final class CloudMachineSession {
     /// the provider was starting may fail before the VM is ready; running supplies a new retry signal.
     func applyRecord(_ record: CloudMachine) {
         let previous = machine.status
+        let pendingBefore = machine.pendingMutationID
+        let failureBefore = machine.lastChangeFailure
         machine = record
+        if let pendingBefore, record.pendingMutationID != pendingBefore,
+           record.lastChangeFailure != nil, record.lastChangeFailure != failureBefore {
+            mutationFailed(pendingBefore)
+        }
+        if !record.status.isLive, !record.shownStatus.isChanging { interruptedMutation = nil }
         if previous.isLive, !record.status.isLive {
             suspend()
         } else if !previous.isLive, record.status.isLive {
@@ -107,6 +118,7 @@ final class CloudMachineSession {
         } else if previous == .starting, record.status == .running, daemon.connection == nil {
             retryNow()
         }
+        recoverInterruptedMutation()
     }
 
     /// Connects (a click passes origin `user`; launch and a resumed machine
@@ -129,6 +141,7 @@ final class CloudMachineSession {
         linkTransition = Task {
             await previous?.value
             guard !disconnected, !machine.shownStatus.isChanging else {
+                noteMutationInterruption()
                 appConnecting = false
                 return
             }
@@ -138,7 +151,10 @@ final class CloudMachineSession {
             }
             guard let link else { return }
             await link.resume()
-            guard !disconnected, machine.status.isLive, !machine.shownStatus.isChanging else { return }
+            guard !disconnected, machine.status.isLive, !machine.shownStatus.isChanging else {
+                noteMutationInterruption()
+                return
+            }
             // A link start that a pause overtook changes nothing (`noteLink`).
             let suspendsBefore = suspends
             daemon.start(remote: { [weak self] in
@@ -195,6 +211,7 @@ final class CloudMachineSession {
     private func connectApp(_ appLink: CloudLinkSession, origin: CloudLinkOrigin) async {
         defer {
             appConnecting = false
+            recoverInterruptedMutation()
             if reconnectAfterHop {
                 reconnectAfterHop = false
                 appTicket = nil
@@ -213,7 +230,9 @@ final class CloudMachineSession {
         } catch {
             // A pause or a disconnect cancelled this connect: not a failure.
             if disconnected || suspends != suspendsBefore || Task.isCancelled || machine.shownStatus.isChanging {
+                noteMutationInterruption()
                 await appLink.end(reason: "connect cancelled")
+                linkPhase = .idle
                 return
             }
             // An ended link on a paused machine reads as the pause; a failed
@@ -225,13 +244,14 @@ final class CloudMachineSession {
         if disconnected || suspends != suspendsBefore || Task.isCancelled || machine.shownStatus.isChanging {
             // The transition overtook this connect after the carrier answered. End the
             // ticket/transport so the carrier cannot remain attached without a daemon.
-            if machine.shownStatus.isChanging { reconnectAfterFailedMutation = true }
+            noteMutationInterruption()
             await appLink.end(reason: "connect cancelled")
             appTicket = nil
             daemon.shutdownConnection()
             linkPhase = .idle
             return
         }
+        interruptedMutation = nil
         appTicket = ticket.id
         linkPhase = .up
         let localIdentity = localIdentity
@@ -253,14 +273,25 @@ final class CloudMachineSession {
         })
     }
 
-    /// Called after the current pause/delete mutation failed and its optimistic status was
-    /// rolled back. A newer mutation never calls this callback, so the interrupted connect is
-    /// safe to restore only when the raw record is still live and no change is now pending.
-    func mutationFailed(_ change: CloudMachine.Status) {
-        guard reconnectAfterFailedMutation else { return }
-        reconnectAfterFailedMutation = false
-        guard !disconnected, machine.status.isLive, !machine.shownStatus.isChanging else { return }
-        connect()
+    private func noteMutationInterruption() {
+        guard !disconnected, let id = machine.pendingMutationID else { return }
+        interruptedMutation = InterruptedMutation(id: id)
+    }
+
+    /// Only the operation that interrupted this connection can authorize its recovery. If
+    /// another operation is still pending, keep that authorization until it settles too.
+    func mutationFailed(_ id: UUID) {
+        if interruptedMutation?.id == id { interruptedMutation?.rolledBack = true }
+        // An unrelated rollback cannot authorize recovery, but may remove the last barrier
+        // after the matching operation already rolled back while another one was pending.
+        recoverInterruptedMutation()
+    }
+
+    private func recoverInterruptedMutation() {
+        guard interruptedMutation?.rolledBack == true, !disconnected,
+              machine.status.isLive, !machine.shownStatus.isChanging, !appConnecting else { return }
+        interruptedMutation = nil
+        if daemon.connection == nil { connect() }
     }
 
     /// The current connect's link ended: drop its connection and show why.

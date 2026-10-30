@@ -5,7 +5,7 @@ import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
 
-/// `debug.cloud_machine_fixture {sidebar?, fill?, menu?, folder?, name?, window?}` (DEBUG builds, captures of a Cloud
+/// `debug.cloud_machine_fixture {sidebar?, fill?, menu?, folder?, name?, status?, detail?, window?}` (DEBUG builds, captures of a Cloud
 /// machine's right-click menu). A capture slot is signed out of cmux Cloud and has no Cloud machine,
 /// so a Cloud machine header's menu there hides every row that needs `cloudWorkspace` (its Tools
 /// folder's Apply Machine Config and Deliver Secrets among them), and no menu change could show a
@@ -36,6 +36,33 @@ enum DebugCloudMachineFixture {
 
     static func holdsCloudWorkspace(_ services: AppServices) -> Bool { holders.contains(ObjectIdentifier(services)) }
 
+    /// The fixture accepts the sidebar's status names plus `starting`, which is the
+    /// Cloud API spelling for the sidebar's `resuming` state. Keeping this mapping
+    /// here makes capture inputs explicit and rejects typos instead of silently
+    /// rendering the connected state.
+    static func parseStatus(_ raw: String?) -> SidebarMachine.Status? {
+        guard let raw else { return .connected }
+        switch raw {
+        case "connected": .connected
+        case "connecting": .connecting
+        case "reconnecting": .reconnecting
+        case "offline": .offline
+        case "update-available", "updateAvailable": .updateAvailable
+        case "update-required", "updateRequired": .updateRequired
+        case "install-required", "installRequired": .installRequired
+        case "installing": .installing
+        case "auth-failed", "authFailed": .authFailed
+        case "unreachable": .unreachable
+        case "failed": .failed
+        case "paused": .paused
+        case "paused-idle", "pausedIdle": .pausedIdle
+        case "pausing": .pausing
+        case "starting", "resuming": .resuming
+        case "deleting": .deleting
+        default: nil
+        }
+    }
+
     /// Holds (or, `false`, drops) `cloudWorkspace` in `services`' registry context, as a Cloud machine's
     /// active workspace does, without a session or a sign-in.
     static func seed(_ services: AppServices, _ on: Bool = true) {
@@ -45,6 +72,10 @@ enum DebugCloudMachineFixture {
 
     static func show(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let name = params["name"]?.stringValue ?? defaultName
+        guard let status = parseStatus(params["status"]?.stringValue) else {
+            return .object(["error": .string("invalid cloud machine status: \(params["status"]?.stringValue ?? "")")])
+        }
+        let detail = params["detail"]?.stringValue
         let machine = MachineID(name)
         guard let controller = services.windows.controllers.first(where: { c in params["window"]?.stringValue.map { $0 == c.state.id } ?? true })
                 ?? services.windows.active else {
@@ -55,7 +86,7 @@ enum DebugCloudMachineFixture {
             // Machine headers are drawn only with a section per computer (`sidebar.groupByComputer`).
             DesignSettings.shared.sidebarSections.groupsByComputer = show
                 || (services.settings?.snapshot.sidebarSections ?? .defaults).groupsByComputer
-            sidebar.rows.fixture = show ? fixture(machine: machine, name: name) : nil
+            sidebar.rows.fixture = show ? fixture(machine: machine, name: name, status: status, detail: detail) : nil
             sidebar.container.sidebarView.renderNow()
             sidebar.container.layoutSubtreeIfNeeded()
             seed(services, show)
@@ -105,9 +136,10 @@ enum DebugCloudMachineFixture {
 
     /// This Mac with one workspace, then the Cloud machine with one, so its header shows (one machine's
     /// header titles the list instead).
-    private static func fixture(machine: MachineID, name: String) -> [SidebarSection] {
+    private static func fixture(machine: MachineID, name: String, status: SidebarMachine.Status,
+                                detail: String?) -> [SidebarSection] {
         let local = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-        let cloud = SidebarMachine(id: machine, name: name, kind: .cloud, status: .connected)
+        let cloud = SidebarMachine(id: machine, name: name, kind: .cloud, status: status, detail: detail)
         return [
             SidebarSection(kind: .machine(local), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("w-local"), machineID: .local, title: "cmux"))]),
             SidebarSection(kind: .machine(cloud), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("w-cloud"), machineID: machine, title: "api"))]),

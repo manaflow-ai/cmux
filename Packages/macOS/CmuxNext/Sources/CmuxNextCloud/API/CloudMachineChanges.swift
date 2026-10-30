@@ -26,11 +26,12 @@ public final class CloudMachineChanges {
     /// Keeping this separate from the decoded record prevents a stale refresh from dropping
     /// the optimistic transition while the provider request is still in flight.
     private struct Mutation {
+        let id: UUID
         let status: CloudMachine.Status
-        let baselineFailure: CloudMachine.ChangeFailure?
+        var baselineFailure: CloudMachine.ChangeFailure?
         var requestReturned: Bool
     }
-    private var mutations: [String: Mutation] = [:]
+    private var mutations: [String: [Mutation]] = [:]
     /// Between ``stop()`` and ``start()``: a list read already on its way when the service
     /// stopped still lands in ``listed(_:refresh:)``, and must not schedule another.
     private var stopped = false
@@ -77,47 +78,70 @@ public final class CloudMachineChanges {
     /// reconciliation uses ``pendingStatus(for:)`` to retain it over stale list records.
     public func run(_ change: CloudMachine.Status, machineID: String,
                     of holder: () -> (any CloudMachineHolder)?,
-                    onRollback: @escaping @MainActor () -> Void = {},
+                    onRollback: @escaping @MainActor (UUID) -> Void = { _ in },
                     _ call: () async throws -> Void) async throws {
-        mutations[machineID] = Mutation(status: change, baselineFailure: holder()?.machine.lastChangeFailure,
-                                        requestReturned: false)
-        holder()?.machine.pendingChange = change
+        let id = UUID()
+        mutations[machineID, default: []].append(Mutation(id: id, status: change,
+            baselineFailure: holder()?.machine.lastChangeFailure, requestReturned: false))
+        showPending(machineID, on: holder())
         do {
             try await call()
-            if var mutation = mutations[machineID], mutation.status == change {
-                mutation.requestReturned = true
-                mutations[machineID] = mutation
+            if let index = mutations[machineID]?.firstIndex(where: { $0.id == id }) {
+                mutations[machineID]?[index].requestReturned = true
             }
         } catch {
-            if mutations[machineID]?.status == change {
-                mutations.removeValue(forKey: machineID)
-                if let shown = holder(), shown.machine.pendingChange == change {
-                    shown.machine.pendingChange = nil
-                }
-                onRollback()
+            if let index = mutations[machineID]?.firstIndex(where: { $0.id == id }) {
+                mutations[machineID]?.remove(at: index)
+                if mutations[machineID]?.isEmpty == true { mutations[machineID] = nil }
+                showPending(machineID, on: holder())
+                onRollback(id)
             }
             throw error
         }
     }
 
-    /// Applies the optimistic status to a list record while its mutation remains unresolved.
-    /// Returns nil once the server has supplied the matching terminal state.
+    private func showPending(_ machineID: String, on holder: (any CloudMachineHolder)?) {
+        holder?.machine.pendingChange = mutations[machineID]?.last?.status
+        holder?.machine.pendingMutationID = mutations[machineID]?.last?.id
+    }
+
+    /// The newest pending operation drives presentation; older operations remain tracked until
+    /// their own terminal record arrives. A failed newer request exposes the older operation.
+    public func applyingPending(to record: CloudMachine) -> CloudMachine {
+        var shown = record
+        settleMutations(record)
+        shown.pendingChange = mutations[record.id]?.last?.status
+        shown.pendingMutationID = mutations[record.id]?.last?.id
+        return shown
+    }
+
     public func pendingStatus(for record: CloudMachine) -> CloudMachine.Status? {
-        guard let mutation = mutations[record.id] else { return nil }
-        let reachedTerminal: Bool
-        switch mutation.status {
-        case .pausing: reachedTerminal = record.status == .paused
-        case .starting: reachedTerminal = record.status == .running
-        case .deleting: reachedTerminal = record.status == .destroyed
-        default: reachedTerminal = true
+        applyingPending(to: record).pendingChange
+    }
+
+    private func settleMutations(_ record: CloudMachine) {
+        guard var outstanding = mutations[record.id] else { return }
+        if record.status == .destroyed {
+            mutations[record.id] = nil
+            return
         }
-        let failed = mutation.requestReturned && record.lastChangeFailure != nil
-            && record.lastChangeFailure != mutation.baselineFailure
-        if reachedTerminal || failed {
-            mutations.removeValue(forKey: record.id)
-            return nil
+        // A provider error has no operation id: attribute a new terminal error only to the
+        // newest acknowledged operation. Never let one failure retire every older mutation,
+        // including when both reconciliation and the poller inspect this same record.
+        if let last = outstanding.last, last.requestReturned, !record.status.isChanging,
+           let failure = record.lastChangeFailure, failure != last.baselineFailure {
+            outstanding.removeLast()
+            for index in outstanding.indices { outstanding[index].baselineFailure = failure }
         }
-        return mutation.status
+        outstanding.removeAll { mutation in
+            guard mutation.requestReturned else { return false }
+            switch mutation.status {
+            case .pausing: return record.status == .paused
+            case .starting: return record.status == .running
+            default: return false
+            }
+        }
+        mutations[record.id] = outstanding.isEmpty ? nil : outstanding
     }
 
     /// A list omitted a machine (including an authoritative delete confirmation).
