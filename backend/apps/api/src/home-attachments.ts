@@ -428,7 +428,8 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
   try {
     const upload = env.HOME_ATTACHMENTS!.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
     const uploaded = await streamPartInto(upload, part, request, length, sha, renew)
-    if (!uploaded && lost) return failure({ status: 409, code: "attachment.part_order", message: `part ${part} lost its claim (a later request took it, or it could not be renewed); nothing of this one was kept, send it again if no other request stored it` })
+    if (uploaded === "unavailable" && !lost) return failure({ status: 503, code: "attachment.part_unavailable", message: `part ${part} could not be stored right now; send it again`, extra: { retryable: true } })
+    if (uploaded === "unavailable" || (!uploaded && lost)) return failure({ status: 409, code: "attachment.part_order", message: `part ${part} lost its claim (a later request took it, or it could not be renewed); nothing of this one was kept, send it again if no other request stored it` })
     if (!uploaded) return failure({ status: 400, code: "attachment.size_mismatch", message: `part ${part} must be exactly ${length} bytes` })
     const after = part < plan.parts ? sha.state() : `${sha.digest()}:${sha.bytes}`
     if (part === plan.parts && after !== `${slot.hash}:${slot.byte_count}`) {
