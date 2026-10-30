@@ -307,3 +307,35 @@ test.each(["running", "waiting"])("a %s attach keeps the turn active while waiti
     client.close();
   }
 });
+
+test("resync rebuild derives lifecycle from a recovered end and next start", async () => {
+  const daemon = fakeDaemon([], { turn: { turnId: "t2", startedAt: START + 20_000 } });
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    const recovered = record(
+      [
+        ["mux", "turn_result", { turnId: "t2", status: "completed" }],
+        ["mux", "turn_started", { turnId: "t3" }],
+      ],
+      40,
+    );
+    const internal = client as any;
+    internal.events = recovered;
+    internal.turnOpen = true;
+    internal.turnId = "t2";
+    internal.turnStartedAtMs = START + 20_000;
+    internal.rebuildKeepingLiveState();
+    expect(internal.turnOpen).toBe(true);
+    expect(internal.turnId).toBe("t3");
+    expect(internal.turnStartedAtMs).toBe(START + 41_000);
+  } finally {
+    client.close();
+  }
+});

@@ -3721,9 +3721,6 @@ export class AcpmuxDirectClient {
   /// permission; events after replayAfterSeq are then reapplied on top of them.
   private rebuildKeepingLiveState(replayAfterSeq?: number): void {
     const summary = this.summary;
-    const turnOpen = this.turnOpen;
-    const turnId = this.turnId;
-    const turnStartedAtMs = this.turnStartedAtMs;
     // The summary's running limit goes back with it, so the seq it was read at must too: else the
     // rebuild's own pass leaves limitsSeq past a missed `limits` record and its reapply below is
     // refused, keeping the old limit.
@@ -3735,9 +3732,9 @@ export class AcpmuxDirectClient {
     const secret = this.pendingSecret;
     this.rebuild();
     this.summary = summary;
-    this.turnOpen = turnOpen;
-    this.turnId = turnId;
-    this.turnStartedAtMs = turnStartedAtMs;
+    // `rebuild()` replayed every recovered event, including terminal and subsequent start events.
+    // Keep lifecycle state derived from that replay; only summary-only turns are adopted below.
+    this.adoptSummaryTurn();
     this.limitsSeq = limitsSeq;
     this.limitsVersion = limitsVersion;
     this.queue = queue;
