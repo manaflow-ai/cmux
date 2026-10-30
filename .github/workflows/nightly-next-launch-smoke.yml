@@ -78,8 +78,8 @@ jobs:
     permissions: {}
     outputs:
       build: ${{ steps.feed.outputs.build }}
-      # Another run whose smoke of this build is queued or running, else empty: a scheduled tick then
-      # starts no second smoke of it.
+      # Another run whose smoke of this build is queued or running, else empty. The value is `unknown`
+      # when the live read fails; scheduled dispatch requires empty and therefore fails closed.
       in_flight: ${{ steps.in-flight.outputs.in_flight }}
       # The smoke's placement (side_lane_placement.py): the side route, and the Blacksmith label the
       # cascade lists `launch-smoke` for when no idle owned Mac takes it. Empty keeps the side label.
@@ -158,6 +158,7 @@ jobs:
       # One smoke per build: a scheduled tick skips a build whose smoke another run has queued or
       # running (on 2026-10-29 the ticks queued up to three smokes of one build on the side label).
       # Read on every event so a pull request's run exercises it; only a scheduled tick acts on it.
+      # A failed read emits `unknown`, which keeps scheduled dispatch paused until the next tick.
       - name: Skip a build another run is smoking
         id: in-flight
         if: steps.seen.outputs.cache-hit != 'true' && steps.seen-hour.outputs.cache-hit != 'true'
