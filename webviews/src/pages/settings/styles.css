@@ -925,6 +925,33 @@ mark {
   width: 240px;
 }
 
+/* Clear Browsing Data keeps each control readable at narrow settings widths. The refusal belongs
+   below the controls, so it never competes with their labels for a flex line. */
+.host-field[data-clear-browsing-data] > .row-help:first-child {
+  flex: 0 0 120px;
+  width: 120px;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.host-field[data-clear-browsing-data] > label.row-help {
+  flex: 0 0 auto;
+  width: auto;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.host-field[data-clear-browsing-data] > .field {
+  flex: 0 1 170px;
+  width: 170px;
+  min-width: 120px;
+}
+
+.host-field[data-clear-browsing-data] > .host-actions {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
 .host-swatches {
   display: inline-flex;
   gap: 6px;
