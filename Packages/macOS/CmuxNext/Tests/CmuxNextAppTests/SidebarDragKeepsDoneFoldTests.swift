@@ -362,6 +362,21 @@ import Testing
         let noItems = [row(.group(Self.group), 0, group: Self.group), row(.doneFold(fold), 24, group: Self.group, last: true)]
         #expect(header(noItems)?.isCollapsed == true, "a group that draws no member reads as folded")
 
+        // Sol review: a group whose fold hides every workspace but which still draws an open subgroup is open, so a
+        // drop on its header's middle still goes into it.
+        let sub = GroupID("sub")
+        var subHeader = row(.group(sub), 48, group: sub)
+        subHeader.depth = 1
+        var subMember = row(.workspace(WorkspaceID("s")), 72, group: sub, last: true)
+        subMember.depth = 2
+        let withSubgroup = [row(.group(Self.group), 0, group: Self.group), row(.doneFold(fold), 24, group: Self.group, last: true),
+                            subHeader, subMember]
+        #expect(header(withSubgroup)?.isCollapsed == false, "an open subgroup still shows under the header")
+        var sibling = row(.group(sub), 48, group: sub)
+        sibling.depth = 0
+        #expect(header([row(.group(Self.group), 0, group: Self.group), row(.doneFold(fold), 24, group: Self.group, last: true),
+                        sibling])?.isCollapsed == true, "a group below at the same level is no subgroup")
+
         // Codex review: a link drawn below the group's last shown workspace ends the group, so a drop on that
         // workspace's lower edge still inserts within the group instead of leaving it.
         let itemBelow = [row(.group(Self.group), 0, group: Self.group), row(.workspace(WorkspaceID("w")), 24, group: Self.group),

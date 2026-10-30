@@ -116,7 +116,14 @@ nonisolated struct RustRow: Codable {
         var resolvable: [RustRow] = []
         var folded: [String] = []
         var itemTops: [String: Double] = [:] // per group, the lowest link, tab or app row still shown (no drop target, but open)
+        var nesting: [(group: String, depth: Int, section: SectionID)] = [] // the group headers above this row, outermost first
+        var parents: Set<String> = [] // groups that draw a subgroup (only an open group does)
         for row in rows {
+            if case .group = row.key, let group = row.group?.rawValue {
+                while let top = nesting.last, top.depth >= row.depth || top.section != row.section { nesting.removeLast() }
+                if let parent = nesting.last { parents.insert(parent.group) }
+                nesting.append((group, row.depth, row.section))
+            }
             switch row.key {
             case .doneFold:
                 // Closed, it ends its group; open, its Done workspaces (and their tab rows) do.
@@ -136,7 +143,7 @@ nonisolated struct RustRow: Codable {
             }
         }
         if !preservesTabRows {
-            for group in folded { endingGroup(group, in: &resolvable, lastItemY: itemTops[group]) }
+            for group in folded { endingGroup(group, in: &resolvable, lastItemY: itemTops[group], drawsSubgroup: parents.contains(group)) }
         }
         return resolvable
     }
@@ -144,12 +151,13 @@ nonisolated struct RustRow: Codable {
     /// `group`'s rows, which a fold row ends, read as a group with no fold: its last drawn member is its last row and
     /// takes in its tab rows (the resolver's tab rows never leave a group), so the bottom of it leaves the group; a
     /// group that draws no member reads as folded, so the bottom of its header leaves the group, unless it still draws
-    /// item rows (`lastItemY`, the top of its lowest one): it is open, and a drop on its header goes to its top as with
-    /// no fold. An item row drawn below the last member ends the group instead, so that member keeps its place in it.
-    static func endingGroup(_ group: String, in rows: inout [RustRow], lastItemY: Double? = nil) {
+    /// item rows (`lastItemY`, the top of its lowest one) or a subgroup (`drawsSubgroup`): it is open, and a drop on its
+    /// header goes into it as with no fold. An item row drawn below the last member ends the group instead, so that
+    /// member keeps its place in it.
+    static func endingGroup(_ group: String, in rows: inout [RustRow], lastItemY: Double? = nil, drawsSubgroup: Bool = false) {
         guard let header = rows.lastIndex(where: { $0.key.kind == "group" && $0.key.id == group }) else { return }
         guard let last = rows[(header + 1)...].lastIndex(where: { $0.group == group && $0.key.kind == "workspace" }) else {
-            if lastItemY == nil { rows[header].isCollapsed = true }
+            if lastItemY == nil, !drawsSubgroup { rows[header].isCollapsed = true }
             return
         }
         let tabs = rows[(last + 1)...].prefix { $0.key.kind == "tab" && $0.key.workspace == rows[last].key.id }
