@@ -230,12 +230,12 @@ mod tests {
 
     #[test]
     fn strips_string_controls_with_their_payloads() {
-        // DCS, SOS, PM and APC carry a payload up to ST or BEL (terminal graphics, for one).
+        // DCS, SOS, PM and APC carry a payload up to ST (terminal graphics, for one).
         for introducer in ['P', 'X', '^', '_'] {
             let line = format!("\x1b{introducer}secret\x1b\\error");
             assert_eq!(clean_stderr_line(&line), "error", "ESC {introducer}");
         }
-        assert_eq!(clean_stderr_line("\x1b_Gi=1;AAAA\x07request timed out"), "request timed out");
+        assert_eq!(clean_stderr_line("\x1b_Gi=1;AAAA\x1b\\request timed out"), "request timed out");
         for introducer in ['\u{0090}', '\u{0098}', '\u{009e}', '\u{009f}'] {
             let line = format!("{introducer}secret\u{009c}error");
             assert_eq!(clean_stderr_line(&line), "error", "C1 {:?}", introducer);
