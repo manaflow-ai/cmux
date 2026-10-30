@@ -280,6 +280,9 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        if m == method::SESSION_CANCEL {
+            super::requests::person_stop::mark(conn, params, &peer, &mut p);
+        }
         bound_page(m, params, &mut p);
         // This connection's own reopen hears the chat's messages again; the replay comes over
         // the link every viewer here shares (`MessageNotices`).
