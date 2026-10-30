@@ -83,6 +83,8 @@
     "CmuxNextChiefMemory": {"layer": "ui", "mixes": ["domain"]},
     "CmuxNextResources": {"layer": "ui", "mixes": ["domain"]},
     "CmuxNextUpdater": {"layer": "ui", "mixes": ["service", "domain"]},
+    "CmuxNextAppCore": {"layer": "ui", "mixes": ["service", "domain"], "note": "the app's seam protocols (AppServicesProviding, window snapshots, daemon routing, WorkspaceSpawn/Close) that feature modules use without the App target; its public interface names AgentPane and Sidebar (ui) types, so it is ui, below CmuxNextApp, which alone imports it today"},
+    "CmuxNextUiLayerPreview": {"layer": "ui", "note": "Debug-only (CMUX_UI_LAYER_PREVIEW) SwiftUI preview leaf on Design and Icons; sample data, no daemon models"},
 
     "CmuxNextDesign": {"layer": "ui", "mixes": ["core", "domain"], "plan": "split: DesignTokens (core values, Tunables), Appearance (DesignSettings, ThemeStore: domain), Design (UI kit)"},
     "CmuxNextIcons": {"layer": "ui", "mixes": ["core"]},
