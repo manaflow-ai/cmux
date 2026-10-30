@@ -1810,10 +1810,15 @@ class GitHub:
         return found
 
     def nightly_reruns(self, count: int) -> list[tuple[int, int]]:
-        """(run id, attempt) of unfinished nightly-next re-runs through SIGN_RESCUE_LAST_ATTEMPT. Only a re-run whose
-        build picker chose an owned Mac leaves a marker, so a re-run on Blacksmith (a re-run of failed jobs, or a
-        full one the picker placed there) is found here, for its signing jobs' stalls (signing_stall()). Main's
-        nightly is rescued on attempt 1 only (its workflow_run watch): a full re-run there builds the app again."""
+        """(run id, attempt) of unfinished nightly-next re-runs, every attempt from 2 on. Only a re-run whose build
+        picker chose an owned Mac leaves a marker, so a re-run on Blacksmith (a re-run of failed jobs, or a full one
+        the picker placed there) is found here, for its signing jobs' stalls (signing_stall(), which watch() still
+        acts on through SIGN_RESCUE_LAST_ATTEMPT only). An owned pick's marker on a later attempt is no help either:
+        the marker listing adopts a run id once (`seen`). So every attempt is listed: while every Blacksmith label
+        stalls, the picker queues each attempt's build on a busy or offline owned pool, and the rescue's timed hold
+        re-runs the picker (rerun_failed_or_repick()), attempt after attempt; attempt 4 and later were never
+        watched, so such a build could wait unwatched with no limit (review P1 on #26614). Main's nightly is
+        rescued on attempt 1 only (its workflow_run watch): a full re-run there builds the app again."""
         name = NIGHTLY_WORKFLOW_PATH.rsplit("/", 1)[-1]
         found: list[tuple[int, int]] = []
         for status in ("queued", "in_progress"):
@@ -1821,7 +1826,7 @@ class GitHub:
                                        f"&per_page={count}")
             found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
                       if isinstance(run, Mapping) and run.get("id") and run.get("head_branch") == "nightly-next"
-                      and 1 < int(run.get("run_attempt") or 0) <= SIGN_RESCUE_LAST_ATTEMPT]
+                      and int(run.get("run_attempt") or 0) > 1]
         return found
 
     def failed_runs(self, count: int, oldest: dt.datetime, since: dt.datetime | None = None,

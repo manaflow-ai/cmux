@@ -5357,16 +5357,22 @@ class NightlySigningStall(unittest.TestCase):
         watched, _ = Sweeper.sweep(Sweeper(), api, ticks=rescue.SIDE_FAILURE_TICKS + 1)
         self.assertEqual(watched, [(7, 2, False)])
         self.assertEqual(API.listed, 2)  # every SIDE_FAILURE_TICKS ticks
-        # The listing reads nightly-next's unfinished runs and keeps attempts 2 through SIGN_RESCUE_LAST_ATTEMPT.
+        # The listing reads nightly-next's unfinished runs and keeps every attempt from 2 on: attempt 4 and
+        # later are the picker's repeated owned picks while Blacksmith stalls (review P1 on #26614), and only
+        # watch() stops the signing-stall rescue at SIGN_RESCUE_LAST_ATTEMPT.
         github = rescue.GitHub("t", "manaflow-ai/cmux")
         asked = []
 
         def request(method, path, **_):
             asked.append(path)
-            return {"workflow_runs": [dict(run, run_attempt=attempt, id=attempt) for attempt in (1, 2, 3, 4)]
+            return {"workflow_runs": [dict(run, run_attempt=attempt, id=attempt) for attempt in (1, 2, 3, 4, 7)]
                     + [dict(run, id=9, head_branch="main")]}
         github.request = request
-        self.assertEqual(github.nightly_reruns(5), [(2, 2), (3, 3)] * 2)
+        self.assertEqual(github.nightly_reruns(5), [(2, 2), (3, 3), (4, 4), (7, 7)] * 2)
+        # And the sweeper watches such a later attempt (owned_rerun(): any nightly-next attempt).
+        later = rescue.sweep_target(dict(run, run_attempt=5), "manaflow-ai/cmux", late=False)
+        self.assertIsInstance(later, rescue.Target)
+        self.assertEqual(later.attempt, 5)
         self.assertTrue(all("branch=nightly-next" in path and "nightly.yml" in path for path in asked))
 
     def test_a_later_attempt_never_cancels_started_work_and_stops_at_the_last_attempt(self):
