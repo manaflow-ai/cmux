@@ -68,4 +68,14 @@ extension CloudStrings {
         String(localized: "cloud.error.unreadable", defaultValue: "cmux Cloud sent an answer this version of cmux can't read. Update cmux, then try again.",
                table: "Cloud", bundle: .module)
     }
+
+    /// Pause Machine run from the palette on a machine that is already paused.
+    static var alreadyPaused: String {
+        String(localized: "cloud.machine.alreadyPaused", defaultValue: "This machine is already paused.", table: "Cloud", bundle: .module)
+    }
+
+    /// Resume Machine run from the palette on a machine that is running or starting.
+    static var notPaused: String {
+        String(localized: "cloud.machine.notPaused", defaultValue: "This machine isn't paused.", table: "Cloud", bundle: .module)
+    }
 }
