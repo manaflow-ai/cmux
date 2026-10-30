@@ -13,17 +13,44 @@ export function isFraction(range: NumberRange | undefined): boolean {
   return range?.unit === "fraction";
 }
 
-/** The number shown in a field: fractions as percent, rounded to the step's precision. */
+/** The unit a duration is shown in: never more digits than it needs (Leo 2026-10-30, Check Every
+ * read "3600 s": "look for wastage"). The stored value and the schema's unit do not change; the page
+ * converts only where it shows and reads the number (design/settings.md, "Human units"). */
+type ShownUnit = NumberRange["unit"] | "hours";
+
+const MINUTE = 60;
+const QUARTER_HOUR = 15 * MINUTE;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/**
+ * The unit a range is shown in, and how many stored units make one shown unit. A seconds range
+ * whose bounds and step are whole quarter hours and that reaches a day reads in hours (Check Every:
+ * 15 min to a week, "1 hr"); one in whole minutes reads in minutes ("10 min"); a finer one stays
+ * in seconds. A minutes range of whole quarter hours that reaches a day reads in hours too.
+ */
+export function shownUnit(range: NumberRange | undefined): { unit: ShownUnit | undefined; factor: number } {
+  const unit = range?.unit;
+  if (!range || (unit !== "seconds" && unit !== "minutes")) return { unit, factor: 1 };
+  const seconds = unit === "seconds" ? 1 : MINUTE;
+  const whole = (span: number) => (range.min * seconds) % span === 0 && (range.step * seconds) % span === 0;
+  if (whole(QUARTER_HOUR) && range.max * seconds >= DAY) return { unit: "hours", factor: HOUR / seconds };
+  if (unit === "seconds" && whole(MINUTE)) return { unit: "minutes", factor: MINUTE };
+  return { unit, factor: 1 };
+}
+
+/** The number shown in a field: fractions as percent, durations in their shown unit, rounded to the
+ * step's precision. */
 export function displayNumber(value: number, range: NumberRange | undefined): string {
-  const shown = isFraction(range) ? value * 100 : value;
+  const shown = isFraction(range) ? value * 100 : value / shownUnit(range).factor;
   return String(Math.round(shown * 1000) / 1000);
 }
 
-/** Parses a field's text back into a stored number, or null. */
+/** Parses a field's text (in the shown unit) back into a stored number, or null. */
 export function parseNumber(input: string, range: NumberRange | undefined): number | null {
   const number = Number(input.trim().replace(",", "."));
   if (input.trim() === "" || !Number.isFinite(number)) return null;
-  return isFraction(range) ? number / 100 : number;
+  return isFraction(range) ? number / 100 : number * shownUnit(range).factor;
 }
 
 export function clamp(value: number, range: NumberRange | undefined): number {
@@ -31,9 +58,9 @@ export function clamp(value: number, range: NumberRange | undefined): number {
   return Math.min(range.max, Math.max(range.min, value));
 }
 
-/** The unit beside a number field ("pt", "ms", "s", "min", "days", "%", or nothing for counts). */
+/** The unit beside a number field ("pt", "ms", "s", "min", "hr", "days", "%", or nothing for counts). */
 export function unitLabel(range: NumberRange | undefined): string {
-  switch (range?.unit) {
+  switch (shownUnit(range).unit) {
     case "points":
       return unitSuffix("settingsPage.points");
     case "milliseconds":
@@ -47,6 +74,13 @@ export function unitLabel(range: NumberRange | undefined): string {
       return unitSuffix("settingsPage.seconds");
     case "minutes":
       return unitSuffix("settingsPage.minutes");
+    case "hours":
+      // The short hour unit of the page's locale ("hr"), from Intl.
+      return (
+        new Intl.NumberFormat(locale(), { style: "unit", unit: "hour", unitDisplay: "short" })
+          .formatToParts(2)
+          .find((part) => part.type === "unit")?.value ?? "h"
+      );
     case "days":
       // The plural day unit of the page's locale ("days", "日"), from Intl.
       return (

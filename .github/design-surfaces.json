@@ -43,6 +43,19 @@
       "paths": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/"
       ]
+    },
+    "settings": {
+      "spec": "leo-workspace design/settings.md",
+      "aliases": ["settings", "settings page", "settings menu", "settings select", "update channel", "check every"],
+      "paths": [
+        "webviews/src/pages/settings/components/",
+        "webviews/src/pages/settings/editors/",
+        "webviews/src/pages/settings/format.ts",
+        "webviews/src/pages/settings/layout.css",
+        "webviews/src/pages/settings/refined.css",
+        "webviews/src/pages/settings/styles.css",
+        "webviews/src/ui/Select.tsx"
+      ]
     }
   }
 }
