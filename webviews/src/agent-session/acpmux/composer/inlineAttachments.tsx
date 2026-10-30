@@ -200,7 +200,12 @@ export function useInlineAttachments(options: Options) {
     /// A failed chip's Retry and a pasted chip's open, stable across renders so the chips keep still
     /// while the person types (InlineChip is memoized).
     retry: (id: string) => live.current.retry(id),
-    expand: (id: string) => live.current.expand(id),
+    /// A pasted chip opened: kept first, so an undo that brings its node back brings its text too.
+    expand: (id: string) => {
+      const attachment = live.current.attachmentsRef.current.find((each) => each.id === id);
+      if (attachment) keep(attachment);
+      live.current.expand(id);
+    },
     known,
     /// The field tells its nodes' elements in a microtask after the change that made them (MarkdownField
     /// `tellInlineViews`): their chips draw before that task's frame paints, so a paste's placeholder

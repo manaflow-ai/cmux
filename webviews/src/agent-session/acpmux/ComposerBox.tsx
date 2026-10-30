@@ -227,10 +227,7 @@ export function ComposerBox({
           {...(onCancelAttachment ? { onCancel: inline.cancel } : {})}
           {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
           onReorder={onReorderAttachment ?? inline.reorder}
-          onExpand={(id) => {
-            pastedChips.expand(id);
-            prompt.current?.removeInline(id);
-          }}
+          onExpand={inline.expand}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>

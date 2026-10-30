@@ -344,6 +344,35 @@ test.each(["inline", "strip"] as const)(
   },
 );
 
+// Review (Codex): opening a chip dropped its text before its node left the prompt, so an undo
+// brought back an empty node and the paste was missing from the send. The undo brings the chip back
+// with its text.
+test.each(["inline", "strip"] as const)(
+  "undo after opening a chip brings the chip back with its text (%s view)",
+  async (view) => {
+    const sent: Sent[] = [];
+    const composer = await openComposer(sent);
+    await showAttachments(view);
+    await typeDraft("before ");
+    await paste(LOG);
+    await typeDraft(" after");
+    const id = chips(composer)[0]!.id;
+    await act(async () => chipButtons(view).open()!.click());
+    expect(chips(composer)).toEqual([]);
+    // One undo: the open alone, never the typing before it.
+    await act(async () => markdownField().undo());
+    await settle();
+    expect(placed()).toEqual([id]);
+    expect(chips(composer).map((chip) => [chip.id, chip.kind, chip.text])).toEqual([[id, "pasted", LOG]]);
+    expect(words().replace(/\s+/g, " ")).toBe("before after");
+    await act(async () => {
+      composer.current!.send();
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.attachments.map((chip) => [chip.id, chip.text])).toEqual([[id, LOG]]);
+  },
+);
+
 test("Paste as Plain Text by the key's position (a non-Latin layout) keeps the paste raw too", async () => {
   const composer = await openComposer();
   await plainPasteKey({ key: "м", code: "KeyV" });
