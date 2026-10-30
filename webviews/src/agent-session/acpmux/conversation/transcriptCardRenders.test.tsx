@@ -12,7 +12,7 @@ import { act, Profiler, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import * as i18n from "../i18n";
-import type { AcpmuxPlanEntry } from "../model";
+import type { AcpmuxPermission, AcpmuxPlanEntry } from "../model";
 import type { AgentQuestion } from "../question/model";
 
 let cardRenders = 0;
@@ -26,6 +26,7 @@ void mock.module("../i18n", () => ({
 }));
 const { QuestionCard } = await import("../question/QuestionCard");
 const { PlanList } = await import("./PlanList");
+const { PermissionQuestion } = await import("../question/PermissionQuestion");
 
 const TOKENS = 200;
 const scope = globalThis as Record<string, unknown>;
@@ -126,11 +127,13 @@ test("streaming tokens never redraw an answered or skipped question or the todo 
   expect(cards).toBe(3);
 });
 
-test("the live ask's card keeps still while the pane streams, given one reply handler per ask", async () => {
+test("the live ask's card keeps still while the pane streams", async () => {
   const pending: AgentQuestion = { ...answered, id: "perm_live", state: { kind: "pending" } };
-  // App.tsx PermissionAsk keeps one handler per ask (useMemo on the permission).
-  const onReply = () => {};
-  const { cards } = await stream(() => <QuestionCard question={pending} onReply={onReply} />);
+  // The pane passes the same permission record on every token (direct.ts keeps a pending ask's
+  // object across snapshots) and App.tsx's module-level replyToQuestion as `send`.
+  const permission = { permissionId: "perm_live", pending: true, options: [], question: pending } as AcpmuxPermission;
+  const send = () => {};
+  const { cards } = await stream(() => <PermissionQuestion permission={permission} question={pending} send={send} />);
   // PendingAsk and PendingQuestion each read the strings once, on mount only.
   expect(cards).toBe(2);
 });
