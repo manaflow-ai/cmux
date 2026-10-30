@@ -564,9 +564,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw error
         } catch let refusal as AcpmuxServerPeer.Refusal {
             throw Self.refused(refusal, environment, startsDaemons: owned)
-        } catch AcpmuxStatusClient.Failure.closed where crashed(environment.home) {
+        } catch AcpmuxStatusClient.Failure.closed
+            where crashed(environment.home) || AcpmuxServerPeer.socketPeer(socketPath: environment.socketPath) == nil {
             // The daemon exited while this lookup waited for its answer (the wait has no deadline,
-            // so its close is how the wait ends). The pane asks again, and that lookup starts one.
+            // so its close is how the wait ends): a crash leaves its daemon.pid, a SIGTERM removes it
+            // and nothing listens on the socket then. The pane asks again, and that lookup starts one.
             logger.error("acpmux exited while a lookup waited socket=\(environment.socketPath, privacy: .public)")
             throw failure(environment, .exited, detail: "it exited while the app waited for its answer")
         } catch {

@@ -227,7 +227,8 @@ struct AcpmuxSlowDaemonTests {
                     recorded.withLock { $0.append(method) }
                     let result: [String: Any] = method == "_acpmux/status"
                         ? ["webUrl": "http://127.0.0.1:9/?token=t", "pid": Int(getpid()), "build": "slow",
-                           "agentHosts": true, "home": home]
+                           "agentHosts": true, "home": home,
+                           "peers": [["name": "dev-box", "transport": "ssh", "connected": true, "state": "connected"]]]
                         : [:]
                     guard var data = try? JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": id, "result": result])
                     else { continue }

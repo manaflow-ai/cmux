@@ -46,10 +46,15 @@ extension PaletteModel {
         let providerID = provider.id
         return Task { [weak self, weak state] in
             if let updates = provider.itemUpdates() {
+                var any = false
                 for await items in updates {
                     guard !Task.isCancelled, let self, let state else { return }
+                    any = true
                     self.apply(items, of: providerID, to: state)
                 }
+                // A stream that ended with no list leaves the provider's rows as they were, not loading.
+                guard !any, !Task.isCancelled, let self, let state else { return }
+                self.apply(state.providerItems[providerID] ?? [], of: providerID, to: state)
                 return
             }
             let items = await provider.items()

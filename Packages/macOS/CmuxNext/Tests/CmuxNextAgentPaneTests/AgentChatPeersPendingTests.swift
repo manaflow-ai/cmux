@@ -38,6 +38,41 @@ struct AgentChatPeersPendingTests {
         #expect(await lists.next() == nil)
     }
 
+    /// Review of #28083: the picker's peers come from this Mac's acpmux, whose status answers late
+    /// under load. The list must end with the peers, not drop them (the peers call kept a 2 s
+    /// deadline of its own after the lookup stopped having one).
+    @Test func aRealAcpmuxThatAnswersLateEndsWithItsPeers() async throws {
+        let root = URL(fileURLWithPath: "/tmp/apl-\(UUID().uuidString.prefix(8))", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        // An attached daemon (only read) served by this test process, so the peer check finds this
+        // process's executable; every status answer comes 3 s late (past the old 2 s deadline).
+        let environment = AcpmuxEnvironment(executable: try AcpmuxSlowDaemonTests.ownExecutable(), home: home,
+                                            socketPath: home.appendingPathComponent("s.sock").path,
+                                            daemonArguments: [], childEnvironment: [:]).attached(to: home)
+        let daemon = try AcpmuxSlowDaemonTests.SlowDaemon(socketPath: environment.socketPath, home: home.path,
+                                                          statusDelay: .seconds(3))
+        defer { daemon.stop() }
+        let host = AcpmuxHost(resolve: { environment })
+        let destinations = AgentChatDestinations(localTitle: "This Mac", peers: { try await host.chatPeers() },
+                                                 cloud: { .init(signedIn: false, loaded: false, machines: []) })
+        var lists = destinations.updates(peerBound: .milliseconds(200)).makeAsyncIterator()
+
+        #expect(try #require(await lists.next()).map(\.id) == ["local", AgentChatDestinations.peersPendingID])
+        let last = try #require(await lists.next())
+        #expect(last.map(\.id) == ["local", "dev-box"], "the late peers were dropped: \(last.map(\.id))")
+    }
+
+    /// A peers request that fails is said, never shown as a Mac with no other Macs.
+    @Test func aFailedPeerRequestShowsThatTheOtherMacsCouldNotBeLoaded() async throws {
+        let destinations = AgentChatDestinations(localTitle: "This Mac", peers: { throw AgentPaneHostError.daemonStopped },
+                                                 cloud: { .init(signedIn: false, loaded: false, machines: []) })
+        var lists = destinations.updates(peerBound: .seconds(60)).makeAsyncIterator()
+        #expect(try #require(await lists.next()).map(\.id) == ["local", AgentChatDestinations.peersFailedID])
+        #expect(await lists.next() == nil)
+    }
+
     @Test func aPeerReplyWithinTheBoundShowsNoNotice() async throws {
         let destinations = AgentChatDestinations(localTitle: "This Mac", peers: {
             [AgentChatPeer(name: "dev-box", isSSH: true, connected: true, state: "connected")]

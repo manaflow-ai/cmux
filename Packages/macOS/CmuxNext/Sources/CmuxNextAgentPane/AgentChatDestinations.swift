@@ -45,24 +45,24 @@ public struct AgentChatDestinations {
         let peersTask = Task { try await peers() }
         // task-owner: ends with the stream's consumer (onTermination cancels it)
         let task = Task {
-            // task-owner: the Cloud inventory, read at the same time as the peers
+            // task-owner: the Cloud inventory, read at the same time as the peers; cancelled with this task
             let cloudTask = Task { await cloud() }
             let early = await Self.peers(of: peersTask, within: peerBound)
-            let inventory = await cloudTask.value
+            let inventory = await withTaskCancellationHandler { await cloudTask.value } onCancel: { cloudTask.cancel() }
             guard !Task.isCancelled else { return continuation.finish() }
             if case .late = early {
-                var rows = Self.rows(localTitle: title, peers: [], cloud: inventory)
-                rows.insert(Self.peersPending, at: 1)
-                continuation.yield(rows)
+                continuation.yield(Self.rows(localTitle: title, peers: [], cloud: inventory, notice: Self.peersPending))
             }
-            let listed: [AgentChatPeer]
+            let listed: [AgentChatPeer]?
             switch early {
             case .listed(let peers): listed = peers
-            case .failed: listed = []
-            case .late: listed = (try? await AcpmuxSharedWait.value(of: peersTask)) ?? []
+            case .failed: listed = nil
+            case .late: listed = try? await peersTask.value
             }
             guard !Task.isCancelled else { return continuation.finish() }
-            continuation.yield(Self.rows(localTitle: title, peers: listed, cloud: inventory))
+            // A peers request that failed is said, never shown as a Mac with no other Macs.
+            continuation.yield(Self.rows(localTitle: title, peers: listed ?? [], cloud: inventory,
+                                         notice: listed == nil ? Self.peersFailed : nil))
             continuation.finish()
         }
         continuation.onTermination = { _ in
@@ -87,7 +87,8 @@ public struct AgentChatDestinations {
             // task-owner: the bound; cancelled when the peers come first
             let timer = Task {
                 // wakeup-allow: one one-shot bound per picker open; it decides only what is drawn first, never whether the peers request ends
-                try? await Task.sleep(for: bound)
+                // A cancelled bound (the peers came first) says nothing.
+                guard (try? await Task.sleep(for: bound)) != nil else { return }
                 once.run { continuation.resume(returning: .late) }
             }
             // task-owner: reads the peers task's end; ends when it ends
@@ -105,6 +106,24 @@ public struct AgentChatDestinations {
         .init(id: peersPendingID, title: String(localized: "agentPane.chatDestinations.peersPending",
                                                 defaultValue: "Other Macs not loaded yet", bundle: .module),
               state: nil, symbol: "hourglass", isReady: false, route: .pending)
+    }
+
+    /// The id of the row a picker shows when this Mac's acpmux could not list its peers.
+    public static let peersFailedID = "peers-failed"
+
+    /// The notice row: this Mac's acpmux could not list the other Macs (not running, refused).
+    static var peersFailed: Destination {
+        .init(id: peersFailedID, title: String(localized: "agentPane.chatDestinations.peersFailed",
+                                               defaultValue: "Other Macs could not be loaded", bundle: .module),
+              state: nil, symbol: "exclamationmark.triangle", isReady: false, route: .pending)
+    }
+
+    /// ``rows(localTitle:peers:cloud:)`` with `notice` (if any) after this Mac.
+    static func rows(localTitle: String, peers: [AgentChatPeer], cloud: AgentPaneCloudMachines.Inventory,
+                     notice: Destination?) -> [Destination] {
+        var rows = rows(localTitle: localTitle, peers: peers, cloud: cloud)
+        if let notice { rows.insert(notice, at: 1) }
+        return rows
     }
 
     /// The rows that can resolve `wanted`: a Cloud machine named by its row id
