@@ -35,7 +35,7 @@ afterEach(async () => {
   setSystemTime();
 });
 
-test("Resume uses native attach, then rereads the missing chat; disposal stops recovery", async () => {
+test.serial("Resume uses native attach, then rereads the missing chat; disposal stops recovery", async () => {
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
   const { ChatUnavailableState } = await import("../src/agent-session/acpmux/ChatUnavailableState");
   const { cloudChatUnavailable } = await import("../src/agent-session/acpmux/cloudChatRecovery");
@@ -107,7 +107,7 @@ test("Resume uses native attach, then rereads the missing chat; disposal stops r
   await act(async () => root.render(null));
 });
 
-test("Resume retries incomplete reads and refuses a same-tick double attach", async () => {
+test.serial("Resume retries incomplete reads and refuses a same-tick double attach", async () => {
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
   let listReads = 0;
   let attaches = 0;
@@ -204,7 +204,7 @@ test("Resume retries incomplete reads and refuses a same-tick double attach", as
   await act(async () => root.render(null));
 }, 10_000);
 
-test("a nonretryable inventory refusal ends recovery without repeated polls", async () => {
+test.serial("a nonretryable inventory refusal ends recovery without repeated polls", async () => {
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
   let listReads = 0;
   let attaches = 0;
@@ -268,7 +268,7 @@ test("a nonretryable inventory refusal ends recovery without repeated polls", as
   await act(async () => root.render(null));
 }, 10_000);
 
-test("a recheck that never resolves still ends recovery at the deadline", async () => {
+test.serial("a recheck that never resolves still ends recovery at the deadline", async () => {
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
   Object.assign(dom.window, {
     webkit: {
@@ -309,7 +309,10 @@ test("a recheck that never resolves still ends recovery at the deadline", async 
       </div>
     );
   }
-  await act(async () => root.render(<Recovery />));
+  await act(async () => {
+    root.render(<Recovery />);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
   const wake = mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]');
   expect(wake).not.toBeNull();
   await act(async () => wake!.click());
@@ -324,7 +327,7 @@ test("a recheck that never resolves still ends recovery at the deadline", async 
   expect(state).toContain('"error":');
 }, 10_000);
 
-test("an old chat's late inventory refusal leaves the new recovery running", async () => {
+test.serial("an old chat's late inventory refusal leaves the new recovery running", async () => {
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
   let refuseOldRead!: (reply: unknown) => void;
   const oldRead = new Promise((resolve) => {
