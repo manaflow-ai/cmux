@@ -19,7 +19,10 @@ enum ChatNativeRowActions {
                     UIAction(title: "Select Text", image: UIImage(systemName: "selection.pin.in.out")) { _ in ChatSelectText.present(text) },
                 ]
                 if isLast {
-                    items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in store.send(prompt: text) })
+                    items.append(UIAction(title: "Edit and Resend", image: UIImage(systemName: "pencil")) { _ in
+                        guard let turn = store.turns.last(where: { $0.id == row.turnID }) else { return }
+                        _ = surface.editAndResend(turn, store: store)
+                    })
                 }
                 items.append(UIAction(title: "Share", image: UIImage(systemName: "square.and.arrow.up")) { _ in ChatShare.present(text) })
                 return UIMenu(children: [UIMenu(title: AgentTurn.menuTimestamp(at), options: .displayInline, children: items)])

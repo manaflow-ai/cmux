@@ -67,7 +67,10 @@ struct ChatRowView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 20)
         case .prompt(let text, let attachments, let at, let isLast):
-            UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast) { store.send(prompt: $0) }
+            UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast) { _ in
+                guard let turn = store.turns.last(where: { $0.id == row.turnID }) else { return }
+                _ = context.surface.editAndResend(turn, store: store)
+            }
                 .frame(maxWidth: .infinity, alignment: .trailing)
         case .block(let messageID, let block):
             MarkdownBlockRow(block: block) { context.messageText(messageID) }

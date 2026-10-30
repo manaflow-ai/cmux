@@ -18,6 +18,8 @@ import UIKit
 @Observable
 public final class AgentChatSurface {
     public var text = ""
+    /// Prompt awaiting confirmation before replacing an existing composer draft.
+    var editConfirmation: String?
     /// The transcript holds its rows as they are (the page is shown as a
     /// small card on the tab grid): streamed changes wait and apply in one
     /// reload when this goes back to false, or on `refreshHeldTranscript()`.
@@ -101,9 +103,19 @@ public final class AgentChatSurface {
     /// is sent from there. Returns false, changing nothing, while the composer holds a
     /// draft (the bubble asks before replacing it).
     func editAndResend(_ turn: AgentTurn, store: AgentChatStore) -> Bool {
-        guard let prompt = store.editAndResend(turn, draft: text) else { return false }
+        guard let prompt = store.editAndResend(turn, draft: text) else {
+            editConfirmation = turn.prompt
+            return false
+        }
         loadForEditing(prompt, permissionPending: store.pendingPermission != nil)
         return true
+    }
+
+    func confirmEditAndResend(copyDraft: Bool = false, store: AgentChatStore) {
+        guard let prompt = editConfirmation else { return }
+        if copyDraft { UIPasteboard.general.string = text }
+        editConfirmation = nil
+        loadForEditing(prompt, permissionPending: store.pendingPermission != nil)
     }
 
     /// Puts a message in the composer, focused. With permission choices up, the composer
@@ -447,6 +459,11 @@ public struct AgentChatTranscript: View {
             SessionArtifactsSheet(store: store, surface: surface)
         }
         .cmuxMobileSensoryFeedback(.warning, trigger: warningTrigger)
+        .confirmationDialog("Replace your draft?", isPresented: Binding(get: { surface.editConfirmation != nil }, set: { if !$0 { surface.editConfirmation = nil } }), titleVisibility: .visible) {
+            Button("Copy Draft and Replace") { surface.confirmEditAndResend(copyDraft: true, store: store) }
+            Button("Replace Draft", role: .destructive) { surface.confirmEditAndResend(store: store) }
+            Button("Cancel", role: .cancel) { surface.editConfirmation = nil }
+        } message: { Text("Edit and Resend puts this message in the composer.") }
         // A live ask buzzes, and so does one a reattach caught up on (raised while the link
         // was down); one that was already waiting when the chat opened does not.
         .onChange(of: store.pendingPermission?.request.id) { _, new in
@@ -733,7 +750,7 @@ struct TurnView: View {
         VStack(alignment: .leading, spacing: 16) {
             // Replayed history (the transcript on open, a reattach's catch-up) is drawn in
             // place; only what arrives live animates in.
-            UserBubble(turn: turn, isLast: isLast) { editAndResend() }
+            UserBubble(turn: turn, isLast: isLast) { _ in editAndResend() }
                 .findBlock(AgentChatFind.promptKey(turn.id), surface: surface)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .transition(.asymmetric(insertion: store.isReplayed(turn.id) ? .identity
@@ -791,7 +808,11 @@ struct TurnView: View {
     /// A draft in the composer is never replaced without asking.
     private func editAndResend() {
         guard let surface else { return }
-        if !surface.editAndResend(turn, store: store) { confirmingReplace = true }
+        if store.editAndResend(turn, draft: surface.text) != nil {
+            surface.loadForEditing(turn.prompt, permissionPending: store.pendingPermission != nil)
+        } else {
+            confirmingReplace = true
+        }
     }
 
     private func editInComposer() {
@@ -911,7 +932,7 @@ struct UserBubble: View {
     let attachments: [AgentAttachment]
     let promptAt: Date
     let isLast: Bool
-    let editAndResend: () -> Void
+    let editAndResend: (String) -> Void
     @State private var selecting = false
 
     var body: some View {
@@ -931,7 +952,7 @@ struct UserBubble: View {
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = prompt }
                         Button("Select Text", systemImage: "selection.pin.in.out") { selecting = true }
                         if isLast {
-                            Button("Edit and Resend", systemImage: "pencil") { resend(prompt) }
+                            Button("Edit and Resend", systemImage: "pencil") { editAndResend(prompt) }
 
                         }
                         ShareLink(item: prompt) { Label("Share", systemImage: "square.and.arrow.up") }
