@@ -8,6 +8,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
+import CmuxNextMacScreen
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
