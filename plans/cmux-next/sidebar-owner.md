@@ -547,6 +547,24 @@ existing colors, glass, row geometry and drag behavior.
 
 - Lawrence 2026-10-28 ("home and pinned are not aligned", screenshot). Before: Home's glyph drew centered in its 20 pt box (ink about 3 pt right of the inset), a pin's ink at the inset, and band labels at box end + 8 pt while pinned titles sat at pin end + 4 pt and workspace titles after an icon at `titleTextX`. Now a bare band glyph starts its ink at the inset (as the pin does), and Home's label, pinned titles and pinned group names use `SidebarStyle.leadingTextX`, the column workspace rows with an icon already used. Wells, tiles, chips and rail buttons are unchanged. Test: `HomePinnedRowAlignmentTests` (every density, Minimal Mode, 200 and 260 pt).
 
+## Disclosed workspace tab hierarchy (2026-10-29)
+
+- Aziz: “This workspace tabs disclosure is annoying, can't make out workspace from non-workspace easily.”
+  Disclosed tab titles now sit 16 pt inside their workspace title column (`SidebarStyle.tabChildIndent`,
+  `Metrics.space6`) and use the existing caption scale. Plain tabs use secondary ink; focused, selected and
+  unread tabs keep primary ink and the existing focused fill. Disclosure, row frames, group rails, motion,
+  trailing columns and defaults stay unchanged. `SidebarWorkspaceTabHierarchyTests` covers ungrouped,
+  grouped and nested parents, favicon and plain tabs, every density, Minimal Mode, narrow widths and reuse.
+- 2026-10-29: the hierarchy gallery redraws production rows before applying each fixture-only variant, then redraws only the affected tab labels so the indentation-only primary-ink comparison remains faithful.
+
+- 2026-10-29: disclosed tab titles use `Metrics.space6` (16 pt) from the workspace title column so the hierarchy is visible at a glance.
+- 2026-10-29: disclosed tab positions resolve the rendered parent workspace title column, including custom icon or mark offsets; the typography-only gallery rewinds the full production indent.
+- 2026-10-29: parent layout is realized before child tab frames are resolved so icon-aware workspace title columns remain stable on first draw.
+- 2026-10-29: parent title-column changes invalidate disclosed child rows, including late parent realization, so the 16 pt hierarchy anchor never goes stale.
+- 2026-10-29: virtualized children derive the 16 pt anchor from the rendered parent or its model row, and reuse resets the cached parent frame.
+
+- 2026-10-29: visible and virtualized workspace title columns share icon/leading-mark geometry; parent changes invalidate only that workspace's tab rows. Tests assert the exact child anchor after icon removal, icon addition and reused late parent realization.
+
 ## Workspace preview touches its row (S2, 2026-10-28)
 
 Leo: "I mean the gap between the hover preview and the, you know, the workspace sidebar element thingy."
@@ -559,6 +577,10 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Group chevron turns on a fold (2026-10-28)
 
 - Lawrence msg 15763 ("should animate rotation of the chevron when i open/close group", screenshot of a group header). Before: the header swapped a right and a down chevron image in one frame. Now one right-pointing glyph (a layer `DisclosureChevronView` owns, so it turns about its center) turns a quarter turn on `Motion.sidebar` with the fold's springs; Reduce Motion snaps it. Guard: `GroupChevronTurnTests`. Look, frame and trailing column unchanged.
+
+- 2026-10-29: reviewed owner record for 772dcf241d6 (parent title-column invalidation) and 10b29e5f793 (shared visible/virtualized geometry and mark decisions): corrections keep the intended 16 pt disclosed-child column stable through icon changes and realization; no additional look change.
+- 2026-10-29: all three disclosed-tab gallery treatments use the same 280 x 360 pt viewport; the typography-only fixture restores the full text room after rewinding the child inset and leaves status/close controls fixed.
+- 2026-10-29: model-patched and reloaded offscreen parents invalidate only their realized child geometry; the shared agent-mark watcher covers a tab-only viewport. Regressions hold the parent unrealized across icon and mark transitions, assert the literal 16 pt anchor and clipped text room, and verify late realization stays put. Status-only patches add no child layout.
 
 ## Scrolled rows hide under the traffic lights (2026-10-29)
 
