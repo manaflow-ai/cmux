@@ -86,7 +86,7 @@ function Chips() {
 
 async function render(
   sessionId: string | undefined,
-  options: { draft?: string; onUnsentDraft?: (text: string) => void } = {},
+  options: { draft?: string; draftGeneration?: number; onUnsentDraft?: (text: string, generation: number) => void } = {},
   handle = createRef<ComposerHandle>(),
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -109,6 +109,7 @@ async function render(
         handle={handle}
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
+        draftGeneration={options.draftGeneration}
         {...(options.draft ? { draft: options.draft } : {})}
         {...(options.onUnsentDraft ? { onUnsentDraft: options.onUnsentDraft } : {})}
       />,
@@ -139,14 +140,18 @@ const page = () =>
   };
 
 /// acpmux's drafts, as `chat.readDraft` / `chat.writeDraft` reach them.
-function daemon(drafts: Record<string, string> = {}) {
+function daemon(drafts: Record<string, string> = {}, generation = 0) {
   const held = new Map(Object.entries(drafts));
+  const generations = new Map(Object.keys(drafts).map((key) => [key, generation]));
   const writes: { sessionId: string; text: string }[] = [];
   const actions = {
     "chat.readDraft": async ({ sessionId }: Record<string, unknown>) => ({
       draft: held.get(String(sessionId)) ?? null,
+      generation: generations.get(String(sessionId)) ?? 0,
     }),
-    "chat.writeDraft": async ({ sessionId, text }: Record<string, unknown>) => {
+    "chat.writeDraft": async ({ sessionId, text, generation }: Record<string, unknown>) => {
+      if (Number(generation ?? 0) < (generations.get(String(sessionId)) ?? 0)) return;
+      generations.set(String(sessionId), Number(generation ?? 0));
       writes.push({ sessionId: String(sessionId), text: String(text) });
       if (String(text).trim()) held.set(String(sessionId), String(text));
       else held.delete(String(sessionId));
@@ -154,6 +159,7 @@ function daemon(drafts: Record<string, string> = {}) {
   };
   return {
     held,
+    generations,
     writes,
     /// The native action map arrives (the connection is up).
     async connect() {
@@ -276,4 +282,67 @@ test("(d) the person's clear and a send still clear the saved draft", async () =
   await act(async () => void handle.current!.send());
   await until(() => prompt() === "", "the send's clear");
   await until(() => !acpmux.held.has("load-d"), "the send to clear acpmux's draft");
+});
+
+
+test("an offline send leaves a tombstone before a remount, and later edits never restore sent text", async () => {
+  const handle = await render("generation-offline-send");
+  await type("look at these");
+  await settle();
+  await act(async () => void handle.current!.send());
+  await until(() => prompt() === "", "the send clear");
+  await act(async () => root!.unmount());
+  root = undefined;
+  await render("generation-offline-send");
+  expect(prompt()).toBe("");
+  await type("what the heck");
+  const acpmux = daemon({ "generation-offline-send": "look at these" });
+  await acpmux.connect();
+  await until(() => acpmux.held.get("generation-offline-send") === "what the heck", "new generation to persist");
+  expect(prompt()).toBe("what the heck");
+  expect(acpmux.generations.get("generation-offline-send")).toBeGreaterThan(0);
+});
+
+test("a fresh paste supersedes a draft read already in flight", async () => {
+  let answer: ((state: unknown) => void) | undefined;
+  const writes: { text: string; generation: number }[] = [];
+  page().cmuxAcpmuxActions = {
+    "chat.readDraft": () => new Promise((resolve) => { answer = resolve; }),
+    "chat.writeDraft": async (state) => { writes.push(state as { text: string; generation: number }); },
+  };
+  await render("generation-paste");
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: {
+    files: [], types: ["text/plain"], getData: (kind: string) => kind === "text/plain" ? "fresh paste" : "",
+  } });
+  await act(async () => host.querySelector('[role="combobox"]')!.dispatchEvent(event));
+  await until(() => prompt() === "fresh paste", "the paste");
+  await act(async () => answer!({ draft: "stale saved text", generation: 0 }));
+  await settle();
+  expect(prompt()).toBe("fresh paste");
+  expect(writes.at(-1)?.text).toBe("fresh paste");
+  expect(writes.at(-1)?.generation).toBeGreaterThan(0);
+});
+
+test("a late update in the same nonzero generation keeps both texts", async () => {
+  const acpmux = daemon({ "generation-same": "saved first" }, 7);
+  await render("generation-same", { draftGeneration: 7 });
+  await type("typed after");
+  await acpmux.connect();
+  await until(() => prompt() === "saved first\n\ntyped after", "same-generation merge");
+  expect(acpmux.generations.get("generation-same")).toBe(7);
+});
+
+test("an intentional clear while loading rejects the old saved generation", async () => {
+  await render("generation-clear");
+  await type("delete this");
+  await act(async () => {
+    host.querySelector('[role="combobox"]')!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
+    markdownField()!.type("");
+  });
+  const acpmux = daemon({ "generation-clear": "older unseen draft" });
+  await acpmux.connect();
+  await settle();
+  expect(prompt()).toBe("");
+  await until(() => !acpmux.held.has("generation-clear"), "clear tombstone to persist");
 });

@@ -23,13 +23,18 @@ export function seededText(current: string, draft: string | undefined): string {
 
 /**
  * Draft merge contract (shared vectors: test/fixtures/composer-draft-merge.json): compare exact
- * UTF-16 units, without normalization. Blank means ECMAScript trim whitespace. A blank saved
+ * UTF-16 units, without normalization. Generations default to zero for legacy drafts. The newer
+ * generation wins without merging; only equal generations follow the text rule below. Intentional
+ * send, clear or replacement advances the generation and persists even an empty tombstone.
+ * Blank means ECMAScript trim whitespace. A blank saved
  * side returns typed; otherwise a blank typed side returns saved. Prefer typed if it contains
  * saved, then saved if it contains typed. Otherwise join saved's longest suffix matching typed's
  * prefix (at least two units); with no such overlap, join saved + "\n\n" + typed. Preserve whitespace.
  * Native AgentUnsentDrafts.merged follows this contract and consumes the same fixture.
  */
-export function mergedDraft(typed: string, saved: string | undefined): string {
+export function mergedDraft(typed: string, saved: string | undefined, typedGeneration = 0, savedGeneration = 0): string {
+  if (typedGeneration > savedGeneration) return typed;
+  if (savedGeneration > typedGeneration) return saved ?? "";
   if (!saved?.trim()) return typed;
   if (!typed.trim()) return saved;
   if (draftMatch(typed, saved).contains) return typed;
@@ -73,8 +78,16 @@ export function hydratedDraft(input: {
   edited: boolean;
   pendingWrite: boolean;
   firstRead: boolean;
+  generation?: number;
+  restoredGeneration?: number;
 }): { text: string; shown: boolean; write: boolean } {
   const { current, restored, edited, pendingWrite, firstRead } = input;
+  const generation = input.generation ?? 0;
+  const restoredGeneration = input.restoredGeneration ?? 0;
+  if (generation !== restoredGeneration) {
+    const text = mergedDraft(current, restored, generation, restoredGeneration);
+    return { text, shown: text !== current, write: generation > restoredGeneration };
+  }
   if (firstRead && restored) {
     const text = mergedDraft(current, restored);
     return { text, shown: text !== current, write: text !== restored };
@@ -99,7 +112,7 @@ let draftDrain: Promise<void> | undefined;
 // goes when its composer leaves the chat or closes (forgetQueuedDraft), or the draft is cleared, so
 // the map holds at most one entry per open composer.
 const lastQueuedDraft = new Map<string, string>();
-const pendingDraftWrites = new Map<string, { sessionId: string; text: string; sequence: number }>();
+const pendingDraftWrites = new Map<string, { sessionId: string; text: string; generation: number; sequence: number }>();
 // WEB-SWAP: a web update's reload waits until acpmux holds every draft (pages/shared/webSwap.ts):
 // a reload before a clear lands would bring the old draft back from acpmux. A write that failed or
 // timed out stays queued, and each ask retries it, so the hold ends once acpmux answers again. A
@@ -206,14 +219,14 @@ async function flushDraftWrites(): Promise<void> {
       // A write that timed out may still land: anything newer waits for its answer (writeTimedOut).
       if (unansweredWrite) break;
       const next = pendingDraftWrites.entries().next().value as
-        | [string, { sessionId: string; text: string; sequence: number }]
+        | [string, { sessionId: string; text: string; generation: number; sequence: number }]
         | undefined;
       if (!next) break;
       const [sessionId, write] = next;
       pendingDraftWrites.delete(sessionId);
       let sent: Promise<unknown> | undefined;
       try {
-        sent = action({ sessionId: write.sessionId, text: write.text });
+        sent = action({ sessionId: write.sessionId, text: write.text, generation: write.generation });
         // A write that never answers would keep this drain, and the web-swap hold, forever.
         await answeredInTime(sent);
       } catch (error) {
@@ -268,40 +281,59 @@ export function hasPendingDraftWrite(sessionId: string | undefined): boolean {
   return Boolean(sessionId && pendingDraftWrites.has(sessionId));
 }
 
-/// Reads the last unsent prompt from the page's synchronous remount cache.
-export function readPersistedDraft(sessionId: string | undefined): string | undefined {
+/** A persisted generation is a nonnegative safe integer; old text-only drafts belong to zero. */
+export function draftGeneration(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+export type DraftVersionKnowledge = { known: boolean; pendingReplacement: boolean };
+function persistedDraftState(sessionId: string | undefined): { text: string; generation: number } & DraftVersionKnowledge {
   const key = persistedDraftKey(sessionId);
-  if (!key) return undefined;
+  if (!key) return { text: "", generation: 0, known: false, pendingReplacement: false };
   try {
-    return composerDraft(globalThis.localStorage?.getItem(key));
+    const raw = globalThis.localStorage?.getItem(`${key}.state-v1`);
+    if (raw != null) {
+      const state = JSON.parse(raw) as { text?: unknown; generation?: unknown; known?: boolean; pendingReplacement?: boolean };
+      return { text: typeof state.text === "string" ? state.text : "", generation: draftGeneration(state.generation), known: state.known !== false, pendingReplacement: state.pendingReplacement === true };
+    }
+    const text = globalThis.localStorage?.getItem(key);
+    return { text: text ?? "", generation: 0, known: text != null, pendingReplacement: false };
   } catch {
-    // Private browsing and test hosts may not provide writable storage.
-    return undefined;
+    return { text: "", generation: 0, known: false, pendingReplacement: false };
   }
 }
 
-/// Stores text typed before the chat's acpmux draft was read in the remount cache only: a remount
-/// (the composer swapped out while the chat loads or reconnects) brings it back, and the read
-/// merges it with acpmux's draft before anything goes to acpmux.
-export function cachePersistedDraft(sessionId: string | undefined, text: string): void {
+export function readPersistedDraftVersion(sessionId: string | undefined): DraftVersionKnowledge {
+  const { known, pendingReplacement } = persistedDraftState(sessionId);
+  return { known, pendingReplacement };
+}
+
+export function readPersistedDraftGeneration(sessionId: string | undefined): number {
+  return persistedDraftState(sessionId).generation;
+}
+
+/// Reads the last unsent prompt from the page's synchronous remount cache.
+export function readPersistedDraft(sessionId: string | undefined): string | undefined {
+  return composerDraft(persistedDraftState(sessionId).text);
+}
+
+/// Text and generation commit atomically, including empty tombstones after a clear or send.
+export function cachePersistedDraft(sessionId: string | undefined, text: string, generation = readPersistedDraftGeneration(sessionId), knowledge = readPersistedDraftVersion(sessionId)): void {
   const key = persistedDraftKey(sessionId);
-  if (!key) return;
+  if (!key || generation < readPersistedDraftGeneration(sessionId)) return;
   try {
-    if (text.trim()) globalThis.localStorage?.setItem(key, text);
-    else globalThis.localStorage?.removeItem(key);
+    globalThis.localStorage?.setItem(`${key}.state-v1`, JSON.stringify({ text, generation, ...knowledge }));
+    globalThis.localStorage?.removeItem(key);
   } catch {
     // A storage failure must never interrupt typing or sending.
   }
 }
 
 /// Stores or clears an unsent prompt in the remount cache and daemon session state.
-export function writePersistedDraft(sessionId: string | undefined, text: string): void {
-  if (!sessionId?.trim()) return;
-  cachePersistedDraft(sessionId, text);
-  // Keep only the newest value per session. This preserves clear-after-type ordering when a
-  // connection is down, without dropping the final clear or sending stale keystrokes on repair.
-  pendingDraftWrites.set(sessionId, { sessionId, text, sequence: ++draftWriteSequence });
-  // A cleared draft is nothing to compare with: its entry goes, so the map holds only live drafts.
+export function writePersistedDraft(sessionId: string | undefined, text: string, generation = readPersistedDraftGeneration(sessionId), knowledge = readPersistedDraftVersion(sessionId)): void {
+  if (!sessionId?.trim() || generation < readPersistedDraftGeneration(sessionId)) return;
+  cachePersistedDraft(sessionId, text, generation, knowledge);
+  pendingDraftWrites.set(sessionId, { sessionId, text, generation, sequence: ++draftWriteSequence });
   if (text) lastQueuedDraft.set(sessionId, text);
   else lastQueuedDraft.delete(sessionId);
   flushPendingDraftWrites();
@@ -332,13 +364,14 @@ export function markDraftRead(sessionId: string | undefined): void {
 /// person typed while the chat loaded replace acpmux's saved draft.
 export async function readDurableDraftState(
   sessionId: string | undefined,
-): Promise<{ draft: string | undefined } | undefined> {
+): Promise<{ draft: string | undefined; generation: number } | undefined> {
   if (!sessionId?.trim()) return undefined;
   try {
     const action = pageDraftAction("chat.readDraft");
     if (!action) return undefined;
-    const draft = daemonDraft(await action({ sessionId }));
-    return { draft };
+    const result = await action({ sessionId });
+    const generation = draftGeneration(result && typeof result === "object" && "generation" in result ? result.generation : 0);
+    return { draft: daemonDraft(result), generation };
   } catch {
     return undefined;
   }

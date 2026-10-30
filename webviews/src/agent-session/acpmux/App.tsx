@@ -791,7 +791,7 @@ const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools",
 /// The composer's text changed: the chat tells acpmux this pane types (never the text itself).
 const postTyping = (text: string, sessionId?: string) =>
   void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
-const postUnsentDraft = (text: string) => callNative("chat.unsentDraft", { text }).catch(() => undefined);
+const postUnsentDraft = (text: string, generation = 0) => callNative("chat.unsentDraft", { text, generation }).catch(() => undefined);
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
 const keptAttachments: KeptAttachments = {
@@ -4640,6 +4640,7 @@ function AcpmuxPane() {
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(false);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
+  const [draftGeneration, setDraftGeneration] = useState<number | undefined>();
   const [newSession, setNewSession] = useState(false);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
@@ -7913,7 +7914,10 @@ function AcpmuxPane() {
         // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
-        if (seeded) setDraft(seeded);
+        if (seeded || typeof host.draftGeneration === "number") {
+          setDraft(seeded);
+          setDraftGeneration(typeof host.draftGeneration === "number" ? host.draftGeneration : 0);
+        }
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
@@ -8492,7 +8496,7 @@ function AcpmuxPane() {
           "chat.hideFind": async () => findRef.current?.hide(),
           // Composer drafts belong to the daemon session so every host can restore them.
           "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
-          "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
+          "chat.writeDraft": ({ sessionId, text, generation }) => client.writeDraft(String(sessionId), String(text ?? ""), Number(generation ?? 0)),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
           "file.search": ({ path, query, limit }) =>
@@ -9681,8 +9685,8 @@ function AcpmuxPane() {
   };
   // Stable, so the composer's unsent-draft throttle is not rebuilt on every render.
   const onNewChatDraft = useCallback(
-    (text: string) => {
-      const sent = postUnsentDraft(text);
+    (text: string, generation: number) => {
+      const sent = postUnsentDraft(text, generation);
       const { harness } = freshPick.current;
       const cwd = freshPick.current.cwd ?? directClient.current?.newChatCwd();
       const target: PrewarmTarget | undefined = cwd ? { ...(harness ? { harness } : {}), cwd } : undefined;
@@ -10373,6 +10377,7 @@ function AcpmuxPane() {
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
+            draftGeneration={draftGeneration}
             // Start Agent's panel keeps a new chat's text with its host too: an update or a quit
             // never takes it (QuickComposerController's drafts). It warms no tab's start.
             onUnsentDraft={quick ? postUnsentDraft : onNewChatDraft}
