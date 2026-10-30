@@ -26,46 +26,43 @@ public final class SidebarChatHistoryFeed {
     /// Pinned's window: the pinned chats, in pin order.
     public nonisolated static let pinnedWindow = "sidebar.history.pinned"
 
-    private var specsTask: Task<Void, Never>?
-    private var stateTask: Task<Void, Never>?
+    private var task: Task<Void, Never>?
 
     /// Follows the setting, acpmux's windows, the lanes, every machine's `workspaces` and the
     /// user's pins from now on; a row opens its chat with `open` (the app's Open Chat path).
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
                       open: @escaping @MainActor (String) -> Void, windows: AcpmuxChatWindows,
                       lanes: AgentLaneStore = .shared, history: SidebarChatHistory = .shared) {
-        guard specsTask == nil else { return }
+        guard task == nil else { return }
         history.onOpen = open
         let earlier = windows.window(Self.earlierWindow)
         let pinned = windows.window(Self.pinnedWindow)
-        let inputs: @MainActor @Sendable () -> Inputs? = {
-            guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
-            return Inputs(live: Self.liveChats(workspaces(), lanes: lanes.lanes, localHost: localHost), pinned: history.pinned,
-                          limit: history.limit, folded: history.earlierFolded)
-        }
-        // task-owner: the app (one feed for the app's life); event-driven (Observation). What the
-        // history shows changed: acpmux gets the windows' new specs.
-        specsTask = Task {
-            for await current in ObservationStream(inputs) {
-                guard let current else {
+        // task-owner: the app (one feed for the app's life); event-driven (Observation). One value
+        // per change of what the history shows besides the index (the windows' specs for acpmux)
+        // or of a window's rows (the state, O(visible rows)).
+        task = Task {
+            for await shown in ObservationStream({ () -> Shown? in
+                guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
+                let inputs = Inputs(live: Self.liveChats(workspaces(), lanes: lanes.lanes, localHost: localHost),
+                                    pinned: history.pinned, limit: history.limit, folded: history.earlierFolded)
+                return Shown(inputs: inputs, state: Self.state(earlier: earlier.rows, pinned: pinned.rows, inputs: inputs))
+            }) {
+                if let shown {
+                    windows.open(shown.inputs.earlierSpec)
+                    windows.open(shown.inputs.pinnedSpec)
+                } else {
                     windows.close(Self.earlierWindow)
                     windows.close(Self.pinnedWindow)
-                    continue
                 }
-                windows.open(current.earlierSpec)
-                windows.open(current.pinnedSpec)
+                if history.state != shown?.state { history.state = shown?.state }
             }
         }
-        // task-owner: the app; event-driven (Observation). A window's rows or the inputs changed:
-        // the history's state, O(visible rows).
-        stateTask = Task {
-            for await state in ObservationStream({ () -> SidebarChatHistoryState? in
-                guard let current = inputs() else { return nil }
-                return Self.state(earlier: earlier.rows, pinned: pinned.rows, inputs: current)
-            }) where history.state != state {
-                history.state = state
-            }
-        }
+    }
+
+    /// The history's inputs and its state from them and the windows' rows.
+    nonisolated struct Shown: Equatable, Sendable {
+        var inputs: Inputs
+        var state: SidebarChatHistoryState
     }
 
     /// What the history shows, besides the index: the chats open workspaces show, the pins, the page.
