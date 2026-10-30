@@ -7910,6 +7910,7 @@ function AcpmuxPane() {
           // A New Tab send may create/select its session inside ensureSession. Route a refusal by
           // the client's current selection generation rather than a render-time hook closure:
           // ensureSession can select before React has rendered the new chat.
+          trustCanceledRoute.current = undefined;
           const sendCancelEpoch = trustCancelEpoch.current;
           let sendOwner = {
             client,
