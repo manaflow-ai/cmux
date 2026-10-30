@@ -59,7 +59,8 @@ struct CloudClassicPageTests {
                 machines.list.append(machine)
                 return machine
             },
-            refusal: { .init(code: "cmux.cloud.failed", message: String(describing: $0)) })
+            refusal: { .init(code: "cmux.cloud.failed", message: String(describing: $0)) },
+            signInFirst: "sign in")
     }
 
     static func provider(_ machines: Machines) -> (CloudPageProvider, CloudClassicPageOps) {

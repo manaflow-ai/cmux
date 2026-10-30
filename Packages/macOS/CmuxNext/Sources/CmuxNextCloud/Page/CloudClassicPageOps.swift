@@ -43,6 +43,8 @@ public final class CloudClassicPageOps {
         public var create: @MainActor (String?, Int?, String?) async throws -> CloudMachine
         /// A classic call's error as the page's refusal.
         public var refusal: @MainActor (any Error) -> Refusal
+        /// What a signed-out op answers, as a person reads it.
+        public var signInFirst: String
 
         public init(signedIn: @escaping @MainActor () -> Bool, team: @escaping @MainActor () -> String?,
                     machines: @escaping @MainActor () -> [CloudMachine], limits: @escaping @MainActor () -> CloudMachineLimits?,
@@ -51,7 +53,7 @@ public final class CloudClassicPageOps {
                     pause: @escaping @MainActor (String) async throws -> Void, rename: @escaping @MainActor (String, String) async throws -> Void,
                     delete: @escaping @MainActor (String) async throws -> Void,
                     create: @escaping @MainActor (String?, Int?, String?) async throws -> CloudMachine,
-                    refusal: @escaping @MainActor (any Error) -> Refusal) {
+                    refusal: @escaping @MainActor (any Error) -> Refusal, signInFirst: String) {
             self.signedIn = signedIn
             self.team = team
             self.machines = machines
@@ -66,6 +68,7 @@ public final class CloudClassicPageOps {
             self.delete = delete
             self.create = create
             self.refusal = refusal
+            self.signInFirst = signInFirst
         }
     }
 
@@ -227,7 +230,7 @@ public final class CloudClassicPageOps {
             let signedIn = backend.signedIn()
             return .auth(signedIn: signedIn, team: signedIn ? backend.team() : nil)
         }
-        guard backend.signedIn() else { throw Refusal(code: "cmux.cloud.auth_required", message: op) }
+        guard backend.signedIn() else { throw Refusal(code: "cmux.cloud.auth_required", message: backend.signInFirst) }
         switch op {
         case "cloud.machine.list":
             if !backend.hasList() { await backend.refresh() }

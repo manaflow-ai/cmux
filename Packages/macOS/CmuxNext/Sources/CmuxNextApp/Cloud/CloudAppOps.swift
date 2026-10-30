@@ -148,7 +148,8 @@ extension CloudClassicPageOps.Backend {
                     return .init(code: "cmux.cloud.plan_required", message: CloudStrings.upgradeRequired)
                 }
                 return .init(code: "cmux.cloud.failed", message: CloudStrings.errorText(error))
-            }
+            },
+            signInFirst: CloudStrings.signInFirst
         )
     }
 }
