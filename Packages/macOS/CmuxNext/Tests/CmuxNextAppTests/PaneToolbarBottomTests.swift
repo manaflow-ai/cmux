@@ -109,4 +109,43 @@ import Testing
         #expect(contentRect.minY == barRect.maxY)
         #expect(bar.toolbarOpensUpward)
     }
+
+    /// A page tab's bar keeps its edge through a pane host 0 high for a moment (a restore): with every
+    /// pin required AppKit broke one of its own choosing, sometimes the bar's own edge pin.
+    @Test func aPagesBarKeepsTheTopThroughACollapsedPane() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.close() }
+        let bar = NSView()
+        bar.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        let content = NSView()
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        // Sized by constraints, as the pane's content host is: a frame-only host lets the page grow to its bar.
+        let host = NSView()
+        host.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(host)
+        let hostHeight = host.heightAnchor.constraint(equalToConstant: root.bounds.height)
+        NSLayoutConstraint.activate([host.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+                                     host.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+                                     host.topAnchor.constraint(equalTo: root.topAnchor), hostHeight])
+        root.layoutSubtreeIfNeeded()
+        let view = InternalPageView(key: "md", page: .homeTab, content: content, topBar: bar)
+        view.frame = host.bounds
+        view.autoresizingMask = [.width, .height]
+        host.addSubview(view)
+        root.layoutSubtreeIfNeeded()
+        let full = hostHeight.constant
+        hostHeight.constant = 0
+        root.layoutSubtreeIfNeeded()
+        #expect(view.frame.height == 0, "the page tab is as high as its host, 0")
+        #expect(bar.convert(bar.bounds, to: nil).height == 40, "the bar keeps its height while the pane is 0 high")
+        hostHeight.constant = full
+        root.layoutSubtreeIfNeeded()
+        let barRect = bar.convert(bar.bounds, to: nil), contentRect = content.convert(content.bounds, to: nil)
+        let all = view.convert(view.bounds, to: nil)
+        #expect(barRect.maxY == all.maxY, "the bar is back at the top")
+        #expect(contentRect.minY == all.minY && contentRect.maxY == barRect.minY)
+    }
 }
