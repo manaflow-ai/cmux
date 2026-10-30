@@ -126,9 +126,6 @@ impl Hub {
         self.retry_turn_inner(session, by, true, true).await
     }
 
-    /// Replays a manual retry whose intent was durable before the daemon stopped. The marker
-    /// already exists, so the replay must not append another one and must not take over a retry
-    /// that Stop settled while the daemon was coming back.
     pub(super) async fn retry_turn_restored(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -150,9 +147,6 @@ impl Hub {
         let (root, attempt) = (root.to_owned(), done + 1);
         let prompt_id = format!("{root}{SUFFIX}{attempt}");
         if record_manual {
-            // The marker is the recovery fence: if the daemon stops before `prompt_with` can
-            // write `queued` or `user_message`, startup can replay this exact retry under the
-            // caller's original rules instead of treating it as settled.
             self.append_quiet(
                 session,
                 "mux",
@@ -216,9 +210,6 @@ impl Hub {
             Err(_) => match turn.await {
                 Ok(Ok(v)) => v,
                 Ok(Err(e)) => {
-                    // The marker was durable before dispatch. If dispatch refuses the
-                    // replacement before `queued`/`user_message`, fence it durably so a restart
-                    // does not replay the same refused retry forever.
                     settle_hub.append_quiet(
                         session,
                         "mux",
@@ -285,7 +276,7 @@ impl Hub {
         session: &Session,
         allow_stopped: bool,
     ) -> Result<(String, String, String), RpcError> {
-        let mut pending = self.auto_resumes.lock();
+        let mut pending = session.auto_resume.lock();
         if session.turn().is_some() || session.queue().iter().any(|q| !q.held) {
             return Err(busy());
         }
@@ -297,7 +288,7 @@ impl Hub {
         else {
             return Err(nothing_failed());
         };
-        match pending.get(&session.id) {
+        match pending.as_ref() {
             // A retry of this turn that waits gives way to this one.
             Some(Mark::Waiting { turn, .. }) if *turn == cut_turn => {}
             // One under way, or one Stop overtook whose task has not ended: never two at once.
@@ -312,8 +303,7 @@ impl Hub {
         if !still_cut(session, &cut_turn) {
             return Err(busy());
         }
-        pending.insert(session.id.clone(), Mark::Firing(cut_turn.clone()));
-        drop(pending);
+        pending.replace(Mark::Firing(cut_turn.clone()));
         Ok((cut_turn, failed, field("errorText").unwrap_or_default()))
     }
 

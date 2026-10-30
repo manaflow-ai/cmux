@@ -91,6 +91,7 @@ session window alone, moved. FAKE_CLAUDE_LIMITS=1 sends them on every prompt.
 import json
 import os
 import sys
+import uuid
 import threading
 
 
@@ -736,7 +737,12 @@ while True:
             at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
             with open(stored(SESSION), "a") as f:
                 f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user", "content": said}}) + "\n")
-                f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}}) + "\n")
+                reply = {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}
+                # FAKE_CLAUDE_TRANSCRIPT_USAGE=1: the reply carries its call's model and usage, as Claude Code's does.
+                if os.environ.get("FAKE_CLAUDE_TRANSCRIPT_USAGE") == "1":
+                    reply.update({"id": "msg_" + uuid.uuid4().hex, "model": "claude-opus-5-5", "usage": {
+                        "input_tokens": 3, "cache_creation_input_tokens": 1000, "cache_read_input_tokens": 200_000, "output_tokens": 50}})
+                f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at, "message": reply}) + "\n")
             # The model's reply takes time: a turn's prompt is never stored in
             # the millisecond its turn ends.
             import time

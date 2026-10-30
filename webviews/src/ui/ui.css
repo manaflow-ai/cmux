@@ -83,6 +83,46 @@
   overflow-y: auto;
 }
 
+/* A select's menu hugs its rows and lines up with its trigger (Leo 2026-10-30, on Settings > Updates'
+   Update Channel menu: "look for wastage"; leo-workspace design/settings.md, "Menus"). It opens at
+   the trigger's left edge (Menu.tsx, align start) and is never narrower than the trigger: Base UI's
+   --anchor-width is the trigger's width. Its rows are AppKit's (design/grid.md 5.3,
+   schemas/menu-metrics): the highlight 5 in from the popup's edge, the checkmark centred on the state
+   column at 10, and, since a select's rows never carry an icon, the text right after it at 22: no
+   empty icon gutter. A row is the menu row token high, with no extra padding above or below. */
+.ui-menu.ui-select-popup {
+  box-sizing: border-box;
+  min-width: max(var(--anchor-width, 0px), 160px);
+  padding: var(--cmux-menu-highlight-inset);
+}
+.ui-menu.ui-select-popup .ui-menu-item {
+  position: relative;
+  box-sizing: border-box;
+  min-height: var(--ui-row-height);
+  padding-block: 0;
+  padding-inline: calc(var(--cmux-menu-state-icon-x) - var(--cmux-menu-highlight-inset))
+    calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+  border-radius: var(--cmux-menu-highlight-radius);
+}
+.ui-menu.ui-select-popup .ui-menu-check {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(
+    var(--cmux-menu-state-x) - var(--cmux-menu-highlight-inset) - var(--cmux-menu-icon-size) / 2
+  );
+  width: var(--cmux-menu-icon-size);
+}
+.ui-menu.ui-select-popup .ui-menu-shortcut {
+  padding-inline-start: var(--cmux-menu-shortcut-gap);
+}
+/* Its glass frosts what is under it (a slider, a number field) instead of letting it read through:
+   the menu tint and blur (desktop.css --ds-glass-menu-*), never opaque. Reduce Transparency still
+   makes it the solid popup surface (glass.css, !important). The lens keeps its own clearer glass. */
+.ui-popup.ui-glass.ui-select-popup {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
+  --glass-backdrop: var(--ds-glass-menu-blur);
+}
+
 /* Large pickers own scrolling in their two columns; the surface itself must stay fixed so opening
    or filtering a list never changes the composer's geometry. */
 .ui-picker-popup {
