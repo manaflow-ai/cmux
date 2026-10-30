@@ -1,5 +1,18 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: `sidebar.groupChromeShape` is an off-by-default band-header prototype. Leo's ask:
+  "our group header is a plain rounded pill with a separate thin line; Chrome's colored header chip
+  and vertical rail are one hot shape, with a clipped/notched join, thicker group-colored rail,
+  rounded cap at the last member, and collapsed groups showing only the chip. Keep our glass look."
+  It joins the header to a 4 pt rail with a clipped shoulder and bounds-following rounded terminal
+  cap. The header reaches left to fit the rail; member columns, nesting step, manual order, glass,
+  quiet header styles and existing defaults stay as shipped. The prototype uses the existing
+  group rows and fold animation. `SidebarGroupChromeShapeTests` and `AAGroupLineGalleryTests`
+  cover its geometry and before/after variants. Structural change: HOLD for dogfood.
+  Default rationale: `sidebar.groupChromeShape` defaults to false, so existing sidebar geometry
+  remains unchanged until explicitly enabled. Expanded parent groups retain a rail through their
+  nested members; the gallery's Agent fleet group is not an exception.
+
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
   tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown
@@ -241,6 +254,9 @@ the gap, no row left out of place after drop or cancel).
 | #23800 row gaps (b4ea25bd03e red, 5ca9bed6440 fix, cbbada1846e drop gap under a block) | One row spacing after groups, folders, the Pinned block and pinned chats; the pin placed by its ink at the rows' content x. `Sidebar-Look: ALL THIS RELATIVELY UNNECESSARY SPACING AFTER GROUPS AND AFTER PINS` (Leo 2026-10-21). Look change: row gaps only; rail, indent, heights and trailing column unchanged (SidebarUniformRowSpacingTests). |
 | spaces-overhaul (a-spaces-overhaul branch: pinned per space red then fix, dot tear-off red then fix) | Spaces overhaul (Lawrence 14223, plans/cmux-next/spaces-overhaul-DESIGN.md). The band draws a workspace item only while the window's space shows that workspace (`SidebarRows.bandHides`): a pin of another space no longer draws, so a click on a pinned row never switches the space (Austin's bug). A space dot dragged out of the window opens the space in a new window (`SidebarIntent.openProfileInNewWindow`); a drop on the footer band still reorders. No visual change; `SectionFlow.swift` untouched. |
 | [350b65e877c](https://github.com/manaflow-ai/cmux/commit/350b65e877c07b91538361f5177b97e486e49d59) | #24295 menu metrics, committed without a `Sidebar-Look:` trailer. Reviewed: its only sidebar change is `SidebarFooterBand.showProfileMenu`, which now themes the profile menu's rows on the menu grid (`themeRows(in:)`) as the sidebar's other menus are (Leo 2026-10-21: "left alignment on the profile settings dropdown/pop i think is similar"). The menu is the only thing drawn differently; the sidebar list, footer, rows and rails do not change. `MenuGridTests`. |
+| [6c1a5ab8bf3](https://github.com/manaflow-ai/cmux/commit/6c1a5ab8bf34) | #24295 again: the squash commit of the menu metrics change logged in the row above. It reached the branch without a `Sidebar-Look:` trailer and changes only `SidebarFooterBand.swift`, as reviewed there. |
+| [4367c16e12c](https://github.com/manaflow-ai/cmux/commit/4367c16e12c2) | #24073 traffic-lights clip: the squash commit of the change logged under "Scrolled rows hide under the traffic lights" as f19e4c28604. It reached the branch without a `Sidebar-Look:` trailer. |
+| [eb8105b0747](https://github.com/manaflow-ai/cmux/commit/eb8105b07475) | #27561 every trailing mark and control on one column and one slot pitch: a reviewed, merged sidebar alignment change that reached the branch without a `Sidebar-Look:` trailer. |
 | Chief drag out (from #23933) | The Chief dragged past the sidebar's side dims its card (the refused look) and its release out there takes it off (`removesOnDragOut`), from the list, a tile or the older band; a just-added Chief draws, moves and comes off before the daemon's echo. No row, rail or indent change. |
 
 ## Every sidebar package commit, Oct 19-23

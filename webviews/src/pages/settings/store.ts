@@ -658,9 +658,14 @@ export class SettingsStore {
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
-  async runAction(action: SettingsPageAction, args: Record<string, unknown> = {}, target?: string): Promise<void> {
-    await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
+  async runAction(
+    action: SettingsPageAction,
+    args: Record<string, unknown> = {},
+    target?: string,
+  ): Promise<Reply<unknown>> {
+    const reply = await this.request("cmux.app.action.run", target ? { action, args, target } : { action, args });
     await this.refreshHost();
+    return reply;
   }
 
   dispose(): void {
