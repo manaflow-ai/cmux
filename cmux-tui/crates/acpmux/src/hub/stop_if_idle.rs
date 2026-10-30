@@ -112,7 +112,7 @@ impl Hub {
     }
 
     /// Stop the session as `kill` does, or refuse when the condition does not hold.
-    pub async fn stop(
+    pub(crate) async fn stop(
         &self,
         session: &Arc<Session>,
         purge: bool,
@@ -126,7 +126,7 @@ impl Hub {
 
     /// `kill`, only when the session is idle (and, with `expect`, still at that revision), checked
     /// and done under the leases every turn, agent start and mode change takes (module docs).
-    pub async fn kill_if_idle(
+    pub(crate) async fn kill_if_idle(
         &self,
         session: &Arc<Session>,
         purge: bool,
