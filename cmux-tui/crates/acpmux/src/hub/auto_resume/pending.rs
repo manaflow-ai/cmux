@@ -22,7 +22,7 @@ impl Hub {
                 return true;
             }
             match e.kind.as_str() {
-                "auto_resume_scheduled" => {
+                "auto_resume_scheduled" | "auto_resume_pending" => {
                     if scheduled.is_none() {
                         scheduled = Some(e.msg);
                     }
@@ -42,7 +42,7 @@ impl Hub {
             return;
         }
         let Some(saved) = scheduled else { return };
-        let Some(at) = saved["nextAt"].as_u64() else { return };
+        let at = saved["nextAt"].as_u64();
         // Old scheduled events lack the original turn's authority: fail closed.
         let Some(control) = saved["control"].as_str().map(str::to_owned) else { return };
         let Some(gate) = saved["trustGate"].as_bool() else { return };
@@ -57,18 +57,16 @@ impl Hub {
         drop(pending);
         let hub = self.clone();
         let session = session.clone();
-        tokio::spawn(async move {
-            let cut = CutTurn {
-                from: from.as_deref(),
-                prompt_id: &prompt,
-                turn_id: &turn,
-                control: Control::from_recorded(Some(&control)),
-                trust_gate: gate,
-                error: &error,
-                not_before: None,
-            };
-            hub.schedule_auto_resume_at(&session, &turn, Some(cut), Some(at)).await;
-        });
+        let cut = CutTurn {
+            from: from.as_deref(),
+            prompt_id: &prompt,
+            turn_id: &turn,
+            control: Control::from_recorded(Some(&control)),
+            trust_gate: gate,
+            error: &error,
+            not_before: None,
+        };
+        hub.schedule_auto_resume_at(&session, &turn, Some(cut), at);
     }
 }
 

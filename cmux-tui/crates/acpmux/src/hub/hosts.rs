@@ -1207,7 +1207,7 @@ impl Hub {
                             .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None, next)
                             .await;
                         // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
-                        hub.schedule_auto_resume(&s, &turn_id, None).await;
+                        hub.schedule_auto_resume(&s, &turn_id, None);
                         if let Some(carried) = &carried {
                             // Its task takes the turn lock once this one lets it go.
                             hub.start_carried(&s, &c, &turn_id, carried, None);
