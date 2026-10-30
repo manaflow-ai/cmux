@@ -259,7 +259,7 @@ public final class EmptyWorkspaceRepair {
         // Disconnected: the next change this repair sees tries again.
         guard canCreate() else { retries.insert(key); return false }
         states[key] = .closing
-        populated[key] = nil
+        let populatedEpoch = populated.removeValue(forKey: key)
         let close = close, cause = cause, create = create
         // task-owner: one decision per emptied workspace; the claim is the state above
         Task {
@@ -283,8 +283,14 @@ public final class EmptyWorkspaceRepair {
             do {
                 try await close(key)
             } catch {
-                // Still open and empty: the next change repairs it instead.
-                if states[key] == .closing { states[key] = nil }
+                // Still open and empty: keep the last-tab-close evidence so the
+                // next change this repair sees closes it again, instead of
+                // refilling it with a terminal (#17632). A reconnect still
+                // drops the evidence (a new epoch).
+                if states[key] == .closing {
+                    states[key] = nil
+                    if let populatedEpoch { populated[key] = populatedEpoch; retries.insert(key) }
+                }
                 logger.error("closing emptied workspace failed: \(String(describing: error), privacy: .public)")
             }
         }
