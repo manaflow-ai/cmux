@@ -250,6 +250,9 @@ function Change({ before, after, strings }: { before?: string; after: string; st
                 {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
               </span>
               {line.text}
+              {line.noNewline ? (
+                <span className="artifacts-no-newline">{strings.t("artifacts.history.noNewline")}</span>
+              ) : null}
             </div>
           ))}
         </div>

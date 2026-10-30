@@ -187,6 +187,13 @@ test("a revision's change keeps three lines of context and splits distant edits"
     "line seventeen",
   ]);
   expect(lineHunks("same\n", "same\n")).toEqual([]);
+  // Only the final newline changed: the last line shows as replaced.
+  const newline = lineHunks("a", "a\n");
+  expect(newline).toHaveLength(1);
+  expect(newline[0]).toEqual([
+    { type: "del", text: "a", noNewline: true },
+    { type: "add", text: "a" },
+  ]);
   expect(lineHunks("", "a\nb\n")).toEqual([
     [
       { type: "add", text: "a" },

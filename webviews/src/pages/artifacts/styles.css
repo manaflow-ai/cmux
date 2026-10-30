@@ -198,6 +198,12 @@ html[data-cmux-page="artifacts"] body { overflow: hidden; }
 .artifacts-line.is-add { background: color-mix(in srgb, light-dark(#1a7f37, #3fb950) 16%, transparent); }
 .artifacts-line.is-del { background: color-mix(in srgb, light-dark(#b42318, #ff7b72) 16%, transparent); }
 
+.artifacts-no-newline {
+  margin-inline-start: var(--ds-space-2);
+  color: var(--page-text-3);
+  font-style: italic;
+}
+
 .artifacts-sign {
   display: inline-block;
   width: 1.5ch;
