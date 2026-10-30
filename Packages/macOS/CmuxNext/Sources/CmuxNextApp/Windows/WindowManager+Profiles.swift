@@ -114,7 +114,10 @@ extension WindowManager {
         }
         let machines = services.machines
         let sources = value.windows.filter { $0.id != state.id && !value.isIncognito($0.id) }
+        // Only workspaces whose space is known move. One no session reports yet (a remote machine
+        // paused or still connecting) shows in every space (`WindowProfiles.visible`); it stays put.
         let moving = sources.flatMap { WindowProfiles.visible($0.workspaceIDs, profile: profile, machines: machines) }
+            .filter { WindowProfiles.qualified($0, machines: machines) != nil }
         // A CLI or MCP run without focus permission moves the workspaces and leaves this window's
         // view alone: it keeps its space and selection (as `RoomHandlers.startNewSpace`).
         let mayShow = ActionRunScope.viewChangeAllowed()
