@@ -5599,20 +5599,25 @@ function AcpmuxPane() {
     if (childRows) return NO_ROWS;
     return (lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current));
   }, [childRows, snapshot.queue]);
-  // Find searches the queued messages too: each is its own row, drawn in the group of waiting
-  // messages (its `joined` names them, chatFind.ts findRowIndex).
-  const findRows = useMemo(
-    () => (queuedRows.length ? [...sourceRows, ...queuedRows] : sourceRows),
-    [sourceRows, queuedRows],
-  );
   const lastPending = useRef<AcpmuxRow | undefined>(undefined);
-  const transcriptRows = useMemo(() => {
+  const pending = useMemo(() => {
     const steers = childRows ? NO_ROWS : (lastTurns.current?.turns.pending ?? NO_ROWS);
     const group = pendingMessagesRow(steers, queuedRows, lastPending.current);
     lastPending.current = group;
-    const rows = group ? [...turnRowsShown, group] : turnRowsShown;
+    return group;
+  }, [childRows, turnRowsShown, queuedRows]);
+  // Find searches the waiting messages as the group draws them: each queued one is its own row (its
+  // `joined` names them, chatFind.ts findRowIndex), and a duplicate the group leaves out
+  // (pendingMessages.ts dedupeMessages) is no match, since nothing draws it to scroll to or open.
+  const findRows = useMemo(() => {
+    const drawn = new Set(pending?.joined);
+    const queued = queuedRows.filter((row) => drawn.has(row.id));
+    return queued.length ? [...sourceRows, ...queued] : sourceRows;
+  }, [sourceRows, queuedRows, pending]);
+  const transcriptRows = useMemo(() => {
+    const rows = pending ? [...turnRowsShown, pending] : turnRowsShown;
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
-  }, [childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
+  }, [childRows, turnRowsShown, pending, btwNotes, btwSnapshot, snapshot.sessionId]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
   // question is open, which acpmux would refuse again.
