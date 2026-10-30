@@ -742,18 +742,24 @@ mod tests {
         let (hub, session) = idle_chat();
         let (finish_done_tx, finish_done_rx) = std::sync::mpsc::channel();
         let (seal_handle_tx, seal_handle_rx) = std::sync::mpsc::channel();
+        let (sealed_before_append_tx, sealed_before_append_rx) = std::sync::mpsc::channel();
         let finish_hub = hub.clone();
         let finish_session = session.clone();
         let finish = std::thread::spawn(move || {
             let seal_hub = finish_hub.clone();
             let seal_session = finish_session.clone();
             super::set_after_finish_replaced_check(Box::new(move || {
+                let (seal_done_tx, seal_done_rx) = std::sync::mpsc::channel();
                 let seal = std::thread::spawn(move || {
                     seal_hub.seal_retry_replacement(&seal_session);
+                    seal_done_tx.send(()).unwrap();
                 });
                 seal_handle_tx.send(seal).unwrap();
-                // Let the replacement contend for the locks before the terminal append.
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                // An append-only fence can complete here, between the replaced check and
+                // the stale terminal append. The ordered fence must wait for finish.
+                sealed_before_append_tx
+                    .send(seal_done_rx.recv_timeout(std::time::Duration::from_millis(100)).is_ok())
+                    .unwrap();
             }));
             finish_hub.finish_auto_resume(
                 &finish_session,
@@ -773,6 +779,7 @@ mod tests {
             finish_done_tx.send(()).unwrap();
         });
         let seal = seal_handle_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        assert!(!sealed_before_append_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
         finish_done_rx
             .recv_timeout(std::time::Duration::from_secs(5))
             .expect("replacement must not block terminal retry admission");
