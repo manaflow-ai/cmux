@@ -1,0 +1,233 @@
+// l10n-allow-file: synthetic file names and host errors for a behavioral regression.
+// An image is its chip once its preview is made, while its original still uploads (composer/
+// intakeFiles.ts). When that upload fails, the chip says so and offers Retry, and the preview
+// still sends; when the person sends or removes the chip, the cancelled upload stays silent.
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { JSDOM } from "jsdom";
+import { act, useImperativeHandle, type Ref } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
+import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
+import {
+  AttachmentStrip,
+  useAttachmentIntake,
+  type AttachmentIntakeOptions,
+} from "../src/agent-session/acpmux/composer/attachmentIntake";
+import { intakeFiles, type IntakeEvents } from "../src/agent-session/acpmux/composer/intakeFiles";
+
+const scope = globalThis as Record<string, unknown>;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "Node",
+  "Element",
+  "MutationObserver",
+  "ResizeObserver",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "createImageBitmap",
+  "OffscreenCanvas",
+] as const;
+const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
+let dom: JSDOM;
+let root: Root | undefined;
+let host: HTMLElement;
+
+beforeAll(() => {
+  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  const { window } = dom;
+  Object.assign(scope, {
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    window,
+    document: window.document,
+    navigator: window.navigator,
+    HTMLElement: window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    Node: window.Node,
+    Element: window.Element,
+    MutationObserver: window.MutationObserver,
+    getComputedStyle: window.getComputedStyle.bind(window),
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+    // The engine's image decoder and canvas, which jsdom lacks (composer/imageWork.ts).
+    createImageBitmap: async () => ({ width: 40, height: 30, close() {} }),
+    OffscreenCanvas: class {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext() {
+        return { drawImage() {}, fillRect() {}, fillStyle: "" };
+      }
+      async convertToBlob({ type }: { type: string }) {
+        return new Blob(["pixels"], { type });
+      }
+    },
+  });
+  host = window.document.getElementById("root")!;
+});
+
+afterEach(() => {
+  act(() => root?.unmount());
+  root = undefined;
+  host.replaceChildren();
+});
+
+afterAll(() => {
+  dom.window.close();
+  for (const [key, had, value] of saved) {
+    if (had) scope[key] = value;
+    else delete scope[key];
+  }
+});
+
+const png = (name: string) => new File(["png"], name, { type: "image/png" });
+
+/// What intake reported, in order.
+function recorder() {
+  const events: string[] = [];
+  const handlers: IntakeEvents = {
+    ready: (index, chip) => events.push(`ready ${index} ${chip.kind}`),
+    failed: (index) => events.push(`failed ${index}`),
+    original: (index, path) => events.push(`original ${index} ${path}`),
+    originalFailed: (index, error) =>
+      events.push(`originalFailed ${index} ${"text" in error ? error.text : error.reason}`),
+  };
+  return { events, handlers };
+}
+
+test("an image whose original's upload fails is reported, after its preview, never as a failed chip", async () => {
+  const { events, handlers } = recorder();
+  const taken = await intakeFiles(
+    [png("shot.png")],
+    { allowImages: true, upload: async (): Promise<UploadResult> => ({ error: "The disk is full." }) },
+    handlers,
+  );
+  expect(events).toEqual(["ready 0 image", "originalFailed 0 The disk is full."]);
+  expect(taken.attachments).toHaveLength(1);
+});
+
+test("an upload that throws or answers no path fails the original too", async () => {
+  for (const upload of [
+    async (): Promise<UploadResult> => {
+      throw new Error("The connection closed.");
+    },
+    async (): Promise<UploadResult> => undefined,
+  ]) {
+    const { events, handlers } = recorder();
+    await intakeFiles([png("shot.png")], { allowImages: true, upload }, handlers);
+    expect(events[0]).toBe("ready 0 image");
+    expect(events[1]?.startsWith("originalFailed 0")).toBe(true);
+  }
+});
+
+test("a cancelled original (its chip sent or removed) stays silent, and a saved one is no failure", async () => {
+  const cancelled = recorder();
+  await intakeFiles(
+    [png("shot.png")],
+    { allowImages: true, cancelled: () => true, upload: async () => ({ error: "cancelled" }) },
+    cancelled.handlers,
+  );
+  expect(cancelled.events).toEqual(["ready 0 image"]);
+  // The upload's own cancellation: the file was taken away while it went, so its path is "".
+  let taken = false;
+  const midway = recorder();
+  await intakeFiles(
+    [png("shot.png")],
+    {
+      allowImages: true,
+      cancelled: () => taken,
+      upload: async () => {
+        taken = true;
+        return { paths: [""] };
+      },
+    },
+    midway.handlers,
+  );
+  expect(midway.events).toEqual(["ready 0 image"]);
+  const ok = recorder();
+  await intakeFiles(
+    [png("shot.png")],
+    { allowImages: true, upload: async () => ({ paths: ["/tmp/shot.png"] }) },
+    ok.handlers,
+  );
+  expect(ok.events).toEqual(["ready 0 image", "original 0 /tmp/shot.png"]);
+});
+
+test("a staged image whose original failed shows Retry beside its preview", () => {
+  const chip: ComposerAttachment = {
+    id: "shot",
+    kind: "image",
+    name: "shot.png",
+    mimeType: "image/png",
+    size: 3,
+    data: btoa("pixels"),
+    originalFailed: "The disk is full.",
+  };
+  const html = renderToStaticMarkup(<AttachmentStrip attachments={[chip]} onRemove={() => {}} onRetry={() => {}} />);
+  expect(html).toContain("<img");
+  expect(html).toContain('class="acpmux-attachment-original-retry"');
+  expect(html).toContain("The disk is full.");
+  // Without a Retry to offer, the preview shows as it did.
+  const plain = renderToStaticMarkup(<AttachmentStrip attachments={[chip]} onRemove={() => {}} />);
+  expect(plain).not.toContain("acpmux-attachment-original-retry");
+});
+
+type Intake = ReturnType<typeof useAttachmentIntake>;
+function Harness({ options, handle }: { options: AttachmentIntakeOptions; handle: Ref<Intake> }) {
+  const intake = useAttachmentIntake(options);
+  useImperativeHandle(handle, () => intake);
+  return (
+    <AttachmentStrip
+      attachments={intake.attachments}
+      pending={intake.pending}
+      onRemove={() => {}}
+      onRetry={intake.retry}
+    />
+  );
+}
+
+/// Resolves once `check` holds after a render (each state change re-renders the harness).
+async function until(check: () => boolean) {
+  for (let turn = 0; turn < 200 && !check(); turn++) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(check()).toBe(true);
+}
+
+test("Retry on a staged image uploads its original again; the preview sends meanwhile", async () => {
+  const answers: UploadResult[] = [{ error: "The disk is full." }, { paths: ["/remote/shot.png"] }];
+  const uploaded: string[][] = [];
+  const options: AttachmentIntakeOptions = {
+    allowImages: true,
+    pasteTarget: () => undefined,
+    upload: async (files) => {
+      uploaded.push(files.map((file) => file.name));
+      return answers.shift();
+    },
+  };
+  const handle: { current: Intake | null } = { current: null };
+  root = createRoot(host);
+  act(() => root!.render(<Harness options={options} handle={handle} />));
+  await act(() => handle.current!.attach([png("shot.png")], true));
+  await until(() => Boolean(handle.current!.attachments[0]?.originalFailed));
+  const chip = handle.current!.attachments[0]!;
+  expect(chip.originalFailed).toBe("The disk is full.");
+  expect(handle.current!.pending).toEqual([]);
+  // The preview still goes as an image block, without its original.
+  expect(promptBlocks("", [chip]).map((block) => block.type)).toEqual(["image"]);
+  const retry = host.querySelector<HTMLButtonElement>(".acpmux-attachment-original-retry");
+  expect(retry).not.toBeNull();
+  act(() => retry!.click());
+  await until(() => handle.current!.attachments[0]?.originalPath === "/remote/shot.png");
+  expect(handle.current!.attachments[0]!.originalFailed).toBeUndefined();
+  expect(uploaded).toEqual([["shot.png"], ["shot.png"]]);
+  expect(host.querySelector(".acpmux-attachment-original-retry")).toBeNull();
+});
