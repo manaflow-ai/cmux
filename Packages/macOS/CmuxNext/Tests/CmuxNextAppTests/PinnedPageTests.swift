@@ -155,10 +155,6 @@ actor AppTestDaemonOwner {
                 return current == process ? nil : true
             }
         }
-        guard let process, process.pid == pid else {
-            // An unverified live pid is evidence to preserve, never permission to signal it.
-            return false
-        }
         let watch = AcpmuxUnresponsiveWatch(clock: ContinuousClock(), process: { pid in
             // Unreadable identity is not proof of exit. The retained audit token still lets
             // the kernel refuse a signal to any replacement process without a pid-only fallback.
