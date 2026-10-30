@@ -3264,7 +3264,13 @@ export class AcpmuxDirectClient {
       early.live.length = 0;
     }
     if (early.sessionId !== this.selectedSessionId) {
-      void this.typed("_acpmux/detach", { sessionId: early.sessionId }).catch(() => undefined);
+      // Once the attach is in: acpmux runs each request on its own task, so a detach sent now could
+      // run before it and leave its subscription behind. Not if the chat was chosen again meanwhile.
+      const detach = () => {
+        if (early.sessionId === this.selectedSessionId || this.closed) return;
+        void this.typed("_acpmux/detach", { sessionId: early.sessionId }).catch(() => undefined);
+      };
+      void early.sent.attaching.then(detach, () => undefined);
       return;
     }
     if (final) return;
