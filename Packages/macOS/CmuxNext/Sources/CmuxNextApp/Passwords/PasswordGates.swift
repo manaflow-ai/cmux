@@ -9,42 +9,42 @@ protocol DeviceOwnerAuthenticating: AnyObject {
     func authenticate(reason: String) async -> Bool
 }
 
+private final class AuthContextBox: @unchecked Sendable {
+    let context: LAContext
+    init(_ context: LAContext) { self.context = context }
+}
+
+private final class AuthReply: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var finished = false
+
+    func install(_ continuation: CheckedContinuation<Bool, Never>) {
+        lock.lock()
+        defer { lock.unlock() }
+        if finished { continuation.resume(returning: false) } else { self.continuation = continuation }
+    }
+
+    func finish(_ answer: Bool) {
+        lock.lock()
+        guard !finished else { lock.unlock(); return }
+        finished = true
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: answer)
+    }
+}
+
 /// LocalAuthentication `deviceOwnerAuthentication`; false when the Mac cannot evaluate it.
 @MainActor
 final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
-    private final class ContextBox: @unchecked Sendable {
-        let context: LAContext
-        init(_ context: LAContext) { self.context = context }
-    }
-
-    private final class Reply: @unchecked Sendable {
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<Bool, Never>?
-        private var finished = false
-
-        nonisolated func install(_ continuation: CheckedContinuation<Bool, Never>) {
-            lock.lock()
-            defer { lock.unlock() }
-            if finished { continuation.resume(returning: false) } else { self.continuation = continuation }
-        }
-
-        nonisolated func finish(_ answer: Bool) {
-            lock.lock()
-            guard !finished else { lock.unlock(); return }
-            finished = true
-            let continuation = self.continuation
-            self.continuation = nil
-            lock.unlock()
-            continuation?.resume(returning: answer)
-        }
-    }
-
     func authenticate(reason: String) async -> Bool {
         let context = LAContext()
-        let contextBox = ContextBox(context)
+        let contextBox = AuthContextBox(context)
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else { return false }
-        let reply = Reply()
+        let reply = AuthReply()
         return await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 reply.install(continuation)
