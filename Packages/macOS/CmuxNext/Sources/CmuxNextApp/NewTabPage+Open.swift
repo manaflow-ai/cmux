@@ -293,3 +293,8 @@ extension NewTabPage {
         }
     }
 }
+
+/// A focused pane gives the native New Tab page's field the keyboard (``InternalPageView/focusTarget``).
+extension NativeNewTabHostingView: InternalPageFocusing {
+    var focusTarget: NSView { fieldView ?? self }
+}
