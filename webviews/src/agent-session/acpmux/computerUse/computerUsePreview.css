@@ -67,7 +67,7 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: default;
+  cursor: pointer;
 }
 .acpmux-cu-preview__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -176,7 +176,7 @@
   border-radius: 50%;
   background: var(--cu-preview-close-fill);
   color: white;
-  cursor: default;
+  cursor: pointer;
 }
 .acpmux-cu-preview__close:hover {
   background: var(--cu-preview-close-hover);
@@ -229,15 +229,15 @@
     }
   }
   /* The cursor glides to each new point as the helper's own cursor does (cmux-cua --glide-ms 150),
-     and each click's ripple grows and fades. */
+     and each click's ripple grows and fades on the motion scale's large step once the glide lands. */
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__arrow,
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__ripple {
-    transition:
+    transition: /* motion-allow: mirrors the helper's own cursor glide (cmux-cua --glide-ms 150) */
       left 150ms var(--agent-ease-out, ease-out),
       top 150ms var(--agent-ease-out, ease-out);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__ripple {
-    animation: acpmux-cu-preview-click 360ms var(--agent-ease-out, ease-out) 150ms both;
+    animation: acpmux-cu-preview-click var(--cmux-motion-large, 240ms) var(--agent-ease-out, ease-out) 150ms both;
   }
   @keyframes acpmux-cu-preview-click {
     from {

@@ -160165,7 +160165,7 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma i Excalidraw zadržavaju zumiranje sa Command + pomicanje"
+            "value": "Figma i Excalidraw zadržavaju zum sa Command + pomicanje"
           }
         },
         "da": {
@@ -160177,25 +160177,25 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma und Excalidraw behalten das Zoomen mit Befehl + Scrollen"
+            "value": "Figma und Excalidraw behalten Zoom mit Befehl + Scrollen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma y Excalidraw conservan el zoom con Comando + desplazamiento"
+            "value": "Figma y Excalidraw: zoom con Comando + desplazamiento"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma et Excalidraw gardent le zoom avec Commande + défilement"
+            "value": "Figma et Excalidraw : zoom avec Commande + défilement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma ed Excalidraw mantengono lo zoom con Comando + scorrimento"
+            "value": "Figma ed Excalidraw: zoom con Comando + scorrimento"
           }
         },
         "ja": {
@@ -160225,7 +160225,7 @@
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma i Excalidraw zachowują powiększanie Command + przewijanie"
+            "value": "Figma i Excalidraw: powiększanie Command + przewijanie"
           }
         },
         "pt-BR": {
@@ -160237,7 +160237,7 @@
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma и Excalidraw сохраняют масштабирование через Command + прокрутку"
+            "value": "Figma и Excalidraw: масштаб через Command + прокрутку"
           }
         },
         "th": {
@@ -160249,19 +160249,19 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma ve Excalidraw, Command + kaydırma ile yakınlaştırmayı korur"
+            "value": "Figma ve Excalidraw'da Command + kaydırma yakınlaştırır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma та Excalidraw зберігають масштабування через Command + прокручування"
+            "value": "Figma та Excalidraw: масштаб через Command + прокручування"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma và Excalidraw giữ thao tác thu phóng bằng Command + cuộn"
+            "value": "Figma và Excalidraw giữ thu phóng bằng Command + cuộn"
           }
         },
         "zh-Hans": {

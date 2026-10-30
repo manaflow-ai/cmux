@@ -108,7 +108,11 @@ await requireBrowserLane("inspector-section-order-browser.test.tsx", async () =>
 
   describe("Session Info's six-dot handles", () => {
     test("every section has one", () => {
-      expect(markup.match(/acpmux-chat-inspector-section__handle/g)?.length).toBe(7);
+      // Counted against the sections the full gallery draws, so a new section (Sources, #25208)
+      // needs no edit here.
+      const sections = markup.match(/<section class="acpmux-chat-inspector-section"/g)?.length ?? 0;
+      expect(sections).toBeGreaterThanOrEqual(8);
+      expect(markup.match(/acpmux-chat-inspector-section__handle/g)?.length).toBe(sections);
     });
 
     test("before any hover the panel's pixels are the panel's without them", async () => {
