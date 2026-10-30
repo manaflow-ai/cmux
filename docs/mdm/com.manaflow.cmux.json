@@ -178,6 +178,12 @@
       "title" : "Show Dictation Button",
       "type" : "boolean"
     },
+    "agentPane.showMachineLoadWarnings" : {
+      "default" : true,
+      "description" : "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu.",
+      "title" : "Show Machine Load Warnings",
+      "type" : "boolean"
+    },
     "agentPane.spellChecking" : {
       "default" : false,
       "description" : "Underlines misspellings and offers system suggestions in the composer.",
