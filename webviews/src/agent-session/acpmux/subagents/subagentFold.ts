@@ -540,7 +540,9 @@ export class SubagentFold {
   }
 
   private retire(identity: ChildIdentity | undefined): void {
-    if (!identity) return;
+    // A start that said neither name nor prompt (`--prompt-file`) has nothing to compare: kept,
+    // it would overlap every later start forever.
+    if (!identity || (!identity.name && !identity.prompt)) return;
     if (this.retiredStarts.some((start) => sameIdentity(start, identity))) return;
     this.retiredStarts.push(identity);
   }
