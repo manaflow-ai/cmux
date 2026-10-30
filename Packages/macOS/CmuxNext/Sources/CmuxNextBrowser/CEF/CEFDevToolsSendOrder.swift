@@ -89,17 +89,24 @@ final class CEFDevToolsSendOrder {
         _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in ticket.waiter = waiter }
     }
 
+    /// Removes the head of `browser`'s line (the line itself once it is empty).
+    private func dropHead(of browser: Int32) {
+        guard var line = lines.removeValue(forKey: browser), !line.isEmpty else { return }
+        line.removeSubrange(..<1)
+        if !line.isEmpty { lines[browser] = line }
+    }
+
     /// `ticket`, the head of `browser`'s line, posted: the one-way calls after it run now, in order, and the next
     /// call that posts in its own turn is woken (one not waiting yet posts when it reaches ``turn(_:of:)``).
     func leave(_ ticket: Ticket, of browser: Int32) {
         guard heads(ticket, of: browser) else { return }
-        lines[browser]?.removeFirst()
+        dropHead(of: browser)
         while let next = lines[browser]?.first {
             if let op = next.op {
                 // It stays at the head while it runs: a call it makes to this browser queues behind it.
                 next.op = nil
                 _ = op()
-                lines[browser]?.removeFirst()
+                dropHead(of: browser)
                 continue
             }
             if let waiter = next.waiter {
