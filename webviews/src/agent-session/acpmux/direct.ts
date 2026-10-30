@@ -6828,16 +6828,23 @@ export class AcpmuxDirectClient {
   }
   private applyPeerStates(): void {
     const peers = [...this.peerEvents.entries()];
+    // A peer the status read lists but an authoritative snapshot omits (removed since, or a row it
+    // could not read) is not connected: with no entry at all the picker would read it as ready.
+    const unlisted = this.peerEvents.authoritative
+      ? Object.fromEntries(this.peers.map((peer) => [peer, false] as const))
+      : this.peerConnected;
     this.peerStates = {
       ...(this.peerEvents.authoritative ? {} : this.peerStates),
       ...Object.fromEntries(peers.map(([peer, link]) => [peer, link.state])),
     };
     this.peerConnected = {
-      ...(this.peerEvents.authoritative ? {} : this.peerConnected),
+      ...unlisted,
       ...Object.fromEntries(peers.map(([peer, link]) => [peer, link.connected])),
     };
     this.peerStatus = {
-      ...(this.peerEvents.authoritative ? {} : this.peerStatus),
+      ...(this.peerEvents.authoritative
+        ? Object.fromEntries(this.peers.map((peer) => [peer, { connected: false }]))
+        : this.peerStatus),
       ...Object.fromEntries(peers.map(([peer, link]) => [peer, { ...this.peerStatus[peer], ...link }])),
     };
   }
