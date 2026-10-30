@@ -133,6 +133,7 @@ struct HomeSearchGlassTests {
     @Test func theTypedTextIsCentredInTheCapsule() throws {
         let home = Self.home()
         let window = NSWindow(contentRect: home.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.contentView = home
         home.layoutSubtreeIfNeeded()
         let field = home.list.searchField

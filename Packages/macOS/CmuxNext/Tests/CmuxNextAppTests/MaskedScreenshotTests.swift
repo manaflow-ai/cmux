@@ -34,6 +34,7 @@ import WebKit
         var chromeRect: NSRect { chrome.convert(chrome.bounds, to: nil) }
 
         func close() {
+            chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
             page.close()
