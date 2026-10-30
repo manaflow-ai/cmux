@@ -10913,7 +10913,7 @@ function AcpmuxPane() {
                   // give the page any draft the composer held before it was replaced.
                   takeDraft={() => {
                     if (!hostFailedEarly.current && !composerStoodIn.current) return undefined;
-                    const waiting = heldBack.current?.pop();
+                    const waiting = composerHandle.current?.draft() ?? heldBack.current?.pop();
                     if (heldBack.current?.length === 0) heldBack.current = undefined;
                     composerStoodIn.current = true;
                     return waiting;

@@ -199,6 +199,8 @@ export const COMPOSER_LABELS = {
 
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
+  /// Reads the current prompt and attachments before the composer is swapped out.
+  draft(): { text: string; attachments: ComposerAttachment[] };
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
   restore(text: string, attachments: ComposerAttachment[]): void;
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
@@ -669,6 +671,12 @@ export function Composer({
   useImperativeHandle(
     handle,
     () => ({
+      draft() {
+        return {
+          text: field.current?.value() ?? textRef.current,
+          attachments: attachmentsRef.current.filter((attachment) => !attachment.shellRun),
+        };
+      },
       restore(restoredText, restoredAttachments) {
         // Put back, not typed: the Enter that sent it says nothing about this change.
         notTyped();
