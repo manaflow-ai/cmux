@@ -1222,6 +1222,9 @@ fn a_whole_chat_list_closes_the_shares_of_chats_it_left_out() {
     // A share created after the list was asked for may be of a chat the list is too old to name.
     crate::server::close_unlisted_chat_shares(&mux, &HashSet::new(), &HashSet::new());
     assert_eq!(state(&mut owner)["state"], "active", "a share newer than the list stays");
+    // A closed page closes only shares older than the list.
+    crate::server::close_listed_chat_shares(&mux, SESSION, &HashSet::new());
+    assert_eq!(state(&mut owner)["state"], "active", "a share newer than a closed page stays");
     crate::server::close_unlisted_chat_shares(&mux, &HashSet::new(), &before);
     assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "closed"}));
     room.request("DELETE");

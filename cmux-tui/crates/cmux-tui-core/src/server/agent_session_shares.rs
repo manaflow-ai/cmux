@@ -718,6 +718,17 @@ pub(crate) fn close_chat_shares(mux: &Mux, session: &str) {
     shares.settle(mux);
 }
 
+/// A page of acpmux's list named `session` closed: its link shares in `before`
+/// ([`open_chat_shares`]) close; one made since, for the chat reopened, stays.
+pub(crate) fn close_listed_chat_shares(mux: &Mux, session: &str, before: &HashSet<String>) {
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let directory = mux.session_state_directory();
+    shares.close_where(directory.as_deref(), |s| {
+        before.contains(&s.share_id) && s.session == session
+    });
+    shares.settle(mux);
+}
+
 /// The ids of the open link shares now: taken before acpmux is asked for its chat list, so the
 /// list's sweep ([`close_unlisted_chat_shares`]) never reaches a share created after it.
 pub(crate) fn open_chat_shares(mux: &Mux) -> HashSet<String> {

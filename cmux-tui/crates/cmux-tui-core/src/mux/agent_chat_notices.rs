@@ -248,11 +248,14 @@ fn read_watch(
                 {
                     listed.insert(session.to_owned());
                 }
+                // A page may be older than a push (the chat reopened meanwhile), and a share made
+                // after the list was asked for is newer than the page: neither closes.
                 if summary.get("peer").is_none_or(Value::is_null)
                     && summary.get("status").and_then(Value::as_str) == Some("closed")
                     && let Some(session) = summary.get("sessionId").and_then(Value::as_str)
+                    && !pushed.contains(session)
                 {
-                    crate::server::close_chat_shares(&mux, session);
+                    crate::server::close_listed_chat_shares(&mux, session, &before);
                 }
                 let Some(next) = Chat::of(summary) else { continue };
                 if pushed.contains(&next.session) {
