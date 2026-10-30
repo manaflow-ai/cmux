@@ -183,6 +183,55 @@ struct UnopenedCloudMachinesTests {
         #expect(registry.isIncognito(ephemeral) && !registry.isIncognito(normal))
     }
 
+    /// Review finding: a held normal workspace shown from an incognito window goes to a normal
+    /// window; in the incognito one, closing it would discard it.
+    @Test func aNormalWorkspaceShownFromAnIncognitoWindowGoesToANormalWindow() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        let session = Self.machine(services, id: "vm-inc", workspaces: ["ws-inc-eph"])
+        try #require(session.daemon.store.workspace(id: "ws-inc-eph")).applyState(ephemeral: true)
+        Self.machine(services, id: "vm-plain", workspaces: ["ws-plain"])
+        services.windows.reconcileMembership()
+        let incognito = try #require(services.windows.reveal(workspaceID: "ws-inc-eph")?.state)
+        try #require(services.windows.registry.value.isIncognito(incognito.id))
+
+        services.windows.show(workspaceID: "ws-plain", in: incognito)
+
+        let owner = try #require(services.windows.registry.value.owner(of: "ws-plain"))
+        #expect(!services.windows.registry.value.isIncognito(owner), "a normal workspace joined an incognito window")
+    }
+
+    /// Review finding: a batch that opens one window with a held normal and a held ephemeral
+    /// workspace (Open Space in New Window) gives each a window of its kind.
+    @Test func aMixedBatchGivesEachHeldWorkspaceAWindowOfItsKind() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        let session = Self.machine(services, id: "vm-batch", workspaces: ["ws-batch-normal", "ws-batch-eph"])
+        try #require(session.daemon.store.workspace(id: "ws-batch-eph")).applyState(ephemeral: true)
+        services.windows.reconcileMembership()
+
+        services.windows.openWindow(workspaces: ["ws-batch-normal", "ws-batch-eph"])
+
+        let registry = services.windows.registry.value
+        let normal = try #require(registry.owner(of: "ws-batch-normal"))
+        let ephemeral = try #require(registry.owner(of: "ws-batch-eph"))
+        #expect(!registry.isIncognito(normal) && registry.isIncognito(ephemeral))
+    }
+
+    /// Review finding: opening a cloned machine files only its own workspaces, never a key it
+    /// shares with another unopened machine (that key resolves to the other machine).
+    @Test func openingACloneFilesNoWorkspaceOfAnotherMachine() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.machine(services, id: "vm-a", workspaces: ["ws-cloned", "ws-a-only"])
+        Self.machine(services, id: "vm-b", workspaces: ["ws-b-only", "ws-cloned"])
+        services.windows.reconcileMembership()
+
+        services.windows.reveal(workspaceID: "ws-b-only")
+
+        #expect(services.windows.registry.value.owner(of: "ws-a-only") == nil, "opening the clone opened the other machine")
+    }
+
     // MARK: Fixtures
 
     static func services() -> AppServices {
