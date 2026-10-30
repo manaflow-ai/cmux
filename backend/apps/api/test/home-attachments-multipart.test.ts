@@ -721,6 +721,7 @@ describe("Home attachments: a stale part write that lands after a newer one neve
     vi.useRealTimers()
     expect((await m.putPart(2)).status).toBe(200)
     const done = await m.complete()
+    console.log(JSON.stringify({ probe: "stale-write-last", status: done.status, code: done.json.error?.code ?? done.json.value?.state }))
     if (done.status === 200) expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
     else expect(done.status).toBeGreaterThanOrEqual(400)
   })
