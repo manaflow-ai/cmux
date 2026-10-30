@@ -6609,22 +6609,24 @@ function AcpmuxPane() {
   // the same agents: the last one stays while nothing the pill shows changed, so a snapshot that
   // streams text redraws neither the pill nor a subagent row.
   const producerProgress = agentProgressSource(snapshot.rows);
-  // Native/preview bridges have full snapshots rather than producer metadata. Only that
-  // compatibility path reconciles a full list; direct streaming publishes each changed id.
+  // Direct snapshots carry only changed progress values from the event fold. The bridge store
+  // applies those ids without rebuilding a row list or joining every agent on usage updates.
   const bridgeProgress = useMemo(() => new AgentProgressStore(), [shownSessionId]);
-  const bridgeStructure = useMemo(() => {
-    if (producerProgress) return undefined;
-    return freshAgents.map((agent) => [agent.id, agent.name, agent.parent, agent.kind,
-      agent.state, agent.action, agent.actionShell, agent.endedAt, agent.agentId,
-      agent.harness, agent.task, agent.startedAt, agent.background, agent.command, retryKey(agent)].join("\u0000")).join("\u0001");
-  }, [producerProgress, freshAgents]);
+  const bridgeInitialized = useRef(false);
   useLayoutEffect(() => {
-    if (!producerProgress) bridgeProgress.update(freshAgents);
-  }, [producerProgress, bridgeProgress, freshAgents]);
+    if (producerProgress) return;
+    if (!bridgeInitialized.current) {
+      bridgeInitialized.current = true;
+      bridgeProgress.update(freshAgents);
+      return;
+    }
+    for (const [id, progress] of Object.entries(snapshot.subagentProgress ?? {}))
+      bridgeProgress.updateProgress(id, progress);
+  }, [producerProgress, bridgeProgress, freshAgents, snapshot.subagentProgress]);
   const progressStore = producerProgress ?? bridgeProgress;
-  const structureVersion = producerProgress?.structureVersion ?? bridgeStructure;
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- usage updates have keyed subscriptions
-  const chatAgents = useMemo(() => freshAgents, [structureVersion, progressStore, shownSessionId]);
+  const structureVersion = snapshot.subagentStructureVersion ?? shownSessionId;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- usage updates use keyed subscriptions
+  const chatAgents = useMemo(() => freshAgents, [structureVersion, shownSessionId]);
   // A subagent draws no tool row (subagents/subagentFold.ts swallows the call that started it), so
   // a running foreground subagent holds Ctrl-B by itself.
   const foregroundAgent =

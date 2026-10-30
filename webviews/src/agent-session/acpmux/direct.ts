@@ -5048,12 +5048,16 @@ export class AcpmuxDirectClient {
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
     const publishedRows = this.rows.sorted();
-    markAgentProgressSource(publishedRows, this.subagents.progressSource);
+    const progressSource = this.subagents.progressSource;
+    markAgentProgressSource(publishedRows, progressSource);
+    const changedProgress = progressSource.takeChangedProgress();
     this.listener({
       type: "snapshot",
       protocolVersion: 1,
       rows: publishedRows,
       subagentViews: this.subagents.views(),
+      ...(Object.keys(changedProgress).length > 0 ? { subagentProgress: changedProgress } : {}),
+      subagentStructureVersion: progressSource.structureVersion,
       sessions: this.sessions.map((session) => {
         let entry = this.sessionEntries.get(session);
         if (!entry) {
