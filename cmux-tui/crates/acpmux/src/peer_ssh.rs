@@ -7,7 +7,7 @@ use tokio::io::AsyncReadExt;
 const LIMIT: usize = 8 * 1024;
 
 pub(super) fn reason(bytes: &[u8]) -> Option<&'static str> {
-    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(LIMIT)]).to_ascii_lowercase();
+    let text = String::from_utf8_lossy(bytes.get(..LIMIT).unwrap_or(bytes)).to_ascii_lowercase();
     [
         ("could not resolve hostname", "Could not resolve hostname (DNS lookup failed)"),
         ("host key verification failed", "Host key verification failed"),
@@ -50,8 +50,8 @@ impl Capture {
                 if n == 0 {
                     break;
                 }
-                let keep = n.min(LIMIT - saved.len());
-                saved.extend_from_slice(&chunk[..keep]);
+                let keep = n.min(LIMIT.saturating_sub(saved.len()));
+                saved.extend_from_slice(chunk.get(..keep).unwrap_or_default());
             }
             reason(&saved)
         }))
