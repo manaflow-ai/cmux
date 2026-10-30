@@ -781,8 +781,9 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-command-toggle{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:pointer;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-permission-command-toggle:hover{color:var(--agent-text)}
 .acpmux-permission-command-toggle:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:3px}
-/* Proposed edits never push the answer buttons out of the pane: a diff scrolls inside its own frame,
-   so its header and border stay whole, and several files together stop at 40vh. */
+/* Proposed edits (permissions/ProposedEdits.tsx, on the inline card and the grouped panel) never push
+   the rest of the ask out of view: a diff scrolls inside its own frame, so its header and border stay
+   whole, and several files together stop at 40vh. */
 .acpmux-permission-edits{max-height:40vh;min-height:0;overflow:auto;overscroll-behavior:contain}
 .acpmux-permission-edits .cv-edit-diff__body{max-height:calc(40vh - var(--cv-font-size,14px)*32/14 - 14px);overflow:hidden auto}
 .acpmux-permission-ask .acpmux-permission-buttons{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:12px}
