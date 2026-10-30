@@ -148,21 +148,47 @@ def legacy_publish(repo: str, number: int, line: str, comments: list[dict], paus
     if line not in lines:
         lines.append(line)
     old = pr_status.bot_comments(comments, MARKER)
-    if old:
-        body = old[0]["body"]
+    remaining = list(dict.fromkeys(lines))
+    wrote = False
+    for comment in old:
+        body = comment["body"]
         changed = False
-        for item in lines:
+        for item in remaining[:]:
             updated = updated_body(body, item)
-            if updated is not None:
-                body, changed = updated, True
-        if not changed:
-            return "unchanged"
-        status_api("PATCH", f"repos/{repo}/issues/comments/{old[0]['id']}", {"body": body})
-    else:
-        body = f"{MARKER}\nShipped in:\n" + "\n".join(lines) + "\n"
+            if updated is None:
+                remaining.remove(item)
+            elif len(updated) <= pr_status.LIMIT:
+                body = updated
+                remaining.remove(item)
+                changed = True
+            else:
+                break
+        if changed:
+            status_api("PATCH", f"repos/{repo}/issues/comments/{comment['id']}", {"body": body})
+            time.sleep(pause)
+            wrote = True
+
+    # A legacy comment can be full, or several old comments can collectively
+    # hold more history than one GitHub comment permits. Split only the missing
+    # lines into bounded new comments rather than merging existing comments.
+    while remaining:
+        body = f"{MARKER}\nShipped in:\n"
+        added = []
+        for item in remaining:
+            candidate = body + item + "\n"
+            if len(candidate) > pr_status.LIMIT and added:
+                break
+            body = candidate
+            added.append(item)
+        if not added:  # publication lines are short, but avoid a stuck loop.
+            added.append(remaining.pop(0))
+            body += added[0] + "\n"
+        else:
+            del remaining[:len(added)]
         status_api("POST", f"repos/{repo}/issues/{number}/comments", {"body": body})
-    time.sleep(pause)
-    return "written"
+        time.sleep(pause)
+        wrote = True
+    return "written" if wrote else "unchanged"
 
 
 def git_subjects(since: str, head: str) -> list[str]:

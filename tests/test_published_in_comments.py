@@ -220,6 +220,29 @@ class PublishedInTests(unittest.TestCase):
         patched = calls[-1][2]["body"]
         self.assertTrue(all(item in patched for item in (old, concurrent, new)))
 
+    def test_overflow_fallback_never_merges_legacy_comments_past_cap(self):
+        first_lines = [module.build_line(f"a{i}", "https://x/a", "a" * 40) for i in range(800)]
+        second_lines = [module.build_line(f"b{i}", "https://x/b", "b" * 40) for i in range(800)]
+        new = module.build_line("v-new", "https://x/new", "c" * 40)
+        legacy = lambda lines: module.MARKER + "\nShipped in:\n" + "\n".join(lines)
+        comments = [
+            {"id": 1, "body": legacy(first_lines), "user": {"login": "github-actions[bot]"}},
+            {"id": 2, "body": legacy(second_lines), "user": {"login": "github-actions[bot]"}},
+        ]
+        calls = []
+
+        def api(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                return comments
+
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            self.assertEqual(module.legacy_publish("o/r", 7, new, comments, 0, new), "written")
+        payloads = [payload["body"] for method, _, payload in calls if method in {"PATCH", "POST"}]
+        self.assertTrue(payloads)
+        self.assertTrue(all(len(body) <= module.pr_status.LIMIT for body in payloads))
+        self.assertIn(new, "\n".join(payloads))
+
     def test_duplicate_legacy_is_deleted_when_status_already_has_line(self):
         line = module.build_line("v1", "https://x/v1", "a" * 40)
         comments = [
