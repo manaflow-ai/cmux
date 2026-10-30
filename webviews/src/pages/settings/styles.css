@@ -850,7 +850,6 @@ mark {
 .host-footer,
 .host-actions {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   margin-top: 8px;
@@ -912,7 +911,6 @@ mark {
 
 .host-field {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -925,30 +923,29 @@ mark {
   width: 240px;
 }
 
-/* Clear Browsing Data keeps each control readable at narrow settings widths. The refusal belongs
-   below the controls, so it never competes with their labels for a flex line. */
-.host-field[data-clear-browsing-data] > .row-help:first-child {
-  flex: 0 0 120px;
-  width: 120px;
-  overflow: visible;
-  text-overflow: clip;
+/* Wrap complete controls rather than shrinking their labels in narrow profile editors. */
+.host-field[data-clear-browsing-data] {
+  flex-wrap: wrap;
 }
 
-.host-field[data-clear-browsing-data] > label.row-help {
+.host-field[data-clear-browsing-data] > .row-help {
   flex: 0 0 auto;
   width: auto;
+  max-width: 100%;
   overflow: visible;
+  white-space: normal;
+  overflow-wrap: normal;
   text-overflow: clip;
 }
 
 .host-field[data-clear-browsing-data] > .field {
-  flex: 0 1 170px;
-  width: 170px;
-  min-width: 120px;
+  flex-shrink: 0;
+  max-width: 100%;
 }
 
 .host-field[data-clear-browsing-data] > .host-actions {
-  flex: 1 1 100%;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
   min-width: 0;
 }
 

@@ -593,12 +593,12 @@ Object.assign(variants, {
   "clear-refused": variant("browser", {
     options: { failing: { "cmux.app.action.run": "cmux.browser.clear_refused" } },
     note: "Clear Browsing Data refusal, scrolled into view for the captured row.",
+    steps: [click('[data-profile="p-work"] .host-toggle'), wait(".host-form"), click("[data-clear]")],
     play: async (ctx) => {
-      await ctx.click({ selector: '[data-profile="p-work"] .host-toggle' });
-      await ctx.waitFor(() => ctx.document.querySelector(".host-form"));
-      await ctx.click({ selector: "[data-clear]" });
-      await ctx.waitFor(() => ctx.document.querySelector("[data-gallery-capture]"));
-      ctx.find({ selector: "[data-gallery-capture]" }).scrollIntoView({ block: "center" });
+      await ctx.waitFor(() => ctx.document.querySelector("[data-clear-error]"));
+      const field = ctx.find({ selector: "[data-clear-browsing-data]" });
+      field.setAttribute("data-gallery-capture", "");
+      field.scrollIntoView({ block: "center" });
     },
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
