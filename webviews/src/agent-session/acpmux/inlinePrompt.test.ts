@@ -420,8 +420,9 @@ test("a mixed draft marks only the attachment it placed in the text", async () =
   const { inlinePrompt } = await import("./inlinePrompt");
   const built = inlinePrompt(`look${inlineToken("one")} here`, [image("one"), { ...image("two"), name: "two.png" }])!;
   // Each image sends its original after it (a companion file of the same name).
-  const placedBy = (parts: readonly { name?: string; placed?: true }[]) =>
-    [...new Set(parts.flatMap((part) => (part.name ? [`${part.name}:${part.placed ?? "-"}`] : [])))];
+  const placedBy = (parts: readonly { name?: string; placed?: true }[]) => [
+    ...new Set(parts.flatMap((part) => (part.name ? [`${part.name}:${part.placed ?? "-"}`] : []))),
+  ];
   expect(placedBy(built.parts.filter((part) => part.kind !== "text") as { name?: string; placed?: true }[])).toEqual([
     "one.png:true",
     "two.png:-",
