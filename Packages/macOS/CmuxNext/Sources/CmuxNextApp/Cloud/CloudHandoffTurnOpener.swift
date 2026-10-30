@@ -20,7 +20,7 @@ struct CloudHandoffTurnOpener {
     /// The page's runner for every pane (``AgentPageChats/seed(_:)``): `view` is the pane that asked.
     /// The pane's chat and its machine are read before the store's calls and again after them: an
     /// answer for a pane that moved to another chat or machine meanwhile names no turn and starts no
-    /// watch.
+    /// watch. The gate (``refusal(_:)``) is read before any store call, so a refused ask posts nothing.
     static func runner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, String) async -> [String: Any] {
         { [weak tabs, weak services] view, session in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
@@ -35,7 +35,8 @@ struct CloudHandoffTurnOpener {
             guard let before = place() else { return AgentPaneReply.failure(code: "not_cloud", message: "not_cloud") }
             let opened = await CloudHandoffTurnOpener(services: services).reply(session: session, machine: before.machine)
             guard case .turn(let id, let number) = opened else { return Self.answer(opened) }
-            guard let after = place(), after.tab == before.tab, after.machine == before.machine else {
+            // A team switch meanwhile leaves no current list: the turn is not named under it.
+            guard refusal(services) == nil, let after = place(), after.tab == before.tab, after.machine == before.machine else {
                 return AgentPaneReply.failure(code: "not_cloud", message: "not_cloud")
             }
             services.agentTabs.pageChats.handoffNotices?.watch(handoff: id, session: session, host: before.host)
@@ -113,12 +114,23 @@ struct CloudHandoffTurnOpener {
         return .refused("handoff.turn_conflict")
     }
 
-    /// Why no hand-off turn opens at all now: Cloud off by policy, Labs off, or not signed in (the
-    /// codes a Sandboxed send answers, ``AgentPageChats/wireSandbox(_:services:)``).
+    /// Why no hand-off turn opens at all now: Cloud off by policy, Labs off, not signed in (the
+    /// codes a Sandboxed send answers, ``AgentPageChats/wireSandbox(_:services:)``), or a machine
+    /// list not loaded for the account signed in now (``CloudService/hasLoadedCurrentMachines``).
     static func refusal(_ services: AppServices) -> String? {
-        if services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud { return "cloud_disabled" }
-        if services.settings?.snapshot.previewFeatures != true { return "labs_off" }
-        return services.cloud.isSignedIn ? nil : "not_signed_in"
+        refusal(cloudAllowed: !services.registry.disabledFeatures.contains(.cloud) && services.cloud.mayCallCloud,
+                labs: services.settings?.snapshot.previewFeatures == true,
+                signedIn: services.cloud.isSignedIn, loadedCurrent: services.cloud.hasLoadedCurrentMachines)
+    }
+
+    /// ``refusal(_:)`` over what it reads. After a team switch the previous team's machines stay in
+    /// the store until this team's list lands, and the store's create checks only the machine id's
+    /// shape: a hand-off is never made for a machine of a list not loaded for the account now.
+    nonisolated static func refusal(cloudAllowed: Bool, labs: Bool, signedIn: Bool, loadedCurrent: Bool) -> String? {
+        if !cloudAllowed { return "cloud_disabled" }
+        if !labs { return "labs_off" }
+        if !signedIn { return "not_signed_in" }
+        return loadedCurrent ? nil : "machines_unread"
     }
 
     /// The store's own refusal code (`handoff.closed`, `rate_limited`, …), the only text the page gets.
