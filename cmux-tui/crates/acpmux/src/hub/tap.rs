@@ -218,9 +218,11 @@ impl Hub {
                             tap_hub.observe_task_line(&tap_session, line);
                         }
                         // Raw stream-json line; translated messages follow. Claude's echo of a
-                        // prompt (`--replay-user-messages`) carries its model-sized copies.
+                        // prompt (`--replay-user-messages`) carries its model-sized copies, and
+                        // its assistant and user lines the bodies those messages carry.
                         let mut line = params.clone().unwrap_or(Value::Null);
                         crate::model_copies::scrub_logged(&mut line);
+                        crate::claude_stdio::leave_out_bodies(&kind, &mut line);
                         return tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
