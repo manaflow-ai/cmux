@@ -3196,6 +3196,50 @@ class NightlyRetryDestination(unittest.TestCase):
         self.assertTrue(any(line.startswith("moving the held nightly job at the watch limit") for line in lines), lines)
 
 
+    def test_from_the_last_move_attempt_a_held_nightly_waits_on_its_owned_pool(self):
+        # Each move re-runs the picker, which queues on the owned pool again while Blacksmith stays stalled: from
+        # NIGHTLY_LAST_MOVE_ATTEMPT on the job is held untimed and left queued there at the watch limit.
+        for attempt, moves in ((rescue.NIGHTLY_LAST_MOVE_ATTEMPT - 1, True), (rescue.NIGHTLY_LAST_MOVE_ATTEMPT, False)):
+            with self.subTest(attempt=attempt):
+                clock = Clock()
+                api = self.api(self.jobs(), {}, blacksmith_snapshot(queued=40, running=0, oldest=30))
+                target = dataclasses.replace(self.TARGET, attempt=attempt)
+                lines = []
+                with unittest.mock.patch.object(rescue, "watch", return_value=("rescue", "build-nightly-app queued")):
+                    outcome, reason, _ = rescue.hold_for_destination(
+                        api, target, "rescue", "build-nightly-app queued", budget_seconds=30, floor_seconds=30,
+                        deadline=START + dt.timedelta(hours=2), now=clock.now, sleep=clock.sleep,
+                        log=lines.append, seen={})
+                self.assertEqual(rescue.nightly_moves(target), moves)
+                if moves:
+                    self.assertEqual(outcome, "rescue")
+                    self.assertLess(clock.seconds, rescue.NIGHTLY_HOLD_SECONDS + 2 * rescue.STALL_RECHECK_SECONDS)
+                else:
+                    self.assertEqual((outcome, reason), ("stop", "watch limit reached"))
+
+    def test_a_late_attempt_whose_build_is_off_the_owned_pools_is_not_watched_on(self):
+        started = START + dt.timedelta(minutes=10)
+        before, after = (START + dt.timedelta(minutes=1)).isoformat(), (START + dt.timedelta(minutes=12)).isoformat()
+        picker_kept = {**job("pick-nightly-build-runner", status="completed", runner="linux"), "started_at": before}
+        picker_new = {**picker_kept, "started_at": after}
+        build_bs = {**job("build-nightly-app", labels=[self.LARGE]), "started_at": None}
+        build_owned = {**job("build-nightly-app", labels=[self.SIDE]), "started_at": None}
+        self.assertTrue(rescue.nightly_build_off_owned([picker_kept, build_bs], started))
+        self.assertTrue(rescue.nightly_build_off_owned([picker_new, build_bs], started))
+        self.assertFalse(rescue.nightly_build_off_owned([picker_new, build_owned], started))
+        self.assertFalse(rescue.nightly_build_off_owned([picker_new], started))  # the build is not listed yet
+        self.assertFalse(rescue.nightly_build_off_owned([], started))
+        # watch() ends such an attempt at once past SIGN_RESCUE_LAST_ATTEMPT; up to it, its signing stalls keep it.
+        clock = Clock()
+        api = self.api([], {}, None)
+        api.attempt, api.rerun_jobs = rescue.SIGN_RESCUE_LAST_ATTEMPT + 1, lambda s: [picker_kept, build_bs]
+        target = dataclasses.replace(self.TARGET, attempt=rescue.SIGN_RESCUE_LAST_ATTEMPT + 1,
+                                     attempt_started_at=started)
+        outcome, reason = rescue.watch(api, target, budget_seconds=600, deadline=START + dt.timedelta(hours=2),
+                                       now=clock.now, sleep=clock.sleep, log=lambda _: None)[:2]
+        self.assertEqual((outcome, reason), ("stop", f"attempt {target.attempt}'s build is not on a persistent pool"))
+        self.assertEqual(clock.seconds, rescue.FIRST_LOOK_SECONDS)  # its first look
+
 class Nightly(unittest.TestCase):
     """nightly.yml's app build takes the trusted owned pool on attempt 1 of main's push and schedule runs."""
 
@@ -4152,6 +4196,25 @@ class Sweeper(unittest.TestCase):
                                     log=lambda text: None, sweep_seconds=ticks * 60, tick_seconds=60,
                                     wait=clock.sleep, running_code=running)
         return clock, watched, outcomes
+
+    def test_a_re_run_whose_jobs_read_failed_is_adopted_on_a_later_tick(self):
+        run = dict(nightly_event(head_branch="nightly-next")["workflow_run"], id=7, run_attempt=4,
+                   status="in_progress")
+
+        class API(SweepAPI):
+            fails = rescue.READ_ATTEMPTS  # every retry of the first adoption's read
+
+            def jobs(self, run_id, attempt):
+                if API.fails:
+                    API.fails -= 1
+                    raise urllib.error.URLError("down")
+                return []
+
+            def nightly_reruns(self, count):
+                return [(7, 4)]
+        with unittest.mock.patch.object(rescue, "SIDE_FAILURE_TICKS", 1):
+            watched, _ = self.sweep(API([run]), ticks=3)
+        self.assertEqual(watched, [(7, 4, False)])
 
     def test_hands_over_once_main_s_code_changes(self):
         api = CodeSweepAPI([listed(1)], picker=[1], changes_after=1)
