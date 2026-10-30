@@ -282,6 +282,12 @@ fn after_current_slot(
     if super::home_store::live_home(transaction)?.is_some_and(|(_, home)| home == current) {
         return Ok(None);
     }
+    // Pinned workspaces live in the separate pinned section. They are not a valid anchor for
+    // `afterCurrent`; the app's top fallback and the daemon must agree so Cmd-N stays one pass.
+    let pins = read_pins(transaction)?;
+    if pins.iter().any(|pin| pin.session_id == local && pin.workspace_key == current) {
+        return Ok(None);
+    }
     let rows = read_workspaces(transaction)?
         .into_iter()
         .filter(|row| !(row.session_id == local && placed.contains(&row.workspace_key)))
@@ -296,7 +302,6 @@ fn after_current_slot(
     // a workspace pinned to another room (the app pins before it creates)
     // goes to the top instead.
     let room = read_groups(transaction)?.into_iter().find(|candidate| candidate.id == group);
-    let pins = read_pins(transaction)?;
     let elsewhere = placed.iter().any(|key| {
         pins.iter().any(|pin| {
             pin.session_id == local
