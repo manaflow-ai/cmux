@@ -114,7 +114,7 @@ test("a render that finishes after a newer one never replaces the chart Save exp
   // The earlier source's render completes late, after the newer one drew and enabled Save.
   releaseOld();
   await settle();
-  expect(container.querySelectorAll("svg").length).toBe(1);
+  expect(container.querySelectorAll(".cv-diagram__chart svg").length).toBe(1);
   await act(async () => saveButton()!.click());
   expect(String(calls.at(-1)!.params.text)).toContain('data-source="new"');
   expect(String(calls.at(-1)!.params.text)).not.toContain('data-source="old"');

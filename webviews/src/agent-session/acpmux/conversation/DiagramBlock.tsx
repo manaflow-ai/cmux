@@ -54,8 +54,7 @@ export function DiagramBlock({ lang, code, actions }: { lang: string; code: stri
     // write into its own, which is gone by then, so it never replaces the chart Save would export.
     const host = target.ownerDocument.createElement("div");
     target.append(host);
-    const drawing =
-      mode === "mermaid" ? renderMermaid(libraries, code, host) : renderVega(libraries, mode, code, host);
+    const drawing = mode === "mermaid" ? renderMermaid(libraries, code, host) : renderVega(libraries, mode, code, host);
     drawing.then(
       () => {
         if (live) setDrawn(true);
