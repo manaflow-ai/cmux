@@ -236,6 +236,7 @@ export function useFolderTrustAsk(
         ready: boolean;
         authorityEpoch: number;
         ownerEpoch: number;
+        bindsFolder?: string;
         visitValue: unknown;
         generation: number;
       }
@@ -564,7 +565,7 @@ export function useFolderTrustAsk(
     // session id and folder happen to match.
     if (
       held.authorityEpoch !== authorityEpoch ||
-      (held.ownerEpoch !== ownerEpoch && !held.cwds.includes(cwd)) ||
+      (held.ownerEpoch !== ownerEpoch && !(held.bindsFolder === cwd && held.ownerEpoch + 1 === ownerEpoch)) ||
       held.visitValue !== visitValue ||
       !sameVisit() ||
       !sameAuthority()
@@ -669,6 +670,7 @@ export function useFolderTrustAsk(
             ready: false,
             authorityEpoch,
             ownerEpoch,
+            bindsFolder: !cwd ? refusedFolder : undefined,
             visitValue,
             generation: resendGeneration.current,
           });

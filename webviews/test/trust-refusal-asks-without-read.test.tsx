@@ -207,3 +207,16 @@ test("a throwing trust retry shows the failed trust question instead of escaping
   expect(latest!.ask).toMatchObject({ cwd: peerFolder, state: "failed" });
   expect(latest!.blocked?.reason).toBe("trust.answerFirst");
 });
+
+test("a refusal binds a previously unknown folder without dropping its retry", async () => {
+  const { source } = slowPeer();
+  function Folderless() {
+    latest = useFolderTrustAsk(source, { sessionId: "folderless-retry", prompts: 0 }, true, false);
+    return null;
+  }
+  await act(async () => root.render(<Folderless />));
+  let resent = 0;
+  await act(async () => latest!.refused({ reason: "trust.pending", cwd: peerFolder }, () => resent++));
+  await act(async () => latest!.trust());
+  expect(resent).toBe(1);
+});
