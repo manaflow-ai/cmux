@@ -11,7 +11,7 @@ extension DaemonService {
     public nonisolated func debugRequestLatencyMethod() -> ControlMethod {
         .snapshot("debug.daemon_requests") { [requestLatency] call in
             // Before the local connection starts (or with a remote daemon): no requests yet.
-            let snapshot = requestLatency.withLock { $0 }?.snapshot() ?? DaemonRequestLatency().snapshot()
+            let snapshot = requestLatency.probe?.snapshot() ?? DaemonRequestLatency().snapshot()
             // The control socket's own JSON type, made without naming it (CmuxNextDaemon has a JSONValue too).
             var report = call.params.filter { _ in false }
             report["bounds_us"] = .array(snapshot.boundsMicroseconds.map { .number(Double($0)) })

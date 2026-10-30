@@ -102,7 +102,7 @@ public final class DaemonService {
     }
     /// The local connection's daemon-request probe (``newRequestLatency()``), set by `start(launch:…)`;
     /// `debug.daemon_requests` reads it off the main actor.
-    nonisolated let requestLatency = Mutex<DaemonRequestLatency?>(nil)
+    nonisolated let requestLatency = RequestLatencySlot()
     private nonisolated static let launchMarkSink = Mutex<@Sendable (String) -> Void>({ _ in })
 
     /// Fires `retryWake` when the app becomes active.
@@ -181,7 +181,7 @@ public final class DaemonService {
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
         // The prestart's connection records into its probe; later connections record into the same one.
         let latency = prestart.map(\.requestLatency) ?? Self.newRequestLatency()
-        requestLatency.withLock { $0 = latency }
+        requestLatency.set(latency)
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey,
