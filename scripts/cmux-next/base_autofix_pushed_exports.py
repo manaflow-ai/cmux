@@ -21,6 +21,11 @@ base-autofix-land.sh already judges.
   lookup ...              find, verify and unpack a pack for the autofix (the consumer), waiting a
                           bounded time for this push's generated-files job to make one
 
+The base tier path is for cmuxterm-hq#5424 fix 1, which moves generated files and daemon tests off
+each push into a `cmux-next base tier · <sha>` dispatch (cmux-next-base-tier-kick.yml). Until a tree
+has that kick, no run carries that name and `lookup` never waits for one: every pack comes from push
+runs, as here. Once it lands, the same code takes the base tier run's pack with no further change.
+
 `lookup` only takes a pack from this repository's own push runs of cmux-next.yml on feat-cmux-next
 whose head is the pack's commit (only their generated-files or folded daemon-test job makes one, after every regeneration
 rewrote every export; the job itself may still be red for a stale export, which is what the autofix
