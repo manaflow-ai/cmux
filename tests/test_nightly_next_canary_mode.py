@@ -156,7 +156,11 @@ class VerdictDurabilityTests(unittest.TestCase):
             full = {"PATH": f"{path}:/usr/bin:/bin" if path else "/usr/bin:/bin", "GITHUB_OUTPUT": str(output),
                     "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary"), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                     "GITHUB_RUN_ID": "1", **env}
-            result = subprocess.run(["bash", "-c", script], env=full, capture_output=True, text=True, timeout=60)
+            # A run step with no `shell:` runs under GitHub's default bash, with errexit on.
+            step_file = Path(tmp) / "step.sh"
+            step_file.write_text(script)
+            result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", str(step_file)],
+                                    env=full, capture_output=True, text=True, timeout=60)
             return result, output.read_text()
 
     def record(self, app: str, app_class: str = "") -> str:
