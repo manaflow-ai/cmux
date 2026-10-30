@@ -68,6 +68,16 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(row.bottom).toBeLessThanOrEqual(pinned.trayBottom + 0.5);
             expect(row.hit).toBe(true);
           }
+          const duration = await page.locator(".acpmux-running-tray__head .acpmux-running-tray__time").evaluate((node) => {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const lines = [...range.getClientRects()];
+            const box = node.getBoundingClientRect();
+            return { lines: lines.length, textRight: lines[0]!.right, right: box.right, overflow: node.scrollWidth - node.clientWidth };
+          });
+          expect(duration.lines).toBe(1);
+          expect(duration.textRight).toBeLessThanOrEqual(duration.right + 0.5);
+          expect(duration.overflow).toBeLessThanOrEqual(1);
           if (process.env.CMUX_TRAY_CAPTURE_DIR) {
             await mkdir(process.env.CMUX_TRAY_CAPTURE_DIR, { recursive: true });
             const clip = await page.evaluate(() => {

@@ -430,7 +430,7 @@ button.cv-subagent > :last-child {
   /* Longest rendered duration is `12h 59m 59s`; keep one stable track for every row. */
   container-type: inline-size;
   container-name: running-tray;
-  --acpmux-tray-time-width: 80px;
+  --acpmux-tray-time-width: calc(80px * var(--cmux-interface-scale, 1));
   --acpmux-tray-status-width: 96px;
   --acpmux-tray-stop-width: 24px;
   box-sizing: border-box;
