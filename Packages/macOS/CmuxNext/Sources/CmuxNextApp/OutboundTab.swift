@@ -35,6 +35,10 @@ final class OutboundTab {
 
     private weak var pane: PaneController?
     private let key: ObjectIdentifier
+    /// Home's own creators select their new tab before the move callback runs. Keep that
+    /// selection hidden in the source dock until the move completes; other outbound opens
+    /// preserve the normal "a person selected it" release behavior.
+    private let holdSelectionUntilLanded: Bool
     /// The pane's tabs when the open began.
     private let known: Set<String>
     /// The tab's surface, once the open names it.
@@ -54,9 +58,10 @@ final class OutboundTab {
     private var landed = false
     private let timer = DemandTimer(owner: "OutboundTab")
 
-    private init(pane: PaneController) {
+    private init(pane: PaneController, holdSelectionUntilLanded: Bool) {
         self.pane = pane
         key = ObjectIdentifier(pane)
+        self.holdSelectionUntilLanded = holdSelectionUntilLanded
         known = Set(pane.pane.tabs.map(\.id))
         timer.schedule(after: Self.answerLimit) { @MainActor [weak self] in
             // Not named yet (slow, refused or failed): the pane's new tabs show; a late answer still hides its own.
@@ -107,6 +112,7 @@ final class OutboundTab {
     /// The tab `pane` shows or waits to select: never the open's (made unselected).
     private func shownByPane(_ tab: TabModel) -> Bool {
         guard let pane else { return false }
+        if holdSelectionUntilLanded && !landed { return false }
         return tab.surface == pane.pendingSelectSurface || tab.id == pane.pendingSelectTab || tab.id == pane.stripModel.selectedID?.rawValue
     }
 
@@ -181,10 +187,10 @@ final class OutboundTab {
     }
 
     /// Starts leaving out of `pane`'s strip the tab about to be made there for a move to the side.
-    static func begin(in pane: PaneController) -> OutboundTab {
+    static func begin(in pane: PaneController, holdSelectionUntilLanded: Bool = false) -> OutboundTab {
         // Opens of closed panes go now, not at their timers (collected first: `drop()` edits `open`).
         for tab in open.values.joined().filter({ $0.pane == nil }) { tab.drop() }
-        let tab = OutboundTab(pane: pane)
+        let tab = OutboundTab(pane: pane, holdSelectionUntilLanded: holdSelectionUntilLanded)
         open[tab.key, default: []].append(tab)
         return tab
     }

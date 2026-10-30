@@ -110,6 +110,20 @@ import Testing
         #expect(Self.listed(pane) == [Self.home], "the new tab opened in Home's strip on its way right")
     }
 
+    /// Home's terminal and page creators select their provisional tab before their async creation
+    /// callback moves it. That selection is an instruction for the destination, not permission to
+    /// reveal the tab in Home's source strip.
+    @Test func homeDockOutboundHoldIgnoresPreMoveSelection() throws {
+        let (services, pane, state) = try Self.pane(Self.homeDock([Self.home]))
+        defer { withExtendedLifetime(state) { pane.teardown() } }
+        let outbound = OutboundTab.begin(in: pane, holdSelectionUntilLanded: true)
+        pane.selectWhenReported(surface: Self.link)
+        services.daemon.store.apply(snapshot: Self.homeDock([Self.home, Self.link]))
+        #expect(OutboundTab.hidden(in: pane).contains(Self.link))
+        outbound.finish(moved: true)
+        #expect(OutboundTab.hidden(in: pane).contains(Self.link))
+    }
+
     /// A lone chat's link (Leo: "it plays the opening animation on the main window and then opens the
     /// tab on the right split"): the tab stays in the chat's pane, which becomes the column right of
     /// the chat's new dock. While the chat is still there the strip leaves the tab out; once the chat

@@ -33,7 +33,9 @@ enum HomeDockOpens {
     static func placing(_ pane: PaneModel, services: AppServices, focus: Bool, target: FocusState.Target = .content,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard opensBeside(pane, services: services) else { return then }
-        let outbound = services.paneController(for: pane).map { OutboundTab.begin(in: $0) }
+        let outbound = services.paneController(for: pane).map {
+            OutboundTab.begin(in: $0, holdSelectionUntilLanded: true)
+        }
         return { [weak services] surface in
             then?(surface)
             guard let services else { outbound?.finish(moved: false); return }
