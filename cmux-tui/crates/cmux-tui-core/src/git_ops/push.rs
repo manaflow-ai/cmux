@@ -28,6 +28,7 @@ use super::user_run::{UserGit, UserRun, deadline};
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.push";
 /// git's exit code for `fatal:` errors: connection, credentials, protocol.
@@ -196,7 +197,7 @@ fn push(
     if let Some((previous, _)) = summary.split_once("..")
         && let Some(previous) = repository.commit(previous)
     {
-        value["previous_remote_commit"] = json!(previous);
+        value.set("previous_remote_commit", json!(previous));
     }
     Ok(value)
 }
@@ -349,7 +350,7 @@ fn classified(git: &UserGit<'_>, line: Option<&str>, run: &UserRun) -> ResourceE
     };
     let mut extra = output_extra(&format!("{summary}\n{output}"));
     if !summary.is_empty() {
-        extra["ref_status"] = json!(summary);
+        extra.set("ref_status", json!(summary));
     }
     refused(OPERATION, reason, message, extra)
 }

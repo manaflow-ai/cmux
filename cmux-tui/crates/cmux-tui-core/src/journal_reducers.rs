@@ -77,6 +77,16 @@ fn agent_source_from_str(value: &str) -> Option<AgentSource> {
     })
 }
 
+/// The roster state a hook of `kind` sets on its own. A failed tool call's error (Claude's
+/// `PostToolUseFailure`) sets none: a working agent works on, and a waiting one resumes only
+/// through `resumes_blocked_turn` (#22995).
+pub(crate) fn hook_kind_state(kind: &str, native_event: Option<&str>) -> Option<AgentState> {
+    if kind == "agent.error.reported" && crate::agent_hooks::is_tool_failure(native_event) {
+        return None;
+    }
+    state_for_hook_kind(kind)
+}
+
 /// The lifecycle state a hook journal kind implies, or `None` for kinds
 /// that carry no top-level transition (child agents, unclassified changes).
 pub(crate) fn state_for_hook_kind(kind: &str) -> Option<AgentState> {
@@ -873,7 +883,7 @@ impl AgentRoster {
                         .hook_fences
                         .get(terminal_id)
                         .is_none_or(|fence| fence.wait_answered_by(hook));
-            let state = match state_for_hook_kind(event.kind) {
+            let state = match hook_kind_state(event.kind, event.native_event()) {
                 Some(state) => state,
                 None if resumes && waiting() => AgentState::Working,
                 None => return Vec::new(),

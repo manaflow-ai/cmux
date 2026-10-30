@@ -92,7 +92,10 @@ fn a_failed_tool_call_keeps_the_agent_working() {
         states(&mux, surface.id, &terminal_id),
         (AgentState::Working, "working".to_string())
     );
-    assert!(mux.resource_notifications(16).is_empty(), "a failed tool call needs no attention");
+    // The failed call reports its error for the Feed without blocking the agent.
+    let posted = mux.resource_notifications(16);
+    assert_eq!(posted.len(), 1, "the failed tool call's error: {posted:?}");
+    assert_eq!(posted[0].title, "Claude reported an error");
 
     append("StopFailure", "f-5", serde_json::json!({}));
     assert_eq!(

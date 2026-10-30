@@ -625,9 +625,10 @@ fn semantic_kind(
             _,
             "permissionrequest" | "permissionasked" | "preapprovalrequest" | "ontoolpermission",
         ) => "agent.approval.requested",
-        // A failed tool call (PostToolUseFailure) is a tool result the agent reads and
-        // works on; only a failed turn reports an error and waits.
-        (_, "stopfailure" | "onerror" | "error") => "agent.error.reported",
+        // A failed tool call (PostToolUseFailure) reports its error for the Feed, but it is a
+        // tool result the agent reads and works on: `hook_kind_state` keeps the agent's state
+        // (#22995); only a failed turn's error blocks it.
+        (_, "stopfailure" | "onerror" | "error" | "posttoolusefailure") => "agent.error.reported",
         (_, "sessionend" | "onsessionend" | "onsessionfinalize" | "sessionshutdown") => {
             "agent.session.ended"
         }
@@ -676,10 +677,21 @@ pub(crate) fn is_post_tool_event(event: &str) -> bool {
 /// (#22995). The hook projector and the roster fold both move a `blocked` hook agent
 /// back to `working` on it; any other state stays as it was.
 pub(crate) fn resumes_blocked_turn(kind: &str, native_event: Option<&str>) -> bool {
-    kind == "agent.state.changed"
-        && native_event
-            .map(semantic_key)
-            .is_some_and(|event| is_pre_tool_event(&event) || is_post_tool_event(&event))
+    let event = native_event.map(semantic_key);
+    match kind {
+        "agent.state.changed" => {
+            event.is_some_and(|event| is_pre_tool_event(&event) || is_post_tool_event(&event))
+        }
+        // A failed tool call ran in the turn too: it answers the wait like its success.
+        "agent.error.reported" => is_tool_failure(native_event),
+        _ => false,
+    }
+}
+
+/// A hook of a tool call that failed (Claude's `PostToolUseFailure`), journaled as
+/// `agent.error.reported` so the Feed shows its error.
+pub(crate) fn is_tool_failure(native_event: Option<&str>) -> bool {
+    native_event.map(semantic_key).as_deref() == Some("posttoolusefailure")
 }
 
 fn is_resumable_opencode_interruption(source: &str, native_event: &str, native: &Value) -> bool {

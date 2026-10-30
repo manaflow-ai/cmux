@@ -31,6 +31,30 @@ nonisolated extension AcpmuxPaneMethods {
             "peers": .list(.object([
                 "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
                 "state": .string, "lastSeen": .number, "attempts": .number,
+                // The same cached, one-minute health reading the native remote-machine sidebar
+                // displays. Keep only values needed for a warning and the budget verdict;
+                // URLs, host labels, disk readings and session counts stay out of the page.
+                "health": .object([
+                    "unsupported": .bool,
+                    "load": .list(.number),
+                    "cpus": .number,
+                    "ram": .object(["freeBytes": .number]),
+                    "pressure": .object([
+                        "cores": .number,
+                        "load_limit": .number,
+                        "ok": .bool,
+                        "over": .list(.string),
+
+                    ]),
+                ]),
+            ])),
+        ]),
+        // Reconnect returns the same safe peer state needed by the offline copy's banner. The
+        // relay derives transport from `url` and drops the endpoint and all other metadata.
+        "_acpmux/peer_reconnect": .object([
+            "peers": .list(.object([
+                "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
+                "state": .string, "lastSeen": .number, "attempts": .number, "error": .string,
             ])),
         ]),
     ]

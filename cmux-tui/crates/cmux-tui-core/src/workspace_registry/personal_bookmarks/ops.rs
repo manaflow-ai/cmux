@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 
 use super::super::{WorkspaceMutation, WorkspaceRegistry};
 use super::*;
+use cmux_json::JsonSet as _;
 
 // MARK: Ops on a transaction
 
@@ -448,7 +449,7 @@ impl WorkspaceRegistry {
                 key.origin
             );
             let mut result: Value = serde_json::from_str(&result)?;
-            result["replayed"] = json!(true);
+            result.set("replayed", json!(true));
             return Ok(BookmarkOutcome { result, changed: None });
         }
         let (mut result, changed) = apply_op(&tx, op)?;
@@ -460,7 +461,7 @@ impl WorkspaceRegistry {
             None => None,
         };
         tx.commit()?;
-        result["replayed"] = json!(false);
+        result.set("replayed", json!(false));
         Ok(BookmarkOutcome { result, changed })
     }
 }

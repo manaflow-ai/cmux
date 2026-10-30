@@ -14,7 +14,9 @@ public actor TerminalAttachment: TerminalByteChannel {
         /// With `attach-identity-v1` the daemon resolves the terminal by its
         /// public resource id (`term_…`, the tab's `terminal_resource_id`,
         /// not the 32-hex `terminal_id`) and validates the generation instead
-        /// of trusting a possibly stale numeric surface.
+        /// of trusting a possibly stale numeric surface. A target from an
+        /// earlier generation (made before the daemon restarted) attaches by
+        /// the id at the daemon's current generation, never by its old surface.
         public var terminalResourceID: ResourceID?
         public var generation: DaemonGeneration?
 
@@ -184,8 +186,16 @@ public actor TerminalAttachment: TerminalByteChannel {
         ], timeout: DaemonConnection.defaultRequestTimeout)
         let identity = try WireCoding.decodeResponse(IdentifyRequest.Response.self, from: replies[0].get().line)
         _ = try replies[1].get()
+        var target = target
         let useIdentity = identity.supports("attach-identity-v1") && target.terminalResourceID != nil
-            && target.generation == identity.generation
+        if useIdentity, let terminal = target.terminalResourceID, target.generation != identity.generation {
+            // A target made before the daemon restarted (a restored pane): the `term_` id is the
+            // same terminal, but its numeric surface is the old owner's (each restart renumbers
+            // them), and asking for it failed every retry with "unknown surface". The daemon
+            // resolves the id to the current surface; the first `vt-state` names it.
+            target = .unplaced(terminalResourceID: terminal, generation: identity.generation)
+            resolvedSurface.value.withLock { $0 = Self.unresolvedSurface }
+        }
         if target.surface == Self.unresolvedSurface, !useIdentity {
             // Only the identity pair can name a terminal with no tab.
             throw DaemonError.missingCapabilities(["attach-identity-v1"])

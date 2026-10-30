@@ -30,6 +30,13 @@ extension InternalPageView: PaneFirstPaintGated {
 }
 
 extension PaneContentView {
+    /// Re-applies page visibility after an outer alpha hold is released (for example, launch
+    /// reveal). Chromium lives in a child window and does not observe that alpha transition.
+    func refreshChromiumVisibility() {
+        guard let content else { return }
+        PageWebView.syncChromiumVisibility(in: content)
+    }
+
     /// Whether `view` replacing `hosted` waits for its first frame.
     func holdsForFirstPaint(_ view: NSView?, replacing hosted: NSView?) -> Bool {
         PanePaintHold.holds(view, replacing: hosted)
@@ -54,6 +61,7 @@ extension PaneContentView {
             let keptStrip = holdKeepsStrip
             holdKeepsStrip = false
             refreshContentFrame()
+            refreshNativeToolOwner()
             guard keptStrip else { return }
             needsLayout = true
             layoutSubtreeIfNeeded()

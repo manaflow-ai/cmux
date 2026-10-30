@@ -62,6 +62,19 @@ export type StackTokenStore =
   | { readonly accessToken: string; readonly refreshToken: string }
   | { readonly headers: { get(name: string): string | null } };
 
+/** A team as listed for a user: enough to render a team switcher row. */
+export type StackTeamSummary = {
+  readonly id: string;
+  readonly displayName: string;
+  readonly profileImageUrl: string | null;
+};
+
+/** The teams a user belongs to, read fresh from Stack, and their selected team. */
+export type StackUserTeams = {
+  readonly teams: readonly StackTeamSummary[];
+  readonly selectedTeamId: string | null;
+};
+
 export type TeamStackApp = {
   getTeam(teamId: string): Promise<StackTeam | null>;
   getUser(userId: string): Promise<StackUser | null>;
@@ -76,6 +89,8 @@ export type TeamStackApp = {
    * user. Null when Stack does not know the user.
    */
   listUserContactChannels(userId: string): Promise<readonly StackContactChannel[] | null>;
+  /** Every team the user is a member of, paged to the end. Null when Stack does not know the user. */
+  listUserTeams(userId: string): Promise<StackUserTeams | null>;
 };
 
 /** Adapt the SDK app; the adapter picks `getUser`'s by-id overload explicitly. */
@@ -88,7 +103,45 @@ export function defaultTeamStackApp(): TeamStackApp {
     listTeamMemberPermissions: (teamId, options) => app.listTeamMemberPermissions(teamId, options),
     getAuthJson: (options) => app.getAuthJson(options),
     listUserContactChannels: (userId) => listStackUserContactChannels(userId),
+    listUserTeams: async (userId) => {
+      const user = await app.getUser(userId);
+      if (!user) return null;
+      return {
+        teams: await listAllUserTeamPages((options) => user.listTeams(options)),
+        selectedTeamId: user.selectedTeam?.id ?? null,
+      };
+    },
   };
+}
+
+const USER_TEAM_PAGE_SIZE = 100;
+const MAX_USER_TEAM_PAGES = 20;
+
+type StackTeamPage = readonly StackTeamSummary[] & { readonly nextCursor?: string | null };
+
+/**
+ * Walk a user's team pages. A repeated cursor or more than
+ * `MAX_USER_TEAM_PAGES` pages throws, so a broken pagination chain fails the
+ * request instead of returning a silently partial list.
+ */
+export async function listAllUserTeamPages(
+  listPage: (options: { cursor?: string; limit: number }) => Promise<StackTeamPage>,
+): Promise<StackTeamSummary[]> {
+  const teams: StackTeamSummary[] = [];
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_USER_TEAM_PAGES; page++) {
+    const result = await listPage({ ...(cursor ? { cursor } : {}), limit: USER_TEAM_PAGE_SIZE });
+    for (const team of result) {
+      teams.push({ id: team.id, displayName: team.displayName, profileImageUrl: team.profileImageUrl ?? null });
+    }
+    const next = result.nextCursor?.trim();
+    if (!next) return teams;
+    if (seen.has(next)) throw new Error("Stack team pagination repeated a cursor");
+    seen.add(next);
+    cursor = next;
+  }
+  throw new Error("Stack team pagination exceeded its page limit");
 }
 
 /**
