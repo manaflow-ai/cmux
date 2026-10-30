@@ -660,7 +660,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     var reducesMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
 
     private func scroll(to target: CGPoint, animated: Bool) {
-        if animated {
+        if animated, !reducesMotion() {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a
             // blank band and stale fragments for ~300 ms). Cut to one screen short of the
             // target, then animate only that last screen.
