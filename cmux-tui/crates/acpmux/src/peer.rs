@@ -36,6 +36,10 @@ mod state_tests;
 #[path = "peer_restart_tests.rs"]
 mod restart_tests;
 
+#[cfg(test)]
+#[path = "peer_handshake_tests.rs"]
+mod handshake_tests;
+
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -174,6 +178,8 @@ pub struct Peer {
     features: StdMutex<Vec<String>>,
     /// The peer lists `session-messages-v1`: its prompt acceptances name the message they kept.
     session_messages: AtomicBool,
+    /// The peer lists `personStop` (`server/requests/person_stop.rs`).
+    pub(crate) person_stop: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -260,6 +266,7 @@ impl Peer {
             session_auth: AtomicBool::new(false),
             features: StdMutex::new(Vec::new()),
             session_messages: AtomicBool::new(false),
+            person_stop: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -1182,7 +1189,7 @@ impl Peer {
         // Handshake in a task so the read loop below can serve the responses.
         let me = self.clone();
         let (stale_tx, mut stale_rx) = oneshot::channel::<String>();
-        let handshake = tokio::spawn(async move {
+        let mut handshake = tokio::spawn(async move {
             let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}});
             // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
             if me.github_broker() {
@@ -1212,24 +1219,24 @@ impl Peer {
                 .pointer("/_meta/acpmux/personInstance")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
-            let advertised =
-                init.pointer("/_meta/acpmux/features").and_then(Value::as_array).is_some_and(
-                    |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
-                ) || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
-            me.trust_gate.store(advertised, Ordering::SeqCst);
             let lists = |feature: &str| {
                 init.pointer("/_meta/acpmux/features")
                     .and_then(Value::as_array)
                     .is_some_and(|features| features.iter().any(|f| f.as_str() == Some(feature)))
             };
-            me.file_put.store(lists(crate::hub::FILE_PUT_FEATURE), Ordering::SeqCst);
-            let chunks = lists(crate::hub::file_uploads::CHUNKS_FEATURE);
-            me.file_put_chunks.store(chunks, Ordering::SeqCst);
-            me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
-            me.subagent_transcript
-                .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
-            let auth = lists(crate::hub::session_auth::FEATURE);
-            me.session_auth.store(auth, Ordering::SeqCst);
+            let advertised = lists("trustGate")
+                || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
+            me.trust_gate.store(advertised, Ordering::SeqCst);
+            let set =
+                |flag: &AtomicBool, feature: &str| flag.store(lists(feature), Ordering::SeqCst);
+            set(&me.file_put, crate::hub::FILE_PUT_FEATURE);
+            set(&me.file_put_chunks, crate::hub::file_uploads::CHUNKS_FEATURE);
+            set(&me.media_read, crate::hub::MEDIA_READ_FEATURE);
+            set(&me.subagent_transcript, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE);
+            set(&me.session_auth, crate::hub::session_auth::FEATURE);
+            set(&me.person_stop, crate::hub::cancel::PERSON_STOP_FEATURE);
+            // The rest are read from the list (`lists`): attachments, uploads, upload status,
+            // and holding a prompt for the owner.
             let listed = init.pointer("/_meta/acpmux/features").and_then(Value::as_array);
             let listed = listed.into_iter().flatten().filter_map(Value::as_str);
             *me.features.lock_or_recover() = listed.map(str::to_owned).collect();
@@ -1241,12 +1248,20 @@ impl Peer {
                 });
             me.session_messages.store(messages, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
-            me.link_request_on(
-                method::MUX_WATCH,
-                json!({"enabled": true, "withTools": true}),
-                Some(link),
-            )
-            .await?;
+            let watch = |tools| json!({"enabled": true, "withTools": tools});
+            match me.link_request_on(method::MUX_WATCH, watch(true), Some(link)).await {
+                // A list too large to send with tools (big-red's, 17 MB with 5241 rows, on
+                // 2026-10-30) is read without them: the link connects with its rows' tools
+                // missing rather than never. A peer on this build leaves its peers' rows out
+                // of a link's list (`server/list_reply.rs` `watch`), so its list stays small.
+                Err(e) if too_large(&e) => {
+                    tracing::warn!(peer = %me.name, "the watch list is too large with tools ({}); reading it without them", e.message);
+                    me.link_request_on(method::MUX_WATCH, watch(false), Some(link)).await?;
+                }
+                answer => {
+                    answer?;
+                }
+            }
             // Connected only now, and ready with it, so its state note follows `connected`.
             // `run` moves the epoch on before it clears `connected` and takes the link down, so
             // a link that dropped meanwhile is seen here: it is not made ready again, and never
@@ -1286,6 +1301,7 @@ impl Peer {
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
         let mut stale_settled = false;
+        let mut handshake_ended = false;
         let mut ticks: u64 = 0;
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
@@ -1332,6 +1348,25 @@ impl Peer {
                     stale_settled = true;
                     if let Ok(why) = stale {
                         break Err(why);
+                    }
+                }
+                // A handshake that ended without making the link ready ends the link now, with
+                // why: a step the peer refused (or that failed on this link), a stale token, a
+                // link that dropped meanwhile, or a task that panicked. The deadline below would
+                // only say the handshake timed out.
+                ended = &mut handshake, if !handshake_ended => {
+                    handshake_ended = true;
+                    match ended {
+                        Ok(Err(e)) => break Err(format!("handshake failed: {}", e.message)),
+                        Err(e) => break Err(format!("handshake failed: {e}")),
+                        Ok(Ok(())) if !self.link().is_ready() => {
+                            // The stale-token path sends its reason before it returns.
+                            if !stale_settled && let Ok(why) = stale_rx.try_recv() {
+                                break Err(why);
+                            }
+                            break Err("handshake ended before the link was ready".to_owned());
+                        }
+                        Ok(Ok(())) => {}
                     }
                 }
                 _ = &mut handshake_deadline, if !self.link().is_ready() => {
@@ -1505,6 +1540,12 @@ fn watch_sessions(reply: &Value) -> Vec<Value> {
         .filter(|session| !is_mirrored_session(session))
         .cloned()
         .collect()
+}
+
+/// Whether `e` is a reply too large to send (`RpcError::too_large`).
+fn too_large(e: &RpcError) -> bool {
+    e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
+        == Some("message.too_large")
 }
 
 /// The waits before each reread of a remote that has no peer token yet
@@ -1832,6 +1873,10 @@ mod remote_config_tests {
         assert_eq!(split_remote_read(&read).1, Some(good));
     }
 }
+
+#[cfg(test)]
+#[path = "peer_briefs_tests.rs"]
+mod briefs_tests;
 
 #[cfg(test)]
 mod link_epoch_tests {

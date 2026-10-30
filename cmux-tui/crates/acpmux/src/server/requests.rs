@@ -9,8 +9,10 @@ mod composer;
 mod events;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
+pub(super) mod person_stop;
 mod presets;
 mod queued;
+mod successor;
 #[path = "watches.rs"]
 mod watches;
 
@@ -154,13 +156,9 @@ pub(super) async fn handle_notification(
             }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
-                    // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`).
-                    let stopped = if conn.is_person() {
-                        hub.person_stop(&s).await
-                    } else {
-                        hub.cancel(&s).await
-                    };
-                    if let Err(e) = stopped {
+                    // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`),
+                    // a peer's person's too (`person_stop.rs`).
+                    if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
                 } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
@@ -171,6 +169,7 @@ pub(super) async fn handle_notification(
                         &params,
                         &mut forwarded,
                     );
+                    person_stop::mark(conn, &params, &peer, &mut forwarded);
                     let _ = peer.notify(method::SESSION_CANCEL, forwarded).await;
                 }
             }
@@ -603,12 +602,38 @@ fn caller_sends_no_files(
     }
 }
 
+/// Swap the bare session key of `m`'s params (`sessionId` or `session`; a send's
+/// `request.sessionId`) for the route [`Hub::key_route`] finds. A method that names no session
+/// or answers itself for a peer's session (`peer_forward.rs`) keeps its params as they are, and
+/// so does `keep`, whose `sessionId` is an exact id this connection owns (`ephemeral.rs`).
+fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), RpcError> {
+    let slot = if m == method::MUX_SEND_QUEUE {
+        params.pointer_mut("/request/sessionId")
+    } else if m != method::MUX_KEEP && super::peer_forward::names_a_session(m) {
+        let field = ["sessionId", "session"].into_iter().find(|f| params[*f].is_string());
+        field.and_then(|f| params.get_mut(f))
+    } else {
+        None
+    };
+    let Some(slot) = slot else { return Ok(()) };
+    let Some(key) = slot.as_str() else { return Ok(()) };
+    if let Some(route) = hub.key_route(key)? {
+        *slot = Value::String(route);
+    }
+    Ok(())
+}
+
 pub(super) async fn handle_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
     mut params: Value,
 ) -> Result<Value, RpcError> {
+    // A bare name or prefix on this machine's socket names the one live session here or on a
+    // peer; every check below reads the route it found (`hub/key_route.rs`).
+    if conn.origin == Origin::Local {
+        route_bare_key(hub, m, &mut params)?;
+    }
     // The pane's fork through a turn is a session/fork, checked as one from
     // here on (`fork_through.rs`).
     let m = super::fork_through::as_session_fork(hub, m, &mut params).await?;
@@ -791,7 +816,7 @@ async fn dispatch_request(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE], "trustGate": true}}
             });
             // Only a local client can use the app launcher's bundled CLI.
             if conn.origin == Origin::Local
@@ -986,21 +1011,7 @@ async fn dispatch_request(
                     return Err(super::trust_gate::peer_unsupported(&peer.name));
                 }
                 let mut p = params.clone();
-                if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
-                    m.remove("peer");
-                    // A family lives on one daemon: this daemon's caller is no session there.
-                    m.remove(crate::hub::lineage::PARENT_FIELD);
-                    m.remove(crate::hub::lineage::TOOL_CALL_FIELD);
-                    // The peer would tie it to this daemon's long-lived connection, never to the
-                    // client's: the client's own kill purges it (`ephemeral.rs`).
-                    m.remove("ephemeral");
-                    // Retry hints use the original params here; the peer does not need the
-                    // CLI argv or a second copy of the prompt file to create the session.
-                    m.remove("argv");
-                    m.remove("promptFileText");
-                    // Only this daemon decides the VM boundary, never its caller.
-                    m.remove(crate::hub::vm_boundary::FIELD);
-                }
+                super::peer_forward::strip_new_meta(&mut p);
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
                 // for the person's own clients here only (`vm_boundary::owner`).
@@ -1084,16 +1095,19 @@ async fn dispatch_request(
                 Some(a) if a.if_live != crate::adopt::IfLive::Fork => None,
                 _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
             };
+            // The session this one takes over from: its harness is kept (`requests/successor.rs`).
+            let succ = successor::find(hub, conn, &params, lineage.as_ref(), adopting).await?;
+            let copy = succ.as_ref().and_then(|s| s.copy.clone()).unwrap_or_default();
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let req = crate::hub::NewRequest {
-                harness: pick("harness"),
-                preset: pick("preset"),
+                harness: copy.harness.or_else(|| pick("harness")),
+                preset: copy.preset.or_else(|| pick("preset")),
                 name: pick("name"),
                 cwd,
                 policy,
-                model: pick("model"),
-                effort: pick("effort"),
+                model: copy.model.or_else(|| pick("model")),
+                effort: copy.effort.or_else(|| pick("effort")),
                 adopt,
                 workspace_id: crate::session_env::workspace_id(meta, &env)?,
                 env,
@@ -1161,6 +1175,7 @@ async fn dispatch_request(
             if let Some(w) = admitted.as_ref().and_then(|a| a.warning.clone()) {
                 summary.set("admission", w);
             }
+            successor::warn(hub, succ.as_ref(), &s, &mut summary).await;
             Ok(json!({
                 "sessionId": s.id,
                 "modes": meta.modes,
@@ -1425,9 +1440,7 @@ async fn dispatch_request(
         // the agent that never answers.
         method::SESSION_CANCEL => {
             let s = hub.resolve(session_key(&params)?)?;
-            let stopped =
-                if conn.is_person() { hub.person_stop(&s).await } else { hub.cancel(&s).await };
-            if let Err(e) = stopped {
+            if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                 tracing::debug!(conn = %conn.id, "cancel: {e}");
             }
             Ok(json!({}))
@@ -1980,8 +1993,20 @@ async fn dispatch_request(
             // end holds every record up to it (of the kinds asked), so a client may take
             // the page as covering it.
             let last = s.meta().last_seq;
+            // The app's open names its bound: superseded tool output stays out of its page
+            // (`store/superseded.rs`); the live stream is unchanged.
+            let page_filter =
+                filter.omitting_superseded(params.get("maxBytes").is_some_and(|b| !b.is_null()));
             let page = hub
-                .events_page(&s.id, after.unwrap_or(0), before, limit, max_bytes, newest, &filter)
+                .events_page(
+                    &s.id,
+                    after.unwrap_or(0),
+                    before,
+                    limit,
+                    max_bytes,
+                    newest,
+                    &page_filter,
+                )
                 .map_err(|e| RpcError::internal(e.to_string()))?;
             // The newest page holds to the log's end; a page of older records, or a forward one
             // with more to read, only to its own last record.
