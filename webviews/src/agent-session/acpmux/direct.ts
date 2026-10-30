@@ -1,5 +1,5 @@
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
-import { isRetryContinuation, subagentRetryNotice } from "./subagents/retryState";
+import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
 import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
 import { answeredBy, participant, promptAuthor, type Participant } from "./multiplayer/participants";
@@ -496,9 +496,8 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   };
 }
 
-/// A queue row's entry. acpmux's ask to resume a failed subagent is read from its text, which acpmux
-/// writes one way (`subagentRetryNotice`), unless the `queued` record's provenance gave it (`retry`):
-/// every rebuild of the entry keeps it.
+/// A queue row's entry. acpmux's ask to resume a failed subagent (`retry`) comes from its `queued`
+/// record or a listing (`subagentRetryNotice`); every rebuild of the entry passes it on.
 function queuedEntry(
   id: string,
   prompt: string,
@@ -508,7 +507,7 @@ function queuedEntry(
   message?: IncomingMessage,
   author?: Participant,
   inlineParts?: PromptContentPart[],
-  retry = message || author ? undefined : subagentRetryNotice(prompt),
+  retry?: SubagentRetryNotice,
 ): QueuedPrompt {
   return {
     id,
@@ -655,6 +654,7 @@ export function mergeQueue(
       message,
       author,
       recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts,
+      message || author ? undefined : (had?.retry ?? subagentRetryNotice(preview, entry)),
     );
   });
 }
@@ -3757,6 +3757,7 @@ export class AcpmuxDirectClient {
                 entry.message,
                 entry.author,
                 entry.inlineParts,
+                entry.retry,
               ),
         );
     } else if (event.kind === "queued") {
@@ -5473,6 +5474,7 @@ export class AcpmuxDirectClient {
               queued.message,
               queued.author,
               queued.inlineParts,
+              queued.retry,
             )
           : queued,
       );

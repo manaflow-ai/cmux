@@ -6,7 +6,10 @@
 import { expect, test } from "bun:test";
 import { mergeQueue } from "../direct";
 import { translate } from "../i18n";
-import { subagentRetryNotice } from "./retryState";
+import { subagentRetryNotice as notice } from "./retryState";
+
+/// acpmux sends the resume as its own client.
+const subagentRetryNotice = (text: string, msg: Parameters<typeof notice>[1] = { client: "acpmux" }) => notice(text, msg);
 
 const named =
   'Your subagent "Cap huge-blue deputy context cost" (agent id af0cbece62b15d0e1) failed on a transient upstream ' +
@@ -50,19 +53,27 @@ test("a preview a long name cuts before the error, or in the agent id or the nam
 
 test("the record's subagent_retry provenance names the agent when the words do not", () => {
   const msg = { _meta: { provenance: { kind: "subagent_retry", subagentId: "s/t2", agentId: "a8e1b6", attempt: 1 } } };
-  expect(subagentRetryNotice("Resume the subagent please.", msg)).toEqual({ agentId: "a8e1b6" });
-  expect(subagentRetryNotice(named, msg)?.name).toBe("Cap huge-blue deputy context cost");
+  expect(notice("Resume the subagent please.", msg)).toEqual({ agentId: "a8e1b6" });
+  expect(notice(named, msg)?.name).toBe("Cap huge-blue deputy context cost");
 });
 
-test("the person's own prompts are no resume", () => {
+test("the person's own prompts are no resume, even in acpmux's exact words", () => {
   expect(subagentRetryNotice("Your subagent looks stuck, can you check it?")).toBeUndefined();
   expect(subagentRetryNotice(`please do this: ${named}`)).toBeUndefined();
+  // Pasted by the person (any client but acpmux, with no subagent_retry provenance).
+  expect(notice(named, { client: "cmux-next" })).toBeUndefined();
+  expect(notice(named)).toBeUndefined();
+  const [own] = mergeQueue([], [{ promptId: "p-3", client: "cmux-next", prompt: `${named.slice(0, 120)}…` }]);
+  expect(own?.retry).toBeUndefined();
 });
 
 test("a queue listing gives the entry its resume, and another agent's message never has one", () => {
-  const [entry] = mergeQueue([], [{ promptId: "p-1", prompt: `${named.slice(0, 120)}…` }]);
+  const [entry] = mergeQueue([], [{ promptId: "p-1", client: "acpmux", prompt: `${named.slice(0, 120)}…` }]);
   expect(entry?.retry).toEqual({ name: "Cap huge-blue deputy context cost", agentId: "af0cbece62b15d0e1" });
-  const [message] = mergeQueue([], [{ promptId: "p-2", prompt: `${named.slice(0, 120)}…`, fromAgent: "coordinator" }]);
+  const [message] = mergeQueue(
+    [],
+    [{ promptId: "p-2", client: "acpmux", prompt: `${named.slice(0, 120)}…`, fromAgent: "coordinator" }],
+  );
   expect(message?.message?.name).toBe("coordinator");
   expect(message?.retry).toBeUndefined();
 });

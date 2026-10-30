@@ -213,15 +213,18 @@ function notice(name?: string, agentId?: string, error?: string): SubagentRetryN
 }
 
 /// The resume acpmux asked for, from a prompt's `subagent_retry` provenance (its agent id there)
-/// and its text, else from the text alone (a queue listing names no provenance); undefined for any
-/// other prompt.
+/// and its text, else from the text of a prompt acpmux itself sent (`client` "acpmux", which a
+/// queue listing names with no provenance); undefined for any other prompt, the person's own
+/// words that read the same included.
 export function subagentRetryNotice(
   text: string,
-  msg?: { _meta?: { provenance?: unknown } },
+  msg?: { _meta?: { provenance?: unknown }; client?: unknown },
 ): SubagentRetryNotice | undefined {
   const provenance = msg?._meta?.provenance as { kind?: unknown; agentId?: unknown } | undefined;
+  const marked = provenance?.kind === "subagent_retry";
+  if (!marked && msg?.client !== "acpmux") return undefined;
   const words = retryWords(text.trimStart());
-  if (provenance?.kind !== "subagent_retry") return words;
+  if (!marked) return words;
   const agentId = typeof provenance.agentId === "string" ? provenance.agentId : undefined;
   return notice(words?.name, agentId || words?.agentId, words?.error);
 }

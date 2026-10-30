@@ -36,7 +36,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
   const SESSION = "queue-collapse-session";
   const turn = { turnId: "turn-1", promptId: "p-turn", startedAt: Date.now(), prompt: "Refactor the parser" };
   const PROMPTS = ["one", "two", "three", "four", "five", "six"];
-  let queue: { promptId: string; prompt: string }[] = [];
+  let queue: { promptId: string; prompt: string; client?: string }[] = [];
   const summary = () => ({
     sessionId: SESSION,
     cwd: "/home/dev/api",
@@ -150,7 +150,12 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
   });
 
   async function openChat(prompts: string[]): Promise<Page> {
-    queue = prompts.map((prompt, i) => ({ promptId: `q-${i + 1}`, prompt }));
+    // acpmux's own prompts (its resume of a failed subagent) are listed as its client.
+    queue = prompts.map((prompt, i) => ({
+      promptId: `q-${i + 1}`,
+      prompt,
+      ...(prompt.startsWith("Your subagent ") ? { client: "acpmux" } : {}),
+    }));
     edits.length = 0;
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await installPaintedFrames(page);
