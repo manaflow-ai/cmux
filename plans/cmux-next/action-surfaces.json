@@ -48594,7 +48594,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.copyWorkspaceID",
+              "id" : "palette.copyWorkspaceLink",
               "kind" : "action",
               "order" : 21,
               "visible_when" : {
@@ -48607,7 +48607,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.copyWorkspaceLink",
+              "id" : "palette.copyWorkspaceID",
               "kind" : "action",
               "order" : 22,
               "visible_when" : {
