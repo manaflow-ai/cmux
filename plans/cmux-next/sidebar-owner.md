@@ -14,6 +14,14 @@ performance.
 
 ## Rule for every sidebar change
 
+### Group editor opening (2026-10-28)
+
+Leo's standing rule: "Menus open on the click, with no fade-in or delay"; "Fade out, yes".
+The sidebar and tab group editors now restore their full card before ordering it front, including
+when reopened during a closing fade. The existing closing fade, group palette, layout and controls
+remain the reference. Regression: `GroupEditorInstantOpenTests` exercises both editors with and
+without Reduce Motion. This replaces only the entrance motion introduced by #19040.
+
 Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents can't mess this up"):
 
 - **Gate.** `scripts/cmux-next/prepush-gate.py` "Sidebar look owner", on every push and per commit in CI: a commit
@@ -227,6 +235,7 @@ the gap, no row left out of place after drop or cancel).
 | #23800 row gaps (b4ea25bd03e red, 5ca9bed6440 fix, cbbada1846e drop gap under a block) | One row spacing after groups, folders, the Pinned block and pinned chats; the pin placed by its ink at the rows' content x. `Sidebar-Look: ALL THIS RELATIVELY UNNECESSARY SPACING AFTER GROUPS AND AFTER PINS` (Leo 2026-10-21). Look change: row gaps only; rail, indent, heights and trailing column unchanged (SidebarUniformRowSpacingTests). |
 | spaces-overhaul (a-spaces-overhaul branch: pinned per space red then fix, dot tear-off red then fix) | Spaces overhaul (Lawrence 14223, plans/cmux-next/spaces-overhaul-DESIGN.md). The band draws a workspace item only while the window's space shows that workspace (`SidebarRows.bandHides`): a pin of another space no longer draws, so a click on a pinned row never switches the space (Austin's bug). A space dot dragged out of the window opens the space in a new window (`SidebarIntent.openProfileInNewWindow`); a drop on the footer band still reorders. No visual change; `SectionFlow.swift` untouched. |
 | [350b65e877c](https://github.com/manaflow-ai/cmux/commit/350b65e877c07b91538361f5177b97e486e49d59) | #24295 menu metrics, committed without a `Sidebar-Look:` trailer. Reviewed: its only sidebar change is `SidebarFooterBand.showProfileMenu`, which now themes the profile menu's rows on the menu grid (`themeRows(in:)`) as the sidebar's other menus are (Leo 2026-10-21: "left alignment on the profile settings dropdown/pop i think is similar"). The menu is the only thing drawn differently; the sidebar list, footer, rows and rails do not change. `MenuGridTests`. |
+| Chief drag out (from #23933) | The Chief dragged past the sidebar's side dims its card (the refused look) and its release out there takes it off (`removesOnDragOut`), from the list, a tile or the older band; a just-added Chief draws, moves and comes off before the daemon's echo. No row, rail or indent change. |
 
 ## Every sidebar package commit, Oct 19-23
 
@@ -550,6 +559,10 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Scrolled rows hide under the traffic lights (2026-10-29)
 
 - [f19e4c28604](https://github.com/manaflow-ai/cmux/commit/f19e4c28604) (PR [#24073](https://github.com/manaflow-ai/cmux/pull/24073), test first in 0ccf76674b7). Asked by the coordinator after live QA on nightly 3a63d6d9 ("Agents" header pill beside the traffic lights), verbatim: "keep the list starting level with the panes at rest. When the list is scrolled, extend the top mask so content scrolling under the traffic lights is clipped and faded below the lights (y≈titlebarHeight). Don't use max(tabStripHeight, titlebarHeight) at rest." Look change only while scrolled: `ScrollEdgeFadeView.topClip` clears the mask down to `Metrics.titlebarHeight` when the traffic lights are over this sidebar, and the 18 pt top fade starts below it. At rest the mask, row positions and the list's top are unchanged. The commit predates its branch's first `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `SidebarTopMaskTests`.
+
+## Pointing hand over the sidebar's icon buttons (2026-10-29)
+
+- [668f7306170](https://github.com/manaflow-ai/cmux/commit/668f7306170) (PR [#24009](https://github.com/manaflow-ai/cmux/pull/24009)). Leo, verbatim: "STOP BUTTON, I HOVER OVER IT, MY CURSOR SHOULD ALSO SEE IT AS CLICKABLE.. LOTS OF AREAS LIKE THAT SHOULD BE CHANGING MY CURSOR INDICATOR TO CLICKABLE". `SidebarIconButton` now subclasses `ClickableButton` (CmuxNextDesign), so an enabled sidebar icon button shows the pointing-hand cursor. Only the superclass changes: no drawing, layout, hover or row change, so no look change. The commit predates its branch's `Sidebar-Look:` check and carries no trailer; reviewed and logged here. Test: `ClickableCursorTests`.
 
 ## Resize edge lights a themed band (2026-10-29)
 
