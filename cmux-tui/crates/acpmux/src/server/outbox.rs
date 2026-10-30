@@ -123,7 +123,7 @@ pub(super) async fn handle(
         state: State::Queued,
         attempts: 0,
         never_sent: true,
-        relay_to: None,
+        relay_post: None,
         error: None,
         accepted: None,
         created_at: now,
@@ -260,7 +260,7 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
         {
             mux.insert("resend".into(), json!(true));
         }
-        let outcome = if delivery.relay_to.is_some() {
+        let outcome = if delivery.relay_post.is_some() {
             // The hub may hold it already: only the relay tries it again.
             relay_attempt(hub, &delivery).await.unwrap_or_else(|| {
                 Err(("the mesh relay holds it and cannot be reached".into(), Next::Retry))
@@ -319,17 +319,21 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
 }
 
 /// One attempt through the mesh relay (`mesh_send.rs` `relay`): the hub's acceptance, or why
-/// not and what next. A hub that refused it outright never took it, so the peer's link may try
-/// it again (`Next::Unsent`); any other failure may have left it with the hub, so only the relay
-/// does (`Delivery::relay_to`). None when the relay cannot carry it.
+/// not and what next. The hub answers a key it holds before it checks anything else, so a hub
+/// that refused the post outright holds none: the peer's link may try it again (`Next::Unsent`).
+/// The two refusals that say it holds an earlier message under the key, and any failure that may
+/// have left the post with it, keep it for the relay alone (`Delivery::relay_post`). None when
+/// the relay cannot carry it.
 async fn relay_attempt(
     hub: &Arc<Hub>,
     delivery: &Delivery,
 ) -> Option<Result<Value, (String, Next)>> {
     let outcome = super::mesh_send::relay(hub, delivery).await?;
     Some(outcome.map_err(|e| {
-        let next = if e.refused && delivery.relay_to.is_none() {
-            hub.outbox.update(&delivery.id, |d| d.relay_to = None);
+        let held =
+            matches!(e.code.as_deref(), Some("mesh.idempotency_conflict" | "mesh.not_found"));
+        let next = if e.refused && !held {
+            hub.outbox.update(&delivery.id, |d| d.relay_post = None);
             Next::Unsent
         } else {
             Next::Retry

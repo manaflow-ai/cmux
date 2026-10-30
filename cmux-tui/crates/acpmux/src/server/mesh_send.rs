@@ -71,29 +71,32 @@ fn down_peer_recipient(hub: &Hub, target: &str) -> Option<Target> {
 /// The outbox's delivery through the hub while its peer is down (`outbox.rs`): the hub's
 /// acceptance, in the shape the outbox keeps (`relayDeliveryId` names the hub's message), or the
 /// hub's error. None when the relay is off, the peer is not down, or the delivery carries what
-/// the relay cannot: the outbox keeps it and tries the peer again. A delivery posted before goes
-/// to the recipient it was posted to (`Delivery::relay_to`), down peer or not; each post records
-/// it first, so a restart or a lost answer never leaves the outbox thinking nothing was sent.
+/// the relay cannot: the outbox keeps it and tries the peer again. A delivery posted before is
+/// posted again as the same message (`Delivery::relay_post`), down peer or not; a first post is
+/// recorded before it goes, so a restart or a lost answer never leaves the outbox thinking
+/// nothing was sent.
 pub(super) async fn relay(
     hub: &Arc<Hub>,
     delivery: &crate::hub::outbox::Delivery,
 ) -> Option<Result<Value, HubError>> {
     let mesh = hub.mesh.get()?;
-    let to = match &delivery.relay_to {
-        Some(to) => to.clone(),
-        None => down_peer_recipient(hub, &delivery.target)?,
-    };
-    let carried = carried(&delivery.request, &delivery.target).ok()?;
-    let steer = carried.mode == Mode::Now;
-    hub.outbox.update(&delivery.id, |d| d.relay_to = Some(to.clone()));
-    let message = OutMessage {
-        to,
-        from: sender(hub, delivery.caller.as_deref(), carried.named),
-        kind: Kind::Prompt,
-        op: None,
-        body: carried.body,
-        mode: carried.mode,
-        idempotency_key: idempotency_key(&carried.prompt_id),
+    let message = match &delivery.relay_post {
+        Some(post) => post.clone(),
+        None => {
+            let to = down_peer_recipient(hub, &delivery.target)?;
+            let carried = carried(&delivery.request, &delivery.target).ok()?;
+            let message = OutMessage {
+                to,
+                from: sender(hub, delivery.caller.as_deref(), carried.named),
+                kind: Kind::Prompt,
+                op: None,
+                body: carried.body,
+                mode: carried.mode,
+                idempotency_key: idempotency_key(&carried.prompt_id),
+            };
+            hub.outbox.update(&delivery.id, |d| d.relay_post = Some(message.clone()));
+            message
+        }
     };
     Some(mesh.send(&message).await.map(|receipt| {
         json!({
@@ -101,7 +104,7 @@ pub(super) async fn relay(
             "relayDeliveryId": format!("{PREFIX}{}", receipt.message_id),
             "promptId": receipt.prompt_id.as_deref().unwrap_or(&receipt.message_id),
             "sessionId": receipt.to.session_id.clone().or_else(|| message.to.session_id.clone()),
-            "steer": steer,
+            "steer": message.mode == Mode::Now,
         })
     }))
 }

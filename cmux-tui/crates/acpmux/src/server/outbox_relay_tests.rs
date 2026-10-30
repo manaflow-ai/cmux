@@ -135,7 +135,7 @@ async fn after_attempt(hub: &Arc<Hub>, id: &str, n: u32) -> Delivery {
 
 /// Whether `d` records no relay post the hub may hold.
 fn no_relay_post(d: &Delivery) -> bool {
-    d.relay_to.is_none()
+    d.relay_post.is_none()
 }
 
 async fn queue(hub: &Arc<Hub>, params: Value) -> String {
@@ -220,7 +220,7 @@ async fn a_delivery_that_may_have_reached_the_peer_is_never_relayed() {
         state: State::Queued,
         attempts: 1,
         never_sent: false,
-        relay_to: None,
+        relay_post: None,
         error: Some("peer disconnected".into()),
         accepted: None,
         created_at: now,
@@ -240,7 +240,8 @@ async fn a_relay_post_whose_answer_was_lost_is_tried_again_only_through_the_rela
     let id = queue(&hub, request("huge-blue/lane", "prompt-lost-answer")).await;
     let d = after_attempt(&hub, &id, 1).await;
     assert_eq!(d.state, State::Queued, "{d:?}");
-    assert_eq!(d.relay_to.as_ref().and_then(|t| t.session_id.as_deref()), Some(LANE), "{d:?}");
+    let posted = d.relay_post.as_ref().and_then(|m| m.to.session_id.as_deref());
+    assert_eq!(posted, Some(LANE), "{d:?}");
     // The peer's link comes back: the hub may hold the message, so the link must not run it too.
     peer.connected.store(true, SeqCst);
     let d = after_attempt(&hub, &id, 2).await;
