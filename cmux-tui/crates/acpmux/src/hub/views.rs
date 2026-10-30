@@ -14,10 +14,11 @@ pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     summary
 }
 
-/// The most of a chat's title a summary shows. A harness may title a chat with its whole first
+/// The most of a chat's title a census row shows. A harness may title a chat with its whole first
 /// prompt: one fleet host's list rows came to 4 KB each with them, and its list of 3,700 to more
-/// than one message holds (2026-10-30). Every summary cuts the same, so a list and the changes
-/// after it never show one chat under two titles; the prompt itself stays in the chat's history.
+/// than one message holds (2026-10-30). The list and the `session_changed` rows a watch without
+/// tools hears cut the same (both are `session_list_summary`), so they never show one chat under
+/// two titles; `session info` and attach keep the whole title.
 const TITLE_CHARS: usize = 200;
 
 /// `title`, or for a longer one its first [`TITLE_CHARS`], folded and cut as `lastPrompt` is.
@@ -316,7 +317,8 @@ impl Hub {
         self.summary_with_tools(session, true)
     }
 
-    /// Census rows omit the inventory; `_acpmux/info` and attach keep it.
+    /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
+    /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
         self.summary_with_tools(session, false)
     }
@@ -375,7 +377,7 @@ impl Hub {
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
             depth: lineage.as_ref().map_or(0, |l| l.depth),
             children: self.subsessions.open_count(&m.id),
-            title: m.title.as_deref().map(summary_title),
+            title: if with_tools { m.title.clone() } else { m.title.as_deref().map(summary_title) },
             title_source: m.title_source.clone(),
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),

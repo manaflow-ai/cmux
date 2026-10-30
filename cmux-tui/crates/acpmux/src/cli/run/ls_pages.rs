@@ -5,10 +5,10 @@
 //! these pages whatever its size, and one too old for `limit` sends the whole list as before.
 //!
 //! The daemon lists newest first and its `nextCursor` names the last row it sent, so a read that
-//! stops at the end of a page hands that cursor on exactly. A read that wants N rows asks for no
-//! more than it still wants when every filter is one the daemon applies (or one an old daemon
-//! ignores, which only thins a page): it then ends on a page's last row. A page too large to send
-//! is asked for again at half the rows.
+//! stops at the end of a page hands that cursor on. One that stops before (`--limit` with a filter
+//! the daemon does not apply) hands on the cursor of the last row it read, made as the daemon
+//! makes it. A read that wants N rows asks for no more than it still wants when every filter is
+//! one the daemon applies. A page too large to send is asked for again at half the rows.
 
 use std::collections::HashSet;
 use std::future::Future;
@@ -49,10 +49,8 @@ pub(super) struct Plan {
 pub(super) struct Pages {
     pub(super) rows: Vec<Value>,
     /// The cursor of the rows after these (a string), `null` when none is left, or `None` when
-    /// the read stopped in the middle of a page, where no cursor of the daemon's starts.
+    /// the read stopped in the middle of the whole list a daemon too old for pages sent.
     pub(super) next: Option<Value>,
-    /// Requests sent, a page refused as too large included.
-    pub(super) requests: usize,
 }
 
 /// Reads `params`' rows page by page from `cursor` with `fetch` (one `_acpmux/sessions`
@@ -69,7 +67,7 @@ where
     F: FnMut(Value) -> Fut,
     Fut: Future<Output = Result<Value>>,
 {
-    let (mut size, mut cursor, mut requests) = (plan.size.max(1), cursor, 0);
+    let (mut size, mut cursor) = (plan.size.max(1), cursor);
     let (mut rows, mut seen, mut cursors) = (Vec::new(), HashSet::new(), HashSet::new());
     loop {
         let left = plan.want.map(|want| want.saturating_sub(rows.len()));
@@ -82,7 +80,6 @@ where
         if let Some(cursor) = &cursor {
             page_params.set("cursor", Value::String(cursor.clone()));
         }
-        requests += 1;
         let mut reply = match fetch(page_params).await {
             Ok(reply) => reply,
             Err(e) => match too_large(&e) {
@@ -94,12 +91,25 @@ where
                 None => return Err(e),
             },
         };
+        // A daemon that pages answers a `limit` with `nextCursor` (null on the last page); one
+        // too old for pages sends its whole list, with no cursor and from the start.
+        let pages = reply.get("nextCursor").is_some();
+        let next = match reply.get_mut("nextCursor").map(Value::take) {
+            Some(Value::String(next)) => Some(next),
+            _ => None,
+        };
         let page = match reply.get_mut("sessions").map(Value::take) {
             Some(Value::Array(page)) => page,
             _ => anyhow::bail!("the daemon's session page lists no sessions"),
         };
+        if plan.one && !pages {
+            let message =
+                "this daemon is too old to page the session list (`--cursor`): update acpmux on it";
+            return Err(AppError::new(Code::Runtime, "runtime", message).into());
+        }
         let (count, mut used) = (page.len(), 0);
-        let (mut stopped, mut full) = (false, false);
+        // Where the next rows start when the read stops before the page's end.
+        let mut after = None;
         for row in page {
             used += 1;
             if !seen.insert(row_key(&row)) {
@@ -107,30 +117,28 @@ where
             }
             match step(&row) {
                 Step::Keep => rows.push(row),
-                Step::Skip => {}
-                Step::Stop => {
-                    stopped = true;
-                    break;
-                }
+                Step::Skip => continue,
+                Step::Stop => return Ok(Pages { rows, next: Some(Value::Null) }),
             }
             if plan.want.is_some_and(|want| rows.len() >= want) {
-                full = true;
+                after = rows.last().map(crate::hub::session_pages::cursor_after);
                 break;
             }
         }
-        if stopped {
-            return Ok(Pages { rows, next: Some(Value::Null), requests });
-        }
-        let next = match reply.get_mut("nextCursor").map(Value::take) {
-            Some(Value::String(next)) => next,
-            // The last page, or a daemon too old for pages that sent every row.
-            _ if used == count => return Ok(Pages { rows, next: Some(Value::Null), requests }),
-            _ => return Ok(Pages { rows, next: None, requests }),
+        let next = match (after, next) {
+            // Stopped before the page's end: the rows after the last one read.
+            (Some(after), _) if used < count => {
+                return Ok(Pages { rows, next: pages.then_some(Value::String(after)) });
+            }
+            // The page read whole: the daemon's cursor, if there is a next page.
+            (Some(_), next) | (None, next @ None) => {
+                return Ok(Pages { rows, next: Some(next.map_or(Value::Null, Value::String)) });
+            }
+            (None, Some(next)) if plan.one => {
+                return Ok(Pages { rows, next: Some(Value::String(next)) });
+            }
+            (None, Some(next)) => next,
         };
-        if full || plan.one {
-            let next = (used == count).then_some(Value::String(next));
-            return Ok(Pages { rows, next, requests });
-        }
         if !cursors.insert(next.clone()) {
             anyhow::bail!("the daemon gave the session page cursor {next:?} twice");
         }
@@ -153,8 +161,9 @@ fn too_large(e: &anyhow::Error) -> Option<u64> {
 
 fn one_row_too_large(bytes: u64) -> AppError {
     let message = format!(
-        "one session's row is {:.1} MiB, past the {} MiB a daemon reply may hold: read the \
-         sessions one by one with `acpmux session info SESSION`",
+        "a reply for one session is {:.1} MiB, past the {} MiB a daemon reply may hold: that \
+         session's row is that large (read the sessions one by one with `acpmux session info \
+         SESSION`), or this daemon is too old to page the list (update acpmux on it)",
         mib(bytes),
         crate::rpc::MAX_MESSAGE_BYTES >> 20
     );

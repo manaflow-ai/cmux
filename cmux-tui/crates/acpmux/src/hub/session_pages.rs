@@ -196,6 +196,14 @@ pub(crate) fn refuse_watch_filters(params: &Value) -> Result<(), RpcError> {
     Ok(())
 }
 
+/// The `cursor` that starts a page after `session`, the `nextCursor` a page ending on it carries:
+/// for a client that stops in the middle of a page (`acpmux ls --limit` with a filter of its own).
+/// A daemon whose cursor keys differ starts at the first session no newer than it
+/// ([`SessionCursor::start`]): one of that same millisecond may repeat, none is skipped.
+pub(crate) fn cursor_after(session: &Value) -> String {
+    SessionCursor::after(session).to_text()
+}
+
 /// After the session updated at `updated_ms` whose id hashes to `key`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SessionCursor {

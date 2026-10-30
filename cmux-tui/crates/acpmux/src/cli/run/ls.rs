@@ -194,8 +194,8 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         sessions = sessions.into_iter().map(|s| project_fields(&s, fields)).collect();
     }
     let mut v = json!({"sessions": sessions});
-    // A paged read hands on where the next page starts (null: none is left). A `--limit` that
-    // a filter only this side applies stopped in the middle of a page has no such cursor.
+    // A paged read hands on where the next rows start (null: none is left; absent: the whole
+    // list of a daemon too old for pages, which takes no cursor).
     if let Some(next) = read.next.filter(|_| paged) {
         v.set("nextCursor", next);
     }
