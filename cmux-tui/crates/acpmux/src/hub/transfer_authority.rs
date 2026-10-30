@@ -66,6 +66,8 @@ mod tests {
         inner: Box<dyn Store>,
         scans: Arc<AtomicU64>,
         fail: Arc<AtomicBool>,
+        /// An event kind whose appends fail while every other append is kept.
+        refuse: Option<&'static str>,
     }
 
     impl Store for CountingStore {
@@ -80,6 +82,7 @@ mod tests {
         }
         fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
             anyhow::ensure!(!self.fail.load(Ordering::SeqCst), "store failed");
+            anyhow::ensure!(self.refuse != Some(record.kind.as_str()), "store refused");
             self.inner.append(id, record)
         }
         fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
@@ -109,7 +112,12 @@ mod tests {
         let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
         let hub = Hub::new(
             config,
-            Box::new(CountingStore { inner, scans: scans.clone(), fail: fail.clone() }),
+            Box::new(CountingStore {
+                inner,
+                scans: scans.clone(),
+                fail: fail.clone(),
+                refuse: None,
+            }),
         );
         let meta: SessionMeta = serde_json::from_value(json!({
             "schema": crate::store::META_SCHEMA, "id": "transfer-cache", "name": "cache",
@@ -149,5 +157,49 @@ mod tests {
         fail.store(true, Ordering::SeqCst);
         hub.restore_transfer_authority(&session);
         assert_eq!(session.transfer_blocked(), None);
+    }
+
+    /// An import copies the source's log, its move included, before its own `imported`
+    /// receipt: until that receipt is logged the chat's transfer state is unknown, never
+    /// local, so a failed receipt cannot leave it open here.
+    #[tokio::test]
+    async fn an_import_is_unknown_until_its_own_receipt_is_logged() {
+        let dir =
+            std::env::temp_dir().join(format!("acpmux-import-authority-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let hub_with = |refuse: Option<&'static str>| {
+            let mut config: Config = serde_json::from_value(json!({
+                "harnesses": {"fake": {"argv": ["python3", fake]}},
+                "defaultHarness": "fake",
+            }))
+            .unwrap();
+            config.store.mode = crate::config::StoreMode::Memory;
+            let inner = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+            let store = CountingStore {
+                inner,
+                scans: Arc::new(AtomicU64::new(0)),
+                fail: Arc::new(AtomicBool::new(false)),
+                refuse,
+            };
+            Hub::new(config, Box::new(store))
+        };
+        let source = hub_with(None);
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "import-authority", "name": "moved",
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        source.store.save(&meta).unwrap();
+        let session = source.make_session(meta);
+        source.append(&session, "mux", "transfer_out", json!({"transferId": "xfer"}));
+        source.append(&session, "mux", "transferred", json!({"transferId": "xfer"}));
+        let bundle = source.export(&session, &dir).unwrap();
+
+        let here = hub_with(Some("imported"));
+        let imported = here.import(&bundle, None).await.unwrap();
+        assert_eq!(imported.transfer_blocked(), None, "the copied move read as local");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
