@@ -73,7 +73,7 @@ test("when the first load fails the other tile asks the host itself", async () =
   expect(dom.host().querySelectorAll("img").length).toBe(1);
 });
 
-test("three tiles of one image all show it after a failed load and a retry", async () => {
+test("every tile waiting on a failed load hears the retry that follows", async () => {
   const src = "https://example.com/shared-three.png";
   const { ReplyImage, releases, calls } = await setup((call) => (call === 0 ? undefined : { src: data }));
   await dom.render(
@@ -93,7 +93,8 @@ test("three tiles of one image all show it after a failed load and a retry", asy
   });
   expect(calls()).toBe(2);
   await act(async () => releases[1]!());
-  expect(dom.host().querySelectorAll("img").length).toBe(3);
+  // The tile whose own load failed stays failed; both that waited draw the image the retry loaded.
+  expect(dom.host().querySelectorAll("img").length).toBe(2);
   expect(calls()).toBe(2);
 });
 

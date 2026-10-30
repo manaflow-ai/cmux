@@ -68,7 +68,7 @@ const waiting = new Map<string, Set<() => void>>();
 const loadEnded = (src: string) => {
   // Waiters stay until they unmount or show the image: one that wakes to a failed load may find
   // another instance already retrying, and must hear that retry end too.
-  for (const wake of [...(waiting.get(src) ?? [])]) wake();
+  waiting.get(src)?.forEach((wake) => wake());
 };
 
 /// The data URL a local or web image already loaded to, if it has (the image viewer steps to it).
