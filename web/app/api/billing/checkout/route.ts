@@ -67,6 +67,10 @@ import {
   type TeamBillingAccessUser,
 } from "../../../../services/billing/teamBillingAccess";
 import { teamPortalSession } from "../../../../services/billing/teamPortal";
+import {
+  checkoutSessionIdempotencyKey,
+  teamCustomerIdempotencyKey,
+} from "../../../../services/billing/stripeIdempotency";
 
 
 type CheckoutStackServerApp = StackServerApp<true>;
@@ -386,8 +390,8 @@ async function stripePersonalCheckout(
       ...checkoutAttributionMetadata(attribution),
     };
 
-    const session = await stripe().checkout.sessions.create({
-      mode: "subscription",
+    const sessionParams = {
+      mode: "subscription" as const,
       line_items: [
         {
           price: plan === MAX_PLAN_ID
@@ -410,6 +414,9 @@ async function stripePersonalCheckout(
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
+    };
+    const session = await stripe().checkout.sessions.create(sessionParams, {
+      idempotencyKey: checkoutSessionIdempotencyKey({ scope: "user", id: stackUserId }, sessionParams),
     });
     if (!usableCheckoutSession(session)) {
       throw new Error("Stripe Checkout Session did not include an id and URL");
@@ -527,8 +534,8 @@ async function stripeTeamCheckout(
 
     const customerId =
       stripeBillingStatus.customerId ?? await stripeCustomerForTeam(team, stackUserId);
-    const session = await stripe().checkout.sessions.create({
-      mode: "subscription",
+    const sessionParams = {
+      mode: "subscription" as const,
       line_items: [
         {
           price: await resolveTeamPrice(interval),
@@ -546,6 +553,9 @@ async function stripeTeamCheckout(
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
+    };
+    const session = await stripe().checkout.sessions.create(sessionParams, {
+      idempotencyKey: checkoutSessionIdempotencyKey({ scope: "team", id: resolvedTeamId }, sessionParams),
     });
     if (!usableCheckoutSession(session)) {
       throw new Error("Stripe Checkout Session did not include an id and URL");
@@ -744,12 +754,15 @@ async function stripeCustomerForTeam(
     .limit(1);
   if (existing?.id) return existing.id;
 
-  const customer = await stripe().customers.create({
+  const customerParams = {
     name: team.displayName?.trim() || "cmux Team",
     metadata: {
       stackTeamId: team.id,
       app: "cmux",
     },
+  };
+  const customer = await stripe().customers.create(customerParams, {
+    idempotencyKey: teamCustomerIdempotencyKey(team.id, customerParams),
   });
 
   try {
@@ -769,8 +782,24 @@ async function stripeCustomerForTeam(
       .from(stripeCustomers)
       .where(eq(stripeCustomers.stackTeamId, team.id))
       .limit(1);
-    if (raceWinner?.id) return raceWinner.id;
-    throw error;
+    if (!raceWinner?.id) throw error;
+    // Racers with the same key got the same customer back from Stripe; one
+    // created under another key (a renamed team, an expired key) is unused.
+    if (raceWinner.id !== customer.id) await deleteOrphanTeamCustomer(customer.id, team.id);
+    return raceWinner.id;
+  }
+}
+
+/** Best effort: a failed delete leaves an unused customer, never a failed checkout. */
+async function deleteOrphanTeamCustomer(customerId: string, teamId: string): Promise<void> {
+  try {
+    await stripe().customers.del(customerId);
+  } catch (error) {
+    captureBillingError(error, {
+      route: "/api/billing/checkout",
+      plan: "team",
+      stackTeamId: teamId,
+    });
   }
 }
 
