@@ -320,11 +320,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         }
     }
 
-    /// A tool card answer carrying what the person typed (a secret), or a message to read aloud
-    /// (chat content): never logged, even redacted.
+    /// A tool card answer carrying what the person typed (a secret): never logged, even redacted.
     public var carriesEntered: Bool {
         if case .toolCard(_, _, .some) = self { return true }
-        if case .readAloud(.speak) = self { return true }
         return false
     }
 

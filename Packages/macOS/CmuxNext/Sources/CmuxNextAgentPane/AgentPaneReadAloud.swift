@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextSettings
 
 /// Read aloud in agent chats (the speaker under a message): one voice for the whole app, so a
 /// second press, Escape, closing the chat, and Stop Reading Aloud (palette, CLI, MCP) all stop it.
