@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 use std::os::unix::net::UnixStream;
 
 use super::{AppCommand, GlobalArgs, OutputMode, READ_TIMEOUT, UsageError};
+use cmux_json::JsonSet as _;
 
 /// The verbs of `cmux settings` (and `cmux config`).
 pub(super) const VERBS: &[&str] = &["get", "set", "reset", "unset", "list", "schema", "validate"];
@@ -146,7 +147,7 @@ pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
         _ => return Err(usage()),
     };
     if confirm {
-        params["confirm"] = json!(true);
+        params.set("confirm", json!(true));
     }
     // With --confirm a person answers: no client deadline cancels the wait.
     let timeout = if confirm { None } else { Some(READ_TIMEOUT) };
@@ -299,7 +300,7 @@ pub(super) fn validate(path: &std::path::Path, named: bool) -> Result<Value, Val
         }
         lines.push(line);
         let mut entry = serde_json::to_value(diagnostic).unwrap_or(Value::Null);
-        entry["accepted"] = accepted.map_or(Value::Null, |accepted| accepted.to_json());
+        entry.set("accepted", accepted.map_or(Value::Null, |accepted| accepted.to_json()));
         diagnostics.push(entry);
     }
     Err(json!({

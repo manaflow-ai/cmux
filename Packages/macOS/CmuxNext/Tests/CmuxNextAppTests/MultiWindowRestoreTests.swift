@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextAppCore
 import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 import Testing
 
@@ -27,7 +28,13 @@ struct MultiWindowRestoreTests {
         var tabKinds: [String]
     }
 
-    @Test func threeWindowsComeBackAsTheyWere() async throws {
+    /// `noActivate`: launched with `CMUX_NEXT_NO_ACTIVATE=1` (agents, capture slots): no window takes
+    /// key, and the front window must still come back in front (the restore journey saw it ordered
+    /// behind the other two, last in the saved order).
+    @Test(arguments: [false, true]) func threeWindowsComeBackAsTheyWere(noActivate: Bool) async throws {
+        let wasNoActivate = WindowPlacement.noActivate
+        WindowPlacement.noActivate = noActivate
+        defer { WindowPlacement.noActivate = wasNoActivate }
         try await Self.withDaemon { launcher in
             let before = try await Self.launch(launcher)
             var saved: [Saved] = []

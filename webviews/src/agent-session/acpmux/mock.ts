@@ -34,6 +34,8 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockHarnessHealth?: Record<string, { auth: "signedIn" | "signedOut" | "unknown"; login?: string }>;
   cmuxAcpmuxMockNative?: Record<string, unknown>;
   cmuxAcpmuxMockSessionAuth?: MockSessionAuth;
+  /** Capability ids `initialize` names (`_meta.acpmux.capabilities`); absent names none, as an older daemon. */
+  cmuxAcpmuxMockCapabilities?: string[];
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -402,6 +404,9 @@ export class MockAcpmuxSocket {
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
               handoff: { maxCapsuleBytes: 65536 },
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ? { features: ["sessionAuth"] } : {}),
+              ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities
+                ? { capabilities: (globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities }
+                : {}),
             },
           },
         };
@@ -429,6 +434,7 @@ export class MockAcpmuxSocket {
       }
       case "_acpmux/attach": {
         this.attached = target;
+        const page = this.page(target, params, true);
         // Opening a session reads it; it keeps its place in the list.
         if (this.sessions.find((entry) => entry.sessionId === target)?.unread)
           this.touch(target, { unread: false }, false);
@@ -442,8 +448,11 @@ export class MockAcpmuxSocket {
           // The newest page, as acpmux pages an attach (hub/paging.rs): at most `limit` records
           // and `maxBytes` of them, `hasMore` when older ones remain. Answering the whole log made
           // a long mock chat open as slowly as its history is long (perf100).
-          ...this.page(target, params, true),
+          ...page,
           lastSeq: this.lastSeqOf(target),
+          // The prompt of the turn the page starts inside, read with it as acpmux does
+          // (server/requests/turn_opener.rs).
+          turnOpener: this.turnOpener(target, page),
         };
       }
       case "_acpmux/archive": {
@@ -819,6 +828,17 @@ export class MockAcpmuxSocket {
       events.reverse();
     } else for (let index = 0; index < this.events.length && take(this.events[index]!); index += 1);
     return { events, hasMore };
+  }
+
+  /// The newest turn-starting prompt among the 16 user messages before a page that starts inside a
+  /// turn with older records before it, as acpmux reads it (server/requests/turn_opener.rs).
+  private turnOpener(target: string, page: { events: EventRecord[]; hasMore: boolean }): EventRecord | null {
+    const first = page.events[0];
+    const opens = (event: EventRecord) =>
+      event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
+    if (!page.hasMore || !first || first.seq <= 1 || opens(first)) return null;
+    const prompts = this.page(target, { beforeSeq: first.seq, limit: 16, kinds: ["user_message"] }).events;
+    return [...prompts].reverse().find(opens) ?? null;
   }
 
   private record(target: string, step: Step, at = Date.now()): EventRecord {

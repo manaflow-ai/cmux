@@ -41,6 +41,7 @@ mod effect_store;
 pub(crate) mod feed_local_store;
 pub use compact::{RegistryCompactError, RegistryCompaction, compact_registry};
 mod browser_profile_proxy;
+pub(crate) mod history_check;
 mod idle_policy_store;
 mod journal_extensions;
 mod mutation_ledger;
@@ -58,6 +59,7 @@ mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
 mod root_identity;
+pub(crate) mod terminal_end_prefetch;
 pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
@@ -796,6 +798,9 @@ pub struct WorkspaceRegistry {
     /// Behind its own lock; lock order rules: see `registry_connection`.
     pub(crate) connection: std::sync::Arc<RegistryConnection>,
     database_path: Option<PathBuf>,
+    /// How long each step of this registry's open took (the owner's
+    /// `startup-timings.jsonl`); taken once by the owner's start.
+    open_timings: crate::startup_timings::StartupTimings,
     registry_id: String,
     generation: String,
     session_name: String,
@@ -2456,10 +2461,12 @@ impl WorkspaceRegistry {
             None,
             None,
             None,
+            crate::startup_timings::StartupTimings::start(),
         )
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        let mut timings = crate::startup_timings::StartupTimings::start();
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
         // root-level files the same long-path handling as their descendants.
@@ -2495,6 +2502,7 @@ impl WorkspaceRegistry {
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
         platform::restrict_file(&db_path)?;
+        timings.lap("registry.lock_and_connect");
         Self::initialize(
             connection,
             session_name.to_string(),
@@ -2503,9 +2511,11 @@ impl WorkspaceRegistry {
             Some(session_guard),
             Some(lease),
             Some(db_path),
+            timings,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn initialize(
         connection: Connection,
         session_name: String,
@@ -2514,6 +2524,7 @@ impl WorkspaceRegistry {
         session_guard: Option<SessionLease>,
         lease: Option<SessionLease>,
         database_path: Option<PathBuf>,
+        mut timings: crate::startup_timings::StartupTimings,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         // Before the first write, so every commit of this connection uses it.
@@ -2785,6 +2796,7 @@ impl WorkspaceRegistry {
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.schema");
         {
             let tx = connection.unchecked_transaction()?;
             resource_store::migrate_tab_name_authority(&tx)?;
@@ -2878,16 +2890,20 @@ impl WorkspaceRegistry {
         if let Err(error) = crate::state::sidebar_doc_store::migrate_at_open(&connection) {
             eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
         }
+        timings.lap("registry.migrations");
         check_registry_integrity(&connection)?;
+        timings.lap("registry.integrity_check");
         {
             let tx = connection.unchecked_transaction()?;
             initialize_compatibility_active_workspace(&tx)?;
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
+        timings.lap("registry.resource_invariants");
         Ok(Self {
             connection: RegistryConnection::new(connection, database_path.as_deref()),
             database_path,
+            open_timings: timings,
             registry_id,
             generation: try_new_uuid_v4()?,
             session_name,
@@ -2905,6 +2921,11 @@ impl WorkspaceRegistry {
 
     pub(crate) fn session_journal_database_path(&self) -> Option<PathBuf> {
         self.database_path.clone()
+    }
+
+    /// This registry's open steps, once (later calls get none).
+    pub(crate) fn take_open_timings(&mut self) -> crate::startup_timings::StartupTimings {
+        std::mem::take(&mut self.open_timings)
     }
 
     pub(crate) fn resource_input_receipt_hmac(
@@ -3871,12 +3892,27 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         )?;
         statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
-    for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
+    // The tables that grow with use are checked in full by the maintenance
+    // worker after the daemon serves, unless it found one damaged
+    // (`history_check`).
+    let full = history_check::full_open_check_required(connection)?;
+    for table in tables.iter().filter(|table| {
+        !skipped_by_open_check(table.as_str())
+            && (full || !history_check::is_background_checked(table.as_str()))
+    }) {
         let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
         let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
         if result != "ok" {
             anyhow::bail!("workspace registry integrity check failed: {result}");
         }
+    }
+    if full {
+        connection.execute(
+            "DELETE FROM meta WHERE key = ?1",
+            [history_check::FULL_OPEN_CHECK_META_KEY],
+        )?;
+    } else {
+        history_check::touch_background_checked_tails(connection, &tables)?;
     }
     // History is validated incrementally when replayed. Touch only each
     // table's newest indexed row during open so a corrupt tail page is caught
@@ -3887,7 +3923,10 @@ fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
         ("journal_event_index", "sequence"),
         ("journal_segments", "end_sequence"),
         ("journal_checkpoints", "source_sequence"),
-        ("journal_content_blobs", "created_at_ms"),
+        // created_at_ms has no index: ordering by it scanned and sorted every
+        // blob through its overflow pages (0.67 s cold on a 41.6 GB registry).
+        // Blobs are append-only, so the newest rowid is the newest blob.
+        ("journal_content_blobs", "rowid"),
     ] {
         let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
         let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
@@ -5882,6 +5921,9 @@ mod tests;
 
 #[cfg(test)]
 mod receipt_env_tests;
+
+#[cfg(test)]
+mod open_cost_tests;
 
 #[cfg(test)]
 mod personal_tests;

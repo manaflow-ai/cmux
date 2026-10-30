@@ -143,6 +143,14 @@ test("the Files tree keeps up with its folder", async () => {
   await press("ArrowDown");
   expect(host.querySelector(".files-notice")).toBeNull();
 
+  // Once the listing is complete again, a deleted selection falls back to its folder.
+  provider.truncated.delete("src");
+  await act(async () => store.select("src/main.ts"));
+  delete files.src!["main.ts"];
+  await act(() => store.refresh());
+  expect(store.getSnapshot().selected).toBe("src");
+
+  files.src!["main.ts"] = null;
   delete files.src;
   await act(() => store.refresh());
   expect(lines()).not.toContain("components");
@@ -155,4 +163,42 @@ test("the Files tree keeps up with its folder", async () => {
   act(() => root!.render(<FilesPage key="no-host" store={hostless} strings={strings} />));
   await act(() => hostless.start());
   expect(host.textContent).toBe(strings.t("files.page.unavailable"));
+});
+
+test("keeps selection when a truncated listing omits an entry", async () => {
+  const { FilesStore } = await import("../src/pages/files/store");
+  const { MockFilesProvider, sampleTree } = await import("../src/pages/files/mockProvider");
+  const files = structuredClone(sampleTree);
+  const provider = new MockFilesProvider(files);
+  const store = new FilesStore(provider);
+
+  await store.start();
+  store.expand("src");
+  await store.refresh();
+  store.select("src/main.ts");
+  provider.truncated.add("src");
+  delete files.src!["main.ts"];
+
+  await store.refresh();
+
+  expect(store.getSnapshot().selected).toBe("src/main.ts");
+});
+
+test("keeps a folder's state when a complete listing still holds a file of that name", async () => {
+  const { FilesStore } = await import("../src/pages/files/store");
+  const { MockFilesProvider, sampleTree } = await import("../src/pages/files/mockProvider");
+  const files = structuredClone(sampleTree);
+  const store = new FilesStore(new MockFilesProvider(files));
+
+  await store.start();
+  store.expand("src");
+  await store.refresh();
+  store.select("src/main.ts");
+  files.src!["components"] = null;
+
+  await store.refresh();
+
+  const snapshot = store.getSnapshot();
+  expect(snapshot.selected).toBe("src/main.ts");
+  expect(snapshot.rows.find((row) => row.path === "src/components")?.kind).toBe("file");
 });

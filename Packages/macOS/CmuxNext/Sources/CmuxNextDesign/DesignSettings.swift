@@ -59,9 +59,14 @@ public final class DesignSettings {
     /// Whether `interfaceScale` applies: the Debug Settings toggle `chrome.interfaceSize`, off by
     /// default (and always off in Release, where the tunable store is inert).
     public var interfaceScaleEnabled: Bool { ChromeTunables.interfaceSize.override ?? false }
-    /// Sets the `--cmux-interface-scale` token web chrome reads: the multiplier, or 1 when it is off.
-    public var interfaceScaleScript: String {
-        "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)')"
+    /// Sets the chrome multiplier and the effective page zoom used by web column sizing. The latter
+    /// is passed explicitly by page hosts so Agent Chat Zoom is included without making generic pages
+    /// depend on the agent setting; a change event lets chat row measurement follow CSS immediately.
+    public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
+        let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
+        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)');"
+            + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
+            + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
@@ -182,9 +187,9 @@ public final class DesignSettings {
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
-    public var defaultColumnWidth: Double = 0.5
+    public var defaultColumnWidth: Double = 2.0 / 3.0
     /// `layout.newColumnWidth`: how a new column's width is chosen.
-    public var newColumnWidth: NewColumnWidthMode = .matchCurrent
+    public var newColumnWidth: NewColumnWidthMode = .fixed
     /// `layout.splitSizing`: what a split does to its column.
     public var splitSizing: SplitSizing = .even
     /// `layout.dockColumnEdge`, `layout.dockColumnMode`.
@@ -204,6 +209,9 @@ public final class DesignSettings {
     /// `layout.scrollModifier`: Command + scroll moves the layout and a plain scroll goes to the
     /// pane under the pointer (`command`, default), or the rule before it (`none`).
     public var layoutScrollModifier: LayoutScrollModifier = .command
+    /// `layout.pagesHandleCommandScroll`: a web page that cancels Command + wheel (Figma,
+    /// Excalidraw zoom) keeps a Command scroll that starts over it; on by default.
+    public var pagesHandleCommandScroll = true
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
