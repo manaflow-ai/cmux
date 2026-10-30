@@ -202,8 +202,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // the startup below is then a loss, never the watch's baseline (`daemon/home_watch.rs`).
     let owned_home = home_watch::Owned::now(&[&home(), &lock]);
     // Gone already (removed between taking the lock and here): stop before the startup makes
-    // anything there. A relative home is never watched (it reads as missing from the home cwd).
-    if owned_home.is_none() && home().is_absolute() {
+    // anything there. A relative home is never watched (it reads as missing from the home cwd),
+    // and there is no watch off Unix (`Owned::now` is always `None` there).
+    if cfg!(unix) && owned_home.is_none() && home().is_absolute() {
         anyhow::bail!("the acpmux home {} went away as this daemon started", home().display());
     }
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and

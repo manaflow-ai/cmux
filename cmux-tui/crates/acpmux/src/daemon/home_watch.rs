@@ -28,7 +28,9 @@
 //! still finish a write of its own there during the bounded shutdown; base, with no watch,
 //! kept writing there for as long as it ran. Hosted agents end when the loss is seen before the
 //! shutdown reads its plan for them; a loss seen later leaves them to end with their record.
-//! The socket is checked, then unlinked by path: a replacement in between cannot be ruled out. Its agent hosts are other processes: they end with
+//! The socket is checked, then unlinked by path, and so are the pid and app files after one
+//! last check of the home: a replacement in between cannot be ruled out (POSIX has no
+//! unlink-if-same-file). Its agent hosts are other processes: they end with
 //! their record (`agent_host` `watch_record`); one still starting when the home is replaced may
 //! write its record into the replacement, as on a daemon without this watch. A renamed
 //! ancestor (above) also leaves an unadopted host running until its folder changes.
