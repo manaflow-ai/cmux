@@ -900,6 +900,44 @@ def fake_tool_zip(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+class SwiftFormatLaneTests(unittest.TestCase):
+    """The SwiftFormat lane's output, with the pinned binary (prepush-gate.py swiftformat())."""
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_swiftformat", SOURCE / GATE)
+        self.gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.gate)
+        lock = SOURCE / "scripts/cmux-next/lint-tools.lock"
+        try:
+            self.binary = self.gate.ensure_tool(lock, "swiftformat")
+        except SystemExit as refused:
+            self.skipTest(f"no pinned swiftformat here: {refused}")
+        self.config = SOURCE / "scripts/cmux-next/lint/swiftformat.conf"
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-swiftformat-lane-")
+        self.addCleanup(temporary.cleanup)
+        self.tree = Path(temporary.name)
+        (self.tree / "Spaced.swift").write_text("struct S {\n    var a = 1\n\n\n    var b = 2\n}\n")
+        (self.tree / "Broken.swift").write_text("struct B { var x = }}\n")
+
+    def test_a_violation_names_its_file_line_and_rule(self):
+        out = self.gate.swiftformat(self.binary, self.config, self.tree, ["Spaced.swift"])
+        self.assertRegex(out, r"Spaced\.swift:\d+:\d+: .*\(consecutiveBlankLines\)")
+
+    def test_a_file_that_does_not_parse_is_a_finding_about_that_file(self):
+        out = self.gate.swiftformat(self.binary, self.config, self.tree, ["Broken.swift", "Spaced.swift"])
+        self.assertIn("Broken.swift", out)
+        self.assertIn("consecutiveBlankLines", out)
+        self.assertIsNone(self.gate.BROKEN.search(out), out)
+
+    def test_a_bad_config_reads_as_a_broken_lane_not_a_pass(self):
+        # An unknown rule names no source file; both trees fail alike and would cancel as a "finding".
+        bad = self.tree / "bad.conf"
+        bad.write_text("--rules nosuchrule\n")
+        out = self.gate.swiftformat(self.binary, bad, self.tree, ["Spaced.swift"])
+        self.assertIsNotNone(self.gate.BROKEN.search(out), out)
+        self.assertIn("nosuchrule", out)
+
+
 class PinnedToolTests(unittest.TestCase):
     """The pinned tools of an installed hook: the guardrails' Rust rules refuse a push they cannot run ast-grep for
     (fail closed), so a flaky download must not be what refuses it. The hook keeps its own sha256-checked copy
