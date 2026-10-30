@@ -402,9 +402,10 @@ those are the defaults; 0 or false turns a rule off): a session whose usage brea
 `usageWarnings` on its summary, `[{rule, value, limit, text}]`, decided from its `usageStats`
 when the summary is read (`hub/usage_warnings.rs`). `noAutocompactCap`: a Claude session with no
 autocompact cap; `contextTokens`: its last call's context is above the limit; `subagentsPerHour`:
-it started more subagents than the limit in the last hour. `acpmux ls` shows them in a WARN
-column (`no-cap ctx 412k 90 sub/h`) while any row has one, and the cmux NEXT sidebar draws a
-warning triangle on the row whose tooltip is each `text`.
+it started more subagents than the limit in the last hour. `acpmux ls` marks such a row `warn`
+in a WARN column, shown only while some row has one; `acpmux ls --wide` names each rule with its
+number (`no-cap ctx 412k 90 sub/h`), and `--json` rows carry the whole list. The cmux NEXT
+sidebar draws a warning triangle on the row whose tooltip is each `text`.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
 event) gets an instant first-message placeholder, then a 3-6 word model title, logged

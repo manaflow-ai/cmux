@@ -338,7 +338,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             // The usage rules each row breaks (`hub/usage_warnings.rs`); the WARN column shows
             // only while some row breaks one.
-            let warns: Vec<String> = sessions.iter().map(usage_warn_cell).collect();
+            let warns: Vec<String> = sessions.iter().map(|s| usage_warn_cell(s, false)).collect();
             let warn_width = warns.iter().map(|w| w.chars().count()).max().unwrap_or(0);
             let warn_col = |cell: &str| match warn_width {
                 0 => String::new(),
@@ -1413,12 +1413,17 @@ fn text_field(value: Option<&Value>) -> String {
     }
 }
 
-/// A row's WARN cell for `acpmux ls`: its usage warnings, short (`no-cap ctx 955k 90 sub/h`).
-fn usage_warn_cell(session: &Value) -> String {
-    session["usageWarnings"]
-        .as_array()
-        .map(|w| w.iter().map(crate::hub::usage_warnings::short).collect::<Vec<_>>().join(" "))
-        .unwrap_or_default()
+/// A row's WARN cell for `acpmux ls`: `warn` when it breaks a usage rule, so the default listing
+/// stays compact (Leo 2026-10-30: "acpmux ls should probably not be overly... verbose?"); `wide`
+/// names each rule with its number (`no-cap ctx 955k 90 sub/h`). Empty when it breaks none.
+fn usage_warn_cell(session: &Value, wide: bool) -> String {
+    let Some(warnings) = session["usageWarnings"].as_array().filter(|w| !w.is_empty()) else {
+        return String::new();
+    };
+    if !wide {
+        return "warn".to_owned();
+    }
+    warnings.iter().map(crate::hub::usage_warnings::short).collect::<Vec<_>>().join(" ")
 }
 
 fn team_receipt_line(receipt: &Value) -> String {
@@ -1441,16 +1446,21 @@ mod tests {
     }
 
     #[test]
-    fn a_rows_warn_cell_names_each_broken_rule_with_its_number() {
+    fn a_rows_warn_cell_is_one_word_and_wide_names_each_rule_with_its_number() {
         let row = serde_json::json!({"usageWarnings": [
             {"rule": "noAutocompactCap", "value": 955_000, "limit": null},
             {"rule": "contextTokens", "value": 955_000, "limit": 400_000},
             {"rule": "subagentsPerHour", "value": 90, "limit": 40},
         ]});
-        assert_eq!(super::usage_warn_cell(&row), "no-cap ctx 955k 90 sub/h");
+        assert_eq!(super::usage_warn_cell(&row, true), "no-cap ctx 955k 90 sub/h");
+        // The default listing marks the row with one word and no numbers.
+        assert_eq!(super::usage_warn_cell(&row, false), "warn");
         // An older daemon's row, or one with nothing to warn about: an empty cell.
-        assert_eq!(super::usage_warn_cell(&serde_json::json!({})), "");
-        assert_eq!(super::usage_warn_cell(&serde_json::json!({"usageWarnings": []})), "");
+        for wide in [false, true] {
+            assert_eq!(super::usage_warn_cell(&serde_json::json!({}), wide), "");
+            let none = serde_json::json!({"usageWarnings": []});
+            assert_eq!(super::usage_warn_cell(&none, wide), "");
+        }
     }
     use super::{
         new_requires_tty, new_without_prompt_requires_tty, parse_duration_ms, parse_fields,
