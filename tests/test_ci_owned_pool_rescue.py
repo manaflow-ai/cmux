@@ -4018,6 +4018,59 @@ class IOSDispatch(unittest.TestCase):
         for path in (".github/workflows/ios-testflight.yml", ".github/workflows/ios-streamed-validate.yml"):
             self.assertIsInstance(rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux"), str)
 
+    def test_kit_pr_rescues_only_the_unstarted_test_after_three_minutes(self):
+        def jobs(seconds):
+            return [e2e_runner()(seconds),
+                    {**job("cmux-next-ios kit tests", labels=[MINI, IOS_SIM]), "id": 123}]
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, snapshot=lambda seconds: {
+            "generated_at": stamp(seconds), "pools": {MINI: {"running": 0}}})
+        code, summary = run_main(api, clock, payload=event(path=rescue.IOS_KIT_WORKFLOW_PATH),
+                                 env_extra={"RESCUE_SECONDS": "600", "QUEUE_ROUNDS": "8"})
+        self.assertEqual(code, 0, summary)
+        self.assertIn("budget 180s", summary)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun-job:123", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertEqual(api.first_cancel, rescue.FIRST_LOOK_SECONDS + 180)
+
+    def test_other_ios_prs_keep_the_existing_e2e_exclusion_on_an_idle_pool(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [e2e_runner()(seconds), {
+            **job("ios-simulator-build", labels=[MINI, IOS_SIM]), "id": 123}], marker=True,
+            snapshot=lambda seconds: {"generated_at": stamp(seconds), "pools": {MINI: {"running": 0}}})
+        _, summary = run_main(api, clock, payload=event(path=rescue.IOS_TEST_WORKFLOW_PATH))
+        assert_left_at_open_head(self, api, summary)
+        self.assertNotIn("rerun-job:123", api.calls)
+
+    def test_kit_pr_never_cancels_a_running_or_assigned_test(self):
+        for status, runner in (("in_progress", "mini"), ("queued", "mini")):
+            with self.subTest(status=status):
+                clock = Clock()
+                api = FakeAPI(clock, lambda seconds: [e2e_runner()(seconds), {
+                    **job("cmux-next-ios kit tests", labels=[MINI, IOS_SIM],
+                          status=status, runner=runner), "id": 123}], marker=True,
+                    finished=lambda seconds: seconds >= 240,
+                    snapshot=lambda seconds: {"generated_at": stamp(seconds),
+                                              "pools": {MINI: {"running": 0}}})
+                code, summary = run_main(api, clock, payload=event(path=rescue.IOS_KIT_WORKFLOW_PATH))
+                self.assertEqual(code, 0, summary)
+                self.assertNotIn("cancel", api.calls)
+                self.assertNotIn("rerun-job:123", api.calls)
+
+    def test_kit_targets_accept_same_repo_pr_push_and_dispatch_only(self):
+        for kind in ("pull_request", "push", "workflow_dispatch"):
+            with self.subTest(event=kind):
+                payload = event(path=rescue.IOS_KIT_WORKFLOW_PATH, event=kind)
+                target = rescue.target_from_event(payload, "manaflow-ai/cmux")
+                self.assertIsInstance(target, rescue.Target)
+                self.assertTrue(target.e2e)
+                self.assertEqual(target.picker_job, "runner")
+                fork = event(path=rescue.IOS_KIT_WORKFLOW_PATH, event=kind,
+                             head_repository={"full_name": "someone/cmux"})
+                self.assertIsInstance(rescue.target_from_event(fork, "manaflow-ai/cmux"), str)
+
     def test_a_job_waiting_for_the_simulator_label_moves_to_blacksmith(self):
         # No idle mini carries glaeda-ios-sim yet: the job queues on the owned
         # labels and is re-run on retry_runs_on after the budget.

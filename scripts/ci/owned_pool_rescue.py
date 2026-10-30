@@ -3510,7 +3510,8 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
     2026-10-30) had 28 of 29 jobs finished, its swift test and daemon tests red below the placement, and its Release
     compile queued on glaeda-std-xcode-26.6 for over four hours while that label ran nothing.
     """
-    if not target.pr_number or target.nightly or target.main or target.e2e or target.push_branch \
+    if not target.pr_number or target.nightly or target.main or target.push_branch \
+            or (target.e2e and target.path != IOS_KIT_WORKFLOW_PATH) \
             or target.path in FEED_TIMEOUT_PATHS or never_fails_over(target.path, target.event):
         return NO_FAILOVER
     reader = getattr(api, "pool_snapshot", None)
