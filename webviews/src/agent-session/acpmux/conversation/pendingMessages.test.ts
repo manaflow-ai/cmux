@@ -4,7 +4,7 @@
 // are never folded into one.
 import { expect, test } from "bun:test";
 import { PENDING_MESSAGES, QUEUED_MESSAGE, type AcpmuxRow } from "../model";
-import { bySender, dedupeMessages, PENDING_MESSAGES_ROW_ID, pendingMessagesRow } from "./pendingMessages";
+import { bySender, dedupeMessages, PENDING_MESSAGES_ROW_ID, pendingMemberId, pendingMessagesRow } from "./pendingMessages";
 
 let at = 0;
 const queued = (promptId: string, name: string, text: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -83,4 +83,19 @@ test("Find counts a queued message's words and lands on the group that draws it"
   expect(matches.map((match) => match.rowId)).toEqual([waiting.id]);
   const transcript = [queued("x", "a", "unrelated"), group].slice(1);
   expect(findRowIndex(transcript, waiting.id)).toBe(0);
+});
+
+// Review at bd64b88e: Find counts every queued entry, a duplicate the group hides too; its match
+// must still land on the group, and on the copy the group shows.
+test("a hidden duplicate's Find match lands on the group and on the copy it shows", async () => {
+  const { findMatches, findRowIndex } = await import("./chatFind");
+  const red = "#27128 own red fixed and pushed exact d60a3ddc";
+  const first = queued("d1", "nx-sidebar", red);
+  const again = queued("d2", "nx-sidebar", red);
+  const group = pendingMessagesRow([], [first, again])!;
+  expect(group.pendingMessages?.rows).toEqual([first]);
+  expect(findMatches([first, again], "d60a3ddc").map((match) => match.rowId)).toEqual([first.id, again.id]);
+  expect(findRowIndex([group], again.id)).toBe(0);
+  expect(pendingMemberId(group, again.id)).toBe(first.id);
+  expect(pendingMemberId(group, first.id)).toBe(first.id);
 });

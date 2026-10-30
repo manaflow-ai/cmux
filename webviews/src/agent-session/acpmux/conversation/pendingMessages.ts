@@ -69,6 +69,21 @@ export function bySender(rows: readonly AcpmuxRow[]): { key: string; rows: Acpmu
   return [...groups].map(([key, list]) => ({ key, rows: list }));
 }
 
+/// The shown message in `group` that draws waiting row `rowId`: itself, or the first copy a
+/// duplicate was folded into (the same prompt id, or the same sender and words).
+export function pendingMemberId(group: AcpmuxRow, rowId: string): string {
+  const members = group.pendingMessages?.rows ?? [];
+  if (members.some((row) => row.id === rowId)) return rowId;
+  const hidden = (group.pendingMessages?.all ?? []).find((row) => row.id === rowId);
+  if (!hidden) return rowId;
+  const id = promptIdOf(hidden);
+  const text = contentKey(hidden);
+  const shown = members.find(
+    (row) => (id !== undefined && promptIdOf(row) === id) || (text !== undefined && contentKey(row) === text),
+  );
+  return shown?.id ?? rowId;
+}
+
 let version = 0;
 
 /// The one group row of the waiting messages (`steers`, then `queued`), or undefined when none wait.
@@ -79,10 +94,11 @@ export function pendingMessagesRow(
   last?: AcpmuxRow,
 ): AcpmuxRow | undefined {
   const all = steers.length === 0 ? queued : queued.length === 0 ? steers : [...steers, ...queued];
-  const members = dedupeMessages(all.filter((row) => row.kind === QUEUED_MESSAGE || isWaitingMessage(row)));
+  const waiting = all.filter((row) => row.kind === QUEUED_MESSAGE || isWaitingMessage(row));
+  const members = dedupeMessages(waiting);
   if (members.length === 0) return undefined;
-  const held = last?.pendingMessages?.rows;
-  if (held && held.length === members.length && held.every((row, index) => row === members[index])) return last;
+  const held = last?.pendingMessages?.all;
+  if (held && held.length === waiting.length && held.every((row, index) => row === waiting[index])) return last;
   return {
     id: PENDING_MESSAGES_ROW_ID,
     version: ++version,
@@ -93,7 +109,9 @@ export function pendingMessagesRow(
       .map((row) => (row.incoming?.kind === "message" ? row.incoming.message.text : (row.text ?? "")))
       .join("\n\n"),
     untyped: true,
-    joined: members.map((row) => row.id),
-    pendingMessages: { rows: members },
+    // Every waiting row, a hidden duplicate too: Find counts each queued entry (App.tsx findRows), and
+    // a match in a duplicate lands here and on the copy that shows.
+    joined: waiting.map((row) => row.id),
+    pendingMessages: { rows: members, all: waiting },
   };
 }

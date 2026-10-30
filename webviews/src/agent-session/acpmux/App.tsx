@@ -52,7 +52,7 @@ import {
   PENDING_MESSAGES,
 } from "./model";
 import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
-import { pendingMessagesRow } from "./conversation/pendingMessages";
+import { pendingMemberId, pendingMessagesRow } from "./conversation/pendingMessages";
 import { PendingMessagesCard } from "./conversation/PendingMessagesCard";
 import {
   QueuedMessageCard,
@@ -3583,7 +3583,9 @@ export function VirtualTranscript({
   // A match in a message of the group of waiting messages is that message's own: it is drawn in the
   // group, under its own row id (PendingMessagesCard.tsx), and counted there.
   const inGroup = rows[findIndex]?.kind === PENDING_MESSAGES && findTargetRowId !== drawnId;
-  const paintedId = inGroup ? findTargetRowId : drawnId;
+  // A hidden duplicate's match is its shown copy's (pendingMessages.ts dedupe): the same words, so
+  // the same occurrence.
+  const paintedId = inGroup ? pendingMemberId(rows[findIndex]!, findTargetRowId!) : drawnId;
   const revealing = useRef<string | undefined>(undefined);
   const targetKey =
     findTargetRowId !== undefined && findTargetOccurrence !== undefined && findQuery && drawnId !== undefined
@@ -3602,10 +3604,10 @@ export function VirtualTranscript({
             card: drawnCard,
             needle: findQuery.toLocaleLowerCase(),
             repaint: () => setRevealed((count) => count + 1),
-            ...(inGroup ? { matchRowId: findTargetRowId } : {}),
+            ...(inGroup ? { matchRowId: paintedId } : {}),
           }
         : undefined,
-    [drawnId, drawnCard, findQuery, inGroup, findTargetRowId],
+    [drawnId, drawnCard, findQuery, inGroup, paintedId],
   );
   // Find chooses the reader's new place. Discard the previous scroll owners synchronously;
   // closing Find, a query edit or a measurement must never put that old place back.
