@@ -417,11 +417,7 @@ extension AgentTabStore {
             return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
         }
     }
-    /// Signed in, on either link: a legacy machine's exec and file routes are `/api/vm`'s, a Worker
-    /// machine's (the app server link) the cmux API Worker's (`CloudService.machineAPI`).
     static func cloudCredentialTransferIsAvailable(linkSource: CloudConfiguration.LinkSource, isSignedIn: Bool) -> Bool {
-        switch linkSource {
-        case .legacy, .appServer: isSignedIn
-        }
+        isSignedIn // on either link: CloudService.machineAPI serves a legacy and a Worker machine
     }
 }
