@@ -19,7 +19,7 @@ public nonisolated enum MachineLinkState: String, Hashable, Sendable {
     /// a link that dropped or never came up, not one a person must fix (sign-in, an update).
     public static func reconnectsOnUse(_ status: SidebarMachine.Status) -> Bool {
         switch status {
-        case .offline, .unreachable, .failed: true
+        case .offline, .unreachable, .failed, .disconnected: true
         case .connected, .updateAvailable, .connecting, .reconnecting, .installing, .installRequired,
              .authFailed, .updateRequired, .paused, .pausedIdle: false
         }
@@ -37,7 +37,7 @@ extension SidebarMachine.Status {
         case .connecting, .reconnecting, .installing: .connecting
         case .offline, .unreachable, .authFailed, .failed, .updateRequired: .offline
         case .paused, .pausedIdle: .paused
-        case .installRequired: .attention
+        case .installRequired, .disconnected: .attention
         }
     }
 }
