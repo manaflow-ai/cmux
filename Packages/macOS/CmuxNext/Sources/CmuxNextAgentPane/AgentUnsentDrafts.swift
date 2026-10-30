@@ -116,12 +116,51 @@ public final class AgentUnsentDrafts {
         save()
     }
 
-    /// The kept text first, then the typed text after it (as the page merges them,
-    /// composerDraft.ts `mergedDraft`); a text that already holds the other is kept as it is.
+    /// Implements the merge contract documented at webviews/src/agent-session/acpmux/composerDraft.ts.
+    /// Both implementations are checked against webviews/test/fixtures/composer-draft-merge.json.
     public static func merged(typed: String, kept: String) -> String {
-        if typed.contains(kept) { return typed }
-        if kept.hasSuffix("\n\n" + typed) { return kept }
+        if mergeBlank(kept) { return typed }
+        if mergeBlank(typed) { return kept }
+        let typedUnits = Array(typed.utf16)
+        let keptUnits = Array(kept.utf16)
+        if draftMatch(text: typedUnits, pattern: keptUnits).contains { return typed }
+        let match = draftMatch(text: keptUnits, pattern: typedUnits)
+        if match.contains { return kept }
+        if match.overlap >= 2 {
+            return String(decoding: keptUnits + typedUnits.dropFirst(match.overlap), as: UTF16.self)
+        }
         return kept + "\n\n" + typed
+    }
+
+    // ECMAScript trim's whitespace set; Foundation's set also includes U+0085 and omits U+FEFF.
+    private static func mergeBlank(_ text: String) -> Bool {
+        text.unicodeScalars.allSatisfy { scalar in
+            switch scalar.value {
+            case 0x0009...0x000D, 0x0020, 0x00A0, 0x1680, 0x2000...0x200A,
+                 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF:
+                true
+            default:
+                false
+            }
+        }
+    }
+
+    // KMP over UTF-16, so containment and overlap are linear and agree with the webview.
+    private static func draftMatch(text: [UInt16], pattern: [UInt16]) -> (contains: Bool, overlap: Int) {
+        var prefix = [Int](repeating: 0, count: pattern.count)
+        var matched = 0
+        for index in 1..<pattern.count {
+            while matched > 0, pattern[index] != pattern[matched] { matched = prefix[matched - 1] }
+            if pattern[index] == pattern[matched] { matched += 1 }
+            prefix[index] = matched
+        }
+        matched = 0
+        for unit in text {
+            while matched > 0, unit != pattern[matched] { matched = prefix[matched - 1] }
+            if unit == pattern[matched] { matched += 1 }
+            if matched == pattern.count { return (true, matched) }
+        }
+        return (false, matched)
     }
 
     /// `text`, or its first ``maximumCharacters`` when it is longer.

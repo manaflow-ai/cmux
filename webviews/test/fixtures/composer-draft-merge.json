@@ -330,7 +330,7 @@
     ],
     "expected": [
       {
-        "text": " hello world ",
+        "text": " hello \n\n world ",
         "count": 1
       }
     ]

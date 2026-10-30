@@ -22,30 +22,38 @@ export function seededText(current: string, draft: string | undefined): string {
 }
 
 /**
- * The prompt once a saved draft (acpmux's, the tab's kept unsent text, the page's remount cache)
- * meets text the composer already holds, typed before the chat finished loading. Nothing is lost
- * and nothing is doubled: an empty side gives way to the other, text that already holds the saved
- * draft stays as it is, and two different texts are both kept, the saved draft first and the typed
- * text after it. That is the order `ComposerHandle.restore` uses (what comes back goes first): the
- * caret stays at the end of what the person is typing, so their next key lands where they expect.
+ * Draft merge contract (shared vectors: test/fixtures/composer-draft-merge.json): compare exact
+ * UTF-16 units, without normalization. Blank means ECMAScript trim whitespace. A blank saved
+ * side returns typed; otherwise a blank typed side returns saved. Prefer typed if it contains
+ * saved, then saved if it contains typed. Otherwise join saved's longest suffix matching typed's
+ * prefix (at least two units); with no such overlap, join saved + "\n\n" + typed. Preserve whitespace.
+ * Native AgentUnsentDrafts.merged follows this contract and consumes the same fixture.
  */
 export function mergedDraft(typed: string, saved: string | undefined): string {
   if (!saved?.trim()) return typed;
   if (!typed.trim()) return saved;
-  if (typed.includes(saved)) return typed;
-  if (saved.includes(typed)) return saved;
-  // Already merged once (a second load, the host's own merge): the same text again.
-  if (saved.endsWith(`\n\n${typed}`)) return saved;
-  const overlap = longestBoundaryOverlap(saved, typed);
-  return overlap >= 2 ? `${saved}${typed.slice(overlap)}` : `${saved}\n\n${typed}`;
+  if (draftMatch(typed, saved).contains) return typed;
+  const match = draftMatch(saved, typed);
+  if (match.contains) return saved;
+  return match.overlap >= 2 ? `${saved}${typed.slice(match.overlap)}` : `${saved}\n\n${typed}`;
 }
 
-function longestBoundaryOverlap(first: string, second: string): number {
-  const limit = Math.min(first.length, second.length);
-  for (let length = limit; length > 0; length -= 1) {
-    if (first.endsWith(second.slice(0, length))) return length;
+// KMP: each unit is visited a bounded number of times, including repetitive million-unit drafts.
+// The final partial match is precisely the longest suffix of text matching a prefix of pattern.
+function draftMatch(text: string, pattern: string): { contains: boolean; overlap: number } {
+  const prefix = new Uint32Array(pattern.length);
+  for (let index = 1, matched = 0; index < pattern.length; index += 1) {
+    while (matched > 0 && pattern[index] !== pattern[matched]) matched = prefix[matched - 1]!;
+    if (pattern[index] === pattern[matched]) matched += 1;
+    prefix[index] = matched;
   }
-  return 0;
+  let matched = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    while (matched > 0 && text[index] !== pattern[matched]) matched = prefix[matched - 1]!;
+    if (text[index] === pattern[matched]) matched += 1;
+    if (matched === pattern.length) return { contains: true, overlap: matched };
+  }
+  return { contains: false, overlap: matched };
 }
 
 /**
