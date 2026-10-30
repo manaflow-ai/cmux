@@ -4,26 +4,35 @@
 // are gone until the next client connects, and the composer let the refusal go unseen. The turn
 // went on as if Stop had never been pressed (Leo, 2026-10-29: "i literally can't stop you i clicked
 // the stop button and it didnt do anything"). Now the composer says it is stopping, and the Stop
-// goes out once the pane is connected to that chat again: it stops the turn acpmux resumed, or the
-// retry of it still waiting (acpmux's Stop withdraws that too, `hub/cancel.rs`).
+// goes out once the pane is connected to that chat again and that same turn runs: the turn acpmux
+// resumed, or its automatic continuation (`P~resume-n` runs for `P`, direct.ts `promptRoot`).
+// `session/cancel` stops whatever the chat runs, so a kept Stop never goes to another turn (a
+// queued prompt that started meanwhile) and never goes while nothing runs.
 import { useCallback, useEffect, useRef, useState } from "react";
 
-/// What the kept Stop reads of the pane: the chat it shows, its connection and whether it works.
-export type StopView = { sessionId?: string; connection: string; isWorking: boolean };
+/// What the kept Stop reads of the pane: the chat it shows, its connection, whether it works and
+/// the prompt of the turn that runs (snapshot `turnPrompt`).
+export type StopView = { sessionId?: string; connection: string; isWorking: boolean; turnPrompt?: string };
 
-/// A Stop acpmux did not get: the chat it was for, and whether the pane must lose its connection
-/// before sending it again (it was refused while the pane still read connected: the socket was
-/// closing, and a send now would be refused the same way).
-export type KeptStop = { sessionId: string; awaitsDisconnect: boolean };
+/// A Stop acpmux did not get: the chat and the turn (by its prompt) it was for, and whether the
+/// pane must lose its connection before sending it again (it was refused while the pane still read
+/// connected: the socket was closing, and a send now would be refused the same way).
+export type KeptStop = { sessionId: string; turnPrompt?: string; awaitsDisconnect: boolean };
 
 /// What to do with `kept` now. `keep`: wait (with `awaitsDisconnect` cleared once the pane read a
-/// lost connection); `send`: the pane is connected to that chat again; `drop`: another chat shows,
-/// or the chat stopped working while the pane stayed connected.
+/// lost connection); `send`: the pane is connected to that chat again and the stopped turn runs;
+/// `drop`: another chat shows, another turn runs, or the stopped turn ended while the pane stayed
+/// connected.
 export function keptStopStep(kept: KeptStop, view: StopView): { step: "keep" | "send" | "drop"; kept: KeptStop } {
   if (view.sessionId !== kept.sessionId) return { step: "drop", kept };
   if (view.connection !== "connected")
     return { step: "keep", kept: kept.awaitsDisconnect ? { ...kept, awaitsDisconnect: false } : kept };
+  // Another turn runs (a prompt that waited, or one sent since): that is not the one stopped.
+  if (view.isWorking && view.turnPrompt !== kept.turnPrompt) return { step: "drop", kept };
   if (kept.awaitsDisconnect) return { step: view.isWorking ? "keep" : "drop", kept };
+  // Back with nothing running: the stopped turn's continuation may still start (acpmux resumes it
+  // after a wait), and the Stop goes then; a different turn starting drops it (above).
+  if (!view.isWorking) return { step: "keep", kept };
   return { step: "send", kept };
 }
 
@@ -36,16 +45,18 @@ export function useStopThroughReconnect(
   const [kept, setKept] = useState<KeptStop>();
   const latest = useRef({ view, cancel });
   latest.current = { view, cancel };
-  const keepRefused = useCallback((sessionId: string) => {
+  const keepRefused = useCallback((pressed: StopView) => {
     const now = latest.current.view;
-    if (now.sessionId !== sessionId) return;
-    setKept({ sessionId, awaitsDisconnect: now.connection === "connected" });
+    if (!pressed.sessionId || now.sessionId !== pressed.sessionId) return;
+    setKept({
+      sessionId: pressed.sessionId,
+      turnPrompt: pressed.turnPrompt,
+      awaitsDisconnect: now.connection === "connected",
+    });
   }, []);
   const stop = useCallback(() => {
-    const sessionId = latest.current.view.sessionId;
-    latest.current.cancel().catch(() => {
-      if (sessionId) keepRefused(sessionId);
-    });
+    const pressed = latest.current.view;
+    latest.current.cancel().catch(() => keepRefused(pressed));
   }, [keepRefused]);
   const next = kept ? keptStopStep(kept, view) : undefined;
   const step = next?.step;
@@ -59,7 +70,7 @@ export function useStopThroughReconnect(
     setKept(undefined);
     if (step === "send")
       latest.current.cancel().catch(() => {
-        keepRefused(kept.sessionId);
+        keepRefused({ ...latest.current.view, sessionId: kept.sessionId, turnPrompt: kept.turnPrompt });
       });
   }, [kept, step, nextKept, keepRefused]);
   return { stop, stopping: step === "keep" && view.isWorking };
