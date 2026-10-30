@@ -20,6 +20,7 @@ dependencies = [
  "cmux-link",
  "cmux-local-auth",
  "cmux-memory",
+ "cmux-owner-liveness",
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
@@ -1005,6 +1006,7 @@ version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
  "cmux-link",
+ "cmux-owner-liveness",
  "cmux-panic-log",
  "cmux-threads",
  "cmux-trace",
@@ -1364,6 +1366,14 @@ version = "0.1.0"
 dependencies = [
  "cmux-threads",
  "ghostty-vt",
+ "libc",
+]
+
+[[package]]
+name = "cmux-owner-liveness"
+version = "0.1.0"
+dependencies = [
+ "cmux-threads",
  "libc",
 ]
 
@@ -1738,6 +1748,7 @@ dependencies = [
  "cmux-host",
  "cmux-ipc",
  "cmux-link",
+ "cmux-owner-liveness",
  "cmux-panic-log",
  "cmux-process",
  "cmux-pty",

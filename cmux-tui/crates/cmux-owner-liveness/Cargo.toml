@@ -1,0 +1,18 @@
+[package]
+name = "cmux-owner-liveness"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Whether the app a helper process serves still runs: one kernel exit handle per followed app (pidfd, kqueue), the owner-app.pid follow, and the one stop rule every app helper uses (acpmux, cmux-browser-host, the Chief owner and optchat-chief)"
+
+[lints]
+workspace = true
+
+[dependencies]
+# Named threads at a declared QoS (plans/cmux-next/chrome-parity/p02-threads.md).
+cmux-threads.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

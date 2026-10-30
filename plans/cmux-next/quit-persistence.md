@@ -418,3 +418,26 @@ work.
   (`CMUX_PLUGIN_HOST_PID`), and its own connection to that daemon is no client that keeps the
   daemon (`Mux::client_count` skips the journal plugin's peer pid; before, every "no client" exit
   of a daemon that ran the plugin, the Chief owner's included, could never fire).
+- One rule and one owner-liveness for every helper (principled audit lagQuitHelpers, branch
+  `cp/redesign-quit-helpers`, 2026-10-29). The two items above used an edge per helper (acpmux's
+  `owner_exited` latch, the browser host's `provider_gone`, the Chief owner's armed watch, the brain
+  host's `owner_gone_at` with a 30 s link hold) and two copies of the kernel wait. Now
+  `cmux-tui/crates/cmux-owner-liveness` follows the owner app through one kernel handle (a pidfd on
+  Linux, a kqueue `NOTE_EXIT` registration on macOS, opened when the app is named) and, after its
+  exit, the newer app that `owner-app.pid` names, as a level (`OwnerLiveness::state`). Every helper
+  reads it at each presence or work change and at each deadline, with one rule
+  (`Keeps::exits`): **exit when there is no client, no live owner app and no live work**; a debug
+  build checks `exiting == !(clients || owner alive || live work)` there (`cmux_owner_liveness::check`).
+  - acpmux: after the owner is gone, 2 s once the rule holds, also after a Keep Sessions turn ends
+    (before, a turn found at a deadline cleared the latch, and the daemon waited 10 min). With no
+    owner app (the CLI's daemon), `leftoverDaemonIdleExit` decides only whether that keeps it.
+  - cmux-browser-host: its owner is the app whose provider connected last (the socket's peer pid).
+    While that app runs it keeps the host, also with its provider link down; once it is gone the
+    host exits as soon as no session or connection uses it.
+  - Chief owner: a newer app that starts after a quit and writes `owner-app.pid` keeps it again
+    (before, the first exit armed the stop for good).
+  - Brain host: no link hold. An idle host whose app is gone stops at once; its unsent outbox is
+    saved with its state and a person's unread message stays in the owner daemon's conversation,
+    so the next host sends and reads them. A host that has not read its conversation since it
+    started (another Chief that a message woke after the quit) counts that as live work: it reads
+    and answers first. Its link's first `Up`, or a failed connect (`Down`), ends that; no timer.
