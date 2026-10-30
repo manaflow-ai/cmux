@@ -2479,7 +2479,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 let r = cell.convert(cell.bounds, to: self)
                 if pv.outgoing {
                     if p.x >= r.minX + spec.metrics.rightEdge - max(pv.box.width, 90) { return pv.root }
-                } else if p.x <= r.minX + Fixture.leftEdge + max(pv.box.width, 90) { return pv.root }
+                } else if p.x <= r.minX + pv.cmuxLeft + max(pv.box.width, 90) { return pv.root } // cmux: group indent
             }
         }
         return nil

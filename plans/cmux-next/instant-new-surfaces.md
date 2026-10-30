@@ -109,3 +109,9 @@ Reading it:
   gains `holdsMemory(_:)`, `hibernateTabs(_:)` and `evictHiddenTerminal(_:)`. They run only when an idle workspace
   hibernates (at most one pass a minute), never on the new-tab path; a hidden terminal is evicted through the new
   `SurfaceLedger.evictHidden`, a page through `BrowserHibernation.hibernateForWorkspace`.
+- 2026-10-29, Home tab bar (home-chief-pane.md H1; Lawrence: "chief in home should not have horizontal tabbar"):
+  `PaneBrowserTabOpener.open` computes `beside` (the pane is Home's open pinned dock and the caller passed no
+  `then`) before the stand-in check, and skips the stand-in when it holds. The stand-in (dc2f1c743b88) had
+  returned before the dock rule (343255369f28), so a person's foreground tab aimed at the focused Home (the update
+  card's Release Notes after an update) stayed in Home's dock and brought its strip back. Every other pane keeps
+  the stand-in; the new-tab path gains one `isOpenPinnedDockPane` read (a walk over the workspace's columns).
