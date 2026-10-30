@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4109296117601",
+  "notes": "notes/4109296117601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 28124,
+      "title": "carry of #27013: rebuild Settings interface scale",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27904,
+      "title": "What's New: support public PR screenshots and looping video",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28426,
+      "title": "tests: register the owned-mini caches regression as manual (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28182,
+      "title": "acpmux: a session list too large for one message goes in pages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28370,
+      "title": "fix(acpmux): pause after a failed accept instead of spinning on descriptor exhaustion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28366,
+      "title": "fix(next): hold agent presence for a tab the store has not indexed yet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26674,
+      "title": "NEXT: Home attachments upload as client-driven R2 multipart parts of any size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28179,
+      "title": "fix(agent-pane): carry session rail keyboard focus",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
