@@ -279,7 +279,7 @@ struct CloudIdlePauseTests {
         var record = session.machine
         record.status = .paused
         record.pauseReason = .idle
-        f.services.cloud.apply(record, to: session)
+        f.services.cloud.apply(record, to: session, read: f.services.cloud.beginRecordRead())
 
         #expect(session.machine.status == .paused)
         #expect(session.linkPhase == .idle, "suspended: the link stopped")
@@ -299,10 +299,45 @@ struct CloudIdlePauseTests {
         var record = session.machine
         record.status = .running
         record.pauseReason = nil
-        f.services.cloud.apply(record, to: session)
+        f.services.cloud.apply(record, to: session, read: f.services.cloud.beginRecordRead())
 
         #expect(session.machine.status == .running)
         try await Self.waitUntil { session.daemon.isStarting }
+        session.disconnect()
+    }
+
+    /// Reads land out of order: a newer read found the machine paused and suspended it; an older
+    /// read (a second Machine Status, or a list asked before it) that still says running lands
+    /// after. It changes nothing: no record overwrite and no connect.
+    @Test(.timeLimit(.minutes(1)))
+    func anOlderRecordLandingAfterANewerOneChangesNothing() async throws {
+        let f = Self.pausedMachine(reason: nil)
+        f.session.machine.status = .running
+        f.session.connect()
+        let session = f.session, cloud = f.services.cloud
+        try await Self.waitUntil { session.linkPhase != .idle }
+
+        let olderStatus = cloud.beginRecordRead(), olderList = cloud.beginRecordRead(), newer = cloud.beginRecordRead()
+        var paused = session.machine
+        paused.status = .paused
+        paused.pauseReason = .idle
+        cloud.apply(paused, to: session, read: newer)
+        #expect(session.stage == .paused(idle: true))
+
+        var running = session.machine
+        running.status = .running
+        running.pauseReason = nil
+        cloud.apply(running, to: session, read: olderStatus)
+        cloud.reconcile([running], read: olderList)
+
+        #expect(session.machine.status == .paused, "the newest read's record stays")
+        #expect(session.linkPhase == .idle, "no connect from an older read")
+        #expect(!session.daemon.isStarting)
+        #expect(session.stage == .paused(idle: true))
+
+        // A read asked after the newest one applies as before.
+        cloud.apply(running, to: session, read: cloud.beginRecordRead())
+        #expect(session.machine.status == .running)
         session.disconnect()
     }
 
