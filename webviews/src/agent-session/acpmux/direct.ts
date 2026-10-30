@@ -3776,11 +3776,15 @@ export class AcpmuxDirectClient {
     if (turnId !== undefined && (this.endedTurns.has(turnId) || this.supersededTurns.has(turnId))) return;
     if (this.turnStartedAtMs !== undefined && turn.startedAt < this.turnStartedAtMs) return;
     this.turnStartedAtMs = turn.startedAt;
-    // The turn live events opened already: the summary only dates it.
+    // The turn live events opened already: the summary only dates it. When its opener named no
+    // turn (a resumed turn's old prompt), the summary alone says which turn runs, so it may end it.
     const opened =
       this.turnOpen && (turnId === undefined || this.runningTurnId === undefined || turnId === this.runningTurnId);
     if (opened) {
-      if (this.runningTurnId === undefined) this.runningTurnId = turnId;
+      if (this.runningTurnId === undefined && turnId !== undefined) {
+        this.runningTurnId = turnId;
+        this.turnAdopted = true;
+      }
       return;
     }
     this.turnOpen = true;
@@ -4620,6 +4624,8 @@ export class AcpmuxDirectClient {
       // Behind the compaction fence an end naming no turn cannot say which turn it closes.
       const ambiguous = this.compactionFenceSeq !== undefined && terminalTurnId === undefined;
       if (ambiguous || late) {
+        // That turn did end: a summary still naming it is stale (`staleRun`).
+        if (terminalTurnId !== undefined && event.kind !== "turn_error") this.endedTurns.add(terminalTurnId);
         // The old Stop can be acknowledged independently, before any turn-scoped side effects
         // (including foreground subagents) see a result that belongs to a different turn.
         if (terminalTurnId !== undefined && terminalTurnId === this.stopTurnId) this.stopAnswered(event);
@@ -4993,9 +4999,14 @@ export class AcpmuxDirectClient {
               row.turnId === resultTurnId &&
               (row.compaction?.state === "running" || row.compaction?.inferred === true),
           );
-        // A late end of another turn returned above, so this one ends the open turn.
+        // A late end of another turn returned above, so this one ends the open turn, and a summary
+        // still naming it is stale. Its result (after a legacy turn_end) is still this turn's.
         this.turnStartedAtMs = undefined;
         this.turnAdopted = false;
+        if (event.kind === "turn_end" && typeof msg.turnId === "string" && msg.turnId) {
+          this.endedTurns.add(msg.turnId);
+          this.runningTurnId ??= msg.turnId;
+        }
         // A summary that names no turn said this one ran: it no longer does.
         if (this.summary && !this.summary.turn?.turnId && this.summaryRuns(this.summary))
           this.summary = { ...this.summary, status: "idle" };

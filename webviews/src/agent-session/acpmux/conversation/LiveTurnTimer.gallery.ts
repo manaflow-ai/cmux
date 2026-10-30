@@ -30,10 +30,7 @@ export default agentPaneEntry({
   title: "Running turn's clock: from the live turn, not its old prompt",
   area: "Agent pane",
   height: 320,
-  covers: [
-    "agent-session/acpmux/conversation/turns.ts",
-    "agent-session/acpmux/conversation/WorkingFor.tsx",
-  ],
+  covers: ["agent-session/acpmux/conversation/turns.ts", "agent-session/acpmux/conversation/WorkingFor.tsx"],
   keywords: ["working for", "thinking", "timer", "elapsed", "resumed turn"],
   variants: {
     thinking: {
