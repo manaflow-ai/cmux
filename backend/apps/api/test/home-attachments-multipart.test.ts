@@ -720,9 +720,78 @@ describe("Home attachments: a stale part write that lands after a newer one neve
     expect([res.status, json.error?.retryable]).toEqual([409, true])
     vi.useRealTimers()
     expect((await m.putPart(2)).status).toBe(200)
+    // R2 joins only the parts whose etags were recorded: the stale bytes replaced part 1, so its etag no
+    // longer matches and the completion is refused (the slot ends), never committed as the declared file.
     const done = await m.complete()
-    console.log(JSON.stringify({ probe: "stale-write-last", status: done.status, code: done.json.error?.code ?? done.json.value?.state }))
-    if (done.status === 200) expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
-    else expect(done.status).toBeGreaterThanOrEqual(400)
+    expect([done.status, done.json.error?.code]).toEqual([400, "attachment.size_mismatch"])
+    expect((await urlFor(alice, id, sha(body))).json.ok).toBe(false)
+  })
+
+  it("the same stale write of the same bytes (a client's retry of its own part) changes nothing: the etag matches and the file completes", async () => {
+    const alice = await signIn("att-stale-write-same")
+    const { id } = await group(alice)
+    const { PART_CLAIM_MS } = await import("../src/home-attachment-store.ts")
+    const { handleAttachmentMultipartPart } = await import("../src/home-attachments.ts")
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => (i * 17) % 227)
+    const m = await multipart(alice, id, body)
+    let reached!: () => void
+    const atR2 = new Promise<void>((r) => (reached = r))
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const bucket = testEnv.HOME_ATTACHMENTS
+    const own = (x: object, q: string | symbol) => {
+      const v = Reflect.get(x, q)
+      return typeof v === "function" ? v.bind(x) : v
+    }
+    const late = new Proxy(bucket, {
+      get(t, p) {
+        if (p !== "resumeMultipartUpload") return own(t, p)
+        return (key: string, uploadId: string) =>
+          new Proxy(t.resumeMultipartUpload(key, uploadId), {
+            get: (u, q) =>
+              q === "uploadPart"
+                ? async (n: number, value: ReadableStream) => {
+                    const bytes = new Uint8Array(await new Response(value).arrayBuffer())
+                    reached()
+                    await gate
+                    return u.uploadPart(n, bytes)
+                  }
+                : own(u, q)
+          })
+      }
+    })
+    const unreachable = ownerWith({ renewMultipartPart: async () => { throw new Error("owner unreachable") } })
+    const t0 = Date.now()
+    const stale = handleAttachmentMultipartPart(new Request(m.uploadUrl, { method: "PUT", body: body.slice(0, m.size), headers: { "content-length": String(m.size), "x-cmux-part-number": "1" } }), { ...unreachable, HOME_ATTACHMENTS: late }, id, m.token)
+    await atR2
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(t0 + PART_CLAIM_MS + 1_000)
+    expect((await m.putPart(1)).status).toBe(200)
+    release()
+    expect((await stale).status).toBe(409)
+    vi.useRealTimers()
+    expect((await m.putPart(2)).status).toBe(200)
+    const done = await m.complete()
+    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+
+  it("a part PUT whose upload a self-hosted bucket already closed (resuming throws NoSuchUpload at once) answers slot_invalid, not a 500", async () => {
+    const alice = await signIn("att-part-fs-closed")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => (i * 19) % 229)
+    const m = await multipart(alice, id, body)
+    const bucket = testEnv.HOME_ATTACHMENTS
+    const closed = new Proxy(bucket, {
+      get(t, p) {
+        if (p === "resumeMultipartUpload") return () => { throw Object.assign(new Error("NoSuchUpload"), { code: "NoSuchUpload" }) }
+        const v = Reflect.get(t, p)
+        return typeof v === "function" ? v.bind(t) : v
+      }
+    })
+    const res = await m.putPart(1, undefined, { ...testEnv, HOME_ATTACHMENTS: closed })
+    expect([res.status, res.json.error?.code]).toEqual([403, "attachment.slot_invalid"])
+    // The claim was released: the part uploads at once where the upload is open.
+    expect((await m.putPart(1)).status).toBe(200)
   })
 })
