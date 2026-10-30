@@ -95,8 +95,13 @@ import AppKit
     @Test(arguments: cases)
     func footerLayoutKeepsSearchReachableForEmptyFittingAndOverfullRows(_ c: Case) throws {
         try Self.withAppearance(c.appearance) {
-            let saved = DesignSettings.shared.sidebarSections.showSearchButton
-            defer { DesignSettings.shared.sidebarSections.showSearchButton = saved }
+            let saved = (DesignSettings.shared.sidebarSections.showSearchButton,
+                         DesignSettings.shared.sidebarSections.noFade)
+            defer {
+                DesignSettings.shared.sidebarSections.showSearchButton = saved.0
+                DesignSettings.shared.sidebarSections.noFade = saved.1
+            }
+            DesignSettings.shared.sidebarSections.noFade = false
             for spaces in [SpacesPosition.bottom, .top] {
                 for (label, count) in [("empty", 0), ("fitting", 1), ("overfull", 12)] {
                     let h = FooterHarness(width: Self.width(c.width), itemCount: count, searchEnabled: true, spaces: spaces)
@@ -106,11 +111,16 @@ import AppKit
                     if label == "overfull" {
                         #expect(h.sidebar.footerBand.needsDedicatedSearchRow,
                                 "\(c)/\(spaces): overfull footer did not reserve a dedicated Search row")
-                        if let row = h.sidebar.footerBand.bandFirstRow {
-                            let search = h.sidebar.convert(h.sidebar.searchButton.frame, from: h.sidebar)
-                            #expect(!search.intersects(row.frame),
-                                    "\(c)/\(spaces): dedicated Search \(search) overlaps footer row \(row.frame)")
+                        let search = h.sidebar.convert(h.sidebar.searchButton.frame, from: h.sidebar)
+                        let rows = h.sidebar.footerRegion.layoutResult.rows.map {
+                            h.sidebar.convert($0.frame, from: h.sidebar.footerRegion)
                         }
+                        #expect(!rows.isEmpty, "\(c)/\(spaces): overfull footer did not lay out a row")
+                        #expect(rows.allSatisfy { !search.intersects($0) },
+                                "\(c)/\(spaces): dedicated Search \(search) overlaps footer rows \(rows)")
+                    } else if label == "fitting" {
+                        #expect(!h.sidebar.footerBand.needsDedicatedSearchRow,
+                                "\(c)/\(spaces): fitting footer incorrectly reserved a dedicated Search row")
                     }
                 }
                 let disabled = FooterHarness(width: Self.width(c.width), itemCount: 12, searchEnabled: false, spaces: spaces)
