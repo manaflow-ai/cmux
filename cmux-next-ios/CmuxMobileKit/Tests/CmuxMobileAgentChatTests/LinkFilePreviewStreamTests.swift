@@ -88,6 +88,23 @@ import Testing
         #expect(try handle.readToEnd() == Data(repeating: UInt8(Self.chunks), count: Self.tail))
     }
 
+    /// A file truncated on the Mac while it streams ends before the size the host first sent. The
+    /// phone never previews that mix of old and new bytes: it asks for a retry and removes the
+    /// partial copy (PROTOCOL.md, `file-preview`).
+    @Test func aStreamShorterThanItsSizeAsksForARetryAndLeavesNoPartialFile() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-preview-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let destination = folder.appendingPathComponent("shrunk.bin")
+        let channel = FloodChannel(destination: destination)
+
+        await #expect(throws: ArtifactUnavailable.self) {
+            try await LinkFileArtifactSource.download(channel, to: destination, path: "/Users/me/shrunk.bin", macName: "Studio",
+                                                      expectedSize: Int64(Self.total + 1), capacity: { _ in Int64.max })
+        }
+        #expect(!FileManager.default.fileExists(atPath: destination.path))
+    }
+
     @Test func aLargeFilePreviewsFromItsLocalCopy() async throws {
         let source = LinkFileArtifactSource(macName: "Studio", baseDirectory: "/Users/me") { FloodLink() }
         let content = try await source.load(TerminalArtifact(reference: "/Users/me/huge-\(UUID().uuidString).zip", kind: .binary))

@@ -553,7 +553,9 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   Its first data frame is JSON `{"size": <bytes>}`, from the same open descriptor
   used to stream the file. Subsequent data frames contain raw file bytes until `eof`,
   up to that initial size, with no file-size cap. A file truncated while streaming
-  may end earlier. Refusals before streaming send no metadata. The phone uses this
+  may end earlier; the phone treats a stream that ends short of the size, or runs past
+  it, as a file that changed while downloading, removes the partial copy and asks the
+  person to try again. Refusals before streaming send no metadata. The phone uses this
   size to check available storage before downloading and rechecks during the stream;
   insufficient space cancels the preview and removes the partial temporary file.
   Older hosts refuse this service with `unknown_service`; clients must not parse the
