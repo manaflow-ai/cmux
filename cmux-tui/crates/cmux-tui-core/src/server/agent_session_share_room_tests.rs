@@ -67,6 +67,8 @@ struct Shared {
     /// A `DELETE` closes the host socket first, as the room does: frames the daemon had not
     /// sent by then are lost.
     delete_closes_host: AtomicBool,
+    /// Host sockets neither read nor write while set, as a connection lost without a close.
+    silent: AtomicBool,
 }
 
 struct FakeRoom {
@@ -300,6 +302,10 @@ fn serve_host(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>) {
     let hello = json!({"v": 1, "t": "hello", "guests": []}).to_string();
     let _ = socket.send(Message::text(hello));
     loop {
+        if shared.silent.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
+        }
         while let Ok(next) = frames.try_recv() {
             let Some(frame) = next else {
                 // Only the frames that already arrived are read.
@@ -353,6 +359,7 @@ fn fast() -> Timing {
         window: Duration::from_millis(400),
         backoff_min: Duration::from_millis(20),
         backoff_max: Duration::from_millis(100),
+        heartbeat: Duration::from_millis(200),
     }
 }
 
@@ -1201,6 +1208,22 @@ fn a_whole_chat_list_closes_the_shares_of_chats_it_left_out() {
     assert_eq!(room.frame(conn), json!({"v": 1, "t": "end", "reason": "closed"}));
     room.request("DELETE");
     assert_eq!(state(&mut owner)["state"], "closed");
+}
+
+/// A host socket that goes quiet without a close (its connection lost, a NAT mapping gone) is
+/// pinged, dropped when nothing answers, and opened again.
+#[test]
+fn a_host_socket_lost_without_a_close_is_opened_again() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-silent", &room);
+    create(&mut owner, surface);
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.shared.silent.store(true, Ordering::SeqCst);
+    let (again, _) = room.host();
+    room.shared.silent.store(false, Ordering::SeqCst);
+    assert!(again > conn, "a fresh socket");
+    assert_eq!(room.frame(again)["t"], "guests");
 }
 
 #[test]

@@ -43,6 +43,9 @@ pub(in crate::server) struct Timing {
     pub(in crate::server) window: Duration,
     pub(in crate::server) backoff_min: Duration,
     pub(in crate::server) backoff_max: Duration,
+    /// A host socket quiet this long is pinged; one quiet as long again after the ping is
+    /// dropped and opened again (a connection lost without a close, a NAT mapping gone).
+    pub(in crate::server) heartbeat: Duration,
 }
 
 impl Default for Timing {
@@ -52,6 +55,7 @@ impl Default for Timing {
             window: Duration::from_secs(10 * 60),
             backoff_min: Duration::from_secs(1),
             backoff_max: Duration::from_secs(60),
+            heartbeat: Duration::from_secs(30),
         }
     }
 }
@@ -688,7 +692,7 @@ async fn serve_host(
             }
             Err(Refused::ForGood) => break,
             Err(Refused::Retry) => {}
-            Ok(socket) => match session(&mux, &share_id, socket, &mut commands).await {
+            Ok(socket) => match session(&mux, &share_id, socket, &mut commands, &timing).await {
                 None => break,
                 Some(true) => wait = timing.backoff_min,
                 Some(false) => {}
@@ -750,13 +754,33 @@ async fn session(
     share_id: &str,
     socket: Ws,
     commands: &mut mpsc::UnboundedReceiver<Cmd>,
+    timing: &Timing,
 ) -> Option<bool> {
     let (mut sink, mut stream) = socket.split();
+    // Every write is bounded: a socket that takes nothing is dropped and opened again.
+    let put = async |sink: &mut futures_util::stream::SplitSink<Ws, Message>, message| {
+        tokio::time::timeout(timing.request, sink.send(message))
+            .await
+            .is_ok_and(|sent| sent.is_ok())
+    };
     let mut ready = false;
+    // Heard from last: the room is pinged once it has been quiet a heartbeat, and dropped when
+    // it stays quiet another.
+    let mut heard = tokio::time::Instant::now();
+    let mut pinged = false;
     loop {
+        let quiet = heard + if pinged { timing.heartbeat * 2 } else { timing.heartbeat };
         let out = tokio::select! {
+            () = tokio::time::sleep_until(quiet) => {
+                if pinged || !put(&mut sink, Message::Ping(Vec::new().into())).await {
+                    return Some(ready);
+                }
+                pinged = true;
+                continue;
+            }
             frame = stream.next() => match frame {
                 Some(Ok(Message::Text(text))) => {
+                    (heard, pinged) = (tokio::time::Instant::now(), false);
                     let mux = mux.upgrade()?;
                     answer(&mux, share_id, text.as_str(), &mut ready)
                 }
@@ -775,12 +799,16 @@ async fn session(
                 // Answered at once: tungstenite only queues the pong until the next write, and
                 // an idle host socket writes nothing else.
                 Some(Ok(Message::Ping(payload))) => {
-                    if sink.send(Message::Pong(payload)).await.is_err() {
+                    (heard, pinged) = (tokio::time::Instant::now(), false);
+                    if !put(&mut sink, Message::Pong(payload)).await {
                         return Some(ready);
                     }
                     continue;
                 }
-                Some(Ok(_)) => continue,
+                Some(Ok(_)) => {
+                    (heard, pinged) = (tokio::time::Instant::now(), false);
+                    continue;
+                }
                 None | Some(Err(_)) => return Some(ready),
             },
             command = commands.recv() => match command {
@@ -791,8 +819,9 @@ async fn session(
                 Some(Cmd::Reconcile) => continue,
                 Some(Cmd::End(reason, sent)) => {
                     let end = json!({"v": 1, "t": "end", "reason": reason}).to_string();
-                    let _ = sink.send(Message::text(end)).await;
-                    let _ = sink.close().await;
+                    if put(&mut sink, Message::text(end)).await {
+                        let _ = tokio::time::timeout(timing.request, sink.close()).await;
+                    }
                     drop(sent);
                     return None;
                 }
@@ -800,7 +829,7 @@ async fn session(
             },
         };
         for frame in out {
-            if sink.send(Message::text(frame.to_string())).await.is_err() {
+            if !put(&mut sink, Message::text(frame.to_string())).await {
                 return Some(ready);
             }
         }
