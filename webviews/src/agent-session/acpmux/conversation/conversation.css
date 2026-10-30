@@ -79,6 +79,7 @@
   --cv-actions-in-delay: 100ms;
   --cv-actions-out: var(--cmux-motion-quick, 80ms);
   --cv-actions-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --cv-action-gap: 4px;
 }
 /* Gallery-only comparisons for the activity hierarchy. The shipped middle value keeps secondary
    text above AA in both palettes; the alternatives are capture arms, never user settings. */
@@ -1057,25 +1058,32 @@
 }
 
 /* The table may be wider than the column; it scrolls instead of widening the row. */
-/* A reply's table (TableBlock.tsx): as wide as the table, with Open and Copy just right of its
-   header row, shown on hover or keyboard focus like the message rows'. The block leaves their 48px
-   free at the column's edge (a wider table scrolls), so they never cover text and never depend on
-   the margin above the table. */
+/* A reply's table (TableBlock.tsx): as wide as the table, with Open and Copy at its top-right
+   corner, shown on hover or keyboard focus like the message rows'. The pair shares the compact
+   control height and icon rhythm with the rest of the agent pane. It sits just outside the cells,
+   in space the block leaves free at the column's edge (a wider table scrolls), so it never covers
+   a header's text or catches a click meant for a cell. */
 .cv-table-block {
+  --cv-table-tools-width: calc(var(--cmux-control-height, 24px) * 2 + var(--cv-action-gap, 4px) * 2);
   position: relative;
   width: fit-content;
-  max-width: calc(100% - 48px);
+  max-width: calc(100% - var(--cv-table-tools-width));
   margin: var(--cv-table-before, 6.5px) 0 14px;
 }
 .cv-table-tools {
   position: absolute;
   z-index: var(--layer-raised);
-  top: 6px;
+  top: 0;
   left: 100%;
   display: flex;
-  gap: 2px;
-  padding-left: 6px;
+  align-items: center;
+  gap: var(--cv-action-gap, 4px);
+  padding-left: var(--cv-action-gap, 4px);
   opacity: 0;
+}
+.cv-table-tools .cv-iconbtn--compact {
+  width: var(--cmux-control-height, 24px);
+  height: var(--cmux-control-height, 24px);
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-table-tools {
@@ -1165,7 +1173,7 @@
 .cv-codeblock__actions {
   margin-left: auto;
   display: flex;
-  gap: 4px;
+  gap: var(--cv-action-gap);
   color: var(--cv-codeblock-actions);
 }
 .cv-codeblock__action {
@@ -1367,6 +1375,12 @@ pre.cv-math-source {
   padding-bottom: inherit;
   pointer-events: auto;
   background: transparent;
+}
+/* RowFrame keeps this wrapper around newly arrived user/assistant content so the measured article
+   remains unchanged. Preserve the direct flex-item sizing of `.cv-user` and `.cv-incoming`. */
+.acpmux-row__message-presentation {
+  flex: 1;
+  min-width: 0;
 }
 /* Keyboard transcript selection uses a roving article tab stop. The fill is deliberately on the
    row rather than the prose so a range remains visible while its rows virtualize in and out. */
@@ -3120,10 +3134,28 @@ a.cv-sha:focus-visible {
     translate: 0 0;
   }
 }
+/* A new user or assistant message arrives with a quiet ChatGPT-style bump. The static reference is
+ * apps/chatgpt/live/transcript-thinking-and-tool-calls-consolidation.png; no dynamic entrance clip
+ * is available in the reference package. The RowFrame wrapper is the presentation box: the article
+ * remains the virtualizer's measured geometry while its child uses compositor-only scale/opacity. */
+@keyframes cv-message-enter {
+  from {
+    opacity: 0;
+    scale: 0.985;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
 @media (prefers-reduced-motion: no-preference) {
   .cv-enter,
   .acpmux-row--enter {
     animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+  .acpmux-row__message-presentation {
+    transform-origin: center bottom;
+    animation: cv-message-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -4231,8 +4263,12 @@ article.acpmux-row:empty {
 .cv-user__send-now:hover:not(:disabled) {
   color: var(--cv-text);
 }
-.cv-user__send-now:disabled {
-  opacity: 0.5;
+/* A waiting steer's Send now and X are drawn while it waits, with no hover fade and no dimming while
+   one is asked: they never blink as the turn runs or as the X's take-back is answered (Leo,
+   2026-10-29: "it fucking blinks with the fucking send now text"). */
+.cv-user__actions:has(.cv-user__pending) {
+  opacity: 1;
+  transition: none;
 }
 /* The X that takes a waiting steer back to edit (PendingSteer.tsx): a plain glyph, as muted as
    Send now's text, on the same centred line. */
@@ -4250,8 +4286,10 @@ article.acpmux-row:empty {
 .cv-user__take-back:hover:not(:disabled) {
   color: var(--cv-text);
 }
-.cv-user__take-back:disabled {
-  opacity: 0.5;
+/* What an X acpmux refused leaves in its place (PendingSteer.tsx): quiet text, spaced from Send now
+   and Copy as the X's glyph sat in its slot. */
+.cv-user__kept {
+  padding-inline: calc((var(--cv-footer-control-slot) - var(--cv-glyph-slot)) / 2);
 }
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */
