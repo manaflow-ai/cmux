@@ -571,7 +571,7 @@ impl Hub {
             (None, Some(t)) if fired => pending.insert(id, Mark::Stopping(t)),
             (None, Some(t)) => pending.insert(id, Mark::Stopped(t)),
             (None, None) if unrestored.is_some() => {
-                pending.insert(id, Mark::Stopped(unrestored.clone().unwrap()));
+                pending.insert(id, Mark::Stopped(unrestored.clone().unwrap()))
             }
             (None, None) => pending.remove(&id),
         };
