@@ -140,7 +140,10 @@ await requireBrowserLane("model-pick-prompt-focus.test.ts", async () => {
       await page.keyboard.press("ArrowDown");
     }
     expect(await page.evaluate((row) => !!document.activeElement?.matches(row), QUICK_ROW)).toBe(true);
-    return (await page.locator(`${QUICK_ROW}:focus .acpmux-menu-label`).textContent())!;
+    // `:focus` does not match while the headless page itself lacks focus: read the active row.
+    return await page.evaluate(
+      () => document.activeElement?.querySelector(".acpmux-menu-label")?.textContent ?? "",
+    );
   };
   const expectPickedModel = async (page: Page, stage: Stage, name: string) => {
     // New Tab owns its selection locally. The chat fixture uses a static preview snapshot;
