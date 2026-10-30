@@ -88,9 +88,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
-    /// The new tab page asked the app to run a user facing action. `arguments`: what the page may
-    /// name for it (``AgentPaneModel/pageArguments(for:_:)``), checked before the action runs.
-    case runAction(String, arguments: [String: String] = [:])
+    /// The new tab page asked the app to run a user facing action. `session`, when the page names
+    /// one (the title menu's Bring Back Local), binds it to that chat: the app runs it only while the
+    /// tab still shows it. `arguments`: what the page may name for it
+    /// (``AgentPaneModel/pageArguments(for:_:)``), checked before the action runs.
+    case runAction(String, session: String? = nil, arguments: [String: String] = [:])
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
@@ -157,6 +159,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// header/quickActions.ts) closes the split this tab's button opened
     /// when it is still there, else opens one.
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
+    /// Moves the current chat to one of the eligible Cloud machines advertised by `pane.tabState`.
+    /// The host validates the id against its live target list before dispatching the existing
+    /// `cloudMove` action, so the page cannot target an arbitrary machine. `session` is the chat
+    /// whose title menu offered the move: the host moves the tab only while it still shows it.
+    case moveToMachine(String, session: String)
     /// The header's Changes or an edited-files card naming a chat turn (`pane.action {id:
     /// "openDiffViewer", cwd, mode, turn}`): the diff beside the chat, with that turn as its Last
     /// turn (``AgentPaneDiffTurn``).

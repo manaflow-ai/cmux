@@ -351,6 +351,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.moveToMachine":
+            if let machine = params?["machine"] as? String, !machine.isEmpty, machine.count <= 256,
+               let session = params?["session"] as? String, !session.isEmpty, session.count <= 256 {
+                self = .moveToMachine(machine, session: session)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.tabState": self = .tabState(refresh: params?["refresh"] as? Bool == true)
         case "pane.tabRowTools":
             if let width = (params?["width"] as? NSNumber)?.doubleValue, width.isFinite, (0...2000).contains(width) {
@@ -402,10 +409,14 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "action.run":
-            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
+            // A `session` that is there must be a usable id: a malformed one is refused, never
+            // dropped (which would run the action on whatever the tab shows).
+            let session = params?["session"].map { $0 as? String }
+            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
+               session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true {
                 // Only a provider name rides along (Add API Key…'s Accounts row); the model checks it.
                 let provider = (params?["provider"] as? String).flatMap { $0.count <= 32 ? $0 : nil }
-                self = .runAction(id, arguments: provider.map { ["provider": $0] } ?? [:])
+                self = .runAction(id, session: session ?? nil, arguments: provider.map { ["provider": $0] } ?? [:])
             } else {
                 self = .unsupported(method)
             }
