@@ -24,8 +24,8 @@ The app runs already (a capture slot: `capture-host launch`), with its debug soc
 does) and quit it at the end, for CI's GUI runners (cmux-next-frame-pacing.yml, `instant`).
 
 Three arms per key (`--arms`, default all; bench_arms.py), each reported with p50/p95/p99/max of the frames per
-opening that were blank or intermediate (`bad_frames`, the warm rule, applied to every arm alike) and of the
-blank frames alone (`blank_frames`):
+opening that were blank or intermediate (`bad_frames`, the warm rule, applied to every arm alike), with each arm's
+count of blank frames (`blank_frames`):
 
   warm   the openings above: each after a ready spare (up to 30 s) and 0.5 s more
   quick  two quick presses (`--quick-runs`, default 3, per key): Cmd-N (Cmd-T: Ctrl-`, Cmd-T, Ctrl-`) through
@@ -33,8 +33,9 @@ blank frames alone (`blank_frames`):
   cold   cold, no wait (`--cold-runs`, default 3, per key): `debug.new_tab drop_spare`, then at once the recorded
          opening; with `--cold` the launch's first Cmd-N counts in this arm too
 
-The bench's HEADLINE per key is the WORST arm (a missed run first, else the highest p95, then the highest max),
-printed as `HEADLINE cmd-n-paint/cmd-<key> bad_frames = <arm> arm ...`; the warm arm alone never stands for the
+The bench's HEADLINE per key is the WORST arm: the arm with the most blank frames when any arm has one (the HEADLINE
+names its `blank_frames` count), or a missed run, else the highest p95, then the highest max; printed as
+`HEADLINE cmd-n-paint/cmd-<key> bad_frames = <arm> arm ... blank_frames=N`. The warm arm alone never stands for the
 bench. The quick and cold openings are reported, not judged: the exit status is the warm openings' (and the
 `--cold` launch opening's), as before.
 
@@ -244,10 +245,13 @@ for key in opts.keys.split(","):
 ARM_REPORT = {}
 print("", flush=True)
 for key in opts.keys.split(","):
-    for metric in ("bad_frames", "blank_frames"):
-        samples = {arm: [o[metric] for o in OPENINGS if o["key"] == key and o["arm"] == arm] for arm in ARMS}
-        ARM_REPORT[f"cmd_{key}.{metric}"] = bench_arms.report(f"cmd-n-paint/cmd-{key}", metric, "frames", samples,
-                                                              out=lambda line: print(line, flush=True))
+    # A blank frame is a defect a person sees (an empty pane): the arm with the most blank frames is the HEADLINE,
+    # and the HEADLINE names the count, whatever the intermediate frames of the other arms.
+    blank = {arm: sum(o["blank_frames"] or 0 for o in OPENINGS if o["key"] == key and o["arm"] == arm) for arm in ARMS}
+    samples = {arm: [o["bad_frames"] for o in OPENINGS if o["key"] == key and o["arm"] == arm] for arm in ARMS}
+    ARM_REPORT[f"cmd_{key}.bad_frames"] = bench_arms.report(f"cmd-n-paint/cmd-{key}", "bad_frames", "frames", samples,
+                                                            out=lambda line: print(line, flush=True),
+                                                            defects=blank, defect_name="blank_frames")
     for arm in ARMS:
         rows = [o for o in OPENINGS if o["key"] == key and o["arm"] == arm]
         print(f"ARM cmd-n-paint/cmd-{key} spare_adopted {arm}: {sum(1 for o in rows if o['spare'])}/{len(rows)}", flush=True)

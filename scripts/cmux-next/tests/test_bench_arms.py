@@ -44,6 +44,15 @@ class BenchArmsTests(unittest.TestCase):
         arms = {"warm": bench_arms.stats([10, 10, 10]), "quick": bench_arms.stats([10] * 99 + [80])}
         self.assertEqual(bench_arms.worst(arms), "quick")
 
+    def test_an_arm_with_a_defect_is_the_headline_and_names_its_count(self):
+        lines = []
+        got = bench_arms.report("p", "bad_frames", "frames", {"warm": [9, 9], "cold": [0, 1]}, out=lines.append,
+                                defects={"warm": 0, "cold": 2}, defect_name="blank_frames")
+        self.assertEqual(got["headline"], "cold")
+        self.assertTrue(lines[-1].startswith("HEADLINE p bad_frames = cold arm"))
+        self.assertIn("blank_frames=2", lines[-1])
+        self.assertEqual(bench_arms.worst({"a": bench_arms.stats([1]), "b": bench_arms.stats([1])}, {"a": 1, "b": 3}), "b")
+
     def test_the_rule_is_printed_with_the_headline(self):
         lines = []
         bench_arms.report("b", "ms", "ms", {"warm": [1]}, out=lines.append)
