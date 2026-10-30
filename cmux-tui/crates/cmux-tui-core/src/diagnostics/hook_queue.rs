@@ -63,7 +63,7 @@ impl HookQueueSnapshot {
                         name.starts_with(&prefix) && name.ends_with(".jsonl")
                     })
                     .filter_map(|entry| open_for_reading(&entry.path()).ok())
-                    .map(|file| count_lines(file).unwrap_or(0))
+                    .map(|file| count_lines(&file).unwrap_or(0))
                     .sum()
             })
             .unwrap_or(0);
