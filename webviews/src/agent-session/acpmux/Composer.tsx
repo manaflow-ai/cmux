@@ -199,7 +199,7 @@ export type ComposerHandle = {
   /// Reads the current unsent draft and attachments before moving this composer to another chat.
   draftState(): { text: string; attachments: ComposerAttachment[] };
   /// Carries the prompt only to this newly created session; returns a cancellation on failed selection.
-  prepareDraftTransfer(sessionId: string): () => void;
+  prepareDraftTransfer(sessionId: string): { cancel(): void; commit(): Promise<void> };
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -684,19 +684,28 @@ export function Composer({
         const state = { text: field.current?.value() ?? textRef.current, attachments: attachmentsRef.current.filter((chip) => !chip.shellRun) };
         const transfer = { source, target, state };
         draftTransfer.current = transfer;
-        return () => {
-          if (draftTransfer.current === transfer) draftTransfer.current = undefined;
-          if (source) {
-            writePersistedDraft(source, state.text);
-            void keptAttachments?.write(source, state.attachments).catch(() => undefined);
-          }
-          if (persistedSession.current === source) {
-            if (state.text) {
-              field.current?.type(state.text);
-              setText(state.text);
+        const destination = keptAttachments?.write(target, state.attachments).catch(() => undefined) ?? Promise.resolve();
+        return {
+          cancel: () => {
+            if (draftTransfer.current === transfer) draftTransfer.current = undefined;
+            if (source) {
+              writePersistedDraft(source, state.text);
+              void keptAttachments?.write(source, state.attachments).catch(() => undefined);
             }
-            if (state.attachments.length) setAttachments(() => state.attachments);
-          }
+            if (persistedSession.current === source) {
+              if (state.text) {
+                field.current?.type(state.text);
+                setText(state.text);
+              }
+              if (state.attachments.length) setAttachments(() => state.attachments);
+            }
+          },
+          commit: async () => {
+            await destination;
+            if (draftTransfer.current === transfer) draftTransfer.current = undefined;
+            if (source) writePersistedDraft(source, "");
+            if (source) void keptAttachments?.write(source, []).catch(() => undefined);
+          },
         };
       },
       restore(restoredText, restoredAttachments) {

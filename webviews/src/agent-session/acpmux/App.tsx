@@ -8433,7 +8433,10 @@ function AcpmuxPane() {
                 start: () => client.startSession(summary?.harness, undefined, undefined, undefined, true, summary?.model),
                 current: () => directClient.current === client && client.trustGeneration === generation &&
                   composerHandle.current === holder,
-                transfer: (id) => holder?.prepareDraftTransfer(id) ?? (() => {}),
+                transfer: (id) => holder?.prepareDraftTransfer(id) ?? {
+                  cancel: () => undefined,
+                  commit: async () => undefined,
+                },
                 clearFolder: () => setProjectDraft(undefined),
                 select: async (id) => {
                   const selected = await client.select(id);

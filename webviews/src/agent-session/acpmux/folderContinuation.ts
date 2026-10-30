@@ -8,22 +8,24 @@ export class FolderContinuation {
   async run(actions: {
     start(): Promise<string | undefined>;
     current(): boolean;
-    transfer(sessionId: string): () => void;
+    transfer(sessionId: string): { cancel(): void; commit(): Promise<void> };
     select(sessionId: string): Promise<boolean>;
     clearFolder(): void;
   }): Promise<void> {
     if (this.pending) return;
     this.pending = true;
     const generation = this.generation;
-    let cancel: (() => void) | undefined;
+    let transfer: { cancel(): void; commit(): Promise<void> } | undefined;
     try {
       const sessionId = await actions.start();
       if (!sessionId || generation !== this.generation || !actions.current()) return;
-      cancel = actions.transfer(sessionId);
-      if (await actions.select(sessionId)) actions.clearFolder();
-      else cancel();
+      transfer = actions.transfer(sessionId);
+      if (await actions.select(sessionId)) {
+        await transfer.commit();
+        actions.clearFolder();
+      } else transfer.cancel();
     } catch (error) {
-      cancel?.();
+      transfer?.cancel();
       throw error;
     } finally {
       this.pending = false;

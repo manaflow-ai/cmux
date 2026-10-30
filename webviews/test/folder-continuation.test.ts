@@ -15,7 +15,9 @@ function fixture() {
   const actions = {
     start: () => { events.push("start"); return pending.promise; },
     current: () => current,
-    transfer: (id: string) => { events.push(`transfer:${id}`); return () => events.push("cancel"); },
+    transfer: (id: string) => { events.push(`transfer:${id}`); return {
+      cancel: () => events.push("cancel"), commit: async () => { events.push("commit"); },
+    }; },
     select: async (id: string) => { events.push(`select:${id}`); return true; },
     clearFolder: () => { events.push("clear"); },
   };
@@ -28,7 +30,7 @@ test("double clicks create one chat and transfer only after start succeeds", asy
   expect(f.events).toEqual(["start"]);
   f.pending.resolve("new");
   await first;
-  expect(f.events).toEqual(["start", "transfer:new", "select:new", "clear"]);
+  expect(f.events).toEqual(["start", "transfer:new", "select:new", "commit", "clear"]);
 });
 test("failed and empty starts never extract or restore a draft", async () => {
   const f = fixture();
