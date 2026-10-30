@@ -22,7 +22,7 @@
 //! agent's step ends), so the forwarding daemon passes the peer's `_acpmux/prompt_accepted` on to
 //! the connection that sent the prompt as soon as it arrives ([`PeerAccepts`]).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex as StdMutex;
 
@@ -34,6 +34,9 @@ use crate::rpc::RpcError;
 
 /// How long a delivered or failed message stays readable by `send --status`.
 pub const KEEP_SETTLED_MS: u64 = 24 * 60 * 60 * 1000;
+
+/// Shared bounded retry schedule for delivery and projection-only reconciliation.
+pub(crate) const RETRY_DELAYS_SECS: &[u64] = &[2, 5, 10, 30, 60, 120, 300, 600, 900];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -63,6 +66,18 @@ pub struct Delivery {
     pub state: State,
     #[serde(default)]
     pub attempts: u32,
+    /// No attempt so far could have reached the target: each one failed before the request
+    /// left this daemon (`peer_unreachable`). Only such a delivery may go through the mesh
+    /// relay instead (`server/mesh_send.rs` `relay`), whose message runs under its own prompt
+    /// id. False for a record saved before the field, which may have reached it.
+    #[serde(default)]
+    pub never_sent: bool,
+    /// The mesh relay post for it, recorded before it goes: the hub may hold it even when its
+    /// answer was lost, so from then on only the relay tries it again, as the same message (the
+    /// hub answers a key again only for the same message), and the peer's link never runs it as
+    /// well. Cleared when the hub refuses it outright (`server/outbox.rs` `relay_attempt`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relay_post: Option<crate::mesh::OutMessage>,
     #[serde(default)]
     pub error: Option<String>,
     /// The target's `_acpmux/prompt_accepted` (or its reply) once delivered.
@@ -81,7 +96,16 @@ impl Delivery {
         self.request.pointer("/_meta/acpmux/promptId").and_then(Value::as_str).unwrap_or_default()
     }
 
+    pub fn projection_only(&self) -> bool {
+        self.request.pointer("/_meta/acpmux/forwardProjection").is_some()
+    }
+
     pub fn settled(&self) -> bool {
+        // Projection intents stay in a legacy-terminal state on disk. An older
+        // daemon ignores them instead of executing a lookup as a prompt.
+        if self.projection_only() && self.state == State::Held {
+            return false;
+        }
         matches!(self.state, State::Delivered | State::Held | State::Failed)
     }
 
@@ -108,6 +132,8 @@ pub struct Outbox {
     path: StdMutex<Option<PathBuf>>,
     /// The last change on disk, held while a write runs.
     saved: StdMutex<u64>,
+    /// At most one bounded delivery/reconciliation task for each id in this launch.
+    running: StdMutex<HashSet<String>>,
     /// Fired on every change: a `send_status` that waits wakes.
     pub changed: Notify,
 }
@@ -166,24 +192,57 @@ impl Outbox {
 
     /// Records a new delivery; the same prompt id again answers with the first one.
     pub fn add(&self, delivery: Delivery) -> Delivery {
-        let mut book = self.book();
-        let prompt_id = delivery.prompt_id().to_owned();
-        if let Some(first) =
-            book.deliveries.values().find(|d| !d.is_team_receipt() && d.prompt_id() == prompt_id)
-        {
-            let first = first.clone();
-            // The first add may still be writing: answer once the file holds it too.
-            let change = book.changes;
-            drop(book);
-            self.save(change);
-            return first;
-        }
-        book.deliveries.insert(delivery.id.clone(), delivery.clone());
-        let change = book.changed();
-        drop(book);
+        let (delivery, change) = self.add_scoped(delivery, false);
         self.save(change);
         self.changed.notify_waiters();
         delivery
+    }
+
+    /// A direct forward's recovery intent is scoped to its proven sender and target.
+    /// Independent sessions may legitimately use the same client prompt id.
+    /// Unlike ordinary queued deliveries, a forward must not proceed when this
+    /// write fails: no later retry can recreate its intent after a restart.
+    pub fn remember_forward(&self, delivery: Delivery) -> anyhow::Result<Delivery> {
+        let (delivery, change) = self.add_scoped(delivery, true);
+        self.save_checked(change)?;
+        self.changed.notify_waiters();
+        Ok(delivery)
+    }
+
+    fn add_scoped(&self, delivery: Delivery, scoped: bool) -> (Delivery, u64) {
+        let mut book = self.book();
+        let prompt_id = delivery.prompt_id().to_owned();
+        if let Some(first) = book.deliveries.values().find(|d| {
+            !d.is_team_receipt()
+                && d.prompt_id() == prompt_id
+                && d.request.pointer("/_meta/acpmux/forwardProjection").is_some() == scoped
+                && (!scoped
+                    || (d.caller == delivery.caller
+                        && d.target == delivery.target
+                        && projected_message(d) == projected_message(&delivery)))
+        }) {
+            let first = first.clone();
+            // The first add may still be writing: answer once the file holds it too.
+            let change = book.changes;
+            return (first, change);
+        }
+        book.deliveries.insert(delivery.id.clone(), delivery.clone());
+        let change = book.changed();
+        (delivery, change)
+    }
+
+    pub fn start_delivery(&self, id: &str) -> bool {
+        self.running.lock().unwrap_or_else(|e| e.into_inner()).insert(id.to_owned())
+    }
+
+    pub fn end_delivery(&self, id: &str) {
+        self.running.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+    }
+
+    /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
+    /// journal counts).
+    pub fn unsettled(&self) -> usize {
+        self.book().deliveries.values().filter(|d| !d.settled()).count()
     }
 
     /// Keep the original team destination independently of the hub's resolved receipt shape.
@@ -204,6 +263,8 @@ impl Outbox {
             caller: caller.map(str::to_owned),
             state: State::Delivered,
             attempts: 0,
+            never_sent: false,
+            relay_post: None,
             error: None,
             accepted: None,
             created_at: now,
@@ -243,12 +304,18 @@ impl Outbox {
     /// that started after the change covers it, so changes made while one write runs share the
     /// next.
     fn save(&self, change: u64) {
+        if let Err(e) = self.save_checked(change) {
+            tracing::warn!("outbox: could not save: {e:#}");
+        }
+    }
+
+    fn save_checked(&self, change: u64) -> anyhow::Result<()> {
         let Some(path) = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
-            return;
+            return Ok(());
         };
         let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
         if *saved >= change {
-            return;
+            return Ok(());
         }
         let (bytes, newest) = {
             let book = self.book();
@@ -269,14 +336,11 @@ impl Outbox {
                 .collect();
             (serde_json::to_vec(&on_disk), book.changes)
         };
-        let written = bytes
-            .map_err(anyhow::Error::from)
-            .and_then(|bytes| crate::config::write_atomic(&path, &bytes));
-        match written {
-            Ok(()) => *saved = newest,
-            // Not marked saved: the next change writes again.
-            Err(e) => tracing::warn!("outbox: could not save {}: {e:#}", path.display()),
-        }
+        // Failed writes never advance saved. A retry of the same in-memory intent
+        // must try the write again before it can report success.
+        crate::config::write_atomic(&path, &bytes?)?;
+        *saved = newest;
+        Ok(())
     }
 }
 
@@ -306,36 +370,43 @@ pub fn keep_attachments(path: &Path, request: &Value) -> anyhow::Result<()> {
 }
 
 type AcceptHook = Box<dyn FnOnce(Value) + Send>;
+type ProvisionalHook = std::sync::Arc<dyn Fn(Value) + Send + Sync>;
 
-/// Prompts forwarded to a peer that wait for the peer's acceptance, by peer and prompt id. Two
+/// Prompts forwarded to a peer that wait for the peer's acceptance, by peer, target session and prompt id. Two
 /// forwards of one id (a retry while the first still waits) each get theirs.
 #[derive(Default)]
 pub struct PeerAccepts {
-    hooks: StdMutex<HashMap<(String, String), Vec<(u64, AcceptHook)>>>,
+    hooks: StdMutex<HashMap<(String, String, String), Vec<(u64, AcceptHook, ProvisionalHook)>>>,
     next: std::sync::atomic::AtomicU64,
 }
 
 impl PeerAccepts {
     /// Calls `hook` with peer `peer`'s `_acpmux/prompt_accepted` for `prompt_id`, once. Returns
     /// the wait's token for [`Self::forget`].
-    pub fn wait(&self, peer: &str, prompt_id: &str, hook: AcceptHook) -> u64 {
+    pub fn wait(
+        &self,
+        peer: &str,
+        session_id: &str,
+        prompt_id: &str,
+        hook: AcceptHook,
+        provisional: ProvisionalHook,
+    ) -> u64 {
         let token = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let key = (peer.to_owned(), prompt_id.to_owned());
-        self.hooks
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .entry(key)
-            .or_default()
-            .push((token, hook));
+        let key = (peer.to_owned(), session_id.to_owned(), prompt_id.to_owned());
+        self.hooks.lock().unwrap_or_else(|e| e.into_inner()).entry(key).or_default().push((
+            token,
+            hook,
+            provisional,
+        ));
         token
     }
 
     /// The forwarded prompt answered: this wait no longer listens.
-    pub fn forget(&self, peer: &str, prompt_id: &str, token: u64) {
+    pub fn forget(&self, peer: &str, session_id: &str, prompt_id: &str, token: u64) {
         let mut hooks = self.hooks.lock().unwrap_or_else(|e| e.into_inner());
-        let key = (peer.to_owned(), prompt_id.to_owned());
+        let key = (peer.to_owned(), session_id.to_owned(), prompt_id.to_owned());
         if let Some(waits) = hooks.get_mut(&key) {
-            waits.retain(|(t, _)| *t != token);
+            waits.retain(|(t, _, _)| *t != token);
             if waits.is_empty() {
                 hooks.remove(&key);
             }
@@ -344,10 +415,31 @@ impl PeerAccepts {
 
     /// Peer `peer`'s `_acpmux/prompt_accepted` arrived: every forward of that id to it hears it.
     pub fn accepted(&self, peer: &str, params: &Value) {
+        let Some(session_id) = params.get("sessionId").and_then(Value::as_str) else { return };
         let Some(prompt_id) = params.get("promptId").and_then(Value::as_str) else { return };
-        let key = (peer.to_owned(), prompt_id.to_owned());
+        let key = (peer.to_owned(), session_id.to_owned(), prompt_id.to_owned());
+        // Preserve a retry's early acknowledgement, including a retry registered
+        // after the real acceptance. A provisional notice cannot persist or settle
+        // a projection: the original may still be refused. Keep final hooks intact.
+        if params.get("duplicate") == Some(&Value::Bool(true))
+            && params.get("turnId").is_none_or(Value::is_null)
+        {
+            let callbacks: Vec<_> = self
+                .hooks
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&key)
+                .into_iter()
+                .flatten()
+                .map(|(_, _, hook)| hook.clone())
+                .collect();
+            for callback in callbacks {
+                callback(params.clone());
+            }
+            return;
+        }
         let waits = self.hooks.lock().unwrap_or_else(|e| e.into_inner()).remove(&key);
-        for (_, hook) in waits.into_iter().flatten() {
+        for (_, hook, _) in waits.into_iter().flatten() {
             hook(params.clone());
         }
     }
@@ -357,6 +449,12 @@ impl PeerAccepts {
 pub fn local_only() -> RpcError {
     RpcError::invalid_params("only the unix socket queues a message for delivery")
         .with_data(json!({"reason": "outbox.local_only"}))
+}
+
+/// The message id a forward intent records (`server/outbox.rs` `remember_forward`): a direct
+/// send and its `send_queue` retry share a prompt id but are two messages, each its own intent.
+fn projected_message(d: &Delivery) -> Option<&Value> {
+    d.request.pointer("/_meta/acpmux/forwardProjection/messageId")
 }
 
 #[cfg(test)]
@@ -372,11 +470,129 @@ mod tests {
             caller: None,
             state: State::Queued,
             attempts: 0,
+            never_sent: false,
+            relay_post: None,
             error: None,
             accepted: None,
             created_at: now,
             updated_at: now,
         }
+    }
+
+    #[test]
+    fn forward_intents_do_not_alias_other_senders_targets_or_queued_deliveries() {
+        let outbox = Outbox::default();
+        outbox.add(delivery(1));
+        let mut intent = delivery(1);
+        intent.id = "intent-1".into();
+        intent.caller = Some("sender".into());
+        intent.request["_meta"]["acpmux"]["forwardProjection"] = json!({"text": "hello"});
+        assert_eq!(outbox.remember_forward(intent.clone()).unwrap().id, "intent-1");
+        intent.id = "unused-retry-id".into();
+        assert_eq!(outbox.remember_forward(intent.clone()).unwrap().id, "intent-1");
+        intent.target = "another-target".into();
+        intent.id = "intent-2".into();
+        assert_eq!(outbox.remember_forward(intent.clone()).unwrap().id, "intent-2");
+        intent.caller = Some("another-sender".into());
+        intent.id = "intent-3".into();
+        assert_eq!(outbox.remember_forward(intent.clone()).unwrap().id, "intent-3");
+        // A `send_queue` retry of the same prompt id is another message: its own intent, so a
+        // restart reads the receiver's journal for the retry's delivery id too.
+        intent.request["_meta"]["acpmux"]["forwardProjection"]["messageId"] = json!("delivery-1");
+        intent.id = "intent-4".into();
+        assert_eq!(outbox.remember_forward(intent.clone()).unwrap().id, "intent-4");
+        intent.id = "unused-retry-id".into();
+        assert_eq!(outbox.remember_forward(intent).unwrap().id, "intent-4");
+        assert_eq!(outbox.add(delivery(1)).id, "d-1");
+    }
+
+    #[test]
+    fn provisional_duplicate_does_not_consume_acceptance_hooks() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let accepts = PeerAccepts::default();
+        let seen = std::sync::Arc::new(AtomicUsize::new(0));
+        let provisional = std::sync::Arc::new(AtomicUsize::new(0));
+        for _ in 0..2 {
+            let provisional = provisional.clone();
+            let seen = seen.clone();
+            accepts.wait(
+                "peer",
+                "target",
+                "p1",
+                Box::new(move |_| {
+                    seen.fetch_add(1, Ordering::SeqCst);
+                }),
+                std::sync::Arc::new(move |_| {
+                    provisional.fetch_add(1, Ordering::SeqCst);
+                }),
+            );
+        }
+        accepts.accepted(
+            "peer",
+            &json!({"sessionId": "target", "promptId": "p1", "duplicate": true, "turnId": null}),
+        );
+        assert_eq!(seen.load(Ordering::SeqCst), 0);
+        assert_eq!(provisional.load(Ordering::SeqCst), 2);
+        accepts.accepted("peer", &json!({"sessionId": "target", "promptId": "p1", "turnId": "t1"}));
+        assert_eq!(seen.load(Ordering::SeqCst), 2);
+
+        // A retry registered after the original acknowledgement still hears its
+        // provisional acknowledgement while the original turn remains busy.
+        let seen_late = seen.clone();
+        let provisional_late = provisional.clone();
+        let token = accepts.wait(
+            "peer",
+            "target",
+            "p1",
+            Box::new(move |_| {
+                seen_late.fetch_add(1, Ordering::SeqCst);
+            }),
+            std::sync::Arc::new(move |_| {
+                provisional_late.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+        accepts.accepted(
+            "peer",
+            &json!({"sessionId": "target", "promptId": "p1", "duplicate": true, "turnId": null}),
+        );
+        assert_eq!(provisional.load(Ordering::SeqCst), 3);
+        assert_eq!(seen.load(Ordering::SeqCst), 2);
+        accepts.forget("peer", "target", "p1", token);
+        assert!(accepts.hooks.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn peer_acceptance_is_scoped_to_its_target_session() {
+        let accepts = PeerAccepts::default();
+        let seen = std::sync::Arc::new(StdMutex::new(Vec::new()));
+        for target in ["a", "b"] {
+            let seen = seen.clone();
+            accepts.wait(
+                "peer",
+                target,
+                "same-prompt",
+                Box::new(move |_| {
+                    seen.lock().unwrap().push(target);
+                }),
+                std::sync::Arc::new(|_| {}),
+            );
+        }
+        accepts.accepted(
+            "peer",
+            &json!({"sessionId": "a", "promptId": "same-prompt", "turnId": "t-a"}),
+        );
+        assert_eq!(*seen.lock().unwrap(), vec!["a"]);
+        // An unrelated peer also cannot consume the second target's hook.
+        accepts.accepted(
+            "other-peer",
+            &json!({"sessionId": "b", "promptId": "same-prompt", "turnId": "t-b"}),
+        );
+        assert_eq!(*seen.lock().unwrap(), vec!["a"]);
+        accepts.accepted(
+            "peer",
+            &json!({"sessionId": "b", "promptId": "same-prompt", "turnId": "t-b"}),
+        );
+        assert_eq!(*seen.lock().unwrap(), vec!["a", "b"]);
     }
 
     /// Sends from many tasks at once share writes, and the file still holds every one of them
@@ -465,6 +681,8 @@ mod tests {
             caller: None,
             state: State::Queued,
             attempts: 0,
+            never_sent: false,
+            relay_post: None,
             error: None,
             accepted: None,
             created_at: 0,
