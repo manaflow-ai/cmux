@@ -414,7 +414,6 @@ describe("the tray", () => {
       const tray = root.querySelector<HTMLElement>(".acpmux-running-tray")!;
       expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time")).not.toBeNull();
       expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__status")).not.toBeNull();
-      expect(tray.querySelector(".acpmux-running-tray__head .acpmux-running-tray__stop-slot")).not.toBeNull();
       const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
       expect(lines).toHaveLength(2);
       expect(lines.every((line) => line.querySelector(".acpmux-agent-line__time"))).toBe(true);
@@ -642,14 +641,24 @@ describe("a tray line says what it is and what a click does", () => {
     }
   });
 
-  test("a subagent leads with Subagent and ends in a chevron", async () => {
+  // Leo, 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add
+  // the icon when it's in here."
+  test("a subagent leads with its icon, not the word, keeps its spinner and ends in a chevron", async () => {
     const items = trayItems([agent("Reviewer", { startedAt: Date.now(), action: "Read src/app.ts" })], [], NONE, true);
     const { root, done } = await render(
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
     try {
       const line = root.querySelector<HTMLElement>(".acpmux-agent-line")!;
-      expect(line.querySelector(".acpmux-agent-line__kind")?.textContent).toBe("Subagent");
+      expect(line.querySelector(".acpmux-agent-line__kind")).toBeNull();
+      const kind = line.querySelector<HTMLElement>(".acpmux-agent-line__kind-icon");
+      // The kind is an accessible SVG title, with no repeated visible label beside the icon.
+      expect(kind?.querySelector('svg[role="img"]')?.getAttribute("aria-label")).toBe("Subagent");
+      expect(kind?.querySelector("title")?.textContent).toBe("Subagent");
+      // The working-state mark stays a spinner, before the subagent's icon.
+      expect(
+        line.querySelector(".acpmux-lineage__icon [data-spinner], .acpmux-lineage__icon .cv-spinner"),
+      ).not.toBeNull();
       expect(line.querySelector(".acpmux-summary-agent__name")?.textContent).toBe("Reviewer");
       expect(line.querySelector(".acpmux-agent-line__chevron")).not.toBeNull();
     } finally {
@@ -1155,5 +1164,89 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     } finally {
       await done();
     }
+  });
+});
+
+describe("a failed sub-session's line", () => {
+  test("says why its chat failed, as acpmux recorded it on the chat's own session row", async () => {
+    const { SubagentDoneLine } = await import("../src/agent-session/acpmux/subagents/SubagentDoneLine");
+    const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+    const store = new SubsessionStore();
+    store.set([{ sessionId: "child", startedBy: "parent", lane: "failed", laneError: "model overloaded" }]);
+    const failed = agent("Overview", { state: "failed", endedAt: at(40), child: "child" });
+    const { root, done } = await render(
+      createElement(
+        SubsessionContext.Provider,
+        { value: { store, open: () => {} } },
+        createElement(SubagentDoneLine, {
+          row: row(`${SUBAGENT_DONE}:Overview`, SUBAGENT_DONE, 40, { subagents: [failed] }),
+        }),
+      ),
+    );
+    try {
+      expect(root.querySelector(".cv-subagent-done")?.textContent).toBe(
+        "Subagent failed: Overview · 30s · model overloaded",
+      );
+    } finally {
+      await done();
+    }
+  });
+});
+
+describe("workflow progress in the default tray and Inspector", () => {
+  const waiting = new Set<string>();
+  for (const surface of ["tray", "inspector"] as const) {
+    test(`${surface} updates counts, warnings and tokens without replacing another row`, async () => {
+      const { SubagentsSection } = await import("../src/agent-session/acpmux/inspector/SubagentsSection");
+      const workflow = agent("Review modules", { kind: "workflow", action: "Review" });
+      const other = agent("Unrelated agent");
+      const draw = (current: Subagent) =>
+        surface === "tray"
+          ? createElement(SubagentTray, {
+              items: trayItems([current, other], [], NONE, true),
+              working: true,
+              waiting,
+              onOpen: () => {},
+            })
+          : createElement(SubagentsSection, { agents: [current, other], waiting, onOpen: () => {} });
+      const view = await render(draw(workflow));
+      try {
+        expect(view.root.querySelector(".acpmux-agent-line__progress")).toBeNull();
+        const buttons = () => [...view.root.querySelectorAll(".acpmux-agent-line__button")];
+        const unrelated = buttons().find((button) => button.textContent?.includes("Unrelated agent"));
+        expect(unrelated).toBeDefined();
+        await view.show(
+          draw({ ...workflow, agents: { done: 37, started: 101, failed: 2, queued: 4 }, tokens: 1_200_000 }),
+        );
+        expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
+          "37/101 agents · 2 failed · 4 queued · 1.2M tokens",
+        );
+        expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
+        await view.show(draw({ ...workflow, agents: { done: 40, started: 101 }, tokens: 1_300_000 }));
+        expect(view.root.querySelector(".acpmux-agent-line__progress")?.textContent).toBe(
+          "40/101 agents · 1.3M tokens",
+        );
+        expect(buttons().find((button) => button.textContent?.includes("Unrelated agent"))).toBe(unrelated);
+      } finally {
+        await view.done();
+      }
+    });
+  }
+
+  test("missing and zero progress do not fabricate counts or warnings", async () => {
+    const { subagentProgress } = await import("../src/agent-session/acpmux/subagents/subagentProgress");
+    const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
+    const t = translatorFor("en");
+    expect(subagentProgress(t, "en", agent("Workflow", { kind: "workflow" }))).toEqual([]);
+    expect(
+      subagentProgress(
+        t,
+        "en",
+        agent("Workflow", {
+          agents: { done: 0, started: 0, failed: 0, queued: 0 },
+          tokens: 0,
+        }),
+      ),
+    ).toEqual([]);
   });
 });
