@@ -1436,9 +1436,10 @@ jobs:
           # The cascade jobs with a build-fleet client job (<job>-fleet, which runs only the cmux-ci client on
           # gateway_runner): with every macOS label full or dead they are listed in fleet_jobs instead of
           # waiting, and the job itself only reports its client's verdict. A job joins only with its client
-          # (GatewayRunsOnlyTheFleetClient). swift-test and daemon-test are not cascade jobs, so placement
-          # never lists them; daemon-test also needs the same-tree cmux-tui daemon, which a fleet suite step
-          # reports as no result.
+          # (GatewayRunsOnlyTheFleetClient). A listed job's client needs an idle gateway runner of its own
+          # beyond GATEWAY_JOBS', or placement lists nothing (side_lane_placement.fleet_gateway()). swift-test
+          # and daemon-test are not cascade jobs, so placement never lists them; daemon-test also needs the
+          # same-tree cmux-tui daemon, which a fleet suite step reports as no result.
           FLEET_CLIENT_JOBS: fast-tier
           # The gateway jobs this run starts (their own `if`s), each needing an idle runner.
           GATEWAY_JOBS: >-
