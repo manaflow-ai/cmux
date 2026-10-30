@@ -33,12 +33,18 @@ afterEach(() => {
   dom = undefined;
 });
 
-const rect = (top: number, bottom: number) => () => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top }) as DOMRect;
+const rect = (top: number, bottom: number) => () =>
+  ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top }) as DOMRect;
 
 function Panel({ selected }: { selected?: string }) {
   const panel = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
-  useDiffKeys(panel, body, () => {}, () => selected);
+  useDiffKeys(
+    panel,
+    body,
+    () => {},
+    () => selected,
+  );
   return (
     <div ref={panel} tabIndex={0} id="panel">
       <div ref={body} id="body">
