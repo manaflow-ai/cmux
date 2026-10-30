@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 @testable import CmuxNextHomeEngine
 import Foundation
 import os
