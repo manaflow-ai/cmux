@@ -68,11 +68,34 @@ public nonisolated enum ProfileBarLogic {
         return CGRect(x: slot.midX - width / 2, y: slot.midY - height / 2, width: width, height: height)
     }
 
-    /// Insertion index (the `move-workspace` rule: an index into the list
-    /// before removal) for a dot dragged to horizontal offset `x`, given the
-    /// dots' center x positions in order.
-    public static func insertionIndex(forX x: Double, centers: [Double]) -> Int {
-        centers.firstIndex { x < $0 } ?? centers.count
+    /// The position a dot dragged from slot `from` takes when its center is at `x`, given the
+    /// dots' center x positions in order (the dragged dot's own included).
+    ///
+    /// The dragged dot passes a dot on reaching its center, from either side. The strip clamps
+    /// the dragged dot between the first and last centers, so a rule that needed it strictly
+    /// beyond a center (the old `firstIndex { x < center }`) never passed the first dot, and no
+    /// drag put a space first.
+    public static func dropPosition(from: Int, x: Double, centers: [Double]) -> Int {
+        guard centers.indices.contains(from) else { return from }
+        let passedLeft = centers[..<from].filter { x <= $0 }.count
+        let passedRight = centers[(from + 1)...].filter { x >= $0 }.count
+        return from - passedLeft + passedRight
+    }
+
+    /// The `move-profile` index (an index into the order before removal) that puts the space at
+    /// `from`, of `count` spaces, into position `to`: one past the target when it moves right.
+    ///
+    /// The drag, Move Left/Right, Move to Start/End and Move to Position all send this index.
+    /// - Parameters:
+    ///   - from: The space's current position.
+    ///   - to: The position it should take.
+    ///   - count: How many spaces the strip shows.
+    ///   - allowsStay: Whether `to == from` is a (no-op) move rather than a refusal; Move to
+    ///     Position allows it, the edge moves refuse it ("already at the edge").
+    /// - Returns: The insertion index, or nil when `to` is off the strip or a refused stay.
+    public static func moveInsertion(from: Int, to: Int, count: Int, allowsStay: Bool = false) -> Int? {
+        guard (0..<count).contains(from), (0..<count).contains(to), allowsStay || to != from else { return nil }
+        return to > from ? to + 1 : to
     }
 
     /// The final position a dragged dot at `from` lands in after insertion

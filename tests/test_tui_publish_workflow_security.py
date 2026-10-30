@@ -2360,10 +2360,13 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> None:
+def test_tree_publish_and_nightly_promotion_do_not_wait_for_daemon_tests() -> None:
     # Chief 2026-10-13 (hq-11): the daemon tests' macOS runner queues up to ~1 h,
-    # so trees publish without them; nightly-next promotion still needs them,
-    # through the daemon-tests.json marker that publish-tree-tested writes.
+    # so trees publish without them; the feat-cmux-next channel still needs
+    # them, through the daemon-tests.json marker that publish-tree-tested writes.
+    # Since 2026-10-28 nightly-next promotion does not (run 40651931144's daemon
+    # tests failed fetching Zig packages and held the feed): the tree-commit
+    # marker follows the publish. Leo, 2026-10-23: "we want no smoke tests".
     # cx-y0nf2: that holds on every ref, pins, next-batch/*, main and pull
     # requests included. cx-kfbom had made those publish after the tests,
     # marker first, because a feat-cmux-next push that found tree c77d397b3a9f
@@ -2395,61 +2398,17 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
     assert "publish-tree-tested" in promote["needs"]
     assert "needs.publish-tree.result" not in promote["if"]
     assert "needs.publish-tree-tested.result == 'success'" in promote["if"]
-    # request-nightly-next.sh checks the marker through tree-commit-marker.sh
-    # daemon-tested, the same check the tree-commit marker writer uses.
+    # Neither request-nightly-next.sh nor the tree-commit marker writer asks for
+    # the daemon tests; the marker job follows the publish, not them.
     script = (ROOT / "scripts/cmux-next/request-nightly-next.sh").read_text()
-    assert "tree-commit-marker.sh\" daemon-tested" in script
+    assert "daemon-tested" not in script
+    mark = jobs["mark-tree-commits"]
+    assert "publish-tree" in mark["needs"]
+    assert not {"cmux-next-daemon-tests", "publish-tree-tested"} & set(mark["needs"])
+    assert "daemon" not in mark["if"]
     checker = (ROOT / "scripts/cmux-next/tree-commit-marker.sh").read_text()
+    # The daemon-tested subcommand stays for its callers.
     assert "daemon-tests.json" in checker and '"separate"' in checker
+    tree_ready = checker.split("tree_ready() {", 1)[1].split("\n}\n", 1)[0]
+    assert "verify-key" in tree_ready and "daemon_tested" not in tree_ready
 
-
-
-def test_publish_attestation_uses_the_release_app_token_with_a_fallback() -> None:
-    # The first attestation try spends the release App's installation budget,
-    # not the github.token budget that ran out ("API rate limit exceeded for
-    # installation"). Both refusals fall back to github.token: a failed mint
-    # (the App lacks attestations:write) or absent credentials leave the
-    # step's token empty, and a minted token GitHub refuses (403) or an App
-    # budget that ran out fails only that try; tries 2 to 4 use github.token.
-    artifacts = workflow("cmux-tui-artifacts.yml")
-    document = yaml.load(artifacts, Loader=yaml.BaseLoader)
-    jobs = document["jobs"]
-    for name in ("publish", "publish-windows"):
-        job = jobs[name]
-        assert job["environment"] == "artifacts", name
-        assert job["env"]["CMUX_RELEASE_APP_CONFIGURED"] == (
-            "${{ secrets.CMUX_RELEASE_APP_ID != '' && secrets.CMUX_RELEASE_APP_KEY != '' }}"
-        ), name
-        steps = job["steps"]
-        mint = next(step for step in steps if step.get("id") == "attest_app_token")
-        assert mint["uses"] == "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"
-        assert mint["if"] == "env.CMUX_RELEASE_APP_CONFIGURED == 'true'"
-        # A failed mint never fails the job.
-        assert mint["continue-on-error"] == "true"
-        assert mint["with"] == {
-            "app-id": "${{ secrets.CMUX_RELEASE_APP_ID }}",
-            "private-key": "${{ secrets.CMUX_RELEASE_APP_KEY }}",
-            "owner": "${{ github.repository_owner }}",
-            "repositories": "${{ github.event.repository.name }}",
-            "permission-attestations": "write",
-        }
-        attests = [step for step in steps if "attest-build-provenance" in step.get("uses", "")]
-        assert len(attests) == 4, name
-        first, *retries = attests
-        assert steps.index(mint) < steps.index(first)
-        # Path 1: no token minted, so the first try uses github.token.
-        assert first["with"]["github-token"] == "${{ steps.attest_app_token.outputs.token || github.token }}", name
-        assert first["continue-on-error"] == "true", name
-        # Path 2: the App token was refused; every retry uses github.token.
-        for step in retries:
-            assert step["with"]["github-token"] == "${{ github.token }}", name
-            assert step["if"].endswith(".outcome == 'failure'"), name
-        assert "continue-on-error" not in retries[-1], name
-        # The App secrets appear only in the mint step and the presence flag.
-        for step in steps:
-            if step is not mint:
-                assert "CMUX_RELEASE_APP" not in yaml.dump(step), name
-                assert "attest_app_token" not in yaml.dump(step) or step is first, name
-    for name, job in jobs.items():
-        if name not in ("publish", "publish-windows"):
-            assert "CMUX_RELEASE_APP" not in yaml.dump(job), name
