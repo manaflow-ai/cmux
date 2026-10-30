@@ -103,6 +103,18 @@ struct SwitchToColdTabTypeAheadTests {
         var seq = Self.lastSeq()
         Self.type("x", in: window, router: router)
         await Self.wait(within: .seconds(10)) { !Self.inputBytes(after: seq).isEmpty }
+        if Self.inputBytes(after: seq).isEmpty {
+            // DIAG (scratch, not for merge): where the typed key went.
+            let coordinator = router.creationInputCoordinator
+            var lines: [String] = []
+            lines.append("journalEnabled \(InputJournal.shared.isEnabled)")
+            lines.append("creationHolding \(coordinator.isHolding(in: window)) held \(coordinator.heldCount(in: window)) replayed \(coordinator.replayedCount) early \(coordinator.earlyDeliveryState(in: window))")
+            lines.append("newTabHolding \(router.newTabInputCoordinator.isHolding(in: window)) modes \(router.modes.active)")
+            lines.append("firstResponder \(String(describing: window.firstResponder)) focus \(controller.focus.state.resolved) tab \(String(describing: pane.currentTabKey)) ids \(pane.orderedIDs.map(\.rawValue))")
+            lines.append("lastInterception \(String(describing: router.lastInterception))")
+            for entry in InputJournal.shared.entries() where entry.seq > seq { lines.append("J \(entry.seq) \(entry.kind)") }
+            Issue.record("DIAG \(lines.joined(separator: " | "))")
+        }
         let shown = try #require(Self.inputBytes(after: seq).keys.first, "the shown terminal got no input")
 
         // A second terminal tab made by a script: the window does not show it, so it has no surface.
