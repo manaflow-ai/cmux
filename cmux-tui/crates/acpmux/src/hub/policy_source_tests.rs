@@ -354,7 +354,7 @@ async fn a_policy_set_before_the_old_host_ended_keeps_the_end_and_the_grant() {
         assert_eq!(s.meta().policy_source.as_deref(), Some(CLEARED_HOST), "{policy}");
     }
     // No host runs here: the end is proven, and the owner's grant stays.
-    assert!(hub.end_cleared_host(&s).await);
+    assert_eq!(hub.end_cleared_host(&s).await, super::ClearedHostEnd::Ended);
     assert_eq!(s.meta().policy_source.as_deref(), Some(CLEARED));
     assert_eq!(answers(&hub, VM_HOST_ERA), PermissionPolicy::ApproveAll);
     hub.store.flush().unwrap();

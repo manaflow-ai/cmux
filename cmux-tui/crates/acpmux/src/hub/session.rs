@@ -50,6 +50,11 @@ pub struct Session {
     /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`).
     /// False from a deferred daemon start until the first append or the log load.
     pub(super) caught_up: AtomicBool,
+    /// The last catch-up could not read the log tail (an I/O error): what it holds was not
+    /// replayed, a grant it would clear included. Set before `caught_up`; adoption and the next
+    /// start treat it as a failed replay (`Hub::end_cleared_host`), which takes it back once no
+    /// agent host of the chat runs.
+    pub(super) tail_failed: AtomicBool,
     /// Whether its log is read after a deferred daemon start (`log_load.rs`): once, by the
     /// background pass or the first request for it, under this lock. `log_loaded` mirrors it
     /// for reads that take no lock.

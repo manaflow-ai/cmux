@@ -1074,6 +1074,14 @@ impl Hub {
         let mut changes = Vec::new();
         let mut change = |rec: EventRecord| changes.push(rec);
         let tail = self.store.tail_after(&session.id, last_seq, meta_replay::KINDS, &mut change);
+        // Not replayed: the tail may hold a grant its replay would clear, so the chat's agent
+        // host is never adopted or reached on it (`Hub::end_cleared_host`, fail closed). The
+        // chat stays usable: it is caught up below, as before, so its appends go on and no
+        // append reads the tail again; a later read past `lastSeq` would miss what they log.
+        if let Err(e) = &tail {
+            tracing::warn!(session = %session.id, "reading the log tail failed: {e:#}; its agent host is not adopted");
+        }
+        session.tail_failed.store(tail.is_err(), Ordering::SeqCst);
         let mut cleared = false;
         if let Ok((extra, last)) = tail
             && extra > 0
@@ -1148,6 +1156,7 @@ impl Hub {
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
             caught_up: AtomicBool::new(true),
+            tail_failed: AtomicBool::new(false),
             log_load: StdMutex::new(true),
             log_loaded: AtomicBool::new(true),
             turn_lock: Mutex::new(()),

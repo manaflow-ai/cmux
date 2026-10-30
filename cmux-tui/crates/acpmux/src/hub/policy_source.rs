@@ -49,7 +49,9 @@
 //! (`meta_replay.rs`), not by the load, with the same host rule
 //! ([`Hub::clear_replayed_grant_host`]). The tail is replayed when the chat's log is read, which
 //! for a chat the start's index does not list comes after adoption; so the one check that keeps
-//! a host from being adopted or reached ([`Hub::end_cleared_host`]) replays the tail first.
+//! a host from being adopted or reached ([`Hub::end_cleared_host`]) replays the tail first. A
+//! replay that fails (a panic, or a tail that cannot be read) fails closed: the host is ended, not
+//! adopted, and the start that would reach it is refused.
 
 use super::*;
 use std::collections::{HashMap, HashSet};
@@ -134,6 +136,22 @@ fn could_be_vm_host(metas: &[SessionMeta], targets: &HashSet<String>) -> HashSet
         .filter(|m| visit(&m.id, &by_id, targets, &mut known))
         .map(|m| m.id.clone())
         .collect()
+}
+
+/// What [`Hub::end_cleared_host`] found. Only [`ClearedHostEnd::NotCleared`] lets a host be
+/// adopted; a start goes on after it and [`ClearedHostEnd::Ended`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ClearedHostEnd {
+    /// Not a [`CLEARED_HOST`] chat, and its log tail was replayed.
+    NotCleared,
+    /// Its old host has ended (or none ran); the chat is [`CLEARED`].
+    Ended,
+    /// Its old host is not proven ended (it did not end, or the host records cannot be read): it
+    /// is marked unadoptable and the chat stays [`CLEARED_HOST`].
+    NotProven,
+    /// The log tail could not be replayed, so whether it held a cleared grant is not known: the
+    /// host was ended where it could be and is marked unadoptable.
+    ReplayFailed,
 }
 
 impl Hub {
@@ -222,27 +240,42 @@ impl Hub {
     }
 
     /// A [`CLEARED_HOST`] chat's agent host is ended, never adopted (module docs). Called before a
-    /// host is adopted and before an agent starts, under the chat's spawn lock. Returns whether the
-    /// chat was one: its host has then ended, or is marked unadoptable.
+    /// host is adopted and before an agent starts, under the chat's spawn lock. Every outcome but
+    /// [`ClearedHostEnd::NotCleared`] keeps the host from being adopted.
     ///
     /// The chat's log tail is replayed first (`catch_up`; nothing to read once it is): adoption
     /// can reach a host before the background pass reads its chat's log (a chat the start's index
     /// did not list), and a grant only the tail held is `clearedHost` only after its replay
     /// ([`Hub::clear_replayed_grant_host`]). `catch_up` sets that under the append lock before it
     /// marks the chat caught up, so this never sees a caught-up chat without it.
-    pub(super) async fn end_cleared_host(self: &Arc<Self>, session: &Arc<Session>) -> bool {
+    ///
+    /// A replay that failed (it panicked, or the tail could not be read: `Session::tail_failed`)
+    /// fails closed: the tail may hold a grant the replay would clear, so the host is ended and
+    /// marked unadoptable, and the caller refuses ([`ClearedHostEnd::ReplayFailed`]). Once no host
+    /// of the chat runs, the failure is taken back, so the chat's next start runs a new agent in
+    /// its policy's mode; while one may run, every check fails the same way.
+    pub(super) async fn end_cleared_host(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+    ) -> ClearedHostEnd {
+        let mut replayed = true;
         if !session.caught_up.load(Ordering::SeqCst) {
             let (hub, s) = (self.clone(), session.clone());
             if let Err(e) = cmux_blocking::spawn_blocking(move || hub.catch_up(&s)).await {
-                // Fail closed: the tail may hold a grant the replay would clear, so its host is
-                // never adopted (the chat's next start runs a new agent in its policy's mode).
                 tracing::warn!(session = %session.id, "replaying the log tail failed: {e}; the host is not adopted");
-                self.mark_unadoptable(session, json!({"reason": "grant_replay_failed"}));
-                return true;
+                replayed = false;
             }
         }
+        if !replayed || session.tail_failed.load(Ordering::SeqCst) {
+            self.end_unadopted_host(session).await;
+            if Self::host_record_gone(&session.id) {
+                session.tail_failed.store(false, Ordering::SeqCst);
+            }
+            self.mark_unadoptable(session, json!({"reason": "grant_replay_failed"}));
+            return ClearedHostEnd::ReplayFailed;
+        }
         if session.meta().policy_source.as_deref() != Some(CLEARED_HOST) {
-            return false;
+            return ClearedHostEnd::NotCleared;
         }
         self.end_unadopted_host(session).await;
         if Self::host_record_gone(&session.id) {
@@ -250,11 +283,12 @@ impl Hub {
                 Some(CLEARED.to_owned());
             self.append(session, "mux", "grant_cleared", json!({"hostEnded": true}));
             self.save_meta(session);
+            ClearedHostEnd::Ended
         } else {
             tracing::warn!(session = %session.id, "the agent host of a cleared grant did not end; it is not adopted");
             self.mark_unadoptable(session, json!({"reason": "grant_cleared"}));
+            ClearedHostEnd::NotProven
         }
-        true
     }
 
     /// Whether adoption skips `session`'s host (`hosts.rs` `adopt_agent_hosts`): a
@@ -267,7 +301,7 @@ impl Hub {
         off: bool,
     ) -> bool {
         use super::full_access_bound::FullAccessEnd;
-        self.end_cleared_host(session).await
+        self.end_cleared_host(session).await != ClearedHostEnd::NotCleared
             || self.end_if_runs_full_access(session, off).await != FullAccessEnd::NotInFullAccess
     }
 
@@ -279,14 +313,15 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
     ) -> Result<(), RpcError> {
-        if !self.end_cleared_host(session).await
-            || session.meta().policy_source.as_deref() != Some(CLEARED_HOST)
-        {
-            return Ok(());
+        match self.end_cleared_host(session).await {
+            ClearedHostEnd::NotCleared | ClearedHostEnd::Ended => Ok(()),
+            ClearedHostEnd::NotProven => Err(RpcError::internal(
+                "this chat's agent host ran under an approve-all that is now cleared and is not proven ended; the chat starts again once it is",
+            )),
+            ClearedHostEnd::ReplayFailed => Err(RpcError::internal(
+                "this chat's log could not be read, so its agent host may run under an approve-all that is now cleared; it is not reached, and the chat starts again once no host of it runs",
+            )),
         }
-        Err(RpcError::internal(
-            "this chat's agent host ran under an approve-all that is now cleared and is not proven ended; the chat starts again once it is",
-        ))
     }
 }
 
