@@ -23,7 +23,7 @@ import { realWorkflowFixture } from "../realWorkflowFixture";
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
   "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions"
-> & { tabRowHeight?: number; preview?: boolean };
+> & { tabRowHeight?: number; preview?: boolean; popover?: boolean };
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -38,7 +38,7 @@ const card: SummaryCardControl = {
   fold: none,
 };
 
-function GallerySummaryCard({ tabRowHeight, preview, ...props }: Props) {
+function GallerySummaryCard({ tabRowHeight, preview, popover, ...props }: Props) {
   return (
     <div
       className="acpmux-shell"
@@ -64,7 +64,13 @@ function GallerySummaryCard({ tabRowHeight, preview, ...props }: Props) {
         />
       ) : (
         <SummaryCard
-          card={card}
+          card={popover ? { ...card, column: false } : card}
+          environment={{
+            summary: { sessionId: "gallery-session", cwd: CWD, branch: "feature/session-details" },
+            machineName: "Development Mac",
+            repository: "example/atlas-web",
+            onOpenFolder: none,
+          }}
           subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: none }}
           onOpenOutput={none}
           {...props}
@@ -163,6 +169,10 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/inspector/ChildSessionRows.tsx"],
   load: async () => GallerySummaryCard,
   variants: {
+    "popover-environment": {
+      note: "The toolbar popover begins with Environment and keeps activity counts in Subagents, without a title row.",
+      props: { popover: true, rows, background: background(processes), sessions: { list: sessions, onOpen: none } },
+    },
     "preview-tab-row": {
       note: "The Preview sibling obeys the same native tab-row clearance, both beside the chat and covering a narrow pane.",
       props: { tabRowHeight: 32, preview: true, rows: [] },

@@ -125,4 +125,39 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
       });
     }
   }
+  test("popover starts with Environment and keeps activity counts under Subagents", async () => {
+    const page = await browser.newPage({ viewport: { width: 480, height: 720 }, reducedMotion: "reduce" });
+    try {
+      const port = (server.httpServer!.address() as { port: number }).port;
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.summary-card", { variant: "popover-environment" })}`,
+      );
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      const panel = page.locator('.acpmux-summary-card[data-placement="popover"]');
+      await panel.waitFor();
+      if (process.env.CMUX_SUMMARY_CAPTURE_DIR) {
+        await mkdir(process.env.CMUX_SUMMARY_CAPTURE_DIR, { recursive: true });
+        await panel.screenshot({ path: path.join(process.env.CMUX_SUMMARY_CAPTURE_DIR, "summary-environment.png") });
+      }
+      expect(await panel.locator(".acpmux-summary-card__head").count()).toBe(0);
+      expect(await panel.locator("h3").first().textContent()).toBe("Environment");
+      const environment = panel.locator('[data-section="environment"]');
+      expect(await environment.textContent()).toContain("Development Mac");
+      expect(await environment.textContent()).toContain("atlas-web");
+      expect(await environment.locator("a").allTextContents()).toEqual([
+        "example/atlas-web",
+        "feature/session-details",
+      ]);
+      expect(await environment.locator("a").last().getAttribute("href")).toBe(
+        "https://github.com/example/atlas-web/tree/feature/session-details",
+      );
+      const subagents = await panel.locator(".acpmux-summary-agents h3").textContent();
+      expect(subagents).toContain("2 running");
+      expect(subagents).toContain("3 commands");
+      expect(await panel.textContent()).toContain("Background tasks");
+      expect(await panel.textContent()).toContain("Outputs");
+    } finally {
+      await page.close();
+    }
+  });
 });

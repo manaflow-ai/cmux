@@ -24,6 +24,8 @@ import type { SummaryBackgroundTask } from "./sessionSummary";
 import type { ProcessRegistry } from "../inspector/processes";
 import type { WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
+import { EnvironmentSection } from "../inspector/EnvironmentSection";
+import type { ComponentProps } from "react";
 import type { WorkflowCapacitySignal } from "./foldWorkflows";
 
 const NO_SESSIONS: readonly StartedSession[] = [];
@@ -33,8 +35,8 @@ const NO_REGISTRY: ProcessRegistry = { processes: [], listed: false };
 const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 
 /// What the chat has produced so far. A wide pane reserves a quiet right column; a narrow pane
-/// uses a popover that dismisses on outside click or Escape. Folded popovers keep their header line,
-/// with the subagents' live counts. The summary is read from the transcript only while the card is
+/// uses a popover that dismisses on outside click or Escape. The popover starts with Environment,
+/// with live counts in Subagents and no title row. The summary is read from the transcript only while the card is
 /// open, so a live turn pays nothing for it otherwise.
 /// A subagent row shows that subagent (`subagents.onOpen`). The Subagents section's title opens a
 /// Subagents tab beside the Summary (SubagentsTab.tsx), as the ChatGPT desktop app's right pane
@@ -45,6 +47,7 @@ const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 /// stay under Subagents. The header's counts include the running ones.
 export function SummaryCard({
   card,
+  environment,
   rows,
   onOpenOutput,
   onOpenImage,
@@ -63,6 +66,7 @@ export function SummaryCard({
   workflowCapacity,
 }: {
   card: SummaryCardControl;
+  environment?: ComponentProps<typeof EnvironmentSection>;
   rows: readonly AcpmuxRow[];
   onOpenOutput?: (path: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
@@ -113,7 +117,7 @@ export function SummaryCard({
   // leaves; a second open while it is open changes nothing.
   const presence = usePresence(shown, "right");
   const drawn = presence.present;
-  const open = drawn && !card.collapsed;
+  const open = drawn && (!card.column || !card.collapsed);
   const views = subagents.views;
   const agents = useMemo(() => (drawn ? [...subagentsIn(rows, views).values()] : []), [drawn, rows, views]);
   const asks = subagents.asks;
@@ -204,8 +208,7 @@ export function SummaryCard({
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
   ].filter(Boolean);
   const title = t("summary.open");
-  const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
-  const onSubagents = tab === "subagents";
+  const onSubagents = card.column && tab === "subagents";
   const hasSubagents = agents.length > 0 || children.length > 0 || subsessionRows.length > 0;
   return (
     <>
@@ -226,127 +229,111 @@ export function SummaryCard({
         data-placement={card.column ? "inline" : "popover"}
         data-collapsed={!card.column && card.collapsed ? "" : undefined}
       >
-        <div className="acpmux-summary-card__head">
-          {tab && !card.column && (
-            // The popover keeps its fold control beside the tabs, so a narrow pane can still fold it.
-            <button
-              type="button"
-              className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
-              aria-expanded={!card.collapsed}
-              aria-label={foldLabel}
-              onClick={() => card.fold(!card.collapsed)}
-            >
-              <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
-            </button>
-          )}
-          {tab ? (
-            // Toggle buttons (aria-pressed), as the gallery's filters are: page code carries no raw roles.
-            <div className="acpmux-summary-tabs">
-              <button
-                type="button"
-                className="acpmux-summary-tab"
-                aria-pressed={!onSubagents}
-                data-selected={onSubagents ? undefined : ""}
-                onClick={() => showTab("summary")}
-              >
-                {t("summary.title")}
-              </button>
-              <span className="acpmux-summary-tab" data-closable="" data-selected={onSubagents ? "" : undefined}>
+        {card.column && (
+          <div className="acpmux-summary-card__head">
+            {tab ? (
+              // Toggle buttons (aria-pressed), as the gallery's filters are: page code carries no raw roles.
+              <div className="acpmux-summary-tabs">
                 <button
                   type="button"
-                  className="acpmux-summary-tab__label"
-                  aria-pressed={onSubagents}
-                  onClick={() => showTab("subagents")}
+                  className="acpmux-summary-tab"
+                  aria-pressed={!onSubagents}
+                  data-selected={onSubagents ? undefined : ""}
+                  onClick={() => showTab("summary")}
                 >
-                  {t("summary.subagents")}
+                  {t("summary.title")}
                 </button>
-                <button
-                  type="button"
-                  className="acpmux-summary-tab__close"
-                  aria-label={t("summary.subagents.closeTab")}
-                  onClick={closeTab}
-                >
-                  <Icon name="action.close" size={10} />
-                </button>
-              </span>
-            </div>
-          ) : card.column ? (
-            <span className="acpmux-summary-card__title">{t("summary.title")}</span>
-          ) : (
-            <button
-              type="button"
-              className="acpmux-summary-card__fold"
-              aria-expanded={!card.collapsed}
-              onClick={() => card.fold(!card.collapsed)}
-            >
-              <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+                <span className="acpmux-summary-tab" data-closable="" data-selected={onSubagents ? "" : undefined}>
+                  <button
+                    type="button"
+                    className="acpmux-summary-tab__label"
+                    aria-pressed={onSubagents}
+                    onClick={() => showTab("subagents")}
+                  >
+                    {t("summary.subagents")}
+                  </button>
+                  <button
+                    type="button"
+                    className="acpmux-summary-tab__close"
+                    aria-label={t("summary.subagents.closeTab")}
+                    onClick={closeTab}
+                  >
+                    <Icon name="action.close" size={10} />
+                  </button>
+                </span>
+              </div>
+            ) : (
               <span className="acpmux-summary-card__title">{t("summary.title")}</span>
-              {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
-            </button>
-          )}
-          {!tab && card.column && counts.length > 0 && (
-            <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
-          )}
-          {!card.column && (
-            <button
-              type="button"
-              className="acpmux-summary-card__close"
-              aria-label={t("summary.close")}
-              onClick={(event) => {
-                // The button goes with the card: focus moves to the header's summary button.
-                const pane = event.currentTarget.closest(".acpmux-stage");
-                card.close();
-                pane?.querySelector<HTMLElement>(".acpmux-summary-button")?.focus();
-              }}
-            >
-              <Icon name="action.close" size={12} />
-            </button>
-          )}
-        </div>
+            )}
+            {!tab && card.column && counts.length > 0 && (
+              <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
+            )}
+          </div>
+        )}
         {open && onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
+            {!card.column && (
+              <section className="acpmux-summary-section" aria-label={t("rail.environment")}>
+                <h3 className="acpmux-summary-title">{t("rail.environment")}</h3>
+                {environment && <EnvironmentSection {...environment} />}
+              </section>
+            )}
+            {!card.column && (
+              <button type="button" className="acpmux-summary-more" onClick={closeTab}>
+                <Icon name="nav.back" size={12} /> {t("summary.subagents.closeTab")}
+              </button>
+            )}
             <SubagentsTab agents={agents} waiting={waiting} onOpen={subagents.onOpen} />
           </div>
         )}
-        {summary && !onSubagents && (
+        {!onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
+            {!card.column && (
+              <section className="acpmux-summary-section" aria-label={t("rail.environment")}>
+                <h3 className="acpmux-summary-title">{t("rail.environment")}</h3>
+                {environment && <EnvironmentSection {...environment} />}
+              </section>
+            )}
             {/* The subagents, sub-sessions and started chats first: they are what the card follows while a turn runs. */}
             {hasSubagents && (
               <SubagentStatusList
                 agents={agents}
+                counts={!card.column ? counts.join(" · ") : undefined}
                 waiting={waiting}
                 current={subagents.current}
                 onOpen={subagents.onOpen}
                 autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
                 // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
-                onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
+                onShowAll={card.column && agents.length > 0 ? () => setTab("subagents") : undefined}
                 subsessions={subsessionRows}
                 sessions={children}
                 onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
-                stack={agents.length === 0 ? summary.subagents : undefined}
+                stack={agents.length === 0 ? summary?.subagents : undefined}
               />
             )}
-            <SummaryBody
-              summary={summary}
-              galleryCount={galleryCount}
-              onOpenGallery={() => {
-                galleryRow.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-                setGallery(true);
-              }}
-              changes={changes}
-              onOpenChanges={onOpenChanges}
-              subagents={hasSubagents ? <></> : undefined}
-              onOpenOutput={onOpenOutput}
-              onAttach={onAttach}
-              tools={tools}
-              commands={commands}
-              onStopCommand={background?.onStop}
-              workflow={workflow}
-              workflowActions={workflowActions}
-              workflows={workflows}
-              workflowActionsFor={workflowActionsFor}
-              workflowCapacity={workflowCapacity}
-            />
+            {summary && (
+              <SummaryBody
+                summary={summary}
+                galleryCount={galleryCount}
+                onOpenGallery={() => {
+                  galleryRow.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+                  setGallery(true);
+                }}
+                changes={changes}
+                onOpenChanges={onOpenChanges}
+                subagents={hasSubagents ? <></> : undefined}
+                onOpenOutput={onOpenOutput}
+                onAttach={onAttach}
+                tools={tools}
+                commands={commands}
+                onStopCommand={background?.onStop}
+                workflow={workflow}
+                workflowActions={workflowActions}
+                workflows={workflows}
+                workflowActionsFor={workflowActionsFor}
+                workflowCapacity={workflowCapacity}
+              />
+            )}
           </div>
         )}
       </aside>

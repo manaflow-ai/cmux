@@ -196,7 +196,7 @@ import {
 } from "./inspector/processes";
 import { useInspectorOpen } from "./inspector/inspectorState";
 import { openCommand, opensProcessTerminal } from "./processTerminal";
-import { descendants, subagentChangesFolder, type SubagentScope } from "./inspector/subagentScope";
+import { descendants, subagentChangesFolder, subagentSummary, type SubagentScope } from "./inspector/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
@@ -9890,6 +9890,19 @@ function AcpmuxPane() {
           <SummaryCard
             key={snapshot.sessionId}
             card={summaryCard}
+            environment={{
+              summary: inspectorSubagent
+                ? subagentSummary(inspectorSummary, inspectorSubagent.agent, inspectorSubagent.rows)
+                : inspectorSummary,
+              machineName,
+              peerKinds: snapshot.peerKinds,
+              repository: githubRepository,
+              onOpenFolder:
+                quick || !inspectorLocal
+                  ? undefined
+                  : (path) =>
+                      ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
+            }}
             rows={snapshot.rows}
             changes={quick ? undefined : lastChanges}
             onOpenChanges={toggleLastChanges}
