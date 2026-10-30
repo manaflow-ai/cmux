@@ -242,7 +242,7 @@ public struct ConnectionBannerState: Sendable, Hashable {
     /// The same after the phone replaced an unreadable stored key.
     public static func waitingForPairingAfterNewKeys(on mac: String, identity: String? = nil) -> Self {
         Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone again on \(mac)"),
-             detail: String(localized: "Its keys were reset. Look for cmux on your Mac"), identity: identity ?? mac)
+             detail: String(localized: "Its keys were reset. Look for cmux on your Mac."), identity: identity ?? mac)
     }
 }
 
