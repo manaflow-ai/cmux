@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { gunzipSync } from "node:zlib";
 import { capture, normalize } from "../agent-evals/snapshot.mjs";
 import { caseVerdict, cliTool, gradeCalls, gradeState, verdict } from "./grade.mjs";
-import { evalAgentStub, openSession } from "./session.mjs";
+import { evalAgentStub, openSession, SSH_OPTS } from "./session.mjs";
 import { runClaudeSdk, runCodexAppServer } from "./agents-sdk.mjs";
 import { shellProfile } from "./live-guard.mjs";
 import { TASKS } from "../agent-evals/tasks.mjs";
@@ -161,13 +161,22 @@ async function runBash(sample, command) {
   return { text: out || (code ? `(exit ${code})` : "(no output)"), isError: code !== 0 };
 }
 
+/** One shell word, single-quoted. */
+const shq = (text) => `'${String(text).replaceAll("'", "'\\''")}'`;
+
 function shellFixtures(sample) {
   const { dir, session } = sample;
   mkdirSync(join(dir, "bin"), { recursive: true });
   const shim = join(dir, "bin/cmux");
+  // With --remote-daemon the shell's cmux is the build under test on the daemon's host (its
+  // app socket is there too, forwarded by the MCP server's ssh), not this Mac's --cli build:
+  // an agent that uses the CLI must meet the same build as its MCP tools.
+  const run = REMOTE
+    ? `exec ssh ${SSH_OPTS.map(shq).join(" ")} ${shq(REMOTE.host)} cd ${shq(shq(session.work))} '&&' env ${["CMUX_TUI_SOCKET", "CMUX_TUI_TERMINAL_ID", "CMUX_SOCKET_PATH", "CMUX_NEXT_CONFIG_FILE"].map((k) => shq(shq(`${k}=${session.env[k]}`))).join(" ")} ${shq(shq(REMOTE.cli))} \${@:+$(printf ' %q' "$@")}`
+    : `exec ${JSON.stringify(CLI)} "$@"`;
   writeFileSync(
     shim,
-    `#!/bin/bash\njq -cn '{argv:$ARGS.positional}' --args -- "$@" >> ${JSON.stringify(join(dir, "cli.jsonl"))}\nexec ${JSON.stringify(CLI)} "$@"\n`,
+    `#!/bin/bash\njq -cn '{argv:$ARGS.positional}' --args -- "$@" >> ${JSON.stringify(join(dir, "cli.jsonl"))}\n${run}\n`,
   );
   chmodSync(shim, 0o755);
   // The stub helper agent of agent-evals' subagents-right: records the terminal it ran in.
