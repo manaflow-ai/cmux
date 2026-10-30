@@ -652,15 +652,19 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   pastes the phone's clipboard.
   **Page asks** (2026-10-26, remote-tab-protocol.md section 4, as the Mac's
   viewer answers them): a link that opens a new tab or window
-  (`rb.open_tab {request, url, disposition}`: `target=_blank`, `window.open`,
-  the menu's Open Link in New Tab) becomes a phone browser tab in the page's
+  (`rb.open_tab {request, url, disposition}`: `target=_blank`, `window.open`)
+  becomes a phone browser tab in the page's
   pane (daemon `new-browser-tab {url, pane}`, so only `http(s)` and
   `about:blank` open), shown unless `disposition` is `background_tab`, and the
   phone answers `rb.open_tab.result {request, tab}` or `{request, refused}`. A
   long press sends a secondary click at that spot (pointer `button` 2) and
   shows the host's `rb.menu.show` of kind `context` as the system menu; rows
   whose command acts on the Mac itself (Copy and Save rows, Paste, Print,
-  Inspect, Look Up) are left out. The pick goes back as `rb.menu.result
+  Inspect, Look Up, Speech) are left out, and so are the rows Chromium opens
+  as a new tab through `OpenURLFromTab` (Open Link in New Tab or Window, Open
+  Image in New Tab, Search for): the browser host forwards only the page's
+  own popups (`OnBeforePopup`) as `rb.open_tab`, so those would open nothing
+  a viewer sees until it forwards them too. The pick goes back as `rb.menu.result
   {token, choice: {choice: "command", id}}`, and a menu closed with no pick,
   or one that arrives with no long press waiting (after 1.5 s), as `{choice:
   "cancel"}`. A `<select>` (`rb.menu.show` of kind `select`) shows its options

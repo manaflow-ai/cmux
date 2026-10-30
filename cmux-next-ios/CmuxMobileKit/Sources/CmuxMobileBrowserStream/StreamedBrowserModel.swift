@@ -683,10 +683,12 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     private func menuShown(_ open: OpenMenu) {
         func describe(_ items: [RemoteBrowserMenuItem]) -> String {
-            items.map { "\($0.id):\($0.type):\($0.label)" + ($0.items.isEmpty ? "" : " [\(describe($0.items))]") }.joined(separator: ", ")
+            items.map { "\($0.id):\($0.type)" + ($0.items.isEmpty ? "" : " [\(describe($0.items))]") }.joined(separator: ", ")
         }
+        // Ids and types only in the clear: the labels are the page's text (a select's options).
         let items = describe(open.menu.items)
-        log.notice("browser \(self.tab, privacy: .public): menu \(open.token) \(open.menu.kind.rawValue, privacy: .public) [\(items, privacy: .public)]")
+        let labels = open.menu.items.map(\.label).joined(separator: ", ")
+        log.notice("browser \(self.tab, privacy: .public): menu \(open.token) \(open.menu.kind.rawValue, privacy: .public) [\(items, privacy: .public)] [\(labels, privacy: .private)]")
         switch open.menu.kind {
         case .select:
             selectMenu = open

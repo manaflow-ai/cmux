@@ -108,10 +108,11 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
     }
 
     /// The rows the phone shows of a page's context menu. Chromium runs each command on
-    /// the Mac, so a row whose work lands on the Mac's own pasteboard, disk, printer or
-    /// developer tools (Copy Link Address, Save Image As…, Copy, Paste, Print…, Inspect)
-    /// would do nothing the person sees on the iPhone: those rows are left out (never a
-    /// control that does nothing). Separators are kept only between rows.
+    /// the Mac, so a row whose work lands on the Mac's own pasteboard, disk, printer, voice or
+    /// developer tools (Copy Link Address, Save Image As…, Copy, Paste, Print…, Speech, Inspect),
+    /// or in a tab the host does not hand to viewers (Open Link in New Tab), would do nothing
+    /// the person sees on the iPhone: those rows are left out (never a control that does
+    /// nothing). Separators are kept only between rows.
     public var phoneItems: [RemoteBrowserMenuItem] {
         Self.phoneRows(items)
     }
@@ -124,8 +125,11 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
                 rows.append(item)
                 continue
             }
-            if macOnlyCommands.contains(item.id) { continue }
+            if macOnlyCommands.contains(item.id) || opensTabCommands.contains(item.id) { continue }
             if item.type == "submenu" {
+                // A Mac submenu CEF renumbers (Speech arrives as 100 with 101 and 102): its
+                // rows act on the Mac, not on the page.
+                if !item.items.isEmpty, item.items.allSatisfy({ $0.type == "separator" || (0..<1000).contains($0.id) }) { continue }
                 item.items = phoneRows(item.items)
                 if item.items.allSatisfy({ $0.type == "separator" }) { continue }
             }
@@ -159,6 +163,18 @@ public struct RemoteBrowserMenu: Sendable, Equatable {
         35004, // IDC_SAVE_PAGE
         112, 113, 114, // MENU_ID_CUT, MENU_ID_COPY, MENU_ID_PASTE
         131, // MENU_ID_PRINT
+    ]
+
+    /// Commands Chromium runs as a new tab through `OpenURLFromTab`. The browser host forwards
+    /// only the page's own popups (`OnBeforePopup`, `rb.open_tab`), so on a streamed page these
+    /// open nothing a viewer sees; they stay off the phone's menu until the host forwards them.
+    static let opensTabCommands: Set<Int64> = [
+        50100, // IDC_CONTENT_CONTEXT_OPENLINKNEWTAB
+        50101, // IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW
+        50123, // IDC_CONTENT_CONTEXT_OPENIMAGENEWTAB
+        50125, // IDC_CONTENT_CONTEXT_OPEN_ORIGINAL_IMAGE_NEW_TAB
+        50191, // IDC_CONTENT_CONTEXT_SEARCHWEBFOR
+        50192, // IDC_CONTENT_CONTEXT_SEARCHWEBFORNEWTAB
     ]
 
     /// Whether `choice` is one this menu offered (the viewer's own check of

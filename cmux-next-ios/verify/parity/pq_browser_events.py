@@ -76,12 +76,12 @@ def serve():
         cmd += f" && printf %s {shlex.quote(body)} > {name}"
     cmd += (f" && (curl -fsS -o /dev/null http://127.0.0.1:{PORT}/index.html || "
             f"(nohup python3 -m http.server {PORT} --bind 127.0.0.1 </dev/null >/dev/null 2>&1 &))"
-            f" && (pkill -f 'slow.py' || true) && (nohup python3 slow.py </dev/null >/dev/null 2>&1 &)")
+            f" && (nc -z 127.0.0.1 {SLOW_PORT} || (nohup python3 slow.py </dev/null >/dev/null 2>&1 &))")
     r = pq.rsh(cmd)
     check(r.returncode == 0, f"site: {r.stderr.strip()[:200]}")
     t0 = time.time()
     while time.time() - t0 < 60:
-        if pq.rsh(f"curl -fsS -o /dev/null http://127.0.0.1:{PORT}/index.html").returncode == 0:
+        if pq.rsh(f"curl -fsS -o /dev/null http://127.0.0.1:{PORT}/index.html && nc -z 127.0.0.1 {SLOW_PORT}").returncode == 0:
             return f"http://127.0.0.1:{PORT}"
         time.sleep(0.5)
     check(False, "the test site did not start")
@@ -120,6 +120,24 @@ def app_front(j):
         j.sim.tap_el(stale[0])
         time.sleep(1)
     j.sim.dismiss_keyboard_intro()
+    # A workspace's tab grid: its back button (the grid's Done spans the bottom bar, and a tap
+    # at its middle lands on the tab count).
+    for _ in range(3):
+        back = [e for e in j.sim.find(label="Workspaces", kind="Button") if e.frame[1] < 120]
+        if not back:
+            break
+        j.sim.tap_el(back[0])
+        time.sleep(1.5)
+
+
+def open_card(j):
+    """The events page's card: titled Events once it loaded (other pages are Next, Gone), else
+    by its host."""
+    pq.open_grid(j)
+    e = j.sim.wait(prefix="Events, tab", kind="Button", timeout=15) or j.sim.wait(prefix="127.0.0.1, tab", kind="Button", timeout=5)
+    check(e, f"no events card; cards: {[x.label for x in j.sim.find(suffix=', tab')]}")
+    j.sim.tap_el(e)
+    time.sleep(1.5)
 
 
 def open_page(j, path="index.html"):
@@ -134,7 +152,7 @@ def open_page(j, path="index.html"):
     if took is None:
         # A page that opened hidden waits for the phone to show it again: the grid and back
         # (its card is titled with the page's host).
-        t.open_tab(j, "127.0.0.1")
+        open_card(j)
         took = ocr_wait(j, "EVTPAGE" if path == "index.html" else "GONEHOST", timeout=60)
     check(took is not None, f"{path} never showed on the phone")
     return a
@@ -176,7 +194,7 @@ def open_tab(j):
                       f"target=_blank: a new tab on the Mac ({before} -> {count}), shown on the phone in {shown or 0:.1f} s",
                       f"target=_blank: Mac tabs {before} -> {count}; phone shows the new page: {shown is not None}"))
     # Back to the page, then window.open.
-    t.open_tab(j, "127.0.0.1")
+    open_card(j)
     check(ocr_wait(j, "EVTPAGE", timeout=45) is not None, "the events page did not come back")
     before = tab_count(name)
     j.sim.tap(*at(j, "WOPEN"))
@@ -191,27 +209,44 @@ def open_tab(j):
 
 @t.flow("context-menu")
 def context_menu(j):
-    """Long press on a link: the page's own menu; Open Link in New Tab opens it on the Mac."""
+    """Long press: the page's own menu with only rows that act on the page. On a link every
+    Chromium row either acts on the Mac (Copy, Save, Print, Speech, Inspect) or opens a tab the
+    host does not hand to viewers (Open Link in New Tab), so it says there are none. On the page
+    itself, Reload reloads it."""
     a = open_page(j)
     name = a["name"]
-    x, y = at(j, "MENULINK")
     before = tab_count(name)
+    x, y = at(j, "MENULINK")
     j.sim.long_press(x, y, 1.2)
-    row = j.sim.wait(label="Open Link in New Tab", timeout=30)
-    j.sim.shot(f"context-menu-{'before' if BEFORE else 'after'}")
+    none = j.sim.wait(label="No actions for this spot", timeout=30)
     rows = [e.label for e in j.sim.find(kind="Button") if e.label][:16]
+    j.sim.shot(f"context-menu-{'before' if BEFORE else 'after'}")
     if BEFORE:
         return f"long press on a link: no menu (buttons on screen: {rows})"
-    check(row, f"no page menu after a long press; buttons: {rows}")
     labels = [e.label for e in j.sim.tree() if e.label]
-    check("Copy Link Address" not in labels and "Inspect" not in labels, "a Mac-only row is in the phone's menu")
-    j.sim.tap_el(row)
-    _, took = t.until(lambda: tab_count(name) == before + 1, timeout=90, what="the Mac to open the link's tab")
+    check(none, f"the link's menu is not the honest empty one; rows: {rows}")
+    for dead in ("Open Link in New Tab", "Copy Link Address", "Inspect", "Speech", "Print…"):
+        check(dead not in labels, f"{dead!r} is in the phone's menu")
+    j.sim.tap(201, 120)  # outside the menu: it closes, and the page's menu is cancelled
     time.sleep(2)
-    j.sim.shot("context-menu-opened")
-    toast = j.sim.ocr_find("Opened in a new tab") or j.sim.ocr_find("NEXTPAGE")
-    return (f"long press showed the page's menu ({', '.join(x for x in labels if x.startswith('Open'))}); "
-            f"Open Link in New Tab opened a tab on the Mac in {took:.1f} s ({'toast' if toast else 'no toast seen'})")
+    # The page changes, then a long press on its empty area: Back, Forward, Reload.
+    j.sim.tap(*at(j, "PROMPTBTN"))
+    ok = j.sim.wait(label="OK", kind="Button", timeout=30)
+    check(ok, "no prompt to change the page with")
+    j.sim.tap_el(ok)
+    check(ocr_wait(j, "PROMPT", timeout=45) is not None, "the page did not change before the reload")
+    j.sim.long_press(201, 640, 1.2)
+    row = j.sim.wait(label="Reload", kind="Button", timeout=30)
+    j.sim.shot("context-menu-page")
+    page_rows = [e.label for e in j.sim.find(kind="Button") if e.label][:16]
+    check(row, f"no Reload in the page's menu; buttons: {page_rows}")
+    j.sim.tap_el(row)
+    took = ocr_wait(j, "EVTPAGE ready", timeout=60)
+    j.sim.shot("context-menu-reloaded")
+    check(took is not None, "the page's Reload did not reload it")
+    check(tab_count(name) == before, "the Mac's tab count changed")
+    return (f"link: the menu says 'No actions for this spot' (no Mac-only or tab-opening row); "
+            f"page: the menu's Reload reloaded it in {took:.1f} s (Mac tabs {before} -> {tab_count(name)})")
 
 
 @t.flow("dialogs")
@@ -270,15 +305,16 @@ def dialog_dismissed(j):
         return f"page alert while it navigates away: shown on the phone: {bool(alert)}"
     check(alert and j.sim.ocr_find("NAVALERT"), "the page's alert never showed")
     gone = None
+    misses = 0
     while time.time() - shown < SLOW_SECONDS + 90:
-        if not j.sim.find(label="OK", kind="Button"):
+        # Three reads in a row without the alert: one empty accessibility read is not "gone".
+        misses = misses + 1 if not j.sim.find(label="OK", kind="Button") else 0
+        if misses == 3:
             gone = time.time() - shown
             break
         time.sleep(0.5)
     j.sim.shot("dialog-dismissed-gone")
-    # Chromium defers a page's own navigation while its dialog is open, so the alert stays
-    # until it is answered, on the Mac's viewer as on the phone (no rb.dialog.cancel comes).
-    check(gone is not None, "the alert stayed: the page's navigation waits for its answer, and no rb.dialog.cancel came")
+    check(gone is not None, "the alert stayed: no rb.dialog.cancel came (the page's navigation waits for its answer)")
     landed = ocr_wait(j, "FROM navigated", timeout=60)
     j.sim.shot("dialog-dismissed-navigated")
     check(landed is not None, "the phone did not show the page it navigated to")
@@ -367,14 +403,16 @@ def readback(name, status, notes):
 def run(name):
     t0 = time.time()
     try:
-        notes = t.FLOWS[name]()
+        notes, ok = t.FLOWS[name](), True
         print(f"PASS {name} ({time.time() - t0:.0f} s): {notes}", flush=True)
-        readback(name, "pass", notes)
-        return True
     except Exception as error:  # noqa: BLE001 - a flow's failure is its result
+        notes, ok = error, False
         print(f"FAIL {name} ({time.time() - t0:.0f} s): {error}", flush=True)
-        readback(name, "fail", error)
-        return False
+    try:
+        readback(name, "pass" if ok else "fail", notes)
+    except Exception as error:  # noqa: BLE001 - the read-back never changes the result
+        print(f"  (read-back failed: {error})", flush=True)
+    return ok
 
 
 def run_all(names=None):
