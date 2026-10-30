@@ -885,6 +885,12 @@ export type SessionDetail = {
   queuePaused: boolean;
   queued: number;
   /**
+   * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
+   * a Codex chat's earlier roots, which its older records still name, so a client folding
+   * them never reads one as a subagent. Absent when none, and from a peer on an older acpmux.
+   */
+  retiredAgentSessionIds?: string[];
+  /**
    * The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
    * when none waits.
    */
@@ -1091,6 +1097,12 @@ export type SessionSummary = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
+   * a Codex chat's earlier roots, which its older records still name, so a client folding
+   * them never reads one as a subagent. Absent when none, and from a peer on an older acpmux.
+   */
+  retiredAgentSessionIds?: string[];
   /**
    * The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
    * when none waits.

@@ -1203,6 +1203,19 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 }
 
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
+/// Every native root a session summary names into `fold`: the chat's current agent session and
+/// the earlier ones acpmux retired (`retiredAgentSessionIds`), which older records still name.
+/// True when a record already folded named one of them: the rows drawn from it are stale.
+function seedRoots(
+  fold: SubagentFold,
+  summary: { agentSessionId?: unknown; retiredAgentSessionIds?: unknown } | undefined,
+): boolean {
+  const retired = summary?.retiredAgentSessionIds;
+  let named = false;
+  if (Array.isArray(retired)) for (const id of retired) named = fold.setRoot(text(id)) || named;
+  return fold.setRoot(text(summary?.agentSessionId)) || named;
+}
+
 export class AcpmuxDirectClient {
   /// Coalesces the snapshots of acpmux events that land within one display frame: a fast stream
   /// sends several deltas per frame, and each snapshot re-renders the transcript. The page that
@@ -2406,9 +2419,14 @@ export class AcpmuxDirectClient {
     this.historyExhausted = kept.historyExhausted;
     this.configSeq = kept.configSeq;
     this.usageFromSeq = kept.usageFromSeq;
+    // Seed replay from the kept session identity before rebuilding: SubagentFold must know the
+    // native root while it consumes the historical events, not after the malformed tree is drawn.
+    const keptSummary = { ...kept.summary, ...listed };
+    this.summary = keptSummary;
     this.rebuild();
-    // After the replay, not before: a `session_changed` the tail holds would take the live state back.
-    this.summary = { ...kept.summary, ...listed };
+    // A session_changed can carry newer live state than the kept tail. Restore it after replay;
+    // only the root identity needs to be visible during the fold rebuild itself.
+    this.summary = keptSummary;
     this.learnChatThread();
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnOpen = listed?.status === "running" && !this.staleRun(listed);
@@ -3630,6 +3648,11 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
+      // A harness restart or a new conversation names a new native root without a rebuild: the
+      // fold learns it now, or a record naming it as a parent would not repair its child. One
+      // that records already folded named (a retired root, too) drew rows that are now wrong:
+      // folded again by lineage, as ``learnChatThread`` does, with no later update needed.
+      if (seedRoots(this.subagents, session)) this.rebuildKeepingLiveState();
       this.learnChatThread();
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors);
@@ -3868,6 +3891,10 @@ export class AcpmuxDirectClient {
     this.toolRows.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold(this.subagentStops);
+    // Replay knows the native harness ids from the session summary, the earlier ones a restart
+    // retired too. Seed them before any persisted acpmux records so an echoed root thread cannot
+    // be reconstructed as a child of its reporter.
+    seedRoots(this.subagents, this.summary);
     this.pendingPermission = undefined;
     this.waitingPermissions = new Map();
     this.pendingSecret = undefined;
@@ -4240,6 +4267,12 @@ export class AcpmuxDirectClient {
   /// The subagent group rows that changed, into the transcript.
   private takeSubagentRows(): void {
     for (const row of this.subagents.takeRows()) {
+      // A late root seed can empty a previously emitted group after removing a phantom root.
+      // Remove that stale row instead of leaving a blank disclosure in the transcript.
+      if (!row.subagents?.length) {
+        this.rows.delete(row.id);
+        continue;
+      }
       // A new group ends the text and tool calls before it, like a tool call does.
       if (!this.rows.has(row.id)) {
         this.endAssistantSegment();

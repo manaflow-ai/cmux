@@ -138,6 +138,10 @@ type ViewRevisions = { activity: symbol; command: symbol; summary: object };
 /// own updates, their spawn and state events, and the tool calls that started them draw no row.
 export class SubagentFold {
   private readonly agents = new Map<string, Subagent>();
+  /// Native session ids that are the owning chat, rather than subagents. Codex collaboration
+  /// metadata names the issuing thread; keeping this identity across replay prevents an echoed
+  /// root update from becoming a child of the thread that happened to report it.
+  private readonly rootThreads = new Set<string>();
   private readonly groupOf = new Map<string, Group>();
   private readonly spawnCalls = new Set<string>();
   /// The subagent each spawning call started, by call id.
@@ -195,6 +199,48 @@ export class SubagentFold {
   private readonly recorded = new Set<string>();
 
   constructor(private readonly stops: SubagentStops = subagentStops()) {}
+
+  /// Seeds the native root before a persisted event window is replayed. A malformed historical
+  /// record can mention the root as a subagent, so this must happen before the first `apply`.
+  /// True when a record folded already named the root (``names``): the fold repaired its tree
+  /// here, and a pane that drew it folds again (direct.ts `seedRoots`).
+  setRoot(id: string | undefined): boolean {
+    if (typeof id !== "string" || id.length === 0 || this.rootThreads.has(id)) return false;
+    this.rootThreads.add(id);
+    if (!this.named.has(id)) return false;
+    // A live update can arrive before the session summary. Remove that late phantom and promote
+    // anything recorded under the root, a phantom or only a parent a record named, so a later
+    // root seed repairs the in-memory tree too.
+    const phantom = this.agents.get(id);
+    if (phantom) {
+      const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
+      this.agents.delete(id);
+      const phantomGroup = this.groupOf.get(id);
+      this.groupOf.delete(id);
+      this.drawn.delete(id);
+      this.versions.delete(id);
+      for (const group of groups) {
+        if (!group.ids.includes(id)) continue;
+        group.ids = group.ids.filter((child) => child !== id);
+        this.changed.add(group);
+      }
+      if (phantomGroup) this.changed.add(phantomGroup);
+      for (const parent of this.own.keys()) this.dropSpawn(parent, id);
+    }
+    this.own.delete(id);
+    const promoted = [...this.agents.values()].filter((agent) => agent.parent === id);
+    if (promoted.length === 0) return true;
+    const at = phantom?.startedAt ?? Math.min(...promoted.map((agent) => agent.startedAt));
+    const group = this.open ?? { id: `${SUBAGENTS}-root-${id}`, at, version: 0, ids: [] };
+    this.open = group;
+    for (const agent of promoted) {
+      agent.parent = null;
+      if (!group.ids.includes(agent.id)) group.ids.push(agent.id);
+      this.groupOf.set(agent.id, group);
+    }
+    this.changed.add(group);
+    return true;
+  }
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
   /// report that trails it (Claude's last task_progress) does not run one again.
   private readonly ended = new Set<string>();
@@ -228,11 +274,36 @@ export class SubagentFold {
     }
     const mux = event.msg?.params?._meta?.acpmux;
     const events: any[] = Array.isArray(mux?.subagents) ? mux.subagents : [];
+    // Codex puts its collaboration item on the session update itself. Keep the event-level
+    // fallback for older persisted records that lifted `_meta` beside `update`.
+    const collaboration = update?._meta?.codex?.collaboration ?? event.msg?.params?._meta?.codex?.collaboration;
+    const reporter = typeof collaboration?.senderThreadId === "string" ? collaboration.senderThreadId : undefined;
+    // Only a spawnAgent's sender is the parent of the threads it lists (Rust's codex_legacy); a
+    // `wait` or `closeAgent` names whoever waits, which says nothing of a worker it first meets.
+    const sender = collaboration?.tool === "spawnAgent" ? reporter : undefined;
     const tag = typeof mux?.subagent === "string" ? mux.subagent : undefined;
     if (tag !== undefined) this.named.add(tag);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
-    for (const change of events) this.apply(change, event, spawn);
+    for (const change of events) {
+      if (typeof change?.id !== "string" || this.rootThreads.has(change.id)) continue;
+      const rootRepair =
+        typeof change.parent === "string" &&
+        this.rootThreads.has(change.parent) &&
+        (reporter === undefined || this.rootThreads.has(reporter));
+      // A spawnAgent's sender is the parent of the threads it lists (Rust's spawn_authoritative),
+      // so its parent moves an agent already recorded under a stale or missing one.
+      const normalized =
+        sender === undefined
+          ? rootRepair
+            ? { ...change, parent: null, __reparent: true }
+            : // A root parent a non-root reported moves no known agent, but a new one is top-level.
+              typeof change.parent === "string" && this.rootThreads.has(change.parent)
+              ? { ...change, parent: null }
+              : change
+          : { ...change, parent: this.parentFor(sender, change.parent), __reparent: true };
+      this.apply(normalized, event, spawn);
+    }
     // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
     const owner = tag !== undefined && !this.isChat(tag) ? this.agents.get(tag) : undefined;
     // A subagent's own `acpmux run --parent` never becomes one of the chat's calls, but its child
@@ -615,6 +686,15 @@ export class SubagentFold {
     if (agent.state !== "running") this.forgetOutput(agent.id);
   }
 
+  /// The parent a spawnAgent's `sender` gives what it lists. The fold overrides the parent acpmux
+  /// recorded only with one it knows: a root (none) or an agent it holds. A sender whose own spawn
+  /// is before the page is still the parent when the record agrees (Rust wrote it from the whole
+  /// history); a recorded parent that is not the sender (an older wrapper's owner) is not.
+  private parentFor(sender: string, recorded: unknown): string | null {
+    if (this.rootThreads.has(sender) || this.isChat(sender)) return null;
+    return this.agents.has(sender) || recorded === sender ? sender : null;
+  }
+
   /// A turn starts: its stop ends the subagents spawned from here on.
   startTurn(): void {
     this.turn = new Set();
@@ -787,6 +867,51 @@ export class SubagentFold {
     return true;
   }
 
+  /// Moves a recorded agent under `parent` (null: the session's own group), out of the parent
+  /// view or group it was in. A parent that is the agent or below it is ignored: no loops.
+  private reparent(agent: Subagent, parent: string | null, event: Event): void {
+    // A parent the page has not met stays: like a new agent's (``apply``), it is what acpmux recorded.
+    if (parent !== null && (this.isChat(parent) || this.rootThreads.has(parent))) parent = null;
+    if (agent.parent === parent) return;
+    for (let at = parent, steps = 0; at !== null && steps <= this.agents.size; steps += 1) {
+      if (at === agent.id) return;
+      at = this.agents.get(at)?.parent ?? null;
+    }
+    const oldParent = agent.parent;
+    if (oldParent === null) {
+      const group = this.groupOf.get(agent.id);
+      this.groupOf.delete(agent.id);
+      if (group) {
+        group.ids = group.ids.filter((id) => id !== agent.id);
+        group.version += 1;
+        this.changed.add(group);
+      }
+    } else {
+      this.dropSpawn(oldParent, agent.id);
+    }
+    agent.parent = parent;
+    if (parent === null) {
+      this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
+      if (!this.open.ids.includes(agent.id)) this.open.ids.push(agent.id);
+      this.groupOf.set(agent.id, this.open);
+      this.changed.add(this.open);
+    } else this.record(parent, { event, spawned: agent.id });
+  }
+
+  /// Takes `child`'s spawn out of `parent`'s view. The drawn view folds its entries append-only
+  /// (``ChildRowView``), so one that lost an entry is drawn again from the start: its cached group
+  /// would still show the child, and its cursor would skip what the parent records next.
+  private dropSpawn(parent: string, child: string): void {
+    const entries = this.own.get(parent);
+    if (!entries) return;
+    const kept = entries.filter((entry) => entry.spawned !== child);
+    if (kept.length === entries.length) return;
+    this.own.set(parent, kept);
+    this.drawn.delete(parent);
+    this.bumpViewRevision(parent);
+    this.bump(parent);
+  }
+
   private bump(id: string): void {
     this.versions.set(id, (this.versions.get(id) ?? 0) + 1);
   }
@@ -836,6 +961,7 @@ export class SubagentFold {
         this.groupOf.set(agent.id, this.open);
       } else this.record(parent, { event, spawned: agent.id });
     } else {
+      if (change.__reparent) this.reparent(agent, typeof change.parent === "string" ? change.parent : null, event);
       agent.name = text(change.name) ?? agent.name;
       agent.task = text(change.task) ?? agent.task;
       agent.kind = text(change.kind) ?? agent.kind;
@@ -961,11 +1087,15 @@ export class SubagentFold {
     this.changed.add(group);
   }
 
-  private bumpParentViews(id: string): void {
+  private bumpParentViews(id: string, seen = new Set<string>()): void {
+    // Persisted Codex records can contain a transient parent cycle before the native
+    // root is learned. Stop the revision walk at a repeated node; setRoot repairs it.
+    if (seen.has(id)) return;
+    seen.add(id);
     this.bumpViewRevision(id);
     this.bump(id);
     const parent = this.agents.get(id)?.parent;
-    if (parent !== null && parent !== undefined) this.bumpParentViews(parent);
+    if (parent !== null && parent !== undefined) this.bumpParentViews(parent, seen);
   }
 }
 
