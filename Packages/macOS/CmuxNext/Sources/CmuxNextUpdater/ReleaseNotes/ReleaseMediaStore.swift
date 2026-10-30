@@ -187,14 +187,17 @@ nonisolated public struct ReleaseMediaStore: Sendable {
 
     /// Signed release notes may point only at this repository's public media branch.
     static func isPublicHighlightURL(_ url: URL) -> Bool {
-        url.scheme?.lowercased() == "https"
-            && url.host?.lowercased() == "raw.githubusercontent.com"
-            && url.port == nil
-            && url.user == nil
-            && url.password == nil
-            && url.query == nil
-            && url.fragment == nil
-            && url.path.hasPrefix("/manaflow-ai/cmux/pr-media/")
+        guard url.scheme?.lowercased() == "https",
+              url.host?.lowercased() == "raw.githubusercontent.com",
+              url.port == nil,
+              url.user == nil,
+              url.password == nil,
+              url.query == nil,
+              url.fragment == nil,
+              let decodedPath = url.path.removingPercentEncoding,
+              decodedPath.hasPrefix("/manaflow-ai/cmux/pr-media/") else { return false }
+        return !decodedPath.split(separator: "/", omittingEmptySubsequences: false)
+            .contains { $0 == "." || $0 == ".." }
     }
 
     static func sha256(_ data: Data) -> String {

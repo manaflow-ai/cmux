@@ -85,6 +85,14 @@ class PullRequestMediaTests(unittest.TestCase):
         # A download that fails leaves the highlight without a picture, never the build without notes.
         self.assertEqual(self.build(f"![a]({MEDIA})", {})["media"], [])
 
+    def test_dot_segments_encoded_dot_segments_and_malformed_ports_are_left_out(self):
+        dot = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/../main/file.png"
+        encoded_dot = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/%2e%2e/main/file.png"
+        malformed_port = "https://raw.githubusercontent.com:bad/manaflow-ai/cmux/pr-media/after.png"
+        self.assertEqual(self.build(f"![a]({dot})", {dot: PNG})["media"], [])
+        self.assertEqual(self.build(f"![a]({encoded_dot})", {encoded_dot: PNG})["media"], [])
+        self.assertEqual(self.build(f"![a]({malformed_port})", {malformed_port: PNG})["media"], [])
+
     def test_a_download_that_raises_leaves_the_highlight_without_a_picture(self):
         # The fixture names a file that is not there, so reading it raises, as a timeout or a URL
         # urllib rejects would: the notes still build.

@@ -11,12 +11,21 @@ nonisolated public protocol AppcastFetching: Sendable {
 nonisolated public struct URLSessionAppcastFetcher: AppcastFetching {
     private let session: URLSession
 
+    private final class RedirectRejectingDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest,
+                        completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)
+        }
+    }
+
     public init(deadline: TimeInterval = 15) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = deadline
         configuration.timeoutIntervalForResource = deadline
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        session = URLSession(configuration: configuration)
+        session = URLSession(configuration: configuration, delegate: RedirectRejectingDelegate(), delegateQueue: nil)
     }
 
     public func fetch(_ url: URL) async throws -> Data {

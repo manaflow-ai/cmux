@@ -322,17 +322,21 @@ def public_pr_media_url(url):
     """Whether a PR body URL is the repository's public media host and branch."""
     try:
         parsed = urllib.parse.urlsplit(url)
+        hostname = parsed.hostname
+        port = parsed.port
+        decoded_path = urllib.parse.unquote(parsed.path)
     except ValueError:
         return False
     return (
         parsed.scheme == "https"
-        and parsed.hostname == "raw.githubusercontent.com"
-        and parsed.port is None
+        and hostname == "raw.githubusercontent.com"
+        and port is None
         and not parsed.username
         and not parsed.password
         and not parsed.query
         and not parsed.fragment
-        and parsed.path.startswith("/manaflow-ai/cmux/pr-media/")
+        and decoded_path.startswith("/manaflow-ai/cmux/pr-media/")
+        and not any(segment in (".", "..") for segment in decoded_path.split("/"))
     )
 
 

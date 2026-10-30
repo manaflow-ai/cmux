@@ -16,5 +16,8 @@ struct ReleaseMediaStoreTests {
         #expect(!ReleaseMediaStore.isPublicHighlightURL(URL(string: "https://raw.githubusercontent.com/someone/cmux/pr-media/25135/after.png")!))
         #expect(!ReleaseMediaStore.isPublicHighlightURL(URL(string: "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25135/after.png?redirect=elsewhere")!))
         #expect(!ReleaseMediaStore.isPublicHighlightURL(URL(string: "https://raw.githubusercontent.com.evil.example/manaflow-ai/cmux/pr-media/after.png")!))
+        #expect(!ReleaseMediaStore.isPublicHighlightURL(URL(string: "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/../main/file.png")!))
+        #expect(!ReleaseMediaStore.isPublicHighlightURL(URL(string: "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/%2e%2e/main/file.png")!))
+        #expect(URL(string: "https://raw.githubusercontent.com:bad/manaflow-ai/cmux/pr-media/after.png").map { !ReleaseMediaStore.isPublicHighlightURL($0) } ?? true)
     }
 }
