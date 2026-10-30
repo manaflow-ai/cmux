@@ -15,11 +15,19 @@ import Testing
 
     /// A themed palette with a full sent-bubble gradient (8 stops, as the measured Messages gradient has).
     private static func colors() -> FixtureTheme.Colors {
-        var palette = HomePalette.iMessageStyled(.init(background: .gray255(30), foreground: .gray255(230),
-                                                       accent: .rgb255(2, 132, 254), failure: .rgb255(255, 69, 58)))
-        palette.outgoingGradient = (0..<8).map { i in
-            HomePalette.GradientStop(location: CGFloat(i) / 7, color: .rgb255(CGFloat(90 - 4 * i), CGFloat(154 - 2 * i), 247))
+        let theme = HomePalette.Theme(background: .gray255(30), foreground: .gray255(230),
+                                      accent: .rgb255(2, 132, 254), failure: .rgb255(255, 69, 58))
+        var palette = HomePalette.iMessageStyled(theme)
+        var stops: [HomePalette.GradientStop] = []
+        for index in 0..<8 {
+            let step = CGFloat(index)
+            let location: CGFloat = step / 7
+            let red: CGFloat = 90 - 4 * step
+            let green: CGFloat = 154 - 2 * step
+            let color: HomeColor = .rgb255(red, green, 247)
+            stops.append(HomePalette.GradientStop(location: location, color: color))
         }
+        palette.outgoingGradient = stops
         return FixtureTheme.Colors(palette, measured: false)
     }
 
@@ -36,8 +44,13 @@ import Testing
     }
 
     private static func line(_ name: String, _ sorted: [Double]) -> String {
-        func q(_ p: Double) -> Int { Int(sorted[min(sorted.count - 1, Int(Double(sorted.count) * p))]) }
-        return "\(name) p50=\(q(0.5))ns p95=\(q(0.95))ns p99=\(q(0.99))ns max=\(Int(sorted.last ?? 0))ns"
+        func q(_ p: Double) -> Int {
+            let count: Int = sorted.count
+            let slot: Int = min(count - 1, Int(Double(count) * p))
+            return Int(sorted[checked: slot] ?? 0)
+        }
+        let maximum: Int = Int(sorted.last ?? 0)
+        return "\(name) p50=\(q(0.5))ns p95=\(q(0.95))ns p99=\(q(0.99))ns max=\(maximum)ns"
     }
 
     @Test func gradientCreationPerDraw() {
@@ -49,6 +62,8 @@ import Testing
             CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: stops.map { $0.color.cgColor } as CFArray,
                        locations: stops.map(\.location))
         }
-        print("outgoing-gradient-cost runs=\(Self.runs) " + Self.line("perDraw", perDraw) + " | " + Self.line("fromHomeColorStops", fromStops))
+        let drawLine = Self.line("perDraw", perDraw)
+        let stopsLine = Self.line("fromHomeColorStops", fromStops)
+        print("outgoing-gradient-cost runs=\(Self.runs) \(drawLine) | \(stopsLine)")
     }
 }
