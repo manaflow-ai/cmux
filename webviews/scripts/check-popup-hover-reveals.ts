@@ -75,6 +75,11 @@ const NON_POPUP_REVEALS = new Map<string, string>([
   ["styles.css|.comment-card:hover .comment-card-actions", "comment affordance"],
   ["optchat-inspector/styles.css|.term:hover .tip", "inspector tooltip"],
   ["agent-session/acpmux/styles.css|.acpmux-omni-row:hover .acpmux-omni-action", "new-tab affordance"],
+  [
+    "agent-session/acpmux/inspector/inspector.css|.acpmux-chat-inspector-section:hover > .acpmux-chat-inspector-section__handle",
+    "drag handle",
+  ],
+  ["agent-session/acpmux/subagents/DisclosureRow.css|.cv-disclosure__line:hover .cv-disclosure__open", "open affordance"],
 ]);
 
 function withoutComments(source: string): string {

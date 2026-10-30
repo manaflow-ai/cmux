@@ -41,6 +41,7 @@ CHECKS = (
     "check:browser-lanes",
     "check:fixed-waits",
     "check:design-tokens",
+    "check:ui-review",
     "typecheck",
     "acpmux-protocol:check",
     "check:catalog-keys",
@@ -238,6 +239,9 @@ def main(argv: list[str] | None = None) -> int:
             # the base and are compared normally.
             if check == "check:design-tokens" and not (base_webviews / "scripts/check-design-tokens.ts").is_file():
                 print("webviews checks: check:design-tokens is new; base has no command, so this transition is not charged", flush=True)
+                continue
+            if check == "check:ui-review" and not (base_webviews / "scripts/check-ui-review.ts").is_file():
+                print("webviews checks: check:ui-review is new; base has no command, so this transition is not charged", flush=True)
                 continue
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0

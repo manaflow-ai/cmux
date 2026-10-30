@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -31,6 +32,9 @@ final class CloudService {
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
     @ObservationIgnored var proOfferOpen = false
+    /// Each machine list that carries the plan (`limits.planId`) reports it: the paid-plan welcome step
+    /// (AppServices+PaidPlan.swift) watches for the plan turning paid after an upgrade.
+    @ObservationIgnored var planObserved: @MainActor (String?) -> Void = { _ in }
     /// Open Desktop's `cmux-rd` viewer: each machine's desktop host session token (lowercased id),
     /// fetched over the signed-in Cloud API when a person opens it, held only in memory.
     @ObservationIgnored var desktopRdTokens: [String: String] = [:]
@@ -417,6 +421,7 @@ final class CloudService {
             }
             guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
             machines.cloudLimits = limits
+            if let limits { planObserved(limits.planId) }
             lastError = nil
             reconcile(list)
             hasLoadedMachines = true
@@ -546,12 +551,16 @@ final class CloudService {
         if configuration.linkSource == .appServer, !request.isDefault {
             throw ActionFailure(message: CloudStrings.machineOptionsUnavailable)
         }
+        // Environments live in the cmux-next backend's CloudDO: the classic `/api/vm` path has none.
+        if configuration.linkSource != .appServer, request.environment != nil {
+            throw ActionFailure(message: CloudEnvironmentStrings().unavailable)
+        }
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
         let idlePause = request.persistent ? 0 : nil
         var machine = configuration.linkSource == .appServer
-            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, onSent: onSent)
+            ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent)
             : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"),
                                                       // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
                                                       gate: { [weak self, weak creation] in creation?.request.wasSent == true ? .allowed : self?.createGate ?? .allowed },
@@ -580,7 +589,7 @@ final class CloudService {
             // The write waited: the account is checked again before the machine joins the list.
             try proceed()
         }
-        if let existing = machines.session(machine.id) { return existing }
+        if let existing = machines.session(machine.id) { existing.sizePick = machine.sizePick ?? existing.sizePick; return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
         // A list in flight was asked before this machine existed.
         listGeneration += 1
@@ -597,7 +606,7 @@ final class CloudService {
                               onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
         // `api` is pinned to the first send's team: the server scopes a key per team, so a team
         // switched in the app meanwhile must not make the same key a new machine in the other team.
-        let send = { try await api.createMachine(displayName: name, memoryMb: request.memoryMb, idlePauseMinutes: idlePause,
+        let send = { try await api.createMachine(displayName: name, memoryMb: request.memoryMb, autosize: request.autosize, idlePauseMinutes: idlePause,
                                                     idempotencyKey: request.idempotencyKey, onSent: onSent) }
         for _ in 0..<inProgressRetries {
             do {

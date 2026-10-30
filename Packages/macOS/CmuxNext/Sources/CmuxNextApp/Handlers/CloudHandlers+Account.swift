@@ -18,7 +18,7 @@ extension CloudHandlers {
             let request = try newMachineRequest(invocation)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             if request.isDefault, origin(of: invocation) == .user, window != nil {
-                beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession)
+                beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: CloudChatPick.chatTab(invocation, context.services))
                 return
             }
             let flow = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession)
@@ -58,7 +58,19 @@ extension CloudHandlers {
         }
     }
 
-    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?) {
+    /// The asking chat's folder: its tab's cwd, else the folder its local session reports (a chat
+    /// tab may have no cwd cached yet), as Move to Cloud reads it.
+    static func chatFolder(_ chat: TabModel?, _ services: AppServices) async -> String? {
+        guard let chat else { return nil }
+        if let cwd = chat.cwd, cwd.hasPrefix("/") { return cwd }
+        let tabs = services.agentTabs
+        guard let session = tabs.sessions[tabs.resolve(chat.id)] ?? chat.agentSession?.session else { return nil }
+        let host = tabs.localSessionHost ?? tabs.host
+        guard let folder = try? await host.sessionFolder(sessionId: session), folder.isLocal, folder.cwd.hasPrefix("/") else { return nil }
+        return folder.cwd
+    }
+
+    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil) {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
@@ -68,11 +80,20 @@ extension CloudHandlers {
                 let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
                 return await CmuxDialogCenter.shared.present(spec, in: scope)
             }
-            let wizard = CloudWorkspaceSetupWizard()
+            let wizard = CloudWorkspaceSetupWizard(), pick = await CloudChatPick(services: services).read(folder: await chatFolder(chat, services), tab: chat)
+            // Environments live in the cmux-next backend's CloudDO: only its Cloud path lists them.
+            let supportsEnvironments = cloud.configuration.linkSource == .appServer
+            let environments = supportsEnvironments ? await cloud.appServerEnvironmentOptions() : []
             guard let plan = try await wizard.choosePlan(availability: availability,
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
-                supportsRepository: cloud.configuration.linkSource == .legacy, present: present) else { return }
-            var request = plan.request
+                supportsRepository: cloud.configuration.linkSource == .legacy, suggested: pick?.repo,
+                environments: environments, supportsEnvironments: supportsEnvironments, present: present) else { return }
+            var request = CloudChatPick.request(plan, sizedFor: pick)
+            if let new = plan.newEnvironment {
+                // Saved first, then booted: the first machine starts cold and runs the setup itself.
+                guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
+                request.environment = try await cloud.appServerSaveEnvironment(new)
+            }
             request.script = try await request.loadScript(work: services.work)
             try Task.checkCancellation()
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
@@ -143,7 +164,7 @@ extension CloudHandlers {
                     try await cloud.codexBroker.run(machineID: session.machineID,
                         scope: .init(userID: userID, teamID: teamID), confirmed: true,
                         presentDeviceCode: { prompt in
-                            await CloudPresenter.presentCodexDeviceCode(prompt, in: originalWindow)
+                            await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(originalWindow))
                         })
                     return
                 }
@@ -375,9 +396,8 @@ extension CloudHandlers {
                 let shown = CloudPresenter.offerPro(refusal.message, in: windows.active?.window) { upgraded in
                     cloud.proOfferOpen = false
                     guard upgraded else { return }
-                    do { try context.open(refusal.upgradeURL ?? UpgradeToPro.pricingURL) } catch {
-                        cloud.logger.error("cmux Pro upgrade did not open: \(String(describing: error), privacy: .public)")
-                    }
+                    // The one paid-plan path: Checkout that returns here, else the refusal's link, else pricing.
+                    Task { await context.services.paidPlanUpgrade().start(plan: refusal.plan, source: .cloudRefusal, fallback: refusal.upgradeURL) }
                 }
                 if shown { cloud.proOfferOpen = true }
             },

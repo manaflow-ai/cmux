@@ -256,3 +256,50 @@ D's migration as each export lands: prompt (1) and tools (2) replace the TypeScr
 behavior change, checked by the six D tests plus the staging eval runner. Ledgers (3) give D the
 reply, outcome, ask and schedule rules it does not have. Hands, spawn and jobs then call P's
 existing services from intents, never from the kernel.
+
+## 14. D on the kernel exports (Oct 28)
+
+From a680's exports (db88970252b), rebuilt into `optchat-wasm` on cmux-rust-builder-1:
+
+- **Prompt:** `renderSystem(record, "pi-durable")`, the Mac host's text. `chief-brain/prompts.ts` is no
+  longer D's (P still uses it).
+- **Tools:** `toolSpecs("pi-durable")` filtered to what D runs (`chief-durable/kernel.ts` `D_TOOLS`):
+  `zoom` and `date` through `OptChat.callPure`, and `send`, `reply` and `stop` against the conversation
+  (`send` and `reply` post at once, keyed by the tool call, in the thread of the view line they name;
+  `cd_line` maps a line to its message). The kernel's replay flags go to pi as is.
+- **Ledgers:** `ledgerApply` folds `message_logged` (a person's message for the Chief: its own chat or
+  a DM, or a mention or reply in a group), `turn_started`, `reply_posted` (each send/reply and the
+  final text), `turn_ended` and `check_due` (a Lifecycle job at the kernel's `schedule`). A `notice`
+  starts a retry run whose note follows the view; a `post` is the failure line in the message's thread.
+
+Gaps, for the kernel lane: the Mac text names tools D does not offer yet (spawn, tell, control,
+sleep, react, transcript, remember) and the cmux CLI, which a Cloud Chief has no machine for; it
+has no owner/teammate rule for shared chats (P's prompt has one). The `pi-durable` engine wants a
+cloud section that lists only the offered tools.
+
+## 15. Staging A/B on the kernel builds (Oct 28)
+
+Same runner, model (Workers AI `@cf/moonshotai/kimi-k2.7-code`; staging's Claude route still answers
+Bedrock 403), judge (Sonnet 5 via the AI Gateway) and 2 runs per case as section 12; 18 cases now
+(a680 added `length-simple-answer`). Raw:
+[evidence/cloud-chief-durable-staging-evals-kernel-2026-10-28.json](evidence/cloud-chief-durable-staging-evals-kernel-2026-10-28.json).
+
+| build on staging | P cases | D cases | P checks | D checks | reply p50 P / D | cost per run P / D |
+| --- | --- | --- | --- | --- | --- | --- |
+| a24aefb5d35: D on kernel exports 1-3, Mac prompt | 11/36 | 10/36 | 41/80 | 38/80 | 18.7 / 22.2 s | $0.0042 / $0.0075 |
+| 187e39fbd09: D on the kernel's cloud prompt (offered tools only) | 13/36 | 12/36 | 40/80 | 44/78 | 21.6 / 19.1 s | $0.0050 / $0.0033 |
+
+Reading: on the cloud prompt D is level with P (one case behind, four checks ahead, inside the noise of
+2 runs), faster at p50 (p90 26.9 s vs 51.7 s) and about a third cheaper per run: the cloud text is
+10 KB instead of 21.6 KB. The Mac prompt in the Durable Object cost more and answered slower, because it
+names tools and a shell D does not have.
+
+Where D still loses, and why:
+- `length-simple-answer` (P 2/2, D 0/2): the answer is in a subagent report in the history; D's model
+  says it has no web access instead of reading its view. A prompt or model issue, not the harness.
+- The automations, tenacity and `assistant-a672-acts` cases fail for both brains: they need a tool
+  (jobs, spawn, a lookup) neither has in this runner's setup.
+- One D run errored before it started (`brain on: 500`, the settings route on staging).
+
+Promotion still needs the same run on Opus (blocked by staging's Bedrock credential), and D's hands,
+spawn and jobs (the kernel's ask and schedule ledgers are ready for them).

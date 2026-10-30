@@ -1,6 +1,7 @@
 //! Requests to the server, their deadlines, and transport shutdown.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl RemoteSession {
     pub fn request(&self, cmd: Value) -> anyhow::Result<Value> {
@@ -29,7 +30,7 @@ impl RemoteSession {
         let attach_surface = matches!(deadline, RequestDeadline::Attach)
             .then(|| cmd.get("surface").and_then(Value::as_u64))
             .flatten();
-        cmd["id"] = json!(id);
+        cmd.set("id", json!(id));
         let mut message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;
@@ -164,11 +165,11 @@ impl RemoteSession {
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let command = cmd.get("cmd").and_then(Value::as_str).unwrap_or("").to_owned();
-        cmd["id"] = json!(id);
+        cmd.set("id", json!(id));
         // The local remote bridge replaces eligible sends with compact binary
         // MuxInput packets. Direct/older mux servers ignore this hint and keep
         // the existing JSON response behavior.
-        cmd["no_reply"] = json!(true);
+        cmd.set("no_reply", json!(true));
         let mut message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
             .map_err(anyhow::Error::new)?;

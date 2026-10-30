@@ -18,12 +18,28 @@ enum RoomHandlers {
             })
         }
         bind("space.new") { try create(invocation: $0, context) }
+        bind("space.newIncognito") { try create(invocation: $0, context, action: "space.newIncognito", incognito: true) }
         bind("space.newWindow") { invocation in
             let room = try context.room(invocation)
             let windows = context.services.windows
             let windowID = UUID().uuidString.lowercased()
             windows.state(for: windowID).enterProfile(room.id)
             Task { await windows.createWorkspace(into: windowID, newTabPage: invocation.origin == .user) }
+        }
+        // Open Space in New Window (spaces-overhaul-DESIGN.md rule 4): the new window shows the space and the
+        // window it came from keeps it. It takes the space's workspaces no window showing the space lists,
+        // else starts with a new workspace there (a workspace is in one window until rule 6's second view).
+        bind("space.openInNewWindow") { invocation in
+            let room = try context.room(invocation)
+            let windows = context.services.windows
+            let windowID = UUID().uuidString.lowercased()
+            let adoptable = windows.adoptableWorkspaces(in: room.id, for: windowID)
+            windows.state(for: windowID).enterProfile(room.id)
+            if adoptable.isEmpty {
+                Task { await windows.createWorkspace(into: windowID, newTabPage: invocation.origin == .user) }
+            } else {
+                windows.openWindow(id: windowID, workspaces: adoptable)
+            }
         }
         bind("space.newWorkspace") { invocation in
             let room = try context.room(invocation)
@@ -150,18 +166,23 @@ enum RoomHandlers {
     /// strip's New Space button: `enter` (Open Link in New Space) or
     /// `startNewSpace`, which shows the space only when the
     /// run may change the view.
+    /// `incognito` (New Incognito Space, spaces-overhaul-DESIGN.md rule 2): named Incognito with the eyeglasses
+    /// icon, shown in a new incognito window (`WindowManager.newIncognitoWindow(space:)`), which deletes it when
+    /// it closes; it starts on the default browser profile, as an incognito window's pages never use another.
     static func create(invocation: ActionInvocation, _ context: AppActionContext, action: ActionID = "space.new",
+                       inNewWindow: Bool = false, incognito: Bool = false,
                        enter: (@MainActor @Sendable (ProfileID, WindowState) -> Void)? = nil) throws {
         let store = context.services.machines.local.store
-        let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? RoomStrings.defaultName(store.profileIDs.count + 1)
+        let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+            ?? (incognito ? RoomStrings.incognitoName : RoomStrings.defaultName(store.profileIDs.count + 1))
         let used = Set(store.profiles.compactMap(\.color))
         let color = invocation["color"]?.stringValue.flatMap(GroupColor.init(rawValue:))
             ?? GroupColor.automatic(used: used) ?? .grey
-        let icon = invocation["icon"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let icon = invocation["icon"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? (incognito ? "eyeglasses" : nil)
         let active = context.activeWindow?.state
         // A new room shares the current room's browser profile, so logins
         // keep working (data-model.md 5).
-        let browser = active.flatMap { store.profile($0.profileID)?.browserProfileID }
+        let browser = incognito ? nil : active.flatMap { store.profile($0.profileID)?.browserProfileID }
         let id = ProfileID.generate()
         let services = context.services
         services.registry.track(Task {
@@ -173,10 +194,13 @@ enum RoomHandlers {
                 // files the new workspace unpinned (so in `default`) and
                 // the window falls back as from a deleted room (cx-d8x5).
                 await services.machines.local.store.mirrored(profile: id)
-                if let enter, let active, let state = services.windows.states[active.id] {
+                if incognito {
+                    services.windows.newIncognitoWindow(space: id)
+                } else if let enter, let active, let state = services.windows.states[active.id] {
                     enter(id, state)
                 } else {
-                    try await startNewSpace(id, from: active?.id, windows: services.windows)
+                    try await startNewSpace(id, from: inNewWindow ? nil : active?.id, windows: services.windows,
+                                            newTabPage: inNewWindow && invocation.origin == .user)
                 }
                 return nil
             } catch {
@@ -193,7 +217,7 @@ enum RoomHandlers {
     /// its space, which never lists the new workspace (cx-f8aw). With no
     /// open window, a new window opens in the space (behind for a run
     /// without view permission).
-    private static func startNewSpace(_ profile: ProfileID, from windowID: String?, windows: WindowManager) async throws {
+    private static func startNewSpace(_ profile: ProfileID, from windowID: String?, windows: WindowManager, newTabPage: Bool = false) async throws {
         if let windowID, let state = windows.states[windowID], windows.registry.value.window(windowID)?.isOpen == true {
             if ActionRunScope.viewChangeAllowed() {
                 windows.switchProfile(profile, in: state)
@@ -204,7 +228,21 @@ enum RoomHandlers {
         }
         let newWindow = UUID().uuidString.lowercased()
         windows.state(for: newWindow).enterProfile(profile)
-        _ = try await windows.createWorkspace(WorkspaceSpawn(profile: profile), into: newWindow)
+        var spawn = WorkspaceSpawn(profile: profile)
+        spawn.opensNewTabPage = newTabPage
+        _ = try await windows.createWorkspace(spawn, into: newWindow)
+    }
+
+    /// New Window (Cmd-Shift-N, the palette, `cmux app new-window`, MCP): a new window on a new space with
+    /// its own first workspace (spaces-overhaul-DESIGN.md rule 3), through New Space's one path. Without
+    /// spaces on the local daemon (no `profiles-v1`, personal state not loaded) a plain new window.
+    static func newWindow(_ invocation: ActionInvocation, _ context: AppActionContext) {
+        let services = context.services, local = services.machines.local
+        guard local.supports(DaemonCapability.profiles.rawValue), local.store.personal.isLoaded else {
+            services.windows.newWindow(holdingKeysFrom: services.windows.active?.window)
+            return
+        }
+        try? create(invocation: invocation, context, action: "newWindow", inNewWindow: true) // create only throws for a bad argument; New Window passes none it reads
     }
 
     /// Move Left/Right, to Start/End and to Position: `target` maps (position, count) to the new position.

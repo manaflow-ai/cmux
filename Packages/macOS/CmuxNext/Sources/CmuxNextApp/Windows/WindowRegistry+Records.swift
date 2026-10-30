@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextLayout
 import CoreGraphics
 import Foundation
 
@@ -72,6 +73,11 @@ extension WindowRegistry {
         // The workspaces shown side by side (`sidebar.multiView`), those the window still lists.
         let shown = state?.viewSet?.pruned(keeping: window.workspaceIDs.contains)
         record.multiView = shown.flatMap { $0.ids.count > 1 && $0.contains(selected ?? "") ? $0.record : nil }
+        // The docked workspaces (`window.dockedWorkspaces`), those the window still lists.
+        if var docks = state?.docks, LayoutTunables.dockedWorkspaces.value {
+            docks.prune(keeping: window.workspaceIDs.contains)
+            docks.store(into: &record, stage: state?.stageWorkspaceID.flatMap { window.workspaceIDs.contains($0) ? $0 : nil })
+        }
         return record
     }
 }
@@ -82,4 +88,36 @@ extension WindowFrame {
     }
 
     var rect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
+}
+
+// MARK: Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md)
+
+extension WindowDocks {
+    /// The docks a saved window had; unknown edges are skipped and extents clamped.
+    init(record: WindowRecord) {
+        self.init()
+        if record.dockOrientation == "rowMajor" { orientation = .rowMajor }
+        for saved in record.docks ?? [] {
+            guard let edge = DockEdge(rawValue: saved.edge) else { continue }
+            dock(saved.workspaceKey.rawValue, at: edge, mode: saved.mode == "floating" ? .overlay : .docked,
+                 extentPermille: saved.extentPermille)
+            if saved.hidden { _ = toggle(edge) }
+        }
+    }
+
+    /// Writes the docks, orientation and stage into `record`; no docks write no field.
+    func store(into record: inout WindowRecord, stage: String?) {
+        guard !all.isEmpty else {
+            record.docks = nil
+            record.dockOrientation = nil
+            record.stageKey = nil
+            return
+        }
+        record.docks = all.map {
+            WindowDockRecord(edge: $0.edge.rawValue, workspaceKey: WorkspaceKey(rawValue: $0.workspace),
+                             mode: $0.mode == .overlay ? "floating" : "docked", extentPermille: $0.extentPermille, hidden: $0.hidden)
+        }
+        record.dockOrientation = orientation == .columnMajor ? nil : orientation.rawValue
+        record.stageKey = stage.map(WorkspaceKey.init(rawValue:))
+    }
 }

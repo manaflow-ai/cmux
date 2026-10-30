@@ -29,6 +29,8 @@ import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
 import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-token-route.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
+// Named entrypoint for service bindings only (the platform Worker's environment setups); no HTTP route reaches it.
+export { PlatformMachines } from "./platform-machines.ts"
 export { HandoffDO } from "./handoffs/handoff-do.ts"
 export { HandoffIndexDO } from "./handoffs/index-do.ts"
 import { handleHandoffs, HANDOFFS_PATH } from "./handoffs/routes.ts"
@@ -54,6 +56,7 @@ export { CloudDO } from "./cloud-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
 import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
+import { CLIENT_SESSION_PATH, handleCloudClientSession } from "./cloud-client-session.ts"
 import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBillingSync } from "./billing-levels.ts"
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
@@ -187,8 +190,10 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   return Response.json({ ok: true, value: reply.value })
 }
 
-/** The projection compare's cron expression (wrangler.jsonc staging and development triggers). */
+/** The projection compare's cron expression (wrangler.jsonc triggers of every environment). */
 const PROJECTION_COMPARE_CRON = "*/15 * * * *"
+/** The hourly full verify of every projected row (projection-compare-full-cron.ts); staging only until the cutover runbook turns it on in production. */
+const PROJECTION_COMPARE_FULL_CRON = "7 * * * *"
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -201,6 +206,9 @@ export default {
     // The keyed acpmux start (cx-kvmz): outside the op path, so the key never becomes an op or a log line.
     const acpmux = url.pathname.match(ACPMUX_PATH)
     if (acpmux) return handleCloudAcpmux(request, env, acpmux[1]!, acpmux[2] as "keyed-start" | "person-holds")
+    // A scoped provider token for one of the caller's machines (cloud-client-session.ts): outside the op path, never logged.
+    const clientSession = url.pathname.match(CLIENT_SESSION_PATH)
+    if (clientSession) return handleCloudClientSession(request, env, clientSession[1]!)
     // A single-use wire ticket for a browser socket (wire-ticket.ts): Authorization header only.
     if (url.pathname === "/v1/wire/ticket") return handleWireTicket(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
@@ -271,6 +279,8 @@ export default {
     // A Chief's upsell link: a Stripe Checkout page for a plan (plan-checkout.ts, test mode only).
     const planCheckout = url.pathname.match(PLAN_PATH)
     if (planCheckout) return handlePlanCheckout(request, env, planCheckout[1]!)
+    // The console's billing page: plan, usage, credits, upgrades (billing-summary.ts, paid-plans-DESIGN.md §3).
+    if (url.pathname === "/v1/billing/summary") return (await import("./billing-summary.ts")).handleBillingSummary(request, env)
     if (url.pathname === CREDITS_WEBHOOK_PATH) return handleCreditsWebhook(request, env)
     if (url.pathname === CREDITS_ADMIN_PATH) return handleCreditsAdmin(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
@@ -299,7 +309,8 @@ export default {
     return apiHandler(request)
   },
   // Cron (wrangler triggers): every 5 minutes the Cloud Home health probe (home-health.ts), the feed text sweep (feed-sweep.ts), and every 15 minutes the
-  // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts).
+  // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts) and the shadow-read probe (shadow-read-probe.ts),
+  // and hourly where configured the full read-only verify of every projected row (projection-compare-full-cron.ts).
   // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     // Cloud Home health (home-health.ts): a probe round trip and a Sentry Cron check-in; it never throws.
@@ -307,9 +318,23 @@ export default {
       await runHomeHealth(env, { fetcher: sentryFetch })
       return
     }
+    // The full Postgres/MySQL verify: its own hourly invocation (a 15-minute CPU limit), read only.
+    if (controller.cron === PROJECTION_COMPARE_FULL_CRON) {
+      await (await import("./projection-compare-full-cron.ts")).compareFullFromEnv(env, controller.scheduledTime)
+      return
+    }
     if (controller.cron === PROJECTION_COMPARE_CRON) {
       // The usage sync (cx-y79zh S4) runs beside the projection compare; a failure of one does not stop the other.
-      const [compare, usage] = await Promise.allSettled([(async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(), env.STRIPE_USAGE_KEY ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null)])
+      // Never in production yet: production runs this cron for the Vitess dual write, and the usage sync's live switch is its
+      // own reviewed change with the live key (plans/cmux-next/usage-billing.md section 10), which removes this condition.
+      const usageSync = env.STRIPE_USAGE_KEY && env.ENVIRONMENT !== "production"
+      const [compare, usage, probe] = await Promise.allSettled([
+        (async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(),
+        usageSync ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null),
+        // Shadow-read soak traffic (shadow-read-probe.ts): every user id through the feed.users shadow read.
+        (async () => (await import("./shadow-read-probe.ts")).shadowReadProbe(env, sweepDeps(env).listUsers))()
+      ])
+      if (probe.status === "rejected") console.error(JSON.stringify({ msg: "projection.read.probe_failed", error: String(probe.reason).slice(0, 200) }))
       if (usage.status === "rejected") console.error(JSON.stringify({ msg: "billing.usage_sync.run_failed", error: String(usage.reason).slice(0, 200) }))
       if (compare.status === "rejected") throw compare.reason
       return

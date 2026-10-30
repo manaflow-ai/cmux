@@ -65,6 +65,8 @@ pub(super) struct WorkflowRun {
     /// The run's id and script path from its launch, which its end sends again (`resume`).
     run_id: Option<String>,
     script_path: Option<String>,
+    /// Effort captured at launch, independent of later parent settings.
+    effort: Option<String>,
 }
 
 /// What a run's `journal.jsonl` said up to `offset`: how many agents started
@@ -87,8 +89,8 @@ struct Rows {
 
 impl WorkflowRun {
     /// A run for a Workflow call's `input`, keeping a digest of its `args`.
-    pub(super) fn new(input: &Value) -> Self {
-        Self { args_digest: input.get("args").and_then(args_digest), ..Self::default() }
+    pub(super) fn new(input: &Value, effort: Option<String>) -> Self {
+        Self { args_digest: input.get("args").and_then(args_digest), effort, ..Self::default() }
     }
 }
 
@@ -177,7 +179,7 @@ impl Translator {
         let tool = self.task_tool(line).await?;
         let child = self.subagents.lock().await.get(&tool)?.clone();
         let snapshot = line.get("workflow_progress").and_then(Value::as_array);
-        let (workflow, journal, rows, resume) = {
+        let (workflow, journal, rows, resume, effort) = {
             let mut runs = self.workflows.lock().await;
             match runs.get_mut(&tool) {
                 Some(run) => {
@@ -195,15 +197,18 @@ impl Translator {
                         _ => None,
                     };
                     let resume = ending.then(|| run.resume());
-                    (Some(run.counts.clone()), journal, rows, resume)
+                    (Some(run.counts.clone()), journal, rows, resume, run.effort.clone())
                 }
                 // A background agent's end is its state alone.
                 None if ending => return None,
-                None => (None, None, None, None),
+                None => (None, None, None, None, None),
             }
         };
         let usage = |key: &str| line.pointer(&format!("/usage/{key}")).and_then(Value::as_u64);
         let mut update = json!({"sessionUpdate": "subagent_progress", "subagentSessionId": child});
+        if let Some(effort) = effort.filter(|v| !v.is_empty()) {
+            update.set("effort", json!(effort));
+        }
         for (key, value) in [
             ("tokens", usage("total_tokens")),
             ("toolUses", usage("tool_uses")),
@@ -220,6 +225,9 @@ impl Translator {
         };
         if let Some(action) = action {
             update.set("action", json!(action));
+        }
+        if let Some(last) = text("lastMessage").or_else(|| text("last_message")) {
+            update.set("lastMessage", json!(preview(last)));
         }
         // A run's end repeats what a resume names, for a reader of recent history alone.
         for (key, value) in resume.unwrap_or_default() {
@@ -433,6 +441,9 @@ fn agent_fields(item: &Value) -> Map<String, Value> {
             out.insert(to.into(), json!(value));
         }
     }
+    if let Some(value) = s("effort").or_else(|| s("reasoningEffort")) {
+        out.insert("effort".into(), json!(value));
+    }
     for (from, to) in [
         ("phaseIndex", "phaseIndex"),
         ("tokens", "tokens"),
@@ -453,8 +464,13 @@ fn agent_fields(item: &Value) -> Map<String, Value> {
     if let Some(action) = s("lastToolSummary").or(s("lastToolName")) {
         out.insert("action".into(), json!(preview(action)));
     }
-    for (from, to) in [("promptPreview", "prompt"), ("resultPreview", "result"), ("error", "error")]
-    {
+    for (from, to) in [
+        ("promptPreview", "prompt"),
+        ("resultPreview", "result"),
+        ("lastMessage", "lastMessage"),
+        ("last_message", "lastMessage"),
+        ("error", "error"),
+    ] {
         if let Some(value) = s(from) {
             out.insert(to.into(), json!(preview(value)));
         }
@@ -489,7 +505,7 @@ fn preview(text: &str) -> String {
     if text.chars().count() <= PREVIEW_CHARS {
         return text;
     }
-    let mut out: String = text.chars().take(PREVIEW_CHARS).collect();
+    let mut out: String = text.chars().take(PREVIEW_CHARS - 1).collect();
     out.push('…');
     out
 }

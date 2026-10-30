@@ -144,6 +144,44 @@ const OPS: &[(&str, &[&str], &[&str])] = &[
         MUTATION,
         &["cloud.machine.busy", "cloud.rate_limited", "cloud.snapshot.not_found"],
     ),
+    // Cloud environments (plans/cmux-next/cloud-environments-DESIGN.md).
+    ("cloud.environment.list", READ, &[]),
+    (
+        "cloud.environment.set",
+        MUTATION,
+        &["cloud.environment.invalid", "cloud.environment.not_found", "cloud.quota.exceeded"],
+    ),
+    (
+        "cloud.environment.delete",
+        MUTATION,
+        &["cloud.environment.busy", "cloud.environment.not_found", "cloud.rate_limited"],
+    ),
+    (
+        "cloud.environment.build",
+        MUTATION,
+        &[
+            "cloud.environment.busy",
+            "cloud.environment.not_found",
+            "cloud.environment.secrets_unavailable",
+            "cloud.plan.required",
+            "cloud.quota.exceeded",
+            "cloud.rate_limited",
+        ],
+    ),
+    (
+        "cloud.environment.boot",
+        MUTATION,
+        &[
+            "cloud.environment.not_found",
+            "cloud.environment.secrets_unavailable",
+            "cloud.no_snapshot_configured",
+            "cloud.plan.required",
+            "cloud.quota.exceeded",
+            "cloud.rate_limited",
+            "cloud.size.locked",
+            "cloud.snapshot.not_found",
+        ],
+    ),
     ("cloud.plan.get", READ, &[]),
     ("cloud.billing.checkout", MUTATION, &[]),
     ("cloud.shell.open", MUTATION, &["cloud.machine.not_found", "cloud.machine.paused"]),
@@ -170,6 +208,9 @@ const APPROVAL_OPS: &[&str] = &[
     "cloud.snapshot.create",
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
+    "cloud.environment.delete",
+    "cloud.environment.build",
+    "cloud.environment.boot",
 ];
 
 /// Ops whose provider call can fail for now or be cut off.
@@ -184,6 +225,8 @@ const PROVIDER_OPS: &[&str] = &[
     "cloud.snapshot.restore",
     "cloud.snapshot.delete",
     "cloud.shell.open",
+    "cloud.environment.build",
+    "cloud.environment.boot",
 ];
 
 /// The backend Cloud ops this table describes, in catalog order.
