@@ -11,6 +11,7 @@ description = "Terminal multiplexer core: workspaces, tabs, panes, PTY runtime, 
 workspace = true
 
 [dependencies]
+cmux-json.workspace = true
 cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true

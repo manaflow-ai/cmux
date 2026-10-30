@@ -362,6 +362,7 @@ async fn an_unreadable_receipt_note_fails_closed() {
 
 /// Review round 2: a log that can not be read to its end (a segment the store refuses: here one
 /// others may write), or that has no start of the adopted incarnation, proves no receipt.
+#[cfg(unix)]
 #[tokio::test]
 async fn a_log_read_short_proves_no_receipt() {
     use std::os::unix::fs::PermissionsExt;

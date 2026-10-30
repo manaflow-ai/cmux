@@ -2,6 +2,7 @@
 
 use super::transfer_guard::plain_agent_session;
 use super::*;
+use cmux_json::JsonSet as _;
 use std::sync::Mutex;
 
 /// True when `id` is a single plain path component, so it can name a
@@ -126,7 +127,7 @@ impl Hub {
                     copied.push(json!({"label": label, "path": rel, "source": src}));
                 }
             }
-            manifest["native"] = Value::Array(copied);
+            manifest.set("native", Value::Array(copied));
         }
         std::fs::write(dir.join("manifest.json"), serde_json::to_string_pretty(&manifest)?)?;
         Ok(dir)
@@ -343,7 +344,7 @@ impl Hub {
                 "Pi session header is not a valid session for this ACP id"
             ));
         }
-        header["cwd"] = Value::String(cwd.to_string_lossy().into_owned());
+        header.set("cwd", Value::String(cwd.to_string_lossy().into_owned()));
         let mut out = serde_json::to_vec(&header)?;
         out.push(b'\n');
         out.extend_from_slice(bytes.get(split + 1..).unwrap_or_default());
@@ -730,7 +731,7 @@ impl Hub {
         let Some(root) = session_dir.parent() else { return Ok(()) };
         let state = root.join(format!(".{agent_id}.durable-transfer-state"));
         let mut marker = serde_json::from_slice::<Value>(&std::fs::read(&state)?)?;
-        marker["phase"] = json!("committed");
+        marker.set("phase", json!("committed"));
         write_json_atomic(&state, &marker)
     }
 
@@ -743,7 +744,7 @@ impl Hub {
         let Some(root) = session_dir.parent() else { return Ok(()) };
         let state = root.join(format!(".{agent_id}.durable-transfer-state"));
         let mut marker = serde_json::from_slice::<Value>(&std::fs::read(&state)?)?;
-        marker["phase"] = json!("committed");
+        marker.set("phase", json!("committed"));
         write_json_atomic(&state, &marker)?;
         let filename = marker.get("piFilename").and_then(Value::as_str).unwrap_or("");
         if !filename.is_empty() {

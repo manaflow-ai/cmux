@@ -219,6 +219,8 @@ impl Hub {
         };
         turn.turn_seq =
             self.begin_carried(session, from, &turn, &next.carried, next.continues.trust_gate);
+        // Its own turn, so its own cap (`turn_cap.rs`): the turn before's timer ends with it.
+        self.arm_turn_cap(session, &turn.turn_id);
         // The daemon stops: the next one runs it on from the log (`recover_carried`).
         if self.shutting_down() {
             return;
@@ -349,7 +351,7 @@ impl Hub {
                     let on_sent = || self.watch_stalled_turn(&session, None);
                     let id = &turn.turn_id;
                     super::steer_end::agent_prompt_hook(
-                        &session, &child, params, id, false, None, false, on_sent,
+                        &session, &child, params, id, false, false, None, false, on_sent,
                     )
                     .await
                 }

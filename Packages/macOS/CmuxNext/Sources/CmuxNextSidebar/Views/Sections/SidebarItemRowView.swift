@@ -126,7 +126,7 @@ class SidebarItemRowView: NSView {
     nonisolated override var wantsUpdateLayer: Bool { true }
     /// A drag from a press (window points): true once the region drags.
     var onDragged: ((NSPoint, NSEvent) -> Bool)?
-    var onDragEnded: (() -> Void)?
+    var onDragEnded: ((_ windowPoint: NSPoint) -> Void)? // the release, which decides the drop
     /// Every press, before it acts: a drag an earlier press left held ends (its release went elsewhere).
     var onPressBegan: (() -> Void)?
     private var pressLocation: NSPoint?
@@ -318,8 +318,9 @@ class SidebarItemRowView: NSView {
         let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
         if !rowBadge.isHidden {
             let side = rowBadge.cellSide, width = rowBadge.preferredWidth
-            let x = style == .chip ? b.width - Metrics.space2 - width : column - width + side / 2
-            rowBadge.frame = NSRect(x: x.rounded(.down), y: ((b.height - side) / 2).rounded(), width: width, height: side)
+            let x = style == .chip ? b.width - Metrics.space2 - width : column - width + side / 2, scale = window?.backingScaleFactor ?? 2
+            rowBadge.frame = NSRect(x: SidebarStyle.pixelSnapped(x, scale: scale), y: SidebarStyle.pixelSnapped((b.height - side) / 2, scale: scale),
+                                    width: width, height: side)
             guard style != .chip else { return rowBadge.frame.minX }
             return min(rowBadge.frame.minX, SidebarStyle.trailingColumnStart(rowWidth: rowWidth))
         }
@@ -510,7 +511,7 @@ class SidebarItemRowView: NSView {
     override func mouseUp(with event: NSEvent) {
         let dragged = didDrag
         let activated = activatedOnPress
-        if dragged { onDragEnded?() }
+        if dragged { onDragEnded?(event.locationInWindow) }
         pressLocation = nil
         didDrag = false
         activatedOnPress = false

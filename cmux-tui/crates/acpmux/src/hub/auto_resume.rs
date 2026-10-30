@@ -56,6 +56,8 @@
 //! - `_acpmux/retry` retries a failed turn on demand, taking over a continuation that waits
 //!   ([`retry_turn`]).
 
+use cmux_json::JsonSet as _;
+
 // A turn a daemon restart cut off is continued from the restored queue.
 #[path = "restart_resume.rs"]
 mod restart_resume;
@@ -421,7 +423,7 @@ impl Hub {
                 turn_id: turn_id.clone(),
             };
             let mut msg = serde_json::to_value(&retry).unwrap_or_else(|_| json!({}));
-            msg["delayMs"] = json!(delay);
+            msg.set("delayMs", json!(delay));
             if hub.set_retry(&session, &turn_id, retry) {
                 hub.append(&session, "mux", "auto_resume_scheduled", msg);
                 // Its delay, or its mark going (`Wake`): Stop, close, a turn that took the chat.
@@ -676,7 +678,7 @@ impl Hub {
         let held = self.held_by(session, root, cut_turn);
         let mut provenance = json!({"kind": "auto_resume", "promptId": root, "attempt": attempt, "turnId": cut_turn});
         if let Some(from) = cut.from {
-            provenance["from"] = json!(from);
+            provenance.set("from", json!(from));
         }
         // Whether the attempt reached the chat (its turn started): one refused before that
         // (its folder gone, a dispatch check) leaves no record a watcher hears but this skip.
@@ -713,7 +715,7 @@ impl Hub {
                 _ if !accepted.load(std::sync::atomic::Ordering::SeqCst) => {
                     tracing::warn!(session = %session.id, attempt, "auto resume refused: {}", e.message);
                     let mut msg = skipped("refused");
-                    msg["error"] = json!(e.message);
+                    msg.set("error", json!(e.message));
                     self.append(session, "mux", "auto_resume_skipped", msg);
                 }
                 // A failure that is itself a transient error scheduled the next attempt.
