@@ -89,11 +89,14 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
     /// Whether `error` is ssh failing before it reached the peer (`ssh: connect to host H port 22:
     /// Operation timed out`, `Could not resolve hostname`, no banner): nothing ran there, so the
     /// peer is offline, not broken. Read from the text since an ssh step after the CLI's probe
-    /// (a push, a restart) reports its own reason with the same ssh words.
+    /// (a push, a restart) reports its own reason with the same ssh words. Also the binary upload
+    /// cut short (`scp to H failed`, acpmux `cli/hosts.rs` `push`, which keeps no scp stderr): the
+    /// peer dropped after the probe, and the new binary was never put in place, so nothing changed.
     static func sshNeverConnected(_ error: String) -> Bool {
         let text = error.lowercased()
-        return ["ssh: connect to host ", "ssh: could not resolve hostname", "connection timed out during banner exchange"]
-            .contains { text.contains($0) }
+        if ["ssh: connect to host ", "ssh: could not resolve hostname", "connection timed out during banner exchange"]
+            .contains(where: { text.contains($0) }) { return true }
+        return text.range(of: #"(^|\W)scp to \S+ failed"#, options: .regularExpression) != nil
     }
 
     /// The reply for `peer` in `output`: `--json` prints `{"updated": [ROW...], "peers": [...]}`

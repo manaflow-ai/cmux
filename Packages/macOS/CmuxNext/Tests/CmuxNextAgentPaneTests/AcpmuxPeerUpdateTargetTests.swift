@@ -74,6 +74,10 @@ import Testing
         #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"ssh h failed: ssh: connect to host 192.0.2.7 port 22: Operation timed out"}"#) == .unreachable)
         #expect(outcome(#"{"outcome":"failed","error":"ssh: Could not resolve hostname h: nodename nor servname provided"}"#) == .unreachable)
         #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"Connection timed out during banner exchange"}"#) == .unreachable)
+        // The binary upload cut short (the peer dropped after the probe): acpmux's own words, with
+        // no scp stderr. The new binary never went in place, so it is offline, not failed.
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to huge-blue failed"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"push to huge-blue: scp to huge-blue failed"}"#) == .unreachable)
         // ssh reached it and something there failed: still a failure.
         #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"ssh h failed: Bootstrap failed: 125"}"#) == .failed)
         // Another update holds the host's lock: nothing changed, not now (review of #25388).
