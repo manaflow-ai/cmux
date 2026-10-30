@@ -701,11 +701,32 @@ final class AppServices {
         }
     }
     // MARK: Lookup
-    /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`
-    /// and the pane that holds it, on any machine (O(1) per daemon).
+    /// A durable or resource id without a machine is usable only when exactly one
+    /// machine holds it. Forks can preserve ids; never pick one by registry order.
     func locateTab(_ id: String) -> (TabModel, PaneModel)? {
+        var found: (TabModel, PaneModel)?
         for daemon in machines.daemons {
-            if let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) { return (tab, pane) }
+            guard let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) else { continue }
+            guard found == nil else { return nil }
+            found = (tab, pane)
+        }
+        return found
+    }
+
+    /// Resolves only in the named machine; a missing machine never falls back locally.
+    func locateTab(_ id: String, onMachine machineID: String) -> (TabModel, PaneModel)? {
+        guard let daemon = machines.daemon(machine: machineID),
+              let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) else { return nil }
+        return (tab, pane)
+    }
+
+    /// Finds this very model, not a same-id tab on another machine. A model removed
+    /// from its store (including a disconnected machine) has no current pane.
+    func locateTab(model tab: TabModel) -> (TabModel, PaneModel)? {
+        for daemon in machines.daemons {
+            guard daemon.store.tab(idOrResource: tab.id) === tab,
+                  let pane = daemon.store.pane(holding: tab) else { continue }
+            return (tab, pane)
         }
         return nil
     }

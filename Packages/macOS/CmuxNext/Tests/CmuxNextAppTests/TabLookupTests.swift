@@ -18,7 +18,7 @@ struct TabLookupTests {
         let remoteTab: TabModel
         let remotePane: PaneModel
 
-        init() throws {
+        init(resourceIDs: Bool = true) throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
             let host = try SSHHost(destination: SSHDestination(parsing: "test@tab-lookup.invalid")).named("Tab lookup")
@@ -27,7 +27,7 @@ struct TabLookupTests {
                                            .appendingPathComponent("cn-tab-lookup-unused-\(UUID().uuidString)")),
                                        environment: { [:] }, mainWork: services.mainWork)
             services.machines.add(remote)
-            let tab = TabSnapshot(surface: 1, tabResourceID: "tab_forked", title: "Forked tab")
+            let tab = TabSnapshot(surface: 1, tabResourceID: resourceIDs ? "tab_forked" : nil, title: "Forked tab")
             let pane = PaneSnapshot(id: 1, tabs: [tab])
             let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
             let tree = DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "Forked", screens: [screen])])
@@ -41,11 +41,70 @@ struct TabLookupTests {
         }
     }
 
-    @Test func duplicateIDsNeverResolveToTheFirstMachine() throws {
-        let fixture = try Fixture()
+    @Test(arguments: [true, false])
+    func duplicateIDsNeverResolveToTheFirstMachine(resourceIDs: Bool) throws {
+        let fixture = try Fixture(resourceIDs: resourceIDs)
         #expect(fixture.services.locateTab(fixture.localTab.id) == nil,
                 "An unscoped tab ID must refuse ambiguity rather than select this Mac's tab")
-        #expect(fixture.services.locateTab("tab_forked") == nil,
-                "A resource ID shared by forked machines is ambiguous too")
+    }
+
+    @Test(arguments: [true, false])
+    func aMachineScopeSelectsOnlyItsOwnTabAndPane(resourceIDs: Bool) throws {
+        let fixture = try Fixture(resourceIDs: resourceIDs)
+        let local = try #require(fixture.services.locateTab(fixture.localTab.id, onMachine: MachineRegistry.localID))
+        let remote = try #require(fixture.services.locateTab(fixture.remoteTab.id, onMachine: fixture.remote.machineID))
+        #expect(local.0 === fixture.localTab && local.1 === fixture.localPane)
+        #expect(remote.0 === fixture.remoteTab && remote.1 === fixture.remotePane)
+        #expect(fixture.services.locateTab("missing-tab", onMachine: fixture.remote.machineID) == nil)
+    }
+
+    @Test func modelLookupPreservesObjectIdentityAcrossMachines() throws {
+        let fixture = try Fixture()
+        let local = try #require(fixture.services.locateTab(model: fixture.localTab))
+        let remote = try #require(fixture.services.locateTab(model: fixture.remoteTab))
+        #expect(local.0 === fixture.localTab && local.1 === fixture.localPane)
+        #expect(remote.0 === fixture.remoteTab && remote.1 === fixture.remotePane)
+    }
+
+    @Test func aMissingOrRemovedMachineNeverFallsBackToThisMac() throws {
+        let fixture = try Fixture()
+        #expect(fixture.services.locateTab(fixture.remoteTab.id, onMachine: "missing-machine") == nil)
+        #expect(fixture.services.machines.removeSSH(fixture.remote.machineID) === fixture.remote)
+        #expect(fixture.services.locateTab(fixture.remoteTab.id, onMachine: fixture.remote.machineID) == nil)
+        #expect(fixture.services.locateTab(model: fixture.remoteTab) == nil,
+                "The removed machine's model must not resolve to this Mac's matching ID or handle")
+        #expect(fixture.services.locateTab(model: fixture.localTab)?.0 === fixture.localTab)
+    }
+
+    @Test func aMissingTabOnAKnownMachineNeverFallsBackToAnotherMachine() throws {
+        let fixture = try Fixture()
+        fixture.remote.daemon.store.apply(snapshot: DaemonTree())
+        #expect(fixture.services.locateTab(fixture.localTab.id, onMachine: fixture.remote.machineID) == nil)
+        #expect(fixture.services.locateTab(model: fixture.remoteTab) == nil)
+        #expect(fixture.services.locateTab(fixture.localTab.id)?.0 === fixture.localTab,
+                "The unscoped lookup remains usable once only one machine holds the ID")
+    }
+
+    @Test func aUniqueRemoteTabCanStillBeFoundWithoutAScope() throws {
+        let fixture = try Fixture()
+        fixture.services.daemon.store.apply(snapshot: DaemonTree())
+        let match = try #require(fixture.services.locateTab(fixture.remoteTab.id))
+        #expect(match.0 === fixture.remoteTab && match.1 === fixture.remotePane)
+        #expect(fixture.services.locateTab(model: fixture.localTab) == nil,
+                "A detached local model must not resolve to the surviving remote tab")
+        #expect(fixture.services.locateTab("missing-tab") == nil)
+    }
+
+    @Test func aRecreatedTabDoesNotInheritTheOldModelsIdentity() throws {
+        let fixture = try Fixture()
+        let pane = PaneSnapshot(id: 1, tabs: [fixture.remoteTab.snapshot])
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
+        let tree = DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "Recreated", screens: [screen])])
+        fixture.remote.daemon.store.apply(snapshot: DaemonTree())
+        fixture.remote.daemon.store.apply(snapshot: tree)
+        let replacement = try #require(fixture.services.locateTab(fixture.remoteTab.id, onMachine: fixture.remote.machineID))
+        #expect(replacement.0 !== fixture.remoteTab)
+        #expect(fixture.services.locateTab(model: fixture.remoteTab) == nil)
+        #expect(fixture.services.locateTab(model: replacement.0)?.1 === replacement.1)
     }
 }
