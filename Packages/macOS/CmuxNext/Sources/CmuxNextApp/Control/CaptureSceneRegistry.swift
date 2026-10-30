@@ -60,9 +60,6 @@ final class CaptureSceneRegistry {
         if definition.name == Self.workspaceAutoNameScene {
             return await renderWorkspaceAutoName(params, definition: definition, windowID: targetWindowID)
         }
-        if definition.name == Self.cloudAgentMachinesScene {
-            return await renderAgentCloudMachines(params, definition: definition, windowID: targetWindowID)
-        }
 
         // Every scene starts from the same dense production fixture. Scene-specific controls below
         // then make the named capture visibly different while preserving real app ownership.
@@ -103,6 +100,10 @@ final class CaptureSceneRegistry {
             ])
         }
 
+        // The sidebar is its picture: the showcase window, then the machines, with no agent turn.
+        if definition.name == Self.cloudAgentMachinesScene {
+            return await renderAgentCloudMachines(params, definition: definition, windowID: targetWindowID)
+        }
         let turn = await DebugAgentPane.handle(["action": .string("seed_rows"), "fixture": .string("worked-turn")], services)
         guard case .object(let turnReport) = turn,
               (turnReport["rows"]?.intValue ?? 0) > 0 else {
@@ -256,12 +257,29 @@ extension CaptureSceneRegistry {
     static let cloudAgentMachinesScene = "cloud-agent-machines"
     static let agentMachineIDs = ["capture-vm-lane-1", "capture-vm-test-2"]
 
-    /// Needs no agent turn: the picture is the sidebar. Adds the machines, lets the sidebar draw,
-    /// snapshots the window, then takes the machines away again.
+    /// Adds the machines to the settled showcase window, waits until the sidebar draws every
+    /// machine workspace a window took (none, once agents' machines stay out), snapshots the
+    /// window, then takes the machines away again. A workspace a window took whose row never
+    /// draws fails the scene: the picture would not show what the membership says.
     func renderAgentCloudMachines(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
                                   windowID: String) async -> CmuxNextSettings.JSONValue {
         for id in Self.agentMachineIDs { services.machines.remove(id)?.disconnect() }
         let added = addAgentCloudMachines()
+        let shown = await CloudMove.holds(within: .seconds(10)) { [self] in
+            let rows = agentMachineRows(windowID: windowID)
+            return Set(rows.filed).isSubset(of: rows.drawn)
+        }
+        let rows = agentMachineRows(windowID: windowID)
+        let report: CmuxNextSettings.JSONValue = .object([
+            "machines": added, "in_a_window": .array(rows.filed.map { .string($0) }), "drawn": .array(rows.drawn.map { .string($0) }),
+        ])
+        guard shown else {
+            for id in Self.agentMachineIDs { services.machines.remove(id)?.disconnect() }
+            services.windows.reconcileMembership()
+            return .object(["error": .string("a machine workspace a window took never drew in its sidebar"),
+                            "scene": .string(definition.name), "scene_action": report])
+        }
+        // One more frame for the rows' layout.
         frames.start()
         let settled = await frames.settled(until: { true }, start: ContinuousClock.now, window: 300, deadline: 3_000)
         let frameStats = frames.stop()
@@ -275,8 +293,15 @@ extension CaptureSceneRegistry {
         result["description"] = .string(definition.description)
         result["settled_ms"] = settled.map(CmuxNextSettings.JSONValue.number) ?? .null
         result["frames"] = frameStats
-        result["scene_action"] = added
+        result["scene_action"] = report
         return .object(result)
+    }
+
+    /// The machines' workspaces a window took, and those `windowID`'s sidebar draws.
+    func agentMachineRows(windowID: String) -> (filed: [String], drawn: [String]) {
+        let workspaces = Self.agentMachineIDs.map { "ws-\($0)" }
+        let rows = Set(services.windows.controller(for: windowID)?.sidebar.model.sections.flatMap(\.workspaces).map(\.id.rawValue) ?? [])
+        return (workspaces.filter { services.windows.registry.value.owner(of: $0) != nil }, workspaces.filter(rows.contains))
     }
 
     func addAgentCloudMachines() -> CmuxNextSettings.JSONValue {
@@ -293,8 +318,7 @@ extension CaptureSceneRegistry {
             ]))
         }
         services.windows.reconcileMembership()
-        let filed = Self.agentMachineIDs.filter { services.windows.registry.value.owner(of: "ws-\($0)") != nil }
-        return .object(["machines": .number(Double(Self.agentMachineIDs.count)), "in_a_window": .array(filed.map { .string($0) })])
+        return .number(Double(Self.agentMachineIDs.count))
     }
 }
 
