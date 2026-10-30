@@ -193,6 +193,39 @@ async fn after_the_persons_stop_an_inbox_digest_of_the_held_messages_waits_held(
     assert_eq!(turns, 1, "a turn started after the person's Stop");
 }
 
+/// The person's Stop while a failed turn's agent messages wait for their retry: the retry
+/// leaves them held, since only the person's next turn or a resume ends a Stop's hold.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn after_the_persons_stop_a_failed_turns_retry_leaves_agent_messages_held() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![1_500]);
+    let id = new_session(&mut c, "stop-outlasts-retry").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", Some("p-run"))).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    queued(&mut c, json!({"sessionId": id, "prompt": [{"type": "text", "text": "fail-streamed: boom"}], "_meta": {"acpmux": {"promptId": "p-f"}}})).await;
+    queued(&mut c, from_agent(&id, "p-a", "agent words")).await;
+    // An agent's Stop: the failing prompt runs and its failure holds the agent message.
+    hub.cancel(&hub.resolve(&id).unwrap()).await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !(summary(&hub, &id)["turn"].is_null()
+        && held(&summary(&hub, &id)) == [("p-a".to_owned(), true)])
+    {
+        assert!(tokio::time::Instant::now() < deadline, "the failure never held p-a");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // The person's Stop, before the retry wait ends.
+    c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(3_000)).await;
+    assert_eq!(held(&summary(&hub, &id)), [("p-a".to_owned(), true)]);
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    assert!(
+        !events.iter().any(|e| e.kind == "turn_started" && e.msg["promptId"] == "p-a"),
+        "the retry ran an agent message after the person's Stop"
+    );
+}
+
 #[tokio::test]
 async fn session_cancel_as_a_request_is_answered() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
