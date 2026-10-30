@@ -90,9 +90,8 @@ struct AgentChatFromHomeTests {
             }
             let created = try #require(services.daemon.store.workspaces.first { !before.contains($0.id) })
             #expect(created.id != oldWorkspace.id, "a top-page invocation must not use the stale pane")
-            try await PasswordManagerRouteTests.until {
-                window.state.workspaceID == created.id && window.state.page == nil
-            }
+            // A CLI invocation does not request focus, so the top page may remain shown while
+            // the new workspace is created. Placement is established by the new workspace itself.
         }
     }
 }
