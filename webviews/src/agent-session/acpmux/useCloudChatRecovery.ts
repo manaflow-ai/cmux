@@ -19,20 +19,21 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
   const [resuming, setResuming] = useState(false);
   const [error, setError] = useState(false);
   const [readRevision, setReadRevision] = useState(0);
-  const actionGeneration = useRef(0);
+  const resumeAttempt = useRef(0);
   const resumeInFlight = useRef(false);
   const identity = cloud ? JSON.stringify(cloud) : undefined;
   useEffect(() => {
-    actionGeneration.current += 1;
+    resumeAttempt.current += 1;
     resumeInFlight.current = false;
     setResuming(false);
     setError(false);
     return () => {
-      actionGeneration.current += 1;
+      resumeAttempt.current += 1;
     };
   }, [identity, session]);
   useEffect(() => {
     if (!active) {
+      resumeAttempt.current += 1;
       resumeInFlight.current = false;
       setResuming(false);
       setState(undefined);
@@ -48,6 +49,13 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
     let cancelDeadline: (() => void) | undefined;
     const deadline = Date.now() + 60_000;
     if (!resuming) setState(undefined);
+    const finishResume = (failed = false) => {
+      // Late attach failures no longer own the card after recovery stops.
+      resumeAttempt.current += 1;
+      resumeInFlight.current = false;
+      setResuming(false);
+      if (failed) setError(true);
+    };
     // A failed or superseded inventory read says nothing about the accepted wake.
     // Keep the paused card and the original deadline while the machine reconnects.
     const retry = () => {
@@ -55,8 +63,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
       if (Date.now() < deadline) {
         timer = setTimeout(() => void read(), 1_000);
       } else {
-        setResuming(false);
-        setError(true);
+        finishResume(true);
       }
     };
     // Each request shares the resume's original deadline. Cleanup also settles a hung
@@ -90,8 +97,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
         );
         if (disposed || replyResult.kind === "disposed") return;
         if (replyResult.kind === "deadline") {
-          setResuming(false);
-          setError(true);
+          finishResume(true);
           return;
         }
         const reply = replyResult.value;
@@ -101,22 +107,20 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
           const result = await beforeDeadline(recheck());
           if (disposed) return;
           if (result.kind === "deadline") {
-            setResuming(false);
-            setError(true);
+            finishResume(true);
             return;
           }
         }
         if (disposed) return;
         if (next === "deleted") {
-          setResuming(false);
+          finishResume();
           return;
         }
         retry();
       } catch (cause) {
         if (disposed) return;
         if (resuming && cause instanceof NativeError && cause.retryable === false) {
-          setResuming(false);
-          setError(true);
+          finishResume(true);
           return;
         }
         retry();
@@ -137,11 +141,12 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
     setError(false);
     // Send the native call synchronously from the click: it consumes this gesture. The existing
     // attach path resumes this machine for either Cloud backend without opening another workspace.
-    const generation = actionGeneration.current;
+    const attempt = ++resumeAttempt.current;
     const action = postNative("cloudMachine.attach", { id: cloud.id });
     setResuming(true);
     void action.catch(() => {
-      if (actionGeneration.current === generation) {
+      if (resumeAttempt.current === attempt) {
+        resumeAttempt.current += 1;
         resumeInFlight.current = false;
         setResuming(false);
         setError(true);

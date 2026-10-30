@@ -483,3 +483,107 @@ test.serial(
   },
   10_000,
 );
+
+async function attachFixture() {
+  const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  const { ChatUnavailableState } = await import("../src/agent-session/acpmux/ChatUnavailableState");
+  const { cloudChatUnavailable } = await import("../src/agent-session/acpmux/cloudChatRecovery");
+  const rejects: ((cause: Error) => void)[] = [];
+  const hung = new Promise<void>(() => {});
+  const recheck = () => hung;
+  const noop = () => {};
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: ({ method }: { method: string }) => {
+            if (method === "cloudMachine.attach") {
+              return new Promise((_, reject) => rejects.push(reject));
+            }
+            return {
+              ok: true,
+              value: {
+                signedIn: true,
+                loaded: true,
+                complete: true,
+                account: ["user", null],
+                machines: [{ id: "vm-demo", name: "Demo machine", stage: rejects.length ? "failed" : "paused" }],
+              },
+            };
+          },
+        },
+      },
+    },
+  });
+  function Recovery() {
+    const recovery = useCloudChatRecovery({
+      cloud: { id: "vm-demo", account: ["user", null] },
+      session: "chat-demo",
+      active: true,
+      recheck,
+    });
+    return (
+      <>
+        <ChatUnavailableState
+          unavailable={cloudChatUnavailable({ reason: "offline" }, recovery.state, "Demo machine")}
+          onResumeMachine={recovery.resume}
+          onRemove={noop}
+          onReconnect={recovery.refresh}
+          resuming={recovery.resuming}
+          error={recovery.error}
+        />
+        <span data-action="attach-state">{JSON.stringify({ resuming: recovery.resuming, error: recovery.error })}</span>
+      </>
+    );
+  }
+  return {
+    render: () => act(async () => root.render(<Recovery />)),
+    button: () => mount.querySelector<HTMLButtonElement>('[data-action="resumeMachine"]'),
+    state: () => JSON.parse(mount.querySelector('[data-action="attach-state"]')!.textContent!),
+    rejects,
+  };
+}
+
+test.serial("a failed resume still offers Resume machine and sends attach again", async () => {
+  const fixture = await attachFixture();
+  await fixture.render();
+  await act(async () => fixture.button()!.click());
+  expect(fixture.rejects).toHaveLength(1);
+  // A failed inventory stage alone must not cancel the pending attach.
+  expect(fixture.state()).toEqual({ resuming: true });
+  await act(async () => fixture.rejects[0]!(new Error("resume failed")));
+  expect(fixture.state().resuming).toBe(false);
+  expect(fixture.state().error).toBeDefined();
+  expect(fixture.button()?.textContent).toBe("Resume machine");
+  expect(fixture.button()?.disabled).toBe(false);
+  expect(mount.querySelector('[data-action="reconnect"]')).toBeNull();
+  await act(async () => fixture.button()!.click());
+  expect(fixture.rejects).toHaveLength(2);
+  expect(fixture.state()).toEqual({ resuming: true });
+});
+
+test.serial("a timed-out attach's late rejection leaves a newer resume running", async () => {
+  const fixture = await attachFixture();
+  jest.useFakeTimers({ now: 0 });
+  await fixture.render();
+  await act(async () => fixture.button()!.click());
+  await act(async () => {
+    jest.advanceTimersByTime(60_000);
+  });
+  expect(fixture.state().resuming).toBe(false);
+  expect(fixture.state().error).toBeDefined();
+  expect(jest.getTimerCount()).toBe(0);
+  await act(async () => fixture.button()!.click());
+  expect(fixture.rejects).toHaveLength(2);
+  expect(fixture.state()).toEqual({ resuming: true });
+  await act(async () => fixture.rejects[0]!(new Error("old attach failed")));
+  expect(fixture.state()).toEqual({ resuming: true });
+  expect(fixture.button()?.disabled).toBe(true);
+  expect(jest.getTimerCount()).toBe(1);
+  // The current attach still owns its failure and releases the retry button.
+  await act(async () => fixture.rejects[1]!(new Error("current attach failed")));
+  expect(fixture.state().resuming).toBe(false);
+  expect(fixture.state().error).toBeDefined();
+  expect(fixture.button()?.disabled).toBe(false);
+  expect(jest.getTimerCount()).toBe(0);
+});

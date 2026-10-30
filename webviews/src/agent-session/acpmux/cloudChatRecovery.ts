@@ -1,5 +1,6 @@
 // Cloud chat recovery uses the native VM id and account, never a peer name. A failed list,
 // sign-out, or a different team's list cannot establish that this chat's machine was deleted.
+// Failed stages may still be paused; native attach resumes or reconnects either way.
 import type { ChatUnavailable } from "./chatUnavailable";
 
 export type CloudChatIdentity = { id: string; account: (string | null)[] };
@@ -26,7 +27,7 @@ export function cloudChatState(identity: CloudChatIdentity, reply: unknown): Clo
     | undefined;
   if (!machine) return value.complete === true ? "deleted" : undefined;
   if (machine.stage === "destroyed") return "deleted";
-  return machine.stage === "paused" ? "paused" : "live";
+  return machine.stage === "paused" || machine.stage === "failed" ? "paused" : "live";
 }
 
 export function cloudChatUnavailable(

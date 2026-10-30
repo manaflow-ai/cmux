@@ -56,6 +56,11 @@ describe("cloud chat recovery", () => {
     expect(cloudChatState(cloud, inventory([{ ...paused, stage: "ready" }]))).toBe("live");
     expect(cloudChatUnavailable(offline, "live")).toBe(offline);
   });
+  test("a failed stage keeps the native attach retry available", () => {
+    const state = cloudChatState(cloud, inventory([{ ...paused, stage: "failed" }]));
+    expect(state).toBe("paused");
+    expect(cloudChatUnavailable(offline, state)).toEqual({ reason: "paused", machine: "Demo machine" });
+  });
   test("the paused and deleted cards retain saved transcript recovery, without Reconnect", () => {
     const noop = () => {};
     for (const reason of ["paused", "machineDeleted"] as const) {
