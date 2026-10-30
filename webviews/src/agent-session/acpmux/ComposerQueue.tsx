@@ -135,6 +135,13 @@ export function shownText(entry: QueuedEntry, t: Translate): string {
     .join("\n");
 }
 
+/** Row `id` of `list`, matched by its prompt id (no selector escaping: an id may hold any character). */
+function rowOf(list: HTMLElement | null | undefined, id: string): HTMLElement | undefined {
+  return [...(list?.querySelectorAll<HTMLElement>(":scope > .acpmux-queued") ?? [])].find(
+    (row) => row.dataset.promptId === id,
+  );
+}
+
 /** Shows the row's whole text as a tooltip only when its one line (the button's inner text) cuts it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
   const button = event.currentTarget;
@@ -197,29 +204,54 @@ export function ComposerQueue({
   };
   // Rows opened to their whole text (a row shows two lines until it is opened).
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  // Opening or closing a row under the pointer keeps the list's height until the pointer leaves it:
-  // the list sits on the composer, so growing it moved the row up, and the Steer, trash and ⋯ under
-  // the pointer with it (Leo, 2026-10-30: "its expansion animation makes the hovered buttons shift
-  // layout"). The row opens down inside the list, which scrolls; the list fits its rows again once
-  // nothing in it is hovered.
+  // Opening or closing a row under the pointer never moves what is under the pointer (Leo,
+  // 2026-10-30: "its expansion animation makes the hovered buttons shift layout"). A row's actions
+  // sit on its last line (composerStates.css), and the list sits on the composer, so it grows and
+  // shrinks at its top: the list changes by exactly what the row did, at once and with no
+  // animation, so the row's last line, its actions and every row below stay where they were, and
+  // all of the opened text shows (no scroll). Until the pointer leaves, the list keeps that height
+  // instead of fitting its rows again; then it fits them.
   const held = useRef(false);
   // The pointer that pressed a row's text, read by its click.
   const pressedBy = useRef<string>(undefined);
+  // A row the pointer just opened or closed, with its height and the list's before, for the
+  // layout effect that sizes the list once the row draws.
+  const resized = useRef<{ id: string; row: number; list: number }>(undefined);
   const toggle = (id: string, hovered: boolean) => {
     // Only a hovering pointer's click holds it: a key or a touch has no pointer on the list to
-    // leave it, and must never keep the list from fitting. Held, the list keeps its height both
-    // ways: its max-height stops it growing, and a min-height stops a row that closes from
-    // shrinking it.
+    // leave it, and must never keep the list from fitting.
     held.current = hovered;
     const current = list.current;
-    if (hovered && current) current.style.minHeight = `${current.getBoundingClientRect().height}px`;
-    else current?.style.removeProperty("min-height");
+    const row = rowOf(current, id);
+    resized.current =
+      hovered && current && row
+        ? { id, row: row.getBoundingClientRect().height, list: current.getBoundingClientRect().height }
+        : undefined;
+    if (!hovered) {
+      current?.style.removeProperty("min-height");
+      current?.removeAttribute("data-held");
+    }
     setOpen((current) => {
       const next = new Set(current);
       if (!next.delete(id)) next.add(id);
       return next;
     });
   };
+  // The list follows the row the pointer opened or closed, by exactly its change, before the frame
+  // paints.
+  useLayoutEffect(() => {
+    const was = resized.current;
+    const current = list.current;
+    if (!was || !current) return;
+    resized.current = undefined;
+    const row = rowOf(current, was.id);
+    if (!row) return;
+    const height = `${Math.max(0, was.list + row.getBoundingClientRect().height - was.row)}px`;
+    // No max-height transition for this change (composerStates.css [data-held]).
+    current.setAttribute("data-held", "");
+    current.style.maxHeight = height;
+    current.style.minHeight = height;
+  }, [open]);
   /** Fits the list to its rows, unless a row the pointer opened holds its height. */
   const fit = (current: HTMLElement) => {
     if (!held.current) fitList(current);
@@ -754,6 +786,7 @@ export function ComposerQueue({
           if (!held.current) return;
           held.current = false;
           event.currentTarget.style.removeProperty("min-height");
+          event.currentTarget.removeAttribute("data-held");
           fitList(event.currentTarget);
         }}
         onPointerDown={(event) => {

@@ -523,6 +523,93 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.close();
     });
 
+    /// Opens (then closes) row `id` by a pointer click on its text, and reads, on every painted frame,
+    /// its actions' rect, its text button's bottom edge and what the click point hits. Then reads
+    /// whether the opened row shows whole in the list with no scroll.
+    const openUnderPointer = async (page: Page, id: string, below: string[] = []) => {
+      const row = `.acpmux-queued[data-prompt-id="${id}"]`;
+      const text = page.locator(`${row} .acpmux-queued-text`);
+      const at = (await text.boundingBox())!;
+      const [x, y] = [at.x + 24, at.y + at.height / 2];
+      await page.mouse.move(x, y);
+      await settled(page);
+      const read = () =>
+        page.evaluate(
+          ([row, x, y, below]) => {
+            const r = (el: Element | null) => {
+              const b = el!.getBoundingClientRect();
+              return [b.left, b.top, b.width, b.height].map((n) => Math.round(n * 2) / 2);
+            };
+            const button = document.querySelector(`${row} .acpmux-queued-text`)!;
+            return {
+              actions: r(document.querySelector(`${row} .acpmux-queued-actions`)),
+              buttonBottom: Math.round(button.getBoundingClientRect().bottom * 2) / 2,
+              hit: button.contains(document.elementFromPoint(x as number, y as number)),
+              below: (below as string[]).map((b) => r(document.querySelector(`.acpmux-queued[data-prompt-id="${b}"]`))),
+            };
+          },
+          [row, x, y, below] as const,
+        );
+      const frames = async (act: () => Promise<void>) => {
+        const seen: Awaited<ReturnType<typeof read>>[] = [];
+        await act();
+        for (let i = 0; i < 12; i++) {
+          await page.evaluate(() => window.cmuxPaintFrame());
+          seen.push(await read());
+        }
+        return seen;
+      };
+      const before = await read();
+      const opening = await frames(async () => {
+        await page.mouse.click(x, y);
+        await page.locator(`${row} .acpmux-queued-text[data-open]`).waitFor();
+      });
+      const whole = await page.evaluate((row) => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        const box = list.getBoundingClientRect();
+        const r = document.querySelector(row)!.getBoundingClientRect();
+        return { scrollTop: list.scrollTop, inside: r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5 };
+      }, row);
+      const closing = await frames(async () => {
+        await page.mouse.click(x, y);
+        await page.locator(`${row} .acpmux-queued-text:not([data-open])`).waitFor();
+      });
+      const near = (a: number[], b: number[]) => a.every((n, i) => Math.abs(n - b[i]!) <= 1);
+      const moved = [...opening, ...closing].filter(
+        (f) =>
+          !near(f.actions, before.actions) ||
+          Math.abs(f.buttonBottom - before.buttonBottom) > 1 ||
+          !f.hit ||
+          f.below.some((b, i) => !near(b, before.below[i]!)),
+      );
+      return { moved, whole };
+    };
+
+    test("opening the only row, a resume with its error, moves nothing under the pointer and shows it whole", async () => {
+      const page = await openChat([
+        'Your subagent "Cap context cost" (agent id af0cbece62b15d0e1) failed on a transient upstream error (529 overloaded). Resume it with SendMessage to "af0cbece62b15d0e1".',
+      ]);
+      const { moved, whole } = await openUnderPointer(page, "q-1");
+      expect({ moved, whole }).toEqual({ moved: [], whole: { scrollTop: 0, inside: true } });
+      await page.close();
+    });
+
+    test("opening a long prompt as the last row moves nothing under the pointer and shows it whole", async () => {
+      const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(4);
+      const page = await openChat(["one", long]);
+      const { moved, whole } = await openUnderPointer(page, "q-2");
+      expect({ moved, whole }).toEqual({ moved: [], whole: { scrollTop: 0, inside: true } });
+      await page.close();
+    });
+
+    test("opening a middle row leaves it, its actions and the rows below where they were", async () => {
+      const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(4);
+      const page = await openChat(["one", long, "three"]);
+      const { moved, whole } = await openUnderPointer(page, "q-2", ["q-3"]);
+      expect({ moved, whole }).toEqual({ moved: [], whole: { scrollTop: 0, inside: true } });
+      await page.close();
+    });
+
     test("a reopened chat whose resume record is off the attach's page still draws the labelled row", async () => {
       // review-28042-ux-4: the listing's subagentRetry names it with no `queued` record read.
       recordsOnPage = false;
