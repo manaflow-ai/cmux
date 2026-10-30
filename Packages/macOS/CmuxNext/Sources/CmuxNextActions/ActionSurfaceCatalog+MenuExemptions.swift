@@ -144,8 +144,8 @@ nonisolated extension ActionSurfaceCatalog {
             // Specialist tab controls stay canonical palette/CLI commands, outside the
             // compact pointer menu. Shared commands keep their other menu placements.
             "terminal.keep", "terminal.setTheme", "terminal.clearTheme", "palette.toggleTabUnread",
-            "palette.toggleFullWidthTab", "tab.muteOtherAudio", "agentChat.toggleNotificationMute", "tab.showResources",
-            "hibernateTab", "wakeTab", "neverHibernateSite", "palette.copyIdentifiers", "browser.resetPinnedTab",
+            "palette.toggleFullWidthTab", "tab.muteOtherAudio", "agentChat.toggleNotificationMute",
+            "hibernateTab", "wakeTab", "neverHibernateSite", "browser.resetPinnedTab",
             // Pane geometry, providers and diagnostics stay searchable; the menu keeps
             // its common actions, including target-dependent reconnect, remote and chat tools.
             "newPaneAutoLayout", "triggerFlash", "palette.swapWithSession", "toggleCanvasLayout", "palette.newSimulatorPane",
