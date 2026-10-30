@@ -73,10 +73,15 @@ import Testing
         // ssh never reached the peer, whichever step reports it: offline, not broken (Leo's toast).
         #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"ssh h failed: ssh: connect to host 192.0.2.7 port 22: Operation timed out"}"#) == .unreachable)
         #expect(outcome(#"{"outcome":"failed","error":"ssh: Could not resolve hostname h: nodename nor servname provided"}"#) == .unreachable)
-        #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"Connection timed out during banner exchange"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"Connection timed out during banner exchange"}"#) == .unreachable)
+        // A later step whose connection failed may have changed the peer: it shows (review at 025f476).
+        #expect(outcome(#"{"outcome":"failed","reason":"restartFailed","error":"Connection timed out during banner exchange"}"#) == .failed)
+        #expect(outcome(#"{"outcome":"failed","reason":"noAnswer","error":"ssh h failed: ssh: connect to host 192.0.2.7 port 22: Operation timed out"}"#) == .failed)
         // The peer dropped during the binary's upload: nothing was installed (review of #27288).
         #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: client_loop: send disconnect: Broken pipe lost connection"}"#) == .unreachable)
         #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: Connection closed by 192.0.2.7 port 22"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: Connection closed"}"#) == .unreachable)
+        #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: Read from remote host h: Connection reset by 192.0.2.7 port 22"}"#) == .unreachable)
         #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: ssh: connect to host 192.0.2.7 port 22: Operation timed out"}"#) == .unreachable)
         // A full disk on the peer is a failure, and a dropped later step may have changed it.
         #expect(outcome(#"{"outcome":"failed","reason":"pushFailed","error":"scp to h failed: scp: write remote: No space left on device"}"#) == .failed)

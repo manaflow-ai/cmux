@@ -85,7 +85,11 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
             // nothing more (acpmux `host_update.rs`): the peer went away mid-update, so offline.
             case "unreachable", "lockLost": outcome = .unreachable
             case "updateRunning": outcome = .busy
-            default: outcome = error.map(Self.offline) == true ? .unreachable : .failed
+            // Only a step before anything was installed (the upload, or no step named): a later
+            // step's lost or refused connection (`restartFailed`, `noAnswer`, ...) may have changed
+            // the peer, so it shows.
+            case "pushFailed", nil: outcome = error.map(Self.offline) == true ? .unreachable : .failed
+            default: outcome = .failed
             }
         default: outcome = .failed
         }
@@ -93,8 +97,8 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
 
     /// Whether `error` is ssh failing before it reached the peer (`ssh: connect to host H port 22:
     /// Operation timed out`, `Could not resolve hostname`, no banner): nothing ran there, so the
-    /// peer is offline, not broken. Read from the text since an ssh step after the CLI's probe
-    /// (a push, a restart) reports its own reason with the same ssh words.
+    /// peer is offline, not broken. Read from the text since the upload reports its own reason
+    /// (`pushFailed`) with the same ssh words; read only for the upload or no named step.
     static func sshNeverConnected(_ error: String) -> Bool {
         let text = error.lowercased()
         return ["ssh: connect to host ", "ssh: could not resolve hostname", "connection timed out during banner exchange"]
@@ -109,7 +113,7 @@ nonisolated struct AcpmuxPeerUpdateReply: Decodable, Sendable, Equatable {
     static func uploadLostConnection(_ error: String) -> Bool {
         let text = error.lowercased()
         guard text.hasPrefix("scp to ") else { return false }
-        return ["lost connection", "connection closed by", "broken pipe", "connection reset by peer", "client_loop: send disconnect"]
+        return ["lost connection", "connection closed", "broken pipe", "connection reset by", "client_loop: send disconnect"]
             .contains { text.contains($0) }
     }
 
