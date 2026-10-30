@@ -304,6 +304,21 @@ fn a_corrupt_old_history_page_does_not_stop_the_open() {
         "a corrupt old terminal event page stops the open: {:#}",
         reopened.err().unwrap()
     );
+    let reopened = reopened.unwrap();
+
+    // The maintenance worker's full check finds it, and the next open then
+    // checks every table in full and stops, with the data in place.
+    let damaged = history_check::scan_background_checked_tables(&database).unwrap();
+    let (table, report) = damaged
+        .iter()
+        .find(|(table, _)| *table == "terminal_events")
+        .expect("the background check finds the damaged terminal event page");
+    reopened.require_full_open_check(table, report).unwrap();
     drop(reopened);
+    let Err(error) = WorkspaceRegistry::open(&root, "open-cost") else {
+        panic!("the full check of a damaged registry stops the open");
+    };
+    assert!(format!("{error:#}").contains("integrity check failed"), "{error:#}");
+    assert!(database.exists(), "the registry stays in place");
     let _ = fs::remove_dir_all(root);
 }
