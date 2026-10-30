@@ -23,8 +23,8 @@ final class PhoneAdmission {
             // task-owner: bounded reconciliation for one store event; the store is app-lived
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                if generation != phones.generation {
-                    generation = phones.generation
+                if generation != self.phones.generation {
+                    generation = self.phones.generation
                     for question in questions.values { question.task.cancel() }
                     questions = [:]
                     denied = [:]
@@ -69,7 +69,7 @@ final class PhoneAdmission {
     }
 
     static func spec(_ phone: MobileHostPairRequest, user: String) -> CmuxDialogSpec {
-        CmuxDialogSpec(title: IPhoneHostStrings.pairTitle(phone.name),
+        CmuxDialogSpec(title: IPhoneHostStrings.phoneAccessTitle(phone.name),
                        lines: [IPhoneHostStrings.signedInAs(user), IPhoneHostStrings.irohAdmissionBody, IPhoneHostStrings.pairKey(phone.identityKey)],
                        buttons: [CmuxDialogButton(id: "deny", title: IPhoneHostStrings.pairDeny, role: .cancel),
                                  CmuxDialogButton(id: "allow", title: IPhoneHostStrings.pairAllow)],

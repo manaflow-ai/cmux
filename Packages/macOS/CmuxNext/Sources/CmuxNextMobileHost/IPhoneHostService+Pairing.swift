@@ -28,13 +28,12 @@ extension IPhoneHostService {
     /// read off the main actor (its seal is a Keychain item), after every save already queued;
     /// until it is in, no phone is trusted and no pairing is decided (each needs `paired`).
     func loadPaired(signedOut: Bool) {
+        if let directory = dependencies?.stateDirectory { pairedStore.configure(directory: directory) }
         if pairedStore.current?.userID != account?.userID { resetPrompts() }
         pairedStore.select(userID: account?.userID)
         paired = pairedStore.current
-        guard let directory = dependencies?.stateDirectory else { return }
-        Task { [pairedStore] in
-            await pairedStore.attach(directory: directory)
-        }
+        // task-owner: one queued read; generation checks discard a superseded account
+        Task { [pairedStore] in await pairedStore.reload() }
         if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
             approverSync = makeApproverSync(environment)
         }

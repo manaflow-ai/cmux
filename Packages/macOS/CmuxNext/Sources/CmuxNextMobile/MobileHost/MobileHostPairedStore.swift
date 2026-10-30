@@ -57,6 +57,13 @@ public final class MobileHostPairedStore: Sendable {
     }
 
     public func attach(directory: URL) async {
+        configure(directory: directory)
+        await reload()
+    }
+
+    /// Wire synchronously before selecting the account, so even a same-turn sign-out
+    /// queues its seal revocation before the application termination flush.
+    public func configure(directory: URL) {
         state.withLock { state in
             if state.file == nil {
                 let bundleID = directory.deletingLastPathComponent().lastPathComponent
@@ -67,7 +74,6 @@ public final class MobileHostPairedStore: Sendable {
                 state.forgotten = []
             }
         }
-        await reload()
     }
 
     public func reload() async {
