@@ -36,6 +36,19 @@ extension WindowManager {
     func applyPendingPlacements(live: Set<String>) {
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
         for (id, pending) in pendingPlacements where live.contains(id) && services.machines.workspace(id: id)?.0.isProvisional != true {
+            // A failed create or a workspace whose target window was closed
+            // must not leave an unfulfillable callback in the pending map.
+            if services.machines.workspace(id: id) == nil {
+                pendingPlacements[id] = nil
+                continue
+            }
+            if let requestedWindow = pending.window {
+                let target = registry.value.window(requestedWindow)
+                if target?.isOpen == false || (target == nil && pendingClaims[id] != requestedWindow) {
+                    pendingPlacements[id] = nil
+                    continue
+                }
+            }
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let daemon = services.machines.daemon(forWorkspace: id) else { continue }
             let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
