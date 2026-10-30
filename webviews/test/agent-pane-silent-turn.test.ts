@@ -263,7 +263,7 @@ test("an idle summary ends a summary-only turn when its terminal event was misse
     await until(() => snapshot?.connection === "connected", "the attach");
     expect(snapshot.isWorking).toBe(true);
     await client.cancel();
-    daemon.change({ status: "idle", turn: undefined });
+    daemon.change({ status: "idle", turn: null });
     await until(() => snapshot.isWorking === false, "the idle summary");
     expect(snapshot.turnStartedAtMs).toBeUndefined();
     expect(client.turnRunning()).toBe(false);
@@ -299,7 +299,7 @@ test.each(["running", "waiting"])("a %s attach keeps the turn active while waiti
     await client.cancel();
     expect(daemon.calls).toContain("session/cancel");
     expect(snapshot.stopping).toBe(true);
-    daemon.change({ status: "idle", turn: undefined });
+    daemon.change({ status: "idle", turn: null });
     await until(() => !snapshot.isWorking, "idle after waiting");
     expect(client.turnRunning()).toBe(false);
     expect(snapshot.stopping).toBeUndefined();
@@ -329,12 +329,85 @@ test("resync rebuild derives lifecycle from a recovered end and next start", asy
     const internal = client as any;
     internal.events = recovered;
     internal.turnOpen = true;
-    internal.turnId = "t2";
+    internal.runningTurnId = "t2";
     internal.turnStartedAtMs = START + 20_000;
     internal.rebuildKeepingLiveState();
     expect(internal.turnOpen).toBe(true);
-    expect(internal.turnId).toBe("t3");
+    expect(internal.runningTurnId).toBe("t3");
     expect(internal.turnStartedAtMs).toBe(START + 41_000);
+  } finally {
+    client.close();
+  }
+});
+
+// The daemon logs a prompt's `user_message` (and opens its turn) before the agent starts, while its
+// row still lists the chat idle or ready and names that turn: the turn runs, with Stop and no
+// Continue, until its own result (review of #28303 at f2af597).
+test("a cold start's idle and ready rows keep the turn its prompt opened", async () => {
+  const daemon = fakeDaemon([], { status: "idle", turn: null });
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.isWorking).toBe(false);
+    daemon.push(record([["mux", "user_message", { text: "fix the build", turnId: "t5", promptId: "p5" }]], 1));
+    await until(() => snapshot.isWorking === true, "the prompt's turn");
+    for (const status of ["idle", "ready"]) {
+      daemon.change({ status, title: status, turn: { turnId: "t5", startedAt: START + 1_000 } });
+      await until(() => snapshot.summary?.title === status, `the ${status} row`);
+      expect(snapshot.isWorking).toBe(true);
+      expect(client.turnRunning()).toBe(true);
+      expect(await client.continueIn("claude")).toBeUndefined();
+    }
+    // A closed chat reopens idle after the prompt that opened its turn: still the cold start.
+    daemon.push(record([["mux", "status", { status: "idle" }]], 2));
+    expect(client.turnRunning()).toBe(true);
+    expect(daemon.calls.filter((method) => method === "_acpmux/handoff_prepare")).toHaveLength(0);
+    await client.cancel();
+    expect(daemon.calls).toContain("session/cancel");
+    expect(snapshot.stopping).toBe(true);
+    daemon.push(record([["mux", "turn_started", { turnId: "t5" }]], 3));
+    daemon.change({ status: "running", title: "running", turn: { turnId: "t5", startedAt: START + 1_000 } });
+    await until(() => snapshot.summary?.title === "running", "the running row");
+    expect(snapshot.turnStartedAtMs).toBe(START + 3_000);
+    // The turn's own result ends it, and the row that still names it is stale.
+    daemon.push(record([["mux", "turn_result", { turnId: "t5", status: "cancelled" }]], 4));
+    await until(() => snapshot.isWorking === false, "the turn's result");
+    expect(client.turnRunning()).toBe(false);
+    expect(snapshot.stopping).toBeUndefined();
+    expect(snapshot.turnStartedAtMs).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
+test("a live idle after the turn ran ends it, with no result", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "fix the build", turnId: "t6" }],
+      ["mux", "turn_started", { turnId: "t6" }],
+      ["mux", "status", { status: "running" }],
+    ]),
+  );
+  let snapshot: any;
+  const client = await AcpmuxDirectClient.connect(
+    { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
+    (next: any) => (snapshot = next),
+    undefined,
+    daemon.open,
+  );
+  try {
+    await until(() => snapshot?.connection === "connected", "the attach");
+    expect(snapshot.isWorking).toBe(true);
+    daemon.push(record([["mux", "status", { status: "idle" }]], 4));
+    await until(() => snapshot.isWorking === false, "the live idle");
+    expect(client.turnRunning()).toBe(false);
+    expect(snapshot.turnStartedAtMs).toBeUndefined();
   } finally {
     client.close();
   }
