@@ -212,10 +212,7 @@ import Testing
         #expect(cache.changeSetNow(for: store.turns[2]) == changes)
         #expect(cache.computations == 2)
     }
-}
 
-/// The snippet's preview lines match `unifiedPreview` (the hunks with one line of context).
-@Suite struct EditPreviewTests {
     /// A tap on a snippet before its turn's diff landed waits for the one computing, off the
     /// main thread, instead of running the diff on the main thread.
     @Test func openingChangesBeforeTheDiffLandsNeverDiffsOnTheMainThread() async {
@@ -235,7 +232,10 @@ import Testing
         #expect(await cache.changeSetReady(for: store.turns[2]) == changes)
         #expect(cache.computations == 1)
     }
+}
 
+/// The snippet's preview lines match `unifiedPreview` (the hunks with one line of context).
+@Suite struct EditPreviewTests {
     @Test func previewLinesMatchUnifiedPreview() {
         let old = (0..<300).map { "line \($0)" }.joined(separator: "\n")
         let new = (0..<300).map { $0 % 7 == 0 || $0 % 11 == 0 ? "changed \($0)" : "line \($0)" }.joined(separator: "\n")
