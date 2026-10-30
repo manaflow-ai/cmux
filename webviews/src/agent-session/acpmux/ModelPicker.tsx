@@ -298,9 +298,9 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
 /// The rail's Starred tab (never a harness id).
 const STARRED = "\u0000starred";
 
-/// Every harness and every global launch configuration is its own rail tab with its own models
-/// (Claude Code, Claude Code (acp), claude-sr2, Codex, ...), never folded into another tab.
-/// Their model catalogs refresh after selection; do not borrow another account's models.
+/// Global launch configurations are distinct harness entries, never a Profile submenu.
+/// One whose own catalog entry lists models shows them, as any harness tab does; only one with
+/// no models of its own launches from its tab. Do not borrow another account's models.
 function railByHarness(
   list: QuickFamily[],
   running: string | undefined,
@@ -308,6 +308,8 @@ function railByHarness(
   signedOut: (id: string) => boolean = () => false,
 ): QuickFamily[] {
   const seen = new Set<string>();
+  const byId = new Map(list.map((family) => [family.id, family]));
+  const hasModels = (family: QuickFamily | undefined) => !!family && family.models.length + family.more.length > 0;
   return list.flatMap((family) => {
     if (seen.has(family.id)) return [];
     seen.add(family.id);
@@ -323,7 +325,7 @@ function railByHarness(
     );
     const currentName =
       names.find((profile) => profile.id === family.id)?.name ?? launchName(family.name, family.name, family.id);
-    const alternate = launchSuffix(family.id) && family.id !== running;
+    const alternate = launchSuffix(family.id) && family.id !== running && !hasModels(family);
     const own = { ...family, name: currentName, ...(alternate ? { launch: true } : {}) };
     return [
       own,
@@ -338,6 +340,8 @@ function railByHarness(
         )
           return [];
         seen.add(profile.id);
+        const entry = byId.get(profile.id);
+        if (hasModels(entry)) return [{ ...entry!, name: profile.name, mark: entry!.mark ?? family.mark }];
         return [
           {
             id: profile.id,
