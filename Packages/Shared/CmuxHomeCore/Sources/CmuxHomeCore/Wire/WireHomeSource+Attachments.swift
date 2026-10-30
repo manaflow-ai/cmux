@@ -153,7 +153,8 @@ extension WireHomeSource {
         var number = 1
         while true {
             try Task.checkCancellation()
-            guard let data = try handle.read(upToCount: size), !data.isEmpty else { break }
+            let data = try Self.readPart(size: size) { try handle.read(upToCount: $0) }
+            guard !data.isEmpty else { break }
             var request = URLRequest(url: url)
             request.httpMethod = answer["method"].string ?? "PUT"
             for (name, value) in answer["headers"].object ?? [:] {
@@ -176,6 +177,17 @@ extension WireHomeSource {
         }
         guard !parts.isEmpty else { throw HomeRejection.invalid("attachment.bad_answer") }
         return parts
+    }
+
+    /// One part of `size` bytes, or the rest of the file: `read` may return fewer bytes than asked
+    /// before the end (a short read), so it is called until the part is full or it returns nothing.
+    static func readPart(size: Int, _ read: (Int) throws -> Data?) throws -> Data {
+        var part = Data()
+        while part.count < size {
+            guard let next = try read(size - part.count), !next.isEmpty else { break }
+            part.append(next)
+        }
+        return part
     }
 
     private static func derived(_ image: AttachmentDerivedImage) -> HomeWireJSON {

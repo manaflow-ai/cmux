@@ -271,7 +271,8 @@ export const completingSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], a
 export const recordMultipartPart = (sql: Sql, id: string, part: number, etag: string, before: string | null, after: string, claim: string): boolean => {
   const slot = slotIn(sql, id, "open")
   if (!slot || slot.mode !== "multipart" || slot.part_claim !== claim || !claim.startsWith(`${part}:`) || (slot.multipart_hash ?? null) !== before || slot.expires_at + UPLOADING_GRACE_MS <= Date.now()) return false
-  sql.exec(`INSERT INTO ${PARTS} (slot, part, etag) VALUES (?, ?, ?)`, id, part, etag)
+  // Idempotent: the slot's hash state, not this row, says which parts are stored (both writes are one Durable Object event).
+  sql.exec(`INSERT OR REPLACE INTO ${PARTS} (slot, part, etag) VALUES (?, ?, ?)`, id, part, etag)
   sql.exec(`UPDATE ${SLOTS} SET multipart_hash = ?, expires_at = ?, part_claim = NULL, part_claim_at = NULL WHERE id = ?`, after, Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
   return true
 }
