@@ -293,7 +293,7 @@ fn a_new_workspace_follows_the_before_current_setting() {
 /// `create-workspace {current}`: the workspace the creating client shows
 /// places the new one, not the session's active workspace (a legacy default
 /// the app's windows never move). `afterCurrent` goes right after it; `top`
-/// and `bottom` keep the new row in its group (right after it, last), as the
+/// and `bottom` keep the new row in its group (first, last), as the
 /// app places it, so the app's own placement after the create moves nothing.
 #[test]
 fn a_new_workspace_follows_the_creating_clients_current_workspace() {
@@ -321,31 +321,35 @@ fn a_new_workspace_follows_the_creating_clients_current_workspace() {
         (key, id)
     };
     let bottom = NewWorkspacePlacement::Bottom.set_for_test();
-    let (a_key, a) = create("a", None);
+    let (_, a) = create("a", None);
     let (b_key, b) = create("b", None);
+    let (g_key, g) = create("g", None);
+    let (_, h) = create("h", None);
     drop(bottom);
     let work = group(&mux, "Work");
     mutate(&mux, "workspace.place", json!({"workspace": a, "group": work}), "a-in-work");
-    // Personal order now: b, then Work [a]. The session's active workspace is a.
+    mutate(&mux, "workspace.place", json!({"workspace": g, "group": work}), "g-in-work");
+    mutate(&mux, "workspace.place", json!({"workspace": h, "group": work}), "h-in-work");
+    // Personal order now: b, then Work [a, g, h]. The client shows the middle member g.
     mutate(&mux, "workspace.focus", json!({"workspace": a}), "focus-a");
     let after = NewWorkspacePlacement::AfterCurrent.set_for_test();
     let (_, c) = create("c", Some(Some(&b_key)));
     drop(after);
     let top = NewWorkspacePlacement::Top.set_for_test();
-    let (_, d) = create("d", Some(Some(&a_key)));
+    let (_, d) = create("d", Some(Some(&g_key)));
     drop(top);
     let bottom = NewWorkspacePlacement::Bottom.set_for_test();
-    let (_, e) = create("e", Some(Some(&a_key)));
+    let (_, e) = create("e", Some(Some(&g_key)));
     drop(bottom);
     // A window on a top page names no current workspace: the top, not beside the active one.
     mutate(&mux, "workspace.focus", json!({"workspace": a}), "focus-a-again");
     let after = NewWorkspacePlacement::AfterCurrent.set_for_test();
     let (_, f) = create("f", Some(None));
     drop(after);
-    let ids = [&a, &b, &c, &d, &e, &f].map(String::as_str);
+    let ids = [&a, &b, &c, &d, &e, &f, &g, &h].map(String::as_str);
     assert_eq!(
         listed(&mux, Some("personal"), &ids),
-        [f.as_str(), b.as_str(), c.as_str(), a.as_str(), d.as_str(), e.as_str()]
+        [f.as_str(), b.as_str(), c.as_str(), d.as_str(), a.as_str(), g.as_str(), h.as_str(), e.as_str()]
     );
     let placements = read(&mux, "workspace.placement.list", json!({}));
     let group_of = |id: &str| {

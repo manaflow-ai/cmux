@@ -124,6 +124,7 @@ enum NewWorkspacePlacements {
         case let anchor?: windows.newPlacements.anchors[id] = anchor
         case nil: break
         }
+        if windows.pendingPlacements[id] == nil { windows.pendingPlacementOrder.append(id) }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
     }
@@ -144,6 +145,7 @@ enum NewWorkspacePlacements {
     /// Drops what a create that ended without its workspace left for it.
     static func forget(_ id: String, windows: WindowManager) {
         windows.pendingPlacements[id] = nil
+        windows.pendingPlacementOrder.removeAll { $0 == id }
         windows.newPlacements.placedByDaemon.remove(id)
         windows.newPlacements.anchors[id] = nil
         windows.newPlacements.groupAnchors[id] = nil

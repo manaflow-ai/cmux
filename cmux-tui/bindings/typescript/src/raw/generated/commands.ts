@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2a4273b3de77ee2051c9429acea0cac6d50962f0f5752cafacf3798c4a8b247c. */
+/* cmux-tui mux protocol 12, IR 94b5b7d4c997cf56121177751733c7608c538d680bb00e10196427f9d0d6b471. */
 
 
 import type * as T from "./types.js";
@@ -548,6 +548,7 @@ export type CloudHostReplicaStatusResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface CloudInboxListRequest extends CmuxRequestBase {
   cmd: "cloud-inbox-list";
+  "cursor"?: (string) | null;
   "include_archived"?: boolean;
   "limit"?: (number) | null;
 }

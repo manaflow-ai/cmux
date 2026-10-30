@@ -132,6 +132,268 @@
         }
       }
     },
+    "settings.tabs.nativeNewTabPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native New Tab Page"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صفحة علامة تبويب جديدة أصلية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izvorna stranica nove kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indbygget ny fane-side"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Seite „Neuer Tab“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Página nativa de nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page Nouvel onglet native"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pagina Nuova scheda nativa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブの新規タブページ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រផ្ទាំងថ្មីដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네이티브 새 탭 페이지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Innebygd ny fane-side"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Natywna strona nowej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Página nativa de nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нативная страница новой вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าแท็บใหม่แบบเนทีฟ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerel Yeni Sekme Sayfası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нативна сторінка нової вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang thẻ mới gốc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生新标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生新分頁頁面"
+          }
+        }
+      }
+    },
+    "settings.tabs.nativeNewTabPage.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتح Cmd-T وزر + صفحة علامة التبويب الجديدة الأصلية بدلاً من صفحة الويب. تفتح أسرع وتعرض كل إجراءات لوحة الأوامر أثناء الكتابة. المحادثات الأخيرة والأدوات متاحة في صفحة الويب فقط حالياً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T i dugme + otvaraju izvornu stranicu nove kartice umjesto web stranice. Otvara se brže i dok kucate prikazuje sve radnje palete naredbi. Nedavni razgovori i widgeti zasad su samo na web stranici."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T og knappen + åbner den indbyggede ny fane-side i stedet for websiden. Den åbner hurtigere og viser alle handlinger fra kommandopaletten, mens du skriver. Seneste chats og widgets findes indtil videre kun på websiden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T und die Taste + öffnen die native Seite „Neuer Tab“ statt der Webseite. Sie öffnet schneller und zeigt beim Tippen jede Aktion der Befehlspalette. Letzte Chats und Widgets gibt es vorerst nur auf der Webseite."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T y el botón + abren la página nativa de nueva pestaña en lugar de la web. Se abre más rápido y muestra todas las acciones de la paleta de comandos mientras escribes. Los chats recientes y los widgets solo están en la página web por ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T et le bouton + ouvrent la page Nouvel onglet native au lieu de la page web. Elle s’ouvre plus vite et liste toutes les actions de la palette de commandes pendant la saisie. Les discussions récentes et les widgets restent pour l’instant sur la page web."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T e il pulsante + aprono la pagina Nuova scheda nativa invece di quella web. Si apre più velocemente e mostra ogni azione della palette dei comandi mentre scrivi. Chat recenti e widget sono per ora solo nella pagina web."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T と + ボタンで、Web 版の代わりにネイティブの新規タブページを開きます。より速く開き、入力中にコマンドパレットのすべてのアクションを表示します。最近のチャットとウィジェットは現在 Web 版のみです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T និងប៊ូតុង + បើកទំព័រផ្ទាំងថ្មីដើម ជំនួសទំព័រវេប។ វាបើកលឿនជាង ហើយបង្ហាញសកម្មភាពទាំងអស់នៃផ្ទាំងពាក្យបញ្ជា ពេលអ្នកវាយ។ ការជជែកថ្មីៗ និងធាតុក្រាហ្វិកមាននៅលើទំព័រវេបតែប៉ុណ្ណោះសម្រាប់ពេលនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T와 + 버튼이 웹 페이지 대신 네이티브 새 탭 페이지를 엽니다. 더 빨리 열리고 입력하는 동안 명령 팔레트의 모든 동작을 보여 줍니다. 최근 채팅과 위젯은 당분간 웹 페이지에만 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T og +-knappen åpner den innebygde ny fane-siden i stedet for nettsiden. Den åpner raskere og viser alle handlinger i kommandopaletten mens du skriver. Nylige chatter og widgeter finnes foreløpig bare på nettsiden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T i przycisk + otwierają natywną stronę nowej karty zamiast strony WWW. Otwiera się szybciej i podczas pisania pokazuje wszystkie akcje palety poleceń. Ostatnie czaty i widżety są na razie tylko na stronie WWW."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T e o botão + abrem a página nativa de nova aba em vez da web. Ela abre mais rápido e mostra todas as ações da paleta de comandos enquanto você digita. Conversas recentes e widgets ficam só na página web por enquanto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T и кнопка + открывают нативную страницу новой вкладки вместо веб-страницы. Она открывается быстрее и при вводе показывает все действия палитры команд. Недавние чаты и виджеты пока есть только на веб-странице."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T และปุ่ม + จะเปิดหน้าแท็บใหม่แบบเนทีฟแทนหน้าเว็บ เปิดได้เร็วกว่าและแสดงทุกการทำงานในจานคำสั่งขณะพิมพ์ แชทล่าสุดและวิดเจ็ตยังมีเฉพาะในหน้าเว็บในตอนนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T ve + düğmesi web sayfası yerine yerel Yeni Sekme sayfasını açar. Daha hızlı açılır ve yazarken komut paletindeki her eylemi listeler. Son sohbetler ve widget'lar şimdilik yalnızca web sayfasında."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T і кнопка + відкривають нативну сторінку нової вкладки замість вебсторінки. Вона відкривається швидше й під час введення показує всі дії палітри команд. Нещодавні чати й віджети поки є лише на вебсторінці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T và nút + mở trang thẻ mới gốc thay cho trang web. Trang mở nhanh hơn và liệt kê mọi thao tác của bảng lệnh khi bạn gõ. Các cuộc trò chuyện gần đây và tiện ích hiện chỉ có trên trang web."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T 和 + 按钮打开原生新标签页，而不是网页版。它打开更快，并在输入时列出命令面板中的所有操作。最近的聊天和小组件目前仅在网页版中提供。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-T 和 + 按鈕會開啟原生新分頁頁面，而非網頁版。它開啟更快，並在輸入時列出指令面板中的所有動作。最近的聊天與小工具目前僅在網頁版提供。"
+          }
+        }
+      }
+    },
     "settings.labs.machineJoin.help": {
       "extractionState": "manual",
       "localizations": {
@@ -122738,7 +123000,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place."
+            "value": "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot."
           }
         },
         "ar": {
@@ -147516,6 +147778,270 @@
         }
       }
     },
+    "settings.agentPane.display.rail.side": {
+      "comment": "Settings > Appearance > Agent Chat: which edge of the chat the prompt rail (one tick per prompt) sits on, Left or Right",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جانب شريط الطلبات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strana trake upita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Side for promptlinjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seite der Prompt-Leiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Rail Side"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lado de la barra de prompts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Côté de la barre des prompts"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lato della barra dei prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトレールの位置"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្នែកនៃរបារសំណើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트 레일 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Side for ledetekstlinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strona paska promptów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lado da barra de prompts"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сторона панели запросов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ด้านของแถบพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İstem çubuğunun tarafı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Бік панелі запитів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cạnh của thanh lời nhắc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示轨道位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示軌道位置"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.rail.side.help": {
+      "comment": "Settings > Appearance > Agent Chat > Prompt Rail Side: help for the Left / Right choice",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حافة المحادثة التي يظهر عليها شريط الطلبات، بعلامة لكل طلب. انقر بزر الماوس الأيمن على الشريط لنقله."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ivica razgovora na kojoj je traka upita, jedna crtica po upitu. Kliknite desnim klikom na traku da je premjestite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den kant af chatten, promptlinjen sidder ved, med ét mærke pr. prompt. Højreklik på linjen for at flytte den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Rand des Chats, an dem die Prompt-Leiste mit einem Strich pro Prompt sitzt. Zum Verschieben mit der rechten Maustaste auf die Leiste klicken."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El borde del chat en el que está la barra de prompts, una marca por prompt. Haz clic derecho en la barra para moverla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le bord du chat où se trouve la barre des prompts, un trait par prompt. Faites un clic droit sur la barre pour la déplacer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il bordo della chat su cui si trova la barra dei prompt, un segno per prompt. Fai clic destro sulla barra per spostarla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プロンプトごとに1本の目盛りを表示するプロンプトレールを、チャットのどちらの端に置くか。レールを右クリックして移動できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គែមនៃការជជែកដែលរបារសំណើស្ថិតនៅ ដោយមានសញ្ញាមួយសម្រាប់សំណើនីមួយៗ។ ចុចស្ដាំលើរបារដើម្បីផ្លាស់ទីវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트마다 눈금 하나를 표시하는 프롬프트 레일이 놓일 채팅 가장자리입니다. 레일을 오른쪽 클릭해 옮길 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanten av chatten ledetekstlinjen sitter på, med ett merke per ledetekst. Høyreklikk på linjen for å flytte den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Krawędź czatu, przy której jest pasek promptów, jedna kreska na prompt. Kliknij pasek prawym przyciskiem, aby go przenieść."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A borda do chat em que fica a barra de prompts, um traço por prompt. Clique com o botão direito na barra para movê-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Край чата, у которого находится панель запросов, по одной отметке на запрос. Чтобы переместить её, щёлкните по ней правой кнопкой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขอบของแชทที่แถบพรอมต์อยู่ หนึ่งขีดต่อหนึ่งพรอมต์ คลิกขวาที่แถบเพื่อย้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İstem çubuğunun durduğu sohbet kenarı; her istem için bir çizgi. Taşımak için çubuğa sağ tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Край чату, біля якого розташована панель запитів, по одній позначці на запит. Щоб перемістити її, клацніть по ній правою кнопкою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cạnh của cuộc trò chuyện nơi đặt thanh lời nhắc, mỗi lời nhắc một vạch. Nhấp chuột phải vào thanh để di chuyển."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示轨道（每条提示一个刻度）位于聊天的哪一侧。右键点按轨道即可移动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示軌道（每則提示一個刻度）位於聊天的哪一側。按右鍵點按軌道即可移動。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.width": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",
@@ -160296,7 +160822,7 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma i Excalidraw zadržavaju zumiranje sa Command + pomicanje"
+            "value": "Figma i Excalidraw zadržavaju zum sa Command + pomicanje"
           }
         },
         "da": {
@@ -160308,25 +160834,25 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma und Excalidraw behalten das Zoomen mit Befehl + Scrollen"
+            "value": "Figma und Excalidraw behalten Zoom mit Befehl + Scrollen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma y Excalidraw conservan el zoom con Comando + desplazamiento"
+            "value": "Figma y Excalidraw: zoom con Comando + desplazamiento"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma et Excalidraw gardent le zoom avec Commande + défilement"
+            "value": "Figma et Excalidraw : zoom avec Commande + défilement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma ed Excalidraw mantengono lo zoom con Comando + scorrimento"
+            "value": "Figma ed Excalidraw: zoom con Comando + scorrimento"
           }
         },
         "ja": {
@@ -160356,7 +160882,7 @@
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma i Excalidraw zachowują powiększanie Command + przewijanie"
+            "value": "Figma i Excalidraw: powiększanie Command + przewijanie"
           }
         },
         "pt-BR": {
@@ -160368,7 +160894,7 @@
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma и Excalidraw сохраняют масштабирование через Command + прокрутку"
+            "value": "Figma и Excalidraw: масштаб через Command + прокрутку"
           }
         },
         "th": {
@@ -160380,19 +160906,19 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma ve Excalidraw, Command + kaydırma ile yakınlaştırmayı korur"
+            "value": "Figma ve Excalidraw'da Command + kaydırma yakınlaştırır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma та Excalidraw зберігають масштабування через Command + прокручування"
+            "value": "Figma та Excalidraw: масштаб через Command + прокручування"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Figma và Excalidraw giữ thao tác thu phóng bằng Command + cuộn"
+            "value": "Figma và Excalidraw giữ thu phóng bằng Command + cuộn"
           }
         },
         "zh-Hans": {
@@ -183664,7 +184190,151 @@
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "边栏的“新建工作区”按钮、空间、个人资料按钮和“搜索”按钮，以及其上方的边栏按钮、“后退”和“前进”，仅在指针位于边栏上方时显示。关闭时始终显示。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄的「新增工作區」按鈕、空間、個人檔案按鈕和「搜尋」按鈕，以及其上方的側邊欄按鈕、「上一頁」和「下一頁」，僅在指標位於側邊欄上方時顯示。關閉時一律顯示。"}}
       }
-    }
+    },
+    "settings.agentPane.showMachineLoadWarnings": {
+        "comment": "Agent Chat setting: whether the Computer menu warns about remote machine CPU or memory pressure.",
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Show Machine Load Warnings"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Warnungen zur Maschinenlast anzeigen"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Afficher les avertissements de charge de la machine"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "إظهار تحذيرات حمل الجهاز"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Mostrar advertencias de carga de la máquina"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "顯示機器負載警告"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "显示机器负载警告"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "컴퓨터 부하 경고 표시"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "マシン負荷の警告を表示"
+            }
+          },
+          "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži upozorenja o opterećenju mašine"}},
+          "da": {"stringUnit": {"state": "needs_review", "value": "Vis advarsler om maskinbelastning"}},
+          "it": {"stringUnit": {"state": "needs_review", "value": "Mostra avvisi sul carico della macchina"}},
+          "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញការព្រមានអំពីបន្ទុកម៉ាស៊ីន"}},
+          "nb": {"stringUnit": {"state": "needs_review", "value": "Vis advarsler om maskinbelastning"}},
+          "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuj ostrzeżenia o obciążeniu maszyny"}},
+          "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar avisos de carga da máquina"}},
+          "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать предупреждения о нагрузке на машину"}},
+          "th": {"stringUnit": {"state": "needs_review", "value": "แสดงคำเตือนการใช้งานเครื่องสูง"}},
+          "tr": {"stringUnit": {"state": "needs_review", "value": "Makine yükü uyarılarını göster"}},
+          "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати попередження про навантаження на машину"}},
+          "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị cảnh báo tải máy"}}
+        }
+      },
+    "settings.agentPane.showMachineLoadWarnings.help": {
+        "comment": "Agent Chat setting help: explains the Computer menu machine-load warning.",
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Zeigt im Computermenü eine Warnung an, wenn ein entfernter Rechner sein CPU- oder Speicherlimit erreicht."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Affiche un avertissement dans le menu Ordinateur lorsqu’une machine distante atteint sa limite de processeur ou de mémoire."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "يعرض تحذيرًا في قائمة الكمبيوتر عندما يصل جهاز بعيد إلى حد المعالج أو الذاكرة."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Muestra una advertencia en el menú Ordenador cuando una máquina remota alcanza su límite de CPU o memoria."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "遠端機器達到 CPU 或記憶體上限時，在「電腦」選單中顯示警告。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "远程机器达到 CPU 或内存上限时，在“电脑”菜单中显示警告。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "원격 컴퓨터가 CPU 또는 메모리 한도에 도달하면 컴퓨터 메뉴에 경고를 표시합니다."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "リモートマシンが CPU またはメモリの上限に達したとき、「コンピュータ」メニューに警告を表示します。"
+            }
+          },
+          "bs": {"stringUnit": {"state": "needs_review", "value": "Prikazuje upozorenje u meniju Računar kada udaljena mašina dostigne ograničenje procesora ili memorije."}},
+          "da": {"stringUnit": {"state": "needs_review", "value": "Viser en advarsel i menuen Computer, når en fjernmaskine når sin CPU- eller hukommelsesgrænse."}},
+          "it": {"stringUnit": {"state": "needs_review", "value": "Mostra un avviso nel menu Computer quando una macchina remota raggiunge il limite di CPU o memoria."}},
+          "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញការព្រមានក្នុងម៉ឺនុយកុំព្យូទ័រ នៅពេលម៉ាស៊ីនពីចម្ងាយឈានដល់កម្រិត CPU ឬអង្គចងចាំ។"}},
+          "nb": {"stringUnit": {"state": "needs_review", "value": "Viser en advarsel i Datamaskin-menyen når en ekstern maskin når CPU- eller minnegrensen."}},
+          "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuje ostrzeżenie w menu Komputer, gdy zdalna maszyna osiągnie limit procesora lub pamięci."}},
+          "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostra um aviso no menu Computador quando uma máquina remota atinge seu limite de CPU ou memória."}},
+          "ru": {"stringUnit": {"state": "needs_review", "value": "Показывает предупреждение в меню «Компьютер», когда удалённая машина достигает лимита ЦП или памяти."}},
+          "th": {"stringUnit": {"state": "needs_review", "value": "แสดงคำเตือนในเมนูคอมพิวเตอร์เมื่อเครื่องระยะไกลใช้ CPU หรือหน่วยความจำถึงขีดจำกัด"}},
+          "tr": {"stringUnit": {"state": "needs_review", "value": "Uzak bir makine CPU veya bellek sınırına ulaştığında Bilgisayar menüsünde uyarı gösterir."}},
+          "uk": {"stringUnit": {"state": "needs_review", "value": "Показує попередження в меню «Комп’ютер», коли віддалена машина досягає обмеження ЦП або пам’яті."}},
+          "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị cảnh báo trong menu Máy tính khi máy từ xa đạt đến giới hạn CPU hoặc bộ nhớ."}}
+        }
+      }
   },
   "version": "1.0"
 }

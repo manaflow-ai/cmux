@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2a4273b3de77ee2051c9429acea0cac6d50962f0f5752cafacf3798c4a8b247c. */
+/* cmux-tui mux protocol 12, IR 94b5b7d4c997cf56121177751733c7608c538d680bb00e10196427f9d0d6b471. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2a4273b3de77ee2051c9429acea0cac6d50962f0f5752cafacf3798c4a8b247c" as const;
+export const SDK_IR_SHA256 = "94b5b7d4c997cf56121177751733c7608c538d680bb00e10196427f9d0d6b471" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -687,7 +687,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+      "Trusted local connections only. limit is 1-200. One page from cursor (the next_cursor of the page before), with the owner's next_cursor (null on the last page). Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
   "cloud-inbox-op": {
@@ -16253,6 +16253,14 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "cursor": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "include_archived": {
           "default": false,
           "nullable": false,

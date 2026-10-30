@@ -57,6 +57,8 @@ final class WindowManager {
     var pendingPlacements: [String: PendingPlacement] = [:]
     /// What new workspaces' creates left for their placement (`NewWorkspacePlacements`).
     let newPlacements = NewWorkspacePlacements.Ledger()
+    /// Registration order survives a daemon snapshot that reports several creates together.
+    var pendingPlacementOrder: [String] = []
     /// Windows none of whose workspaces a machine reports yet (just created,
     /// or saved with workspaces that are gone or on a Cloud machine still
     /// connecting): kept off screen until their content is installed, so no

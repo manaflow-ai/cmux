@@ -41,7 +41,11 @@ final class SidebarTunablesWatch {
     func tabLook(for row: SidebarTabRowView) -> SidebarTabLineLook {
         tabRows.add(row)
         if let tabLook { return tabLook }
-        let look = withObservationTracking { SidebarTunables.tabLines.value } onChange: {
+        let look = withObservationTracking {
+            // A tab-only viewport still follows its offscreen parent's leading mark.
+            _ = SidebarTunables.agentMark.value
+            return SidebarTunables.tabLines.value
+        } onChange: {
             Task { @MainActor in SidebarTunablesWatch.shared.changed() }
         }
         tabLook = look
@@ -60,6 +64,10 @@ final class SidebarTunablesWatch {
             row.needsLayout = true
             row.closeButton.needsLayout = true
         }
-        for row in tabRows.allObjects { row.redrawLastConfiguration() }
+        for row in tabRows.allObjects {
+            row.redrawLastConfiguration()
+            // The parent's title column can change while the tab's own Content stays equal.
+            row.needsLayout = true
+        }
     }
 }

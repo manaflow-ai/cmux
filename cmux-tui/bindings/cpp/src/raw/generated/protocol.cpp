@@ -17575,6 +17575,11 @@ Result<CloudHostReplicaStatusRequest> Codec<CloudHostReplicaStatusRequest>::deco
 Result<Json> Codec<CloudInboxListRequest>::encode(const CloudInboxListRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.cursor.is_absent()) {
+        auto encoded = encode_value(value.cursor);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cursor", std::move(encoded).value());
+    }
     if (value.include_archived) {
         auto encoded = encode_value(*value.include_archived);
         if (!encoded) return std::move(encoded).error();
@@ -17592,6 +17597,16 @@ Result<CloudInboxListRequest> Codec<CloudInboxListRequest>::decode(const Json& v
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     CloudInboxListRequest result{};
+    const Json* field_cursor = value.find("cursor");
+    if (field_cursor) {
+        if (field_cursor->is_null()) {
+            result.cursor = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_cursor);
+            if (!decoded) return std::move(decoded).error();
+            result.cursor = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_include_archived = value.find("include_archived");
     if (field_include_archived) {
         auto decoded = decode_value<bool>(*field_include_archived);

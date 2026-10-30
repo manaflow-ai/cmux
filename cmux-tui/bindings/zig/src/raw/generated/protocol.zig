@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2a4273b3de77ee2051c9429acea0cac6d50962f0f5752cafacf3798c4a8b247c";
+pub const ir_sha256 = "94b5b7d4c997cf56121177751733c7608c538d680bb00e10196427f9d0d6b471";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4458,6 +4458,7 @@ pub fn cloudHostReplicaStatus(client: anytype, request: CloudHostReplicaStatusRe
 }
 
 pub const CloudInboxListRequest = struct {
+    cursor: wire.Field([]const u8) = .absent,
     include_archived: ?bool = null,
     limit: wire.Field(u32) = .absent,
 

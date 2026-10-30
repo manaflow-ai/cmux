@@ -120,6 +120,16 @@ enum AgentHandlers {
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(context, invocation)?.toggleSessionInfo()
         }
+        registry.bindAgentPageCommands(available: { invocation in
+            // Read only: no refusal while the palette asks whether a row is enabled.
+            let scope = context.scope(invocation)
+            guard let key = scope.tab?.id.rawValue ?? scope.pane?.currentTabKey,
+                  let model = context.services.agentTabs.existingView(key)?.model else { return nil }
+            // The New Tab page runs none of the chat's controls.
+            return model.newTab == nil ? model.pageCommands : []
+        }, run: { command, invocation in
+            focusedAgentView(context, invocation)?.run(command)
+        })
         registry.bindAgentPaneInspector { invocation in
             guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
             guard let key = pane.currentTabKey, let view = context.services.agentTabs.existingView(key) else {
@@ -155,6 +165,10 @@ enum AgentHandlers {
                 return context.refuse(MiscHandlerStrings.noAgentChat)
             }
             view.toggleDictation()
+        })
+        // Stop Reading Aloud: the app's one voice (AgentPaneReadAloud), from any window, chat or none.
+        registry.bindEffect("agentPane.stopReadingAloud", requires: nil, effect: { _ in
+            context.services.agentTabs.readAloud.stop() ? .done : .refused(MiscHandlerStrings.nothingReadAloud)
         })
         // Search Agent Chats (decision K1): the command palette's chats page, from anywhere.
         context.services.palette.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in
@@ -205,27 +219,22 @@ enum AgentHandlers {
             }
             view.showContinueIn()
         })
-        // Switch Model… (Ctrl-Cmd-M) opens the page's model picker; the view gives the page the
-        // keyboard first, so the menu's search field gets it wherever focus was in the pane.
-        registry.bind("agentPane.switchModel", run: { invocation in
-            guard invocation.allowsViewChange else {
-                return context.refuse(MiscHandlerStrings.switchModelNeedsFocus)
-            }
-            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
-                  let view = context.services.agentTabs.existingView(key) else {
-                return context.refuse(MiscHandlerStrings.switchModelNeedsAgentChat)
-            }
-            view.showModelPicker()
-        })
-        // Search Files… (Cmd-P, cx-ncc.69) opens the composer's file search, keyboard in its field.
-        registry.bind("agentPane.searchFiles", run: { invocation in
-            guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.pickerNeedsFocus) }
-            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
-                  let view = context.services.agentTabs.existingView(key) else {
-                return context.refuse(MiscHandlerStrings.searchFilesNeedsAgentChat)
-            }
-            view.showFileSearch()
-        })
+        // The focused chat's page takes the keyboard, then opens the model picker, file search,
+        // or `/btw`'s side-question composer. The gate is published live from Debug Settings.
+        let keyboardCommands: [(ActionID, () -> String, () -> String, (AgentPaneView) -> Void)] = [
+            ("agentPane.switchModel", { MiscHandlerStrings.switchModelNeedsFocus }, { MiscHandlerStrings.switchModelNeedsAgentChat }, { $0.showModelPicker() }),
+            ("agentPane.searchFiles", { MiscHandlerStrings.pickerNeedsFocus }, { MiscHandlerStrings.searchFilesNeedsAgentChat }, { $0.showFileSearch() }),
+            ("agentPane.sideQuestion", { MiscHandlerStrings.sideQuestionNeedsFocus }, { MiscHandlerStrings.sideQuestionNeedsAgentChat }, { $0.askSideQuestion() }),
+        ]
+        for (id, needsFocus, needsChat, run) in keyboardCommands {
+            registry.bind(id, run: { invocation in
+                guard invocation.allowsViewChange else { return context.refuse(needsFocus()) }
+                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                      let view = context.services.agentTabs.existingView(key) else { return context.refuse(needsChat()) }
+                run(view)
+            })
+        }
+        registry.publishSideSessions()
         registry.bind("agentPane.createCheckpoint", run: { invocation in
             guard invocation.allowsViewChange else {
                 return context.refuse(MiscHandlerStrings.checkpointNeedsFocus)
