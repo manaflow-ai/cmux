@@ -608,29 +608,26 @@ async fn a_peer_whose_list_needed_pages_of_rows_is_read_in_them_at_once_next_tim
     assert_eq!(rows.len(), OLD_ROWS);
 }
 
-/// Each page of a watch list read in pages moves the handshake's deadline on: an old-style peer
-/// slower than the deadline over the whole list, but answering each page within it, links.
-#[tokio::test(start_paused = true)]
-async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
-    let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("web", "ws://10.0.0.9:9", None, None, tx);
-    let (ours, theirs) = tokio::io::duplex(1 << 16);
-    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
-    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
-    // Five pages, each 40 s apart: 200 s in all, past the 90 s deadline.
-    let fake = tokio::spawn(async move {
+/// A fake peer on `server` that answers `initialize` and every other request with `{}`, and
+/// sends its watch list in `pages` pages of one row, each `gap` after it was asked for.
+fn slow_pages_peer(
+    mut server: WebSocketStream<tokio::io::DuplexStream>,
+    pages: u64,
+    gap: Duration,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
         while let Some(Ok(frame)) = server.next().await {
             let Frame::Text(text) = frame else { continue };
             let msg: Value = serde_json::from_str(&text).unwrap();
             let Some(id) = msg.get("id").cloned() else { continue };
             let result = match msg["method"].as_str() {
                 Some(method::MUX_WATCH | method::MUX_SESSIONS) => {
-                    tokio::time::sleep(Duration::from_secs(40)).await;
+                    tokio::time::sleep(gap).await;
                     let at: u64 = msg["params"]["cursor"]
                         .as_str()
                         .map_or(0, |c| c.trim_start_matches('h').parse().unwrap());
-                    let next = (at < 4).then(|| format!("h{}", at + 1));
-                    json!({"sessions": [{"sessionId": format!("p{at}"), "updatedAt": 9 - at}], "nextCursor": next})
+                    let next = (at + 1 < pages).then(|| format!("h{}", at + 1));
+                    json!({"sessions": [{"sessionId": format!("p{at}"), "updatedAt": 1000 - at}], "nextCursor": next})
                 }
                 _ => json!({}),
             };
@@ -639,7 +636,20 @@ async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
                 return;
             }
         }
-    });
+    })
+}
+
+/// Each page of a watch list read in pages moves the handshake's deadline on: an old-style peer
+/// slower than the deadline over the whole list, but answering each page within it, links.
+#[tokio::test(start_paused = true)]
+async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("web", "ws://10.0.0.9:9", None, None, tx);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    // Five pages, each 40 s apart: 200 s in all, past the 90 s deadline.
+    let fake = slow_pages_peer(server, 5, Duration::from_secs(40));
     let mut out_rx = peer.out_rx.lock().await.take().unwrap();
     let link = peer.clone();
     let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
@@ -657,6 +667,30 @@ async fn a_paged_watch_list_slower_than_the_deadline_in_all_still_links() {
     }
     assert_eq!(listed.expect("the whole list").len(), 5);
     serving.abort();
+    fake.abort();
+}
+
+/// The pages move the deadline on only up to [`HANDSHAKE_MOST`] in all: a peer whose pages keep
+/// coming in time, with the last one due right at that cap, is cut there and never connects.
+#[tokio::test(start_paused = true)]
+async fn a_paged_watch_list_is_cut_at_the_handshake_cap() {
+    let (tx, mut notices) = mpsc::channel(64);
+    let peer = Peer::new("web", "ws://10.0.0.9:9", None, None, tx);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let gap = Duration::from_secs(50);
+    let pages = HANDSHAKE_MOST.as_secs().div_ceil(gap.as_secs());
+    let fake = slow_pages_peer(server, pages, gap);
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let started = tokio::time::Instant::now();
+    let ended = peer.serve(client, &mut out_rx).await;
+    let why = ended.expect_err("the handshake is cut");
+    assert!(why.contains("handshake timed out after"), "{why}");
+    assert!(started.elapsed() <= HANDSHAKE_MOST, "cut at the cap: {:?}", started.elapsed());
+    while let Ok((_, _, notice)) = notices.try_recv() {
+        assert!(!matches!(notice, PeerNotice::Connected), "never connects");
+    }
     fake.abort();
 }
 

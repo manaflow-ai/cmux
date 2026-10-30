@@ -1386,7 +1386,7 @@ impl Peer {
                     }
                 }
                 _ = &mut handshake_deadline, if !self.link().is_ready() => {
-                    break Err(format!("handshake timed out after {}s", handshake_started.elapsed().as_secs()));
+                    break Err(timed_out(handshake_started));
                 }
                 _ = ping.tick() => {
                     let silent = last_frame.elapsed();
@@ -1411,6 +1411,11 @@ impl Peer {
                 frame = source.next() => {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
+                    // `select!` is unbiased: a frame read as the deadline passes may not finish
+                    // the handshake (or move the deadline on past its cap).
+                    if !self.link().is_ready() && handshake_deadline.is_elapsed() {
+                        break Err(timed_out(handshake_started));
+                    }
                     last_frame = tokio::time::Instant::now();
                     wake_probe = None;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
@@ -1671,6 +1676,11 @@ const WATCH_PAGE_BYTES: u64 = 8 << 20;
 
 /// The most rows a watch page read by count asks for.
 const WATCH_MAX_ROWS: u64 = 1 << 16;
+
+/// Why a handshake that ran out of time failed.
+fn timed_out(started: tokio::time::Instant) -> String {
+    format!("handshake timed out after {}s", started.elapsed().as_secs())
+}
 
 /// The rows of the next page, from `page`'s: as many as fit in [`WATCH_PAGE_BYTES`] at its
 /// mean row size. None for a page with no rows.
