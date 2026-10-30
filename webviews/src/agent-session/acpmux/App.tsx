@@ -184,6 +184,8 @@ import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { PeerCopyBanner } from "./PeerCopyBanner";
+import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
+import { readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
@@ -8887,6 +8889,18 @@ function AcpmuxPane() {
   };
   const runHeaderActionRef = useRef(runHeaderAction);
   runHeaderActionRef.current = runHeaderAction;
+  // The account's machine a Cloud chat runs on, for the chat menu's Pause and Resume; the
+  // account's list is read when such a chat shows (and after each pick), never on a timer.
+  const accountMachines = useCloudMachines();
+  const chatMachine = chatCloudMachine(summary, accountMachines);
+  const cloudChat = preview && summary?.hostKind === "cloud";
+  useEffect(() => {
+    if (cloudChat) void refreshCloudMachines();
+  }, [cloudChat, snapshot.sessionId]);
+  // Stop and Pause waits for the chat's turn to end before it pauses (cloudMachineMenu.ts): its
+  // own turn state, which a forced stop's cleared working indicator does not end.
+  const stopWaiter = useMemo(createStopWaiter, []);
+  useEffect(() => stopWaiter.changed(), [snapshot, stopWaiter]);
   // A remote or cloud chat's folder is not on this Mac; its terminal opens in the pane's folder.
   instructionsFolder.current = localCwd;
   chatIsLocal.current = localCwd !== undefined;
@@ -9098,6 +9112,28 @@ function AcpmuxPane() {
   const newBrowser = () => runSplitAction(HEADER_ACTIONS.browser, undefined, "open");
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
+    // Pause or Resume the chat's Cloud machine (cloudMachineMenu.ts), with Labs > Preview features
+    // as the account's machines in the composer's machine list are.
+    const machine =
+      preview && !quick
+        ? cloudMachineRows(
+            chatMachine,
+            snapshot.isWorking,
+            t,
+            (method, params) => callNative(method, params),
+            (picked) => void readUntilMoved(picked),
+            () => {
+              const client = directClient.current;
+              return { session: client?.shownSession()?.sessionId, running: client?.turnRunning() ?? false };
+            },
+            (session) =>
+              stopWaiter.wait(() => {
+                const client = directClient.current;
+                return client !== undefined && client.shownSession()?.sessionId === session && client.turnRunning();
+              }),
+            snapshot.sessionId,
+          )
+        : [];
     const copy = copyRow(
       { link, rows: snapshot.rows, sessionId: snapshot.sessionId },
       (text) => ignoreFailure(copyText(text)),
@@ -9239,6 +9275,7 @@ function AcpmuxPane() {
             ]
           : []),
       ],
+      machine,
       tools,
       [
         ...avatar,
