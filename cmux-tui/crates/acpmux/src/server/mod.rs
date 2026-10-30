@@ -1747,6 +1747,10 @@ mod windows_socket;
 use requests::handle_notification;
 
 #[cfg(test)]
+#[path = "mirror_relay_tests.rs"]
+mod mirror_relay_tests;
+
+#[cfg(test)]
 mod request_admission_tests {
     use super::{
         NOTIFICATION_QUEUE_LIMIT, NOTIFICATION_WORK_LIMIT, REQUEST_WORK_LIMIT,
