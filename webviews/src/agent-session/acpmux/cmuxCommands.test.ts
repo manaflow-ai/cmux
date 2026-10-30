@@ -26,7 +26,7 @@ test("status is available before harness commands and stays cmux-owned", () => {
   expect(commands.find((command) => command.name === "side")).toMatchObject({
     source: "cmux",
     action: "side",
-    descriptionKey: "composer.slashFork",
+    descriptionKey: "composer.slashSide",
   });
 });
 

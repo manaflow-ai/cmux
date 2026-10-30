@@ -1,3 +1,5 @@
+import { cliOnlyCommand } from "./cliOnlyCommands";
+import type { StringKey } from "./i18n";
 import type { SlashCommand } from "./slashCommands";
 
 /** Commands owned by cmux and available in every harness chat. Their description is a pane string. */
@@ -18,6 +20,20 @@ export type CmuxCommand = SlashCommand & {
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
+/// A handler's answer that the prompt goes to the harness as typed, through the normal send path
+/// (attachments and steer included), as if cmux did not own the command.
+export const CMUX_PASS_THROUGH: unique symbol = Symbol("cmux.passThrough");
+
+const HARNESS_TOO: ReadonlySet<CmuxCommand["action"]> = new Set(["model", "fast", "context", "plan", "passThrough"]);
+
+/// A command the harness also takes as typed: with no host to run cmux's own version, it is sent.
+export function harnessTakesToo(command: CmuxCommand): boolean {
+  return HARNESS_TOO.has(command.action);
+}
+
+/** A command handler may return a user-facing refusal while keeping the draft in the field. */
+export type CmuxCommandResult = boolean | void | string | typeof CMUX_PASS_THROUGH | Promise<unknown>;
+
 export const CMUX_COMMANDS: readonly CmuxCommand[] = [
   {
     name: "model",
@@ -35,7 +51,8 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
   },
   {
     name: "context",
-    description: "Open context details",
+    description: "",
+    descriptionKey: "composer.slashContext",
     source: "cmux",
     action: "context",
   },
@@ -79,7 +96,7 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
   {
     name: "side",
     description: "",
-    descriptionKey: "composer.slashFork",
+    descriptionKey: "composer.slashSide",
     source: "cmux",
     action: "side",
   },
@@ -98,13 +115,15 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
 const PASS_THROUGH_FALLBACKS: readonly CmuxCommand[] = [
   {
     name: "compact",
-    description: "Compact the conversation",
+    description: "",
+    descriptionKey: "composer.slashCompact",
     source: "cmux",
     action: "passThrough",
   },
   {
     name: "clear",
-    description: "Clear the conversation",
+    description: "",
+    descriptionKey: "composer.slashClear",
     source: "cmux",
     action: "passThrough",
   },
@@ -164,4 +183,61 @@ export function resolveHarnessTarget(
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Recognition is independent of menu availability: a disabled cmux command still belongs to cmux. */
+export function composerCommand(
+  text: string,
+  harness?: string,
+  attachmentCount = 0,
+):
+  | { kind: "cmux"; command: CmuxCommand; args: string }
+  | { kind: "cliOnly"; key: StringKey; name: string }
+  | undefined {
+  const cliOnly = attachmentCount === 0 ? cliOnlyCommand(text, harness) : undefined;
+  if (cliOnly) return { kind: "cliOnly", key: `composer.cliOnly.${cliOnly.use}`, name: cliOnly.name };
+  for (const command of CMUX_COMMANDS) {
+    const args = commandArgs(text, command);
+    if (args !== undefined) return { kind: "cmux", command, args };
+  }
+}
+
+/** The same refusal policy is used before either composer dispatches a command. */
+export function cmuxCommandRefusal(
+  command: CmuxCommand,
+  args: string | undefined,
+  state: {
+    summary: boolean;
+    forkable: boolean;
+    sideAvailable: boolean;
+    canContinue: boolean;
+    sideSessions: boolean;
+    session: boolean;
+    isSideSession: boolean;
+    targets: readonly HarnessTarget[];
+  },
+): StringKey | undefined {
+  switch (command.action) {
+    case "import":
+    case "model":
+    case "fast":
+    case "context":
+    case "plan":
+    case "passThrough":
+      return undefined;
+    case "status":
+      return state.summary ? undefined : "composer.cmuxStatusUnavailable";
+    case "side":
+      return !args?.trim() && state.forkable && state.sideAvailable ? undefined : "composer.cmuxSideUnavailable";
+    case "fork":
+      if (args?.trim()) return "composer.cmuxForkArgs";
+      return state.forkable ? undefined : "composer.cmuxForkBusy";
+    case "continue":
+      if (args?.trim() && !resolveHarnessTarget(args, state.targets)) return "composer.cmuxContinueUnknown";
+      return state.canContinue ? undefined : "composer.cmuxContinueBusy";
+    case "btw":
+      if (!state.sideSessions) return "composer.cmuxBtwDisabled";
+      if (!args?.trim()) return "composer.cmuxBtwQuestion";
+      return state.session && !state.isSideSession ? undefined : "composer.cmuxUnavailable";
+  }
 }

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1219,
+    "entries": 1220,
     "shortcuts": 189
   },
   "sections": [
@@ -2639,7 +2639,7 @@
         },
         {
           "id": "palette.copyIdentifiers",
-          "title": "Copy Identifiers",
+          "title": "Copy IDs",
           "shortcut": null,
           "command": null
         },
@@ -5588,6 +5588,12 @@
           "title": "Archive Chat",
           "shortcut": "⌃⌘A",
           "command": "cmux agent archive-chat"
+        },
+        {
+          "id": "agentPane.sideQuestion",
+          "title": "Ask a Side Question…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "agentChat.subagentLimit",
