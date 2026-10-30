@@ -47,7 +47,8 @@ pub(crate) enum ShellMark {
     /// `A` with `k=s` or `k=c`: a secondary prompt, either a later line of a
     /// multi-line primary prompt (kitty marks them so) or a continuation
     /// prompt (PS2). It starts no prompt and ends no command
-    /// (`terminal_activity` tells the two apart by the marks before it).
+    /// (`terminal_activity` reads it as a line of the primary prompt only
+    /// when that prompt's `B` ends the same draw).
     SecondaryPromptStart,
     /// `A` with `k=r`: a right prompt (zsh's RPROMPT), drawn after the
     /// primary prompt's `B`. It answers no line and ends no command.

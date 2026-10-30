@@ -11,9 +11,30 @@
 //! one write, sessions in turn, and never syncs: a log it closes (evicted, full, or its session
 //! closed) stays on the dirty list, and `flush` (shutdown) syncs every log written since the
 //! last flush, closed ones too, so a flush still leaves everything durable. A read of a session's
-//! log (`settle`) first waits for that session's queued lines, so readers see every append made
-//! before the read. `progress` tells an agent host's reader what is on disk, so a host entry is
-//! acknowledged only once its record is written (`agent_host` keeps it until then).
+//! log (`settle`) first waits for the lines that session had queued when the read began (written
+//! in the next batch of waited-for sessions; see Order below), so readers see every append made
+//! before the read; a flush waits for every line queued
+//! before it. Neither waits for a queue to be empty: a chat that streams queues its next token
+//! while the one before it is written, so its queue never is, and a read that waited for that
+//! got no reply while the chat streamed (fleet job 88f5f7da34f5480fc9817e95). `progress` tells
+//! an agent host's reader what is on disk, so a host entry is acknowledged only once its record
+//! is written (`agent_host` keeps it until then).
+//!
+//! Order: requests and reads that wait for a session's lines (`expedite`, `settle`) are served
+//! in batches, in the order they arrived. The writer takes every session with a waiter as one
+//! batch; a waiter that arrives while a batch is written goes in the next batch, never ahead of
+//! one that waited before it (the newest waiter used to go first, and at 80 clients an early
+//! request waited until the others stopped: 20.4 s at p99, fleet job 7bc67123c95ede759d91350d).
+//! Between two batches the writer writes one session in its background turn, so a streaming chat
+//! and a shutdown flush are never starved by a steady stream of requests. A waiter therefore
+//! waits for at most: the write in progress, the rest of the current batch, one background
+//! write, and its own batch.
+//!
+//! Priority: the thread runs at Utility. A waiter raises it to the waiter's QoS for as long as
+//! it waits (`cmux_threads::OwnerBoost`: the writer holds it for each write, a waiter that comes
+//! during a write raises that write, and each later write starts raised while a waiter is
+//! counted), as Chromium's priority-inheritance locks raise the owner a higher thread waits on.
+//! With no waiter the writes run at Utility again.
 //!
 //! The thread is hang-watched (`daemon/hang_watch.rs`): each session's write is one item of
 //! [`WRITE_ITEM`], never the wait for the next one.
@@ -46,23 +67,145 @@ impl Progress {
     }
 }
 
-/// The lines one session has queued, and the last record among them.
+/// The lines one session has queued, the last record among them, and the ticket of the last
+/// line ([`State::tickets`]).
 #[derive(Default)]
 struct Queued {
     lines: Vec<u8>,
     last: u64,
+    ticket: u64,
 }
 
 #[derive(Default)]
 struct State {
     queued: HashMap<String, Queued>,
-    /// Sessions with queued lines, in the order they first queued: each is written in turn.
+    /// Sessions with queued lines, in the order they first queued: each is written in turn (the
+    /// background turn). A session is listed at most once ([`State::listed`]); an entry whose
+    /// lines a batch wrote stays in its place, and the writer skips it if nothing is queued then.
     order: VecDeque<String>,
+    /// The sessions `order` lists, each once: the list never grows past the sessions it names. A
+    /// batch write takes the session off the list (it had its turn), so a chat nobody waits for is
+    /// written in the background turn after each batch, not after a turn of every waited-for chat
+    /// (review of 69d858ce9764, finding 1).
+    listed: HashSet<String>,
+    /// Sessions a request or a read waits for, in the order the first waiter of each came, not in
+    /// the batch being written: the next batch.
+    waiting: VecDeque<String>,
+    /// The batch being written: the sessions that had a waiter when it began.
+    batch: VecDeque<String>,
+    /// The next write is the background turn's (one after each batch).
+    background_turn: bool,
     writing: Option<String>,
+    /// The ticket of the last line of the batch being written.
+    writing_ticket: u64,
+    /// Lines appended so far, every session's: each append takes the next number as its ticket.
+    tickets: u64,
+    /// The ticket of each session's last line written (or dropped by a failed write), from its
+    /// first append until `forget`. A wait for session `id` up to ticket `t` is over once
+    /// `done[id] >= t`: lines queued after the wait began never hold it.
+    done: HashMap<String, u64>,
     /// Sessions whose log closes once their queued lines are written (`close_log`).
     close_after: HashSet<String>,
     progress: HashMap<String, tokio::sync::watch::Sender<Progress>>,
     stop: bool,
+}
+
+impl State {
+    /// The ticket of session `id`'s last line not yet written, queued or being written.
+    fn pending(&self, id: &str) -> Option<u64> {
+        match self.queued.get(id) {
+            Some(q) => Some(q.ticket),
+            None => (self.writing.as_deref() == Some(id)).then_some(self.writing_ticket),
+        }
+    }
+
+    /// Whether session `id`'s lines up to `ticket` are written (or it was forgotten).
+    fn written(&self, id: &str, ticket: u64) -> bool {
+        self.done.get(id).is_none_or(|done| *done >= ticket)
+    }
+
+    /// Queues `line` for session `id`, record `seq`: it takes the next ticket.
+    fn queue(&mut self, id: &str, line: &[u8], seq: u64) {
+        if self.listed.insert(id.to_owned()) {
+            self.order.push_back(id.to_owned());
+        }
+        self.tickets += 1;
+        let ticket = self.tickets;
+        self.done.entry(id.to_owned()).or_default();
+        let q = self.queued.entry(id.to_owned()).or_default();
+        q.lines.extend_from_slice(line);
+        q.last = q.last.max(seq);
+        q.ticket = ticket;
+    }
+
+    /// The session whose queued lines the writer writes next: the rest of the current batch,
+    /// then one background session, then the sessions waited for since the batch began, as the
+    /// next batch.
+    fn next(&mut self) -> Option<String> {
+        loop {
+            while let Some(id) = self.batch.pop_front() {
+                if self.queued.contains_key(&id) {
+                    // A batch write is the session's turn: it leaves the background list (lines it
+                    // queues later list it again, at the back), so a session nobody waits for is
+                    // not held behind a background turn of every waited-for session.
+                    if self.listed.remove(&id)
+                        && let Some(at) = self.order.iter().position(|o| *o == id)
+                    {
+                        self.order.remove(at);
+                    }
+                    return Some(id);
+                }
+            }
+            if !self.waiting.is_empty() && !self.background_turn {
+                self.batch = std::mem::take(&mut self.waiting);
+                self.background_turn = true;
+                continue;
+            }
+            self.background_turn = false;
+            while let Some(id) = self.order.pop_front() {
+                self.listed.remove(&id);
+                if self.queued.contains_key(&id) {
+                    return Some(id);
+                }
+            }
+            if self.waiting.is_empty() {
+                return None;
+            }
+        }
+    }
+
+    /// Drops session `id`'s queued lines and its places in the write order (`forget`).
+    fn drop_queued(&mut self, id: &str) {
+        self.queued.remove(id);
+        self.order.retain(|o| o != id);
+        self.listed.remove(id);
+        self.waiting.retain(|o| o != id);
+        self.batch.retain(|o| o != id);
+        self.close_after.remove(id);
+    }
+
+    /// The end of `forget`, once no write of session `id` is in progress: a `settle` of it
+    /// waits no more, nothing of it is written now. Lines appended while `forget` waited are
+    /// dropped too: its count goes, so a line left queued would count as written before it is
+    /// (and the writer would write it into the folder the caller deletes).
+    fn forgotten(&mut self, id: &str) {
+        self.drop_queued(id);
+        self.progress.remove(id);
+        self.done.remove(id);
+    }
+
+    /// A request or a read waits for session `id`'s queued lines: they go in the current batch
+    /// if they are in it already, else in the next one, after every session waited for before.
+    /// Nothing queued (written, or being written): nothing to order.
+    fn wait_first(&mut self, id: &str) {
+        if !self.queued.contains_key(id)
+            || self.batch.iter().any(|b| b == id)
+            || self.waiting.iter().any(|w| w == id)
+        {
+            return;
+        }
+        self.waiting.push_back(id.to_owned());
+    }
 }
 
 /// The open logs, at most `open_logs`, and every log written since the last flush.
@@ -86,6 +229,9 @@ struct Segment {
 }
 
 struct Shared {
+    /// The writer's QoS boost: the writer holds it for each write, a waiter raises it to its
+    /// own QoS while it waits (`cmux_threads::OwnerBoost`).
+    boost: Arc<cmux_threads::OwnerBoost>,
     state: Mutex<State>,
     work: Condvar,
     done: Condvar,
@@ -105,7 +251,19 @@ impl LogWriter {
         open_logs: usize,
         supervisor: &Supervisor,
     ) -> Self {
+        Self::start_with_write_delay(root, segment_bytes, open_logs, supervisor, test_write_delay())
+    }
+
+    /// [`Self::start`], each write held `delay` first (a test's slow disk; [`test_write_delay`]).
+    pub(super) fn start_with_write_delay(
+        root: PathBuf,
+        segment_bytes: u64,
+        open_logs: usize,
+        supervisor: &Supervisor,
+        delay: Option<std::time::Duration>,
+    ) -> Self {
         let shared = Arc::new(Shared {
+            boost: Arc::new(cmux_threads::OwnerBoost::new()),
             state: Mutex::new(State::default()),
             work: Condvar::new(),
             done: Condvar::new(),
@@ -127,7 +285,7 @@ impl LogWriter {
             cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
-            move || run(&worker),
+            move || run(&worker, delay),
         )
         .map_err(|e| {
             tracing::error!("the event log writer did not start; logs are written in place: {e}")
@@ -151,32 +309,29 @@ impl LogWriter {
             anyhow::bail!("the event log of {id} failed earlier; nothing after it is written");
         }
         progress.send_modify(|p| p.queued = p.queued.max(seq));
-        if !state.queued.contains_key(id) {
-            state.order.push_back(id.to_owned());
-        }
-        let q = state.queued.entry(id.to_owned()).or_default();
-        q.lines.extend_from_slice(&line);
-        q.last = q.last.max(seq);
+        state.queue(id, &line, seq);
         self.shared.work.notify_one();
         Ok(())
     }
 
-    /// Writes session `id`'s queued lines next, ahead of other sessions' (a request waits for
-    /// them; `hub/request_writes.rs`): the person's request goes before background streaming.
+    /// Writes session `id`'s queued lines in the next batch of waited-for sessions, ahead of
+    /// background streaming (a request waits for them; `hub/request_writes.rs`), after every
+    /// session a request waited for before it.
     pub(super) fn expedite(&self, id: &str) {
-        let mut state = lock(&self.shared.state);
-        if let Some(at) = state.order.iter().position(|o| o == id)
-            && at > 0
-            && let Some(id) = state.order.remove(at)
-        {
-            state.order.push_front(id);
-        }
+        lock(&self.shared.state).wait_first(id);
     }
 
-    /// Waits until every line queued for session `id` is written: before its log is read.
+    /// Waits until every line queued for session `id` before this call is written: before its
+    /// log is read. Its queued lines go in the next batch of waited-for sessions (a reader waits
+    /// for them), so the wait is at most the write in progress, the rest of the current batch, one
+    /// background write and its own batch; lines it queues meanwhile never hold it.
     pub(super) fn settle(&self, id: &str) {
         let mut state = lock(&self.shared.state);
-        while state.queued.contains_key(id) || state.writing.as_deref() == Some(id) {
+        let Some(ticket) = state.pending(id) else { return };
+        state.wait_first(id);
+        // The writer runs at this reader's QoS while it waits.
+        let _raise = self.shared.boost.wait();
+        while !state.written(id, ticket) {
             state = self.shared.done.wait(state).unwrap_or_else(|e| e.into_inner());
         }
     }
@@ -207,13 +362,12 @@ impl LogWriter {
     /// of it in progress is waited for, its log is closed.
     pub(super) fn forget(&self, id: &str) {
         let mut state = lock(&self.shared.state);
-        state.queued.remove(id);
-        state.order.retain(|o| o != id);
-        state.close_after.remove(id);
+        state.drop_queued(id);
         while state.writing.as_deref() == Some(id) {
             state = self.shared.done.wait(state).unwrap_or_else(|e| e.into_inner());
         }
-        state.progress.remove(id);
+        state.forgotten(id);
+        self.shared.done.notify_all();
         drop(state);
         let mut files = lock(&self.shared.files);
         if let Some(segment) = files.open.remove(id) {
@@ -223,10 +377,22 @@ impl LogWriter {
         files.dirty.retain(|p| !p.starts_with(&dir));
     }
 
-    /// Writes everything queued, then syncs every log written since the last flush.
+    /// Writes everything queued before this call, then syncs every log written since the last
+    /// flush. Lines queued after it began never hold it (chats that keep streaming during a
+    /// shutdown whose agents did not stop in time).
     pub(super) fn flush(&self) -> Result<()> {
         let mut state = lock(&self.shared.state);
-        while !state.queued.is_empty() || state.writing.is_some() {
+        let mut pending: Vec<(String, u64)> = state
+            .queued
+            .iter()
+            .map(|(id, q)| (id.clone(), q.ticket))
+            .chain(state.writing.clone().map(|id| (id, state.writing_ticket)))
+            .collect();
+        loop {
+            pending.retain(|(id, ticket)| !state.written(id, *ticket));
+            if pending.is_empty() {
+                break;
+            }
             state = self.shared.done.wait(state).unwrap_or_else(|e| e.into_inner());
         }
         drop(state);
@@ -235,6 +401,18 @@ impl LogWriter {
 
     fn running(&self) -> bool {
         lock(&self.thread).is_some()
+    }
+
+    /// The writer's QoS boost: a request that waits for a write holds a
+    /// [`cmux_threads::OwnerBoost::wait`] on it for as long as it waits (`hub/request_writes.rs`).
+    pub(super) fn boost(&self) -> Arc<cmux_threads::OwnerBoost> {
+        self.shared.boost.clone()
+    }
+
+    /// The QoS overrides the writer thread got from the requests that waited on it.
+    #[cfg(test)]
+    fn boost_counts(&self) -> cmux_threads::BoostCounts {
+        self.shared.boost.counts()
     }
 }
 
@@ -272,12 +450,11 @@ fn test_write_delay() -> Option<std::time::Duration> {
     None
 }
 
-fn run(shared: &Shared) {
+fn run(shared: &Shared, delay: Option<std::time::Duration>) {
     let watched = SyncThread::register(THREAD, WRITE_ITEM);
-    let delay = test_write_delay();
     let mut state = lock(&shared.state);
     loop {
-        let Some(id) = state.order.pop_front() else {
+        let Some(id) = state.next() else {
             if state.stop {
                 return;
             }
@@ -286,16 +463,24 @@ fn run(shared: &Shared) {
         };
         let Some(q) = state.queued.remove(&id) else { continue };
         state.writing = Some(id.clone());
+        state.writing_ticket = q.ticket;
         drop(state);
-        if let Some(delay) = delay {
-            cmux_threads::checked::sync::sleep(delay);
-        }
         let result = {
+            // Held for this write: it runs at the QoS of the highest waiter, if any.
+            let _hold = cmux_threads::OwnerBoost::hold(&*shared.boost);
+            if let Some(delay) = delay {
+                cmux_threads::checked::sync::sleep(delay);
+            }
             let _item = watched.item();
             lock(&shared.files).write(&id, &q.lines)
         };
         state = lock(&shared.state);
         state.writing = None;
+        // A failed write drops what the session still has queued (below): all of it is done.
+        let done = if result.is_ok() { q.ticket } else { state.tickets };
+        if let Some(d) = state.done.get_mut(&id) {
+            *d = (*d).max(done);
+        }
         if let Some(progress) = state.progress.get(&id) {
             match &result {
                 Ok(()) => progress.send_modify(|p| p.written = p.written.max(q.last)),
@@ -309,6 +494,7 @@ fn run(shared: &Shared) {
             // Nothing after a failed write is written: the log never has a hole.
             state.queued.remove(&id);
             state.order.retain(|o| *o != id);
+            state.listed.remove(&id);
         }
         if !state.queued.contains_key(&id) && state.close_after.remove(&id) {
             lock(&shared.files).open.remove(&id);
@@ -391,6 +577,10 @@ impl Files {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "write_order_tests.rs"]
+mod write_order_tests;
 
 #[cfg(test)]
 mod tests {

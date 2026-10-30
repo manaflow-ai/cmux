@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextApps
 import CmuxNextAgentPane
 import CmuxNextBridge

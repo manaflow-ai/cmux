@@ -72,8 +72,10 @@ final class CEFTabNodeVisibility {
         guard let tab, let browser = tab.browserID, !tab.isClosed, let wanted = wanted(browser: browser),
               wanted != sent, let call = tab.runtime.shim?.tabSetVisibility else { return }
         if isPageFrozen, wanted != Sent(browser: browser, visibility: .hidden, capture: .notCaptured) { _ = setFrozen(false, of: tab) }
-        // One-way, in call order (a post to the Chromium Host): a freeze sent later reaches Chromium after it.
-        _ = call(browser, wanted.visibility.rawValue, wanted.capture.rawValue)
+        // One-way, in the browser's call order (``CEFDevToolsSendOrder``): after the thaw above, and a freeze sent
+        // later reaches Chromium after it.
+        let visibility = wanted.visibility.rawValue, capture = wanted.capture.rawValue
+        tab.runtime.devToolsOrder.post(browser) { call(browser, visibility, capture) == 1 }
         sent = wanted
     }
 
@@ -91,12 +93,15 @@ final class CEFTabNodeVisibility {
         guard let browser = tab.browserID, !tab.isClosed, let shim = tab.runtime.shim else { return false }
         if !frozen, !isPageFrozen { return true }
         if frozen, node != nil, sent != Sent(browser: browser, visibility: .hidden, capture: .notCaptured) { return false }
+        // In the browser's call order (``CEFDevToolsSendOrder``): a freeze made while an earlier call (a page host's
+        // batch of chat frames) still encodes reaches Chromium after it, never before. One that waits its turn counts
+        // as done: nothing else of this browser reaches Chromium before it.
         let done: Bool
         if tab.runtime.forkFeatures.rendererPaths, let setFrozen = shim.tabSetFrozen {
-            done = setFrozen(browser, frozen ? 1 : 0) == 1
+            done = tab.runtime.devToolsOrder.post(browser) { setFrozen(browser, frozen ? 1 : 0) == 1 }
         } else {
             // No one waits for the reply (the runtime drops a reply without a waiter).
-            done = tab.runtime.sendDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": frozen ? "frozen" : "active"]) != nil
+            done = tab.runtime.postDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": frozen ? "frozen" : "active"])
         }
         if done { isPageFrozen = frozen }
         return done
@@ -111,7 +116,7 @@ final class CEFTabNodeVisibility {
         guard node == nil else { return setFrozen(true, of: tab) }
         guard let browser = tab.browserID, !tab.isClosed else { return false }
         if isPageFrozen { return true }
-        if tab.runtime.sendDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "frozen"]) != nil { isPageFrozen = true }
+        if tab.runtime.postDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "frozen"]) { isPageFrozen = true }
         return isPageFrozen
     }
 
@@ -127,10 +132,12 @@ final class CEFTabNodeVisibility {
         guard let shim = runtime.shim else { return }
         let features = runtime.forkFeatures
         if features.tabVisibility, features.rendererPaths, let hide = shim.tabSetVisibility, let freeze = shim.tabSetFrozen {
-            _ = hide(browser, Level.hidden.rawValue, BrowserPageCapture.notCaptured.rawValue)
-            _ = freeze(browser, 1)
+            runtime.devToolsOrder.post(browser) {
+                _ = hide(browser, Level.hidden.rawValue, BrowserPageCapture.notCaptured.rawValue)
+                return freeze(browser, 1) == 1
+            }
             return
         }
-        runtime.sendDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "frozen"])
+        runtime.postDevTools(browser, method: "Page.setWebLifecycleState", params: ["state": "frozen"])
     }
 }

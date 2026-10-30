@@ -55,8 +55,9 @@ root shrink and no growth), and when a new App file is
 neither a move nor the push's one AppServices+<Domain>Host.swift of one-line forwards (outside the budget), so
 feature logic does not become wiring by moving into a root file. It warns (never refuses, for now) when the App outside the root or CmuxNextApp as a
 whole grows (the same total check-app-size.sh --base computes, a split file's new imports included), with the
-bytes added and the package the code goes to. This is the only App-size
-limit in force on a push: CI's check-app-size.sh step is continue-on-error and its absolute cap
+bytes added and the package the code goes to. The App total is refused by the arch ratchet's
+`app_lines` row instead (arch-ratchet.py; CmuxNextApp physical lines may not rise over a push, since the
+reward-hacking audit of 2026-10-30). CI's check-app-size.sh step is continue-on-error and its absolute cap
 (app-size-baseline.txt) is below the App's size today.
 `app-type`, its own rule (so a fault in its brace scan fails only it, which then refuses alone), refuses a new type that is not a move
 in an existing App file or in a new App file that passes as a move (the new-file rule's god-file dodge), at any

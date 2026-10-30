@@ -526,6 +526,7 @@ fn the_apps_terminal_attachment_lines_run_at_the_echo_class() {
 /// `cargo test -p cmux-tui-core --lib -- echo_latency_under_an_agent_burst
 /// --ignored --nocapture`.
 #[test]
+// skip-owner: PL-daemon; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
 #[ignore = "measurement; run by hand"]
 fn echo_latency_under_an_agent_burst() {
     use std::sync::atomic::{AtomicBool, Ordering};

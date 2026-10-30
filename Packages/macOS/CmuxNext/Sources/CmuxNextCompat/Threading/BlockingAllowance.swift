@@ -22,12 +22,4 @@ public struct BlockingAllowance: Sendable, Equatable {
     /// the process exits right after it, so a bounded final flush there cannot delay a frame
     /// (Chrome allows blocking during browser shutdown the same way).
     public static let terminate = BlockingAllowance(reviewed: "terminate")
-
-    /// A terminal surface is being freed on the main thread (`ghostty_surface_free` in its view's
-    /// deinit, which Ghostty's AppKit surface needs there): its output lane is fenced first so no
-    /// parse still holds the surface. The lane skips queued work once it is closing and runs at the
-    /// main thread's own QoS (user-interactive), so the wait is at most one chunk's parse. Chrome
-    /// allows such bounded teardown waits with `ScopedAllowBaseSyncPrimitivesOutsideBlockingScope`
-    /// (base/threading/thread_restrictions.h).
-    public static let surfaceTeardown = BlockingAllowance(reviewed: "surfaceTeardown")
 }

@@ -7,12 +7,12 @@ import IOSurface
 /// frames, held frames and the first-frame watch read it from Ghostty (`ghostty_surface_presented_frame`),
 /// and hiding, showing and purging go to Ghostty (`ghostty_surface_set_presentation`). A GhosttyNextKit
 /// without them (`GHOSTTY_RENDERER_FRAMES` off, Package.swift) still presents each frame as the view's
-/// layer contents on main, so it reads that. The view that owns this source owns the surface, and frees it
-/// only in its deinit.
+/// layer contents on main, so it reads that. The view that owns this source owns the surface until its deinit
+/// hands it to ``TerminalSurfaceTeardown``, which frees it later on main.
 @MainActor
 final class GhosttyFrameSource: TerminalFrameSource {
-    /// SAFETY: the owning view's surface, freed only in that view's deinit, which releases this
-    /// source with it; every call arrives on the main actor while the view lives.
+    /// SAFETY: the owning view's surface, freed only after that view's deinit (``TerminalSurfaceTeardown``),
+    /// and the deinit releases this source first; every call arrives on the main actor while the view lives.
     @safe private let surface: ghostty_surface_t?
     /// The view whose layer Ghostty presents into.
     private weak var view: NSView?

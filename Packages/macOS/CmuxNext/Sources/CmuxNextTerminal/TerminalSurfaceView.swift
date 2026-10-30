@@ -15,23 +15,29 @@ import QuartzCore
 /// Ghostty's Metal renderer installs its own `IOSurfaceLayer` as this view's
 /// layer (ghostty/src/renderer/Metal.zig); never replace the layer. The
 /// surface is created in `init`, like Ghostty.app does, so output that
-/// arrives before the view joins a window is not lost, and freed in `deinit`.
+/// arrives before the view joins a window is not lost; a view made before
+/// libghostty's app started makes it once the app starts
+/// (``GhosttyRuntime/whenStarted(_:)``), and its session routes no output before then. `deinit` hands it to
+/// ``TerminalSurfaceTeardown``, which frees it on the main thread once the
+/// output lane's chunk in flight returns (``TerminalOutputLane/close(then:)``).
 ///
 /// Created and owned by ``TerminalSession``; embed ``TerminalSession/view``,
 /// not this view directly.
 public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     // MARK: State
 
-    /// SAFETY: the view's live surface: made in `init`, freed only in `deinit`, and never
-    /// replaced, so a non-nil read on the main actor is a live handle for that turn. Off-main
-    /// work reaches it only through ``lane``, which `deinit` closes before the free.
+    /// SAFETY: the view's live surface: made in `init`, or once when libghostty's app starts
+    /// (``GhosttyRuntime/whenStarted(_:)``); never replaced, and freed only after
+    /// `deinit` (``TerminalSurfaceTeardown``), so a non-nil read on the main actor is a live handle
+    /// for that turn. Off-main work reaches it only through ``lane``, whose last block posts the free.
     @safe private(set) var surface: ghostty_surface_t?
     /// The light/dark scheme last given to this surface (diagnostics).
     var colorSchemeIsDark = false
     /// When this view was made (`CLOCK_UPTIME_RAW` nanoseconds): a late key's log says how new its terminal was.
     public let createdNanos: UInt64 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-    /// SAFETY: +1 from `init` until `deinit` releases it after ghostty_surface_free, so the
-    /// userdata Ghostty holds (``SurfaceBridge/from(_:)``) stays a live object for every callback.
+    /// SAFETY: +1 from `init` until ``TerminalSurfaceTeardown`` (handed it by `deinit`) releases it after
+    /// ghostty_surface_free, so the userdata Ghostty holds (``SurfaceBridge/from(_:)``) stays a live object
+    /// for every callback, also those between the view's deinit and the free.
     @safe let bridge: Unmanaged<SurfaceBridge>
     /// The bridge, kept alive by the view's retain (`bridge`).
     var bridgeObject: SurfaceBridge {
@@ -40,6 +46,8 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     }
     /// Serial lane for output and other process_output-ordered calls.
     private(set) var lane: TerminalOutputLane?
+    /// Where the closed view's surface is freed: the main thread, in `visible` (``TerminalSurfaceTeardown``).
+    private let teardownDelivery: MainDelivery
     /// Watches each output chunk's parse on ``lane`` (``TerminalOutputLane``); nil watches nothing.
     private let hangWatch: (any HangWatchScoping)?
     /// ``lane`` parses at utility while the view is suspended (``TerminalOutputLane/lowersHidden``).
@@ -195,6 +203,10 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     /// Where this view's backing scale and display go: its root layer and Ghostty surface.
     // SAFETY: the target holds this view's surface and goes with the view (GhosttyScaleTarget).
     lazy var scaleTarget: any TerminalScaleTarget = unsafe GhosttyScaleTarget(surface: surface, view: self)
+    /// A key reached this view while it had no surface; logged once (``noteKeyWithoutSurface()``).
+    var loggedKeyWithoutSurface = false
+    /// Says the terminal is unavailable when libghostty could not make its surface (``showSurfaceUnavailable()``).
+    var unavailableBanner: TerminalStatusBanner?
 
     // MARK: Lifecycle
 
@@ -210,7 +222,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         let cursorLayer = externalCursor && TerminalCursorLayer.isAvailable ? TerminalCursorLayer() : nil
         let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks,
                                    keySlots: echoStages, cursor: cursorLayer?.presenter)
-        // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
+        // SAFETY: balanced by the one release in ``TerminalSurfaceTeardown/run()`` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
         self.hangWatch = hangWatch
@@ -226,6 +238,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         #endif
         offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         windowWatch = TerminalWindowWatch(node: node)
+        teardownDelivery = MainDelivery(class: .visible, owner: "terminal.surface-teardown", on: mainWork)
         let visibilityNode = node.map { VisibilityNode("terminal.surface", parent: $0) } ?? VisibilityNode(root: "terminal.surface", own: .visible)
         self.visibilityNode = visibilityNode
         windowNode = VisibilityNode("terminal.surface.window", own: .hidden, parent: visibilityNode)
@@ -246,7 +259,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         // as in Ghostty; moves arrive only while the pointer is over this surface's visible rect
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways],
                                        owner: self))
-        createSurface(mode: mode, echoStage: echoStage, stages: echoStages)
+        createSurface(mode: mode, echoStage: echoStage, stages: echoStages, late: false)
     }
 
     @available(*, unavailable)
@@ -260,30 +273,38 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         MainActor.assumeIsolated {
             windowWatch.stop()
             secureInput.release(ObjectIdentifier(self))
-            if let surface {
-                lane?.close()
-                vsync.close() // no vsync tick reaches the surface after this
-                // SAFETY: the one free of the view's surface (`surface`'s note), after the lane
-                // that reaches it off the main thread closed.
-                unsafe ghostty_surface_free(surface)
-            }
-            bridgeObject.surfaceFreed() // free joined every thread that reads the bridge: the hook stops reading it
-            // Released after free: free joins the IO thread that reads the bridge.
-            // SAFETY: the one release of `init`'s retain (`bridge`'s note), after the free.
-            unsafe bridge.release()
+            if surface != nil { vsync.close() } // no vsync tick reaches the surface after this
+            // The surface's one owner from here frees it, then the bridge, on the main thread once the
+            // lane's chunk in flight returns; this never waits for the lane (``TerminalOutputLane/close(then:)``).
+            // SAFETY: hands `surface` and `init`'s retain on the bridge to the teardown (their notes).
+            let teardown = unsafe TerminalSurfaceTeardown(surface: surface, bridge: bridge, delivery: teardownDelivery)
+            if let lane { lane.close { teardown.post() } } else { teardown.run() }
         }
     }
 
     /// `ghostty_surface_new` with embedder-owned IO (ghostty.h:548-559, :627-629). `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` for
     /// the daemon, `GHOSTTY_SURFACE_IO_MANUAL` for a bare PTY. The bridge carries `echoStage` to ``GhosttyTraceHook``.
-    private func createSurface(mode: ghostty_surface_io_mode_e, echoStage: TerminalEchoStage?, stages: TerminalEchoStages) {
+    /// `late`: libghostty's app started after this view was made (``GhosttyRuntime/whenStarted(_:)``): the seams made
+    /// before the surface are made again over it.
+    private func createSurface(mode: ghostty_surface_io_mode_e, echoStage: TerminalEchoStage?, stages: TerminalEchoStages, late: Bool) {
         let timings = TerminalTimings()
         let signpost = timings.surfaceCreateBegan()
         defer { timings.surfaceCreated(signpost) }
-        guard let app = GhosttyRuntime.shared.app else { return }
-        // SAFETY: the bridge outlives the surface (`bridge`'s note), and the view, whose address
-        // Ghostty keeps as its NSView, frees the surface in its own deinit. Ghostty copies the
-        // config during ghostty_surface_new; the callback has the signature ghostty.h declares.
+        guard let app = GhosttyRuntime.shared.app else {
+            // Made before libghostty's app started (a test host, or a launch that makes a terminal before its first
+            // config build lands): the surface comes when the app starts; a start that failed shows why.
+            GhosttyRuntime.shared.whenStarted { [weak self] started in
+                guard let self, self.surface == nil else { return }
+                if started { self.createSurface(mode: mode, echoStage: echoStage, stages: stages, late: true) } else { self.showSurfaceUnavailable() }
+            }
+            return
+        }
+        // SAFETY: the bridge outlives the surface (`bridge`'s note). Ghostty reads the view's address
+        // (its NSView) only in ghostty_surface_new, where the Metal renderer installs its layer
+        // (renderer/Metal.zig); Metal's deinit and ghostty_surface_free never touch it, and every
+        // callback reaches the view through the bridge's weak target. So the free, which
+        // ``TerminalSurfaceTeardown`` runs after the view's deinit, reads no freed view. Ghostty
+        // copies the config during ghostty_surface_new; the callback has the signature ghostty.h declares.
         let userdata = unsafe bridge.toOpaque()
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
@@ -314,10 +335,12 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         guard let surface = unsafe ghostty_surface_new(app, &config) else {
             split?.ended(.surfaceNew)
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
+            showSurfaceUnavailable()
             return
         }
         split?.ended(.surfaceNew)
-        // SAFETY: the new surface, owned by this view and freed once, in deinit (`surface`'s note).
+        // SAFETY: the new surface, owned by this view until deinit hands it to ``TerminalSurfaceTeardown``,
+        // which frees it once (`surface`'s note).
         self.surface = unsafe surface
         // SAFETY: as above; deinit closes the pacer before the free.
         if vsyncSource != nil { unsafe vsync.attach(surface: surface) }
@@ -338,6 +361,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
                                          keyFlows: bridgeObject.typingSurface, hangs: hangWatch,
                                          lowersHidden: lowersHiddenOutput)
         lane?.setHidden(isRenderingSuspended)
+        if late { remakeSurfaceSeams() }
         if let layer {
             cursorLayer?.install(on: layer)
             echoStage?.attach(to: layer)
@@ -472,6 +496,7 @@ public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
         if resized { updateSurfaceSize() }
+        if resized, unavailableBanner != nil { layoutUnavailableBanner() }
         cursorLayer?.layout(size: newSize)
         copyMode.syncCursor()
     }

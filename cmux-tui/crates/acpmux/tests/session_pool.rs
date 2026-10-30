@@ -99,7 +99,9 @@ impl Daemon {
 
     fn start(&mut self) {
         assert!(self.child.is_none());
-        let mut child = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[])
+        let mut command = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[]);
+        start_at_normal_priority(&mut command);
+        let mut child = command
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
@@ -420,9 +422,69 @@ fn best_effort(pid: &Value) -> bool {
 }
 
 /// Whether this test process runs best-effort already (cargo under
-/// `nice -n 10`): the daemon and its agents inherit it.
+/// `nice -n 10`, a fleet step at background QoS).
 fn inherited() -> bool {
     cmux_tui_platform::process_priority::is_background(std::process::id()).unwrap()
+}
+
+/// Whether [`start_at_normal_priority`] starts the daemon at its normal
+/// priority whatever this test process runs at: on macOS a process may take
+/// off a darwin-background policy it inherited (its own), on Linux only where
+/// nice may go back to 0 (`reversible`).
+fn starts_normal() -> bool {
+    cfg!(target_os = "macos") || cmux_tui_platform::process_priority::reversible()
+}
+
+/// The daemon starts at the normal priority ([`starts_normal`]), so a
+/// best-effort read-back of it or its agents is the daemon's own lowering,
+/// never one inherited from this test's runner. Elsewhere it inherits.
+fn start_at_normal_priority(command: &mut std::process::Command) {
+    use std::os::unix::process::CommandExt as _;
+    if !starts_normal() {
+        return;
+    }
+    // SAFETY: the closure runs in the forked child before exec and makes one
+    // async-signal-safe syscall with integer arguments.
+    unsafe {
+        command.pre_exec(|| {
+            #[cfg(target_os = "macos")]
+            let changed = libc::setpriority(libc::PRIO_DARWIN_PROCESS, 0, 0);
+            #[cfg(not(target_os = "macos"))]
+            let changed = libc::setpriority(libc::PRIO_PROCESS, 0, 0);
+            if changed == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+        });
+    }
+}
+
+/// Whether the daemon lowers a pooled agent; the daemon and its agents
+/// start at the normal priority. A runner at best-effort whose daemon cannot
+/// start normal (Linux under `nice -n 10` without root or RLIMIT_NICE) makes
+/// a lowering and the inherited priority read the same: such a run cannot
+/// check the lowering, so it fails here instead of passing on what it
+/// inherited.
+fn lowers_from_normal() -> bool {
+    assert!(
+        starts_normal() || !inherited(),
+        "this test process runs best-effort and cannot start the daemon at nice 0: \
+         a lowering would read the same as the inherited priority (run at nice 0, or as root)"
+    );
+    // A probe started as the daemon is reads normal: also a policy another
+    // process set on this runner (macOS: a child cannot take that one off)
+    // fails here, with this reason.
+    let mut probe = std::process::Command::new("/bin/sleep");
+    probe.arg("30").stdin(Stdio::null());
+    start_at_normal_priority(&mut probe);
+    let mut probe = probe.spawn().expect("start the priority probe");
+    let probe_best_effort = cmux_tui_platform::process_priority::is_background(probe.id());
+    let _ = probe.kill();
+    let _ = probe.wait();
+    assert_eq!(
+        probe_best_effort,
+        Ok(false),
+        "a process started as the daemon is not at the normal priority: a lowering would read \
+         the same as the inherited priority"
+    );
+    cmux_tui_platform::process_priority::reversible()
 }
 
 /// Test polling: wait until `pid`'s best-effort read-back is `want`.
@@ -455,25 +517,23 @@ async fn a_pooled_agent_runs_best_effort_until_a_session_takes_it() {
     assert_eq!(warmed["accepted"], true, "{warmed}");
     wait_pool_ready(&mut rpc, "fakeb").await;
     let pooled = daemon.pool_records()[0].clone();
+    // The daemon started at the normal priority, whatever this test runs at.
     // Where a lowered priority could not be raised again (Linux without root
-    // or RLIMIT_NICE) the daemon changes nothing: everything keeps what it
-    // inherited from this test.
-    let lowers = cmux_tui_platform::process_priority::reversible();
-    let inherited = inherited();
-    let normal = !lowers && inherited;
-    assert_eq!(best_effort(&pooled["host_pid"]), lowers || inherited, "{pooled}");
-    assert_eq!(best_effort(&pooled["harness_pid"]), lowers || inherited, "{pooled}");
+    // or RLIMIT_NICE) the daemon changes nothing: everything stays normal.
+    let lowers = lowers_from_normal();
+    assert_eq!(best_effort(&pooled["host_pid"]), lowers, "{pooled}");
+    assert_eq!(best_effort(&pooled["harness_pid"]), lowers, "{pooled}");
 
     // The claim serves the entry only once it is back: normal when session/new answers.
     let (session, _) = new_session(&mut rpc, &home, "fakeb").await;
     wait_taken(&daemon, &session).await;
     assert_runs_on_pooled_host(&daemon, &session, &pooled);
-    assert_eq!(best_effort(&pooled["host_pid"]), normal, "{pooled}");
-    assert_eq!(best_effort(&pooled["harness_pid"]), normal, "{pooled}");
+    assert!(!best_effort(&pooled["host_pid"]), "the claimed host is normal again: {pooled}");
+    assert!(!best_effort(&pooled["harness_pid"]), "the claimed harness is normal again: {pooled}");
     // The connected daemon itself runs at its normal priority: the one it
     // started with.
     let daemon_pid = json!(daemon.child.as_ref().unwrap().id());
-    assert_eq!(best_effort(&daemon_pid), inherited);
+    assert!(!best_effort(&daemon_pid), "the connected daemon is normal");
     let reply = rpc
         .call(
             "session/prompt",
@@ -491,8 +551,7 @@ async fn a_pooled_agent_runs_best_effort_until_a_session_takes_it() {
 async fn a_pooled_start_after_the_last_client_left_is_served_at_normal_priority() {
     let feature = "idleHelperBackgroundPriority";
     let daemon = Daemon::with_features("prfk", 0, &profile("b"), None, feature);
-    let lowers = cmux_tui_platform::process_priority::reversible();
-    let inherited = inherited();
+    let lowers = lowers_from_normal();
     let daemon_pid = json!(daemon.child.as_ref().unwrap().id());
     let home = daemon.home.clone();
     {
@@ -501,15 +560,14 @@ async fn a_pooled_start_after_the_last_client_left_is_served_at_normal_priority(
         assert_eq!(hint["accepted"], true, "{hint}");
     }
     // No client now: once the start is done and nothing runs, the daemon is best-effort.
-    wait_best_effort(&daemon_pid, lowers || inherited, "the client-less daemon").await;
+    wait_best_effort(&daemon_pid, lowers, "the client-less daemon").await;
     let mut rpc = daemon.rpc().await;
     wait_pool_ready(&mut rpc, "fakeb").await;
     let pooled = daemon.pool_records().pop().expect("a pooled host");
     let (session, _) = new_session(&mut rpc, &home, "fakeb").await;
     wait_taken(&daemon, &session).await;
-    let normal = !lowers && inherited;
-    assert_eq!(best_effort(&pooled["host_pid"]), normal, "{pooled}");
-    assert_eq!(best_effort(&pooled["harness_pid"]), normal, "{pooled}");
+    assert!(!best_effort(&pooled["host_pid"]), "the claimed host is normal again: {pooled}");
+    assert!(!best_effort(&pooled["harness_pid"]), "the claimed harness is normal again: {pooled}");
 }
 
 /// A shutdown while a claim puts its entry back to normal priority ends the

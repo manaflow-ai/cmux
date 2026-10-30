@@ -563,6 +563,7 @@ class ExecutorTests(exec_tests.Fixture):
                                            "before the range"])
 
 
+# skip-owner: PL-perf-lab; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
 @unittest.skipUnless(shutil.which("git"), "git is not installed")
 class ScratchRefTests(LabFixture):
     """A story broken on purpose at one commit of a scratch repository, found by running it at each commit."""

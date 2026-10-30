@@ -11,7 +11,7 @@ import Testing
 /// (``GhosttyRuntime/configString(_:key:)``), and every text Ghostty fills for a read is copied and
 /// freed by ``GhosttyTextRead``. These check that the values that cross each seam are the ones
 /// Ghostty holds, on libghostty itself; run them under `--sanitize=address` too.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .ghosttyStarted)
 struct GhosttyPointerFreeInteropTests {
     init() {
         _ = NSApplication.shared
