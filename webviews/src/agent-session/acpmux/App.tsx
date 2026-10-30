@@ -114,7 +114,13 @@ import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
-import { composerDraft, DRAFT_SETTLE_MS, notifyDraftActionsChanged, settleDraftWithin } from "./composerDraft";
+import {
+  composerDraft,
+  DRAFT_SETTLE_MS,
+  notifyDraftActionsChanged,
+  settleDraftWithin,
+  writePersistedDraft,
+} from "./composerDraft";
 import { paneContext } from "./paneContext";
 import {
   createPaneQueryClient,
@@ -8436,12 +8442,7 @@ function AcpmuxPane() {
                   directClient.current === client &&
                   client.trustGeneration === generation &&
                   composerHandle.current === holder,
-                transfer: (id) =>
-                  holder?.prepareDraftTransfer(id) ?? {
-                    ready: Promise.resolve(),
-                    cancel: () => undefined,
-                    commit: () => undefined,
-                  },
+                copyText: (id) => writePersistedDraft(id, holder?.draftText() ?? ""),
                 clearFolder: () => setProjectDraft(undefined),
                 select: async (id) => {
                   const selected = await client.select(id);

@@ -97,7 +97,6 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
-import type { DraftTransfer } from "./folderContinuation";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
@@ -197,10 +196,8 @@ export const COMPOSER_LABELS = {
 export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest.
   restore(text: string, attachments: ComposerAttachment[]): void;
-  /// Reads the current unsent draft and attachments before moving this composer to another chat.
-  draftState(): { text: string; attachments: ComposerAttachment[] };
-  /// Carries the prompt only to this newly created session; returns a cancellation on failed selection.
-  prepareDraftTransfer(sessionId: string): DraftTransfer;
+  /// Snapshot the unsent text without taking it out of this chat.
+  draftText(): string;
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
@@ -562,17 +559,6 @@ export function Composer({
   const restoringSession = useRef(false);
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
   const carryPrompt = useRef(false);
-  const draftTransfer = useRef<
-    | {
-        source?: string;
-        target: string;
-        text: string;
-        attachmentIds: string;
-        sourceChanged: boolean;
-        committed: boolean;
-      }
-    | undefined
-  >(undefined);
   // Once a new chat has shown its location strip, keep its layout slot through the first send.
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
   const locationSlotSession = useRef<string | undefined>(undefined);
@@ -606,7 +592,6 @@ export function Composer({
   const {
     attachments,
     setAttachments,
-    movePending,
     pending,
     loading,
     unsettled,
@@ -646,7 +631,6 @@ export function Composer({
         .catch(() => {});
     },
     carries: () => carryPrompt.current || Boolean(switching),
-    holdPending: () => !!draftTransfer.current,
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
@@ -689,71 +673,7 @@ export function Composer({
   useImperativeHandle(
     handle,
     () => ({
-      draftState() {
-        return {
-          text: field.current?.value() ?? textRef.current,
-          attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
-        };
-      },
-      prepareDraftTransfer(target) {
-        const source = persistedSession.current;
-        const text = field.current?.value() ?? textRef.current;
-        const chips = attachmentsRef.current.filter((chip) => !chip.shellRun);
-        const transfer = {
-          source,
-          target,
-          text,
-          attachmentIds: JSON.stringify(chips.map((chip) => chip.id)),
-          sourceChanged: false,
-          committed: false,
-        };
-        draftTransfer.current = transfer;
-        // Save the destination before changing sessions. Even an immediate navigation during its
-        // attachment read leaves the chips durable there. The source stays intact on any refusal.
-        writePersistedDraft(target, text);
-        const signature = (items: ComposerAttachment[]) => JSON.stringify(items);
-        const ready = (
-          keptAttachments
-            ? keptAttachments.write(target, chips).then((reply) => {
-                const held = Array.isArray(reply?.held) ? reply.held : [];
-                // Metadata-only chips have no content file; the acknowledgement names bytes and text.
-                if (chips.some((chip) => (chip.data || chip.text) && !held.includes(chip.id)))
-                  throw new Error("draft contents were not retained"); // l10n-allow: TrustAsk renders localized failure copy.
-              })
-            : Promise.resolve()
-        ).then(() => {
-          if (
-            persistedSession.current !== source ||
-            (field.current?.value() ?? textRef.current) !== text ||
-            signature(attachmentsRef.current.filter((chip) => !chip.shellRun)) !== signature(chips)
-          )
-            throw new Error("draft changed during recovery"); // l10n-allow: leaves edits intact for an explicit retry.
-        });
-        return {
-          ready,
-          cancel: () => {
-            if (draftTransfer.current === transfer) draftTransfer.current = undefined;
-            // A selection may already have rendered the destination and moved a pending intake.
-            // Keep that destination's durable copy; no cancellation sends or replays a prompt.
-          },
-          commit: () => {
-            movePending(source, target);
-            transfer.committed = true;
-            if (persistedSession.current === source) {
-              transfer.sourceChanged ||=
-                (field.current?.value() ?? textRef.current) !== text ||
-                signature(attachmentsRef.current.filter((chip) => !chip.shellRun)) !== signature(chips);
-            }
-            // The source may have gained edits while the new session attached. Keep that draft
-            // whole; the destination holds only the snapshot the user chose to carry.
-            if (transfer.sourceChanged) return;
-            if (source) {
-              writePersistedDraft(source, "");
-              void keptAttachments?.write(source, []).catch(() => undefined);
-            } else unsentDraft.current?.push("");
-          },
-        };
-      },
+      draftText: () => field.current?.value() ?? textRef.current,
       restore(restoredText, restoredAttachments) {
         // Put back, not typed: the Enter that sent it says nothing about this change.
         notTyped();
@@ -837,7 +757,7 @@ export function Composer({
         }
       },
     }),
-    [setAttachments, attachLater, keptAttachments, movePending],
+    [setAttachments, attachLater],
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
@@ -854,22 +774,9 @@ export function Composer({
   useEffect(() => {
     if (persistedSession.current === sessionId) return;
     // A switch's new session has no draft yet: the prompt typed before the pick moves to it.
-    const moving = !!draftTransfer.current && draftTransfer.current.target === sessionId;
-    const carried = moving || carryPrompt.current ? (field.current?.value() ?? text) : "";
+    const carried = carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
-    const transfer = moving ? draftTransfer.current : undefined;
-    if (transfer) {
-      transfer.sourceChanged ||=
-        (field.current?.value() ?? text) !== transfer.text ||
-        JSON.stringify(attachmentsRef.current.filter((chip) => !chip.shellRun).map((chip) => chip.id)) !==
-          transfer.attachmentIds;
-    }
-    if (previous && hydratedSession.current === previous) {
-      writePersistedDraft(
-        previous,
-        transfer?.committed && !transfer.sourceChanged ? "" : (field.current?.value() ?? text),
-      );
-    }
+    if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
     // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
     forgetQueuedDraft(previous);
     persistedSession.current = sessionId;
@@ -892,18 +799,7 @@ export function Composer({
   // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
   useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
-  useKeptAttachments(
-    sessionId,
-    attachments,
-    setAttachments,
-    keptAttachments,
-    () => carryPrompt.current || (!!draftTransfer.current && draftTransfer.current.target === sessionId),
-    () => (draftTransfer.current?.target === sessionId ? draftTransfer.current : undefined),
-  );
-  useEffect(() => {
-    // Both text and attachment effects have consumed the transfer on this render.
-    if (draftTransfer.current && draftTransfer.current.source !== sessionId) draftTransfer.current = undefined;
-  }, [sessionId]);
+  useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
   // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and
   // chips kept with the chat (composerDraft.ts, keptAttachments.ts), nothing being sent, read or
   // dictated, no shell mode (pages/shared/webSwap.ts).

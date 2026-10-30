@@ -21,15 +21,8 @@ function fixture() {
       return pending.promise;
     },
     current: () => current,
-    transfer: (id: string) => {
-      events.push(`transfer:${id}`);
-      return {
-        ready: Promise.resolve(),
-        cancel: () => events.push("cancel"),
-        commit: () => {
-          events.push("commit");
-        },
-      };
+    copyText: (id: string) => {
+      events.push(`copy:${id}`);
     },
     select: async (id: string) => {
       events.push(`select:${id}`);
@@ -56,7 +49,7 @@ test("double clicks create one chat and transfer only after start succeeds", asy
   expect(f.events).toEqual(["start"]);
   f.pending.resolve("new");
   await first;
-  expect(f.events).toEqual(["start", "transfer:new", "select:new", "commit", "clear"]);
+  expect(f.events).toEqual(["start", "copy:new", "select:new", "clear"]);
 });
 test("failed and empty starts never extract or restore a draft", async () => {
   const f = fixture();
@@ -83,7 +76,7 @@ test("failed selection cancels the transfer and preserves the source", async () 
   const first = f.continuation.run({ ...f.actions, select: async () => false });
   f.pending.resolve("new");
   await first;
-  expect(f.events).toEqual(["start", "transfer:new", "cancel"]);
+  expect(f.events).toEqual(["start", "copy:new"]);
 });
 
 test("navigation during selection cannot clear the newer folder", async () => {
@@ -94,7 +87,7 @@ test("navigation during selection cannot clear the newer folder", async () => {
   await Promise.resolve();
   selection.resolve(false);
   await first;
-  expect(f.events).toEqual(["start", "transfer:new", "cancel"]);
+  expect(f.events).toEqual(["start", "copy:new"]);
 });
 
 test("recovery requests a folder-free chat without sending the held prompt", () => {

@@ -85,8 +85,6 @@ export type AttachmentIntakeOptions = {
   /// When the composer moves to another chat: whether the files still being read move with it (a
   /// harness switch's new session carries the prompt). A chat that had no id yet always carries.
   carries?(): boolean;
-  /// A recovery transaction moves pending reads explicitly once selection succeeds.
-  holdPending?(): boolean;
 };
 
 /** Append a batch while replacing the same attachment id and collapsing repeated local path links
@@ -216,12 +214,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   useLayoutEffect(() => {
     const from = lastScope.current;
     lastScope.current = scope;
-    if (
-      from === scope ||
-      live.current.options.holdPending?.() ||
-      (from !== undefined && !live.current.options.carries?.())
-    )
-      return;
+    if (from === scope || (from !== undefined && !live.current.options.carries?.())) return;
     for (const batch of batches.current) if (batch.scope === from && !batch.bound) batch.scope = scope;
     setPending((chips) => chips.map((chip) => (chip.scope === from && !chip.bound ? { ...chip, scope } : chip)));
   }, [scope]);
@@ -446,12 +439,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   );
   /// The landing animation ended: the overlay hides.
   const [dropLanded] = useState(() => () => showDrop(HIDDEN_DROP));
-  const [movePending] = useState(() => (from: string | undefined, to: string) => {
-    for (const batch of batches.current) if (batch.scope === from && !batch.bound) batch.scope = to;
-    setPending((chips) => chips.map((chip) => (chip.scope === from && !chip.bound ? { ...chip, scope: to } : chip)));
-  });
   return {
-    movePending,
     attachments,
     setAttachments,
     pending: shown,
