@@ -41,12 +41,10 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     },
     {
       entry: "agent-pane.pr-dock",
-      variant: "several",
+      variant: "inline-pills",
       edge: ".acpmux-composer-box",
       blocks: {
         transcript: ".acpmux-row:not(.acpmux-user)",
-        // The disclosure's label is the dock's only direct text block when its chip list is display:contents.
-        "PR dock disclosure": ".acpmux-pr-dock__more",
       },
     },
     {
@@ -134,6 +132,12 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
           timeout: 30_000,
         });
         const { edgeLeft, found } = await page.evaluate(offsets, frame);
+        if (frame.entry === "agent-pane.pr-dock") {
+          const links = page.locator(".acpmux-scroll .acpmux-pr-dock").first();
+          await links.waitFor();
+          expect(await page.locator(".acpmux-dock > .acpmux-pr-dock").count()).toBe(0);
+          expect(await links.evaluate((node) => !!node.closest(".cv-turn-actions"))).toBe(true);
+        }
         await page.close();
         const label = `${frame.entry}:${frame.variant} @${width}`;
         edges[label] = Math.round(edgeLeft);
@@ -144,7 +148,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       }
       // In a narrow pane the New Tab card and the chat's composer card stand at the same page edge.
       if (width > 600) continue;
-      const chat = edges[`agent-pane.pr-dock:several @${width}`]!;
+      const chat = edges[`agent-pane.pr-dock:inline-pills @${width}`]!;
       const newTab = edges[`agent-pane.new-tab:empty @${width}`]!;
       if (Math.abs(newTab - chat) > 1) {
         offenders.push(`agent-pane.new-tab:empty @${width} card ${newTab - chat}px from the chat's`);
