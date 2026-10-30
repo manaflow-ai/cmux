@@ -109,6 +109,7 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
       const y = Math.max(0, box.y - 60);
       await page.screenshot({
         path: path.join(directory, `${classic ? "classic" : "new-tab"}-${phase}-${colorScheme}.png`),
+        caret: "initial",
         clip: { x, y, width: Math.min(900 - x, box.width + 80), height: Math.min(640 - y, box.height + 200) },
       });
     }
