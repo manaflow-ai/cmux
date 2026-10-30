@@ -3034,7 +3034,7 @@ jobs:
     # broad pass (~860 s on a slow mini) ran, so 90.
     timeout-minutes: 90
     outputs:
-      # The folded generated files verdict (generated-verdict reads it): fresh, stale or empty. A
+      # The folded generated files verdict (generated-verdict reads it): fresh, stale, catalog or empty. A
       # reused pass of a folded run was recorded only with the generated files fresh.
       generated_files: ${{ steps.reuse.outputs.hit == 'true' && 'fresh' || steps.generated-files-verdict.outputs.verdict }}
     env:
@@ -3618,7 +3618,7 @@ jobs:
       statuses: write
     timeout-minutes: 60
     outputs:
-      # The folded generated files verdict (generated-verdict reads it): fresh, stale or empty.
+      # The folded generated files verdict (generated-verdict reads it): fresh, stale, catalog or empty.
       generated_files: ${{ steps.generated-files-verdict.outputs.verdict }}
     env:
       CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (needs.macos-placement.outputs.runner != '' && 'blacksmith-6vcpu-macos-26') || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || github.run_attempt != 1 && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
