@@ -286,7 +286,13 @@ async function usageLimitsValue(usageLimits: unknown) {
   const copyAll = container.querySelector<HTMLButtonElement>(".acpmux-harness-status__copy-all")!;
   await act(async () => copyAll.click());
   await settle();
-  return { value, copiedLine: copied.at(-1)!.split("\n").find((line) => line.startsWith("Usage limits: ")) };
+  return {
+    value,
+    copiedLine: copied
+      .at(-1)!
+      .split("\n")
+      .find((line) => line.startsWith("Usage limits: ")),
+  };
 }
 
 test("the usage limits acpmux reports show each window's use, and a reset time with its time zone", async () => {
