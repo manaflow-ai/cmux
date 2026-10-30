@@ -99,6 +99,17 @@ impl Daemon {
 
     fn start(&mut self) {
         assert!(self.child.is_none());
+        // scratch (proof ref, never merge): this test runner runs best-effort, as cargo under
+        // `nice -n 10` or a background step does.
+        #[cfg(target_os = "macos")]
+        {
+            // SAFETY: plain syscall with integer arguments.
+            assert_eq!(
+                unsafe { libc::setpriority(libc::PRIO_DARWIN_PROCESS, 0, libc::PRIO_DARWIN_BG) },
+                0
+            );
+            assert!(inherited(), "the runner is best-effort");
+        }
         let mut command = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[]);
         start_at_normal_priority(&mut command);
         let mut child = command
