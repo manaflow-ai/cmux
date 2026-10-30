@@ -816,7 +816,9 @@ export function Composer({
     // draft before the editor has initialized.
     // A chat's own saved draft wins: carried text only fills a session that has none, which a
     // switch's new session always is, so moving to another chat mid-switch keeps that chat's draft.
-    const initial = typedBefore.trim() ? mergedDraft(typedBefore, restored || draft) : restored || carried || draft || "";
+    const initial = typedBefore.trim()
+      ? mergedDraft(typedBefore, restored || draft)
+      : restored || carried || draft || "";
     // Not yet acpmux's: the durable read merges it with acpmux's draft and writes the result.
     if (typedBefore.trim()) {
       editedBeforeHydration.current = true;
