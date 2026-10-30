@@ -70,13 +70,16 @@ public struct CredentialResolver: Sendable {
     /// The Codex CLI's ChatGPT sign-in from `auth.json`, shaped as
     /// `parseCredential` (web/services/coderouter/accounts.ts) requires.
     func codexCredential() throws -> CodexCredential {
-        let file = ProviderDetector(environment: environment).codexHome.appendingPathComponent("auth.json")
-        let root = environment.jsonObject(at: file)
-            ?? (ProviderDetector(environment: environment).codexUsesKeyring
-                ? environment.keychain.genericPassword(service: ProviderDetector.codexKeychainService).flatMap {
-                    (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any]
-                }
-                : nil)
+        let detector = ProviderDetector(environment: environment)
+        let file = detector.codexHome.appendingPathComponent("auth.json")
+        // In keyring mode the Keychain item is the current sign-in; an `auth.json` left from file
+        // storage may be stale, so it is read only when the item is missing or unreadable.
+        let keychainRoot = detector.codexUsesKeyring
+            ? environment.keychain.genericPassword(service: ProviderDetector.codexKeychainService).flatMap {
+                (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any]
+            }
+            : nil
+        let root = keychainRoot ?? environment.jsonObject(at: file)
         guard let tokens = root?["tokens"] as? [String: Any] else {
             throw CredentialResolutionError.incompleteSignIn
         }

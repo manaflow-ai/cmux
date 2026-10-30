@@ -114,6 +114,22 @@ struct ProviderDetectionSourcesTests {
         #expect(credential.email == "founder@example.com")
     }
 
+    @Test func codexKeyringSignInWinsOverAStaleAuthFile() throws {
+        let idToken = "eyJhbGciOiJub25lIn0.eyJlbWFpbCI6ImZvdW5kZXJAZXhhbXBsZS5jb20ifQ."
+        let auth = Data("{\"tokens\":{\"access_token\":\"access\",\"refresh_token\":\"refresh\",\"id_token\":\"\(idToken)\",\"account_id\":\"keychain-acct\"}}".utf8)
+        let stale = "{\"tokens\":{\"access_token\":\"old\",\"id_token\":\"\(idToken)\",\"account_id\":\"file-acct\"}}"
+        let files = Files(files: ["/fixture/home/.codex/config.toml": "cli_auth_credentials_store = \"keyring\"",
+                                  "/fixture/home/.codex/auth.json": stale])
+        let keychain = Keychain(services: [ProviderDetector.codexKeychainService], values: [ProviderDetector.codexKeychainService: auth])
+        let environment = DetectionEnvironment(home: Self.home, environment: [:], files: files, keychain: keychain,
+                                                servers: NoServers(), labeler: AccountLabeler(salt: Data(repeating: 7, count: 32)))
+        let credential = try CredentialResolver(environment: environment, keys: EmptyKeys()).codexCredential()
+        #expect(credential.accountID == "keychain-acct")
+        let detection = ProviderDetector(environment: environment).detectCodexLogin()
+        #expect(detection.status == .signedIn)
+        #expect(detection.sources == [.keychain(ProviderDetector.codexKeychainService)])
+    }
+
     @Test(arguments: ["short", "contains\nnewline"])
     func malformedAPIKeyIsUnknownBeforeTheFirstPrompt(key: String) {
         let detection = Self.detector(env: ["OPENAI_API_KEY": key]).detectLocal(.openAI)

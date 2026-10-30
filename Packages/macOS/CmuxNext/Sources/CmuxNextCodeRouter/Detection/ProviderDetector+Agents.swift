@@ -37,13 +37,14 @@ extension ProviderDetector {
     func detectCodexLogin() -> ProviderDetection {
         let file = codexHome.appendingPathComponent("auth.json")
         let source = DetectionSource.file(environment.display(file))
+        // In keyring mode the Keychain item is the current sign-in, ahead of an `auth.json` left
+        // from file storage (Connect reads it first too).
+        let usesKeyring = codexUsesKeyring
+        if usesKeyring, environment.keychain.hasGenericPassword(service: Self.codexKeychainService) {
+            return ProviderDetection(provider: .codex, status: .signedIn, sources: [.keychain(Self.codexKeychainService)])
+        }
         guard environment.files.exists(file) else {
-            if codexUsesKeyring {
-                let found = environment.keychain.hasGenericPassword(service: Self.codexKeychainService)
-                return ProviderDetection(provider: .codex, status: found ? .signedIn : .missing,
-                                         sources: found ? [.keychain(Self.codexKeychainService)] : [])
-            }
-            return .missing(.codex)
+            return usesKeyring ? ProviderDetection(provider: .codex, status: .missing, sources: []) : .missing(.codex)
         }
         guard let root = environment.jsonObject(at: file) else {
             return ProviderDetection(provider: .codex, status: .unknown, sources: [source])
