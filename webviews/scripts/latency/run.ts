@@ -115,6 +115,33 @@ async function closeServer(server: ChildProcess) {
     server.kill();
   });
 }
+export function waitForServerReady(server: ChildProcess, port: number, timeoutMs = 30_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let output = "";
+    const finish = (error?: Error) => {
+      clearTimeout(timer);
+      server.stdout!.off("data", ready);
+      server.stderr!.off("data", ready);
+      server.off("error", failed);
+      server.off("exit", exited);
+      if (error) reject(error);
+      else resolve();
+    };
+    const ready = (chunk: Buffer) => {
+      // A ready banner can cross stream chunks; retain only a bounded tail.
+      output = `${output}${String(chunk)}`.slice(-4096);
+      if (output.includes(`127.0.0.1:${port}`)) finish();
+    };
+    const failed = (error: Error) => finish(error);
+    const exited = (code: number | null) => finish(new Error(`server exited ${code}`));
+    const timer = setTimeout(() => finish(new Error("server startup timed out")), timeoutMs);
+    server.stdout!.on("data", ready);
+    server.stderr!.on("data", ready);
+    server.once("error", failed);
+    server.once("exit", exited);
+  });
+}
+
 async function startServer(dev: boolean) {
   const port = await freePort();
   const vp = path.join(webviews, "node_modules/.bin/vp");
@@ -141,29 +168,7 @@ async function startServer(dev: boolean) {
       [dev ? "dev" : "preview", "--config", "vite.config.latency.ts", "--port", String(port), "--strictPort"],
       { cwd: webviews, env, stdio: ["ignore", "pipe", "pipe"] },
     );
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("server startup timed out")), 30_000);
-      let output = "";
-      const ready = (chunk: Buffer) => {
-        // Vite can split its ready banner across stdout chunks. Keep a bounded
-        // tail so readiness does not depend on chunk boundaries.
-        output = `${output}${String(chunk)}`.slice(-4096);
-        if (output.includes(`127.0.0.1:${port}`)) {
-          clearTimeout(timer);
-          resolve();
-        }
-      };
-      server!.stdout!.on("data", ready);
-      server!.stderr!.on("data", ready);
-      server!.once("error", (error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-      server!.once("exit", (code) => {
-        clearTimeout(timer);
-        reject(new Error(`server exited ${code}`));
-      });
-    });
+    await waitForServerReady(server, port);
     return { base: `http://127.0.0.1:${port}`, close };
   } catch (error) {
     await close();
@@ -296,7 +301,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
       engineFailures.push(...selection.failures);
       const browser = selection.launched[0]?.value;
       if (!browser) continue;
-      engineNames.push(engineName);
+      measuredEngines.push(engineName);
       source.browsers.push({ engine: engineName, version: browser.version() });
       try {
         for (const spec of specs) {
