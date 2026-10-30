@@ -428,7 +428,11 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       const page = await openChat(["one", long, "three"]);
       const row = '.acpmux-queued[data-prompt-id="q-2"]';
       const text = page.locator(`${row} .acpmux-queued-text`);
-      await text.hover();
+      // A person clicks the row and clicks it again where the pointer rests: never a scroll to
+      // reach it (a locator click would scroll the opened, partly clipped row to its centre).
+      const at = (await text.boundingBox())!;
+      const [x, y] = [at.x + 24, at.y + at.height / 2];
+      await page.mouse.move(x, y);
       await settled(page);
       const rect = () =>
         page.locator(`${row} .acpmux-queued-actions`).evaluate((el) => {
@@ -454,14 +458,14 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       const before = await rect();
       const closedHeight = await rowHeight();
       const opening = await across(async () => {
-        await text.click();
+        await page.mouse.click(x, y);
         await page.locator(`${row} .acpmux-queued-text[data-open]`).waitFor();
       });
       // It did open: the row took its whole text.
       expect(await rowHeight()).toBeGreaterThan(closedHeight + 10);
       expect(opening.filter((r) => r.join() !== before.join())).toEqual([]);
       const closing = await across(async () => {
-        await text.click();
+        await page.mouse.click(x, y);
         await page.locator(`${row} .acpmux-queued-text:not([data-open])`).waitFor();
       });
       expect(closing.filter((r) => r.join() !== before.join())).toEqual([]);
