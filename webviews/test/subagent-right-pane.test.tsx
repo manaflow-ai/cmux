@@ -147,6 +147,26 @@ test("child-session Cmd-click requests a background tab without exposing identit
   expect(button.getAttribute("aria-label") ?? "").not.toContain("child-1");
 });
 
+test("View all lists them in place when no tab opens", async () => {
+  const finished = Array.from({ length: 7 }, (_, i) => ({
+    kind: "agent" as const,
+    id: String(i),
+    depth: 0,
+    agent: { ...agent, id: String(i), state: "completed", endedAt: Date.now() },
+  }));
+  for (const reply of [async () => ({ opened: false }), async () => { throw new NativeError({ code: "native.not_connected" }); }]) {
+    function Refused() {
+      const list = useSubagentList(reply);
+      return <SubagentTray items={[]} finished={finished} working={false} waiting={waiting} onOpen={() => {}} onShowAll={list.show} />;
+    }
+    await act(async () => root.render(<Refused />));
+    const collapsed = host.querySelectorAll("li[data-finished]").length;
+    await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-running-tray__finished")!.click());
+    expect(host.querySelectorAll("li[data-finished]").length).toBeGreaterThan(collapsed);
+    await act(async () => root.render(<></>));
+  }
+});
+
 test("View all requests the full list in the companion pane", async () => {
   const calls: [string, Record<string, unknown>][] = [];
   let reveal: (value: string) => boolean;
@@ -213,7 +233,7 @@ test("native subagent placement distinguishes refusal from transport failure", a
     throw new Error("disconnected");
   }, "child-1", true)).resolves.toBe("error");
   // No app behind the page, or a pane with no subagent panes: shown in place, as before.
-  for (const code of ["native.not_connected", "unsupported"])
+  for (const code of ["native.not_connected", "native.unsupported", "unsupported"])
     await expect(openSubagentPane(async () => {
       throw new NativeError({ code });
     }, "child-1", true)).resolves.toBe("refused");

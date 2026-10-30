@@ -13,7 +13,8 @@ public import Observation
 /// next to the workspaces, see whether it works or needs you, and see its subagents under it.
 /// Optional: not in the default layout; Add to Sidebar adds it. A click on the item runs Open
 /// Chief (`home.openChief`: the Chief's conversation in the Home workspace's chat pane); a click
-/// on a subagent row opens its chat beside the parent; Cmd-click keeps it in that pane unfocused.
+/// on a subagent row opens its chat beside the parent, in the current workspace's right pane (a
+/// row click has no Cmd variant: sidebar activation carries no modifiers).
 /// The App only hands it what it reaches through its services (`Host`).
 @Observable @MainActor
 public final class ChiefSidebar {
@@ -175,7 +176,8 @@ public final class ChiefSidebar {
         _ = registry.perform("home.openConversation", invocation: .init(arguments: ["conversation": .string(chief)], origin: origin))
     }
 
-    /// The current workspace's right pane; Cmd-click explicitly opens a new workspace.
+    /// The current workspace's right pane (`Host.openBeside`), focused; without that hook, the tab
+    /// that shows it, else a new workspace.
     private func openSubagent(_ session: String, registry: ActionRegistry) {
         guard let host, let chiefHost = host.chiefHost() else { return }
         if let open = host.openBeside {

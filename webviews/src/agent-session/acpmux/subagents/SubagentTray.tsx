@@ -1,4 +1,5 @@
 import { subagentName, type OpenSubagent } from "./subagentNavigation";
+import type { SubagentPaneResult } from "./subagentPanes";
 // The tray of running work at the foot of the chat (runningTray.ts): a part of the bottom stack
 // right above the composer (bottomStack.css), so it never scrolls away with history and the
 // transcript keeps its last row above it. It is the one place running background work shows, in a
@@ -113,7 +114,8 @@ export const SubagentTray = memo(function SubagentTray({
   canReadTail?: boolean;
   /// Opens a chat the agent started (App.tsx `openOfferChat`).
   onOpenSession?: OpenSubagent;
-  onShowAll?: () => void;
+  /// Opens the full list in a tab beside the chat; "refused" (nothing opened) expands it here instead.
+  onShowAll?: () => Promise<SubagentPaneResult>;
   /// Stops a running subagent, where the harness can.
   stop?: (id: string) => Promise<unknown>;
   /// Stops a registry process (`_acpmux/process/kill`).
@@ -261,7 +263,10 @@ export const SubagentTray = memo(function SubagentTray({
       type="button"
       className="acpmux-summary-row acpmux-summary-link acpmux-running-tray__finished"
       aria-expanded={showFinished}
-      onClick={onShowAll ?? (() => setShowFinished(!showFinished))}
+      onClick={() => {
+        if (!onShowAll || showFinished) return setShowFinished(!showFinished);
+        void onShowAll().then((result) => result === "refused" && setShowFinished(true));
+      }}
     >
       <Tick
         className="acpmux-summary-text"
