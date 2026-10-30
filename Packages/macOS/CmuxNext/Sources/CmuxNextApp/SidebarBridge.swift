@@ -163,14 +163,19 @@ final class SidebarBridge {
             self.showProfiles(profiles, active: active, launching: launching)
             self.show(SidebarSection.decorated(feed.fill(sections), decorations), layout: shown, launching: launching, failed: failed, creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
             // A workspace the window lists shows its own row from here on (cx-9a7wx). No create waits: no walk of every row.
-            guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }
-            PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
-                                               held: { machines.workspace(id: $0) != nil }) { id in
-                if let owner = registry.value.owner(of: id), owner != windowState.id { return true }
-                guard let workspace = WindowProfiles.qualified(id, machines: machines),
-                      let pin = WindowProfiles.membership(machines)?.pins[workspace] else { return false }
-                return pin != windowState.profileID
+            if !PendingWorkspaceRows.shared.rows.isEmpty {
+                PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
+                                                   held: { machines.workspace(id: $0) != nil }) { id in
+                    if let owner = registry.value.owner(of: id), owner != windowState.id { return true }
+                    guard let workspace = WindowProfiles.qualified(id, machines: machines),
+                          let pin = WindowProfiles.membership(machines)?.pins[workspace] else { return false }
+                    return pin != windowState.profileID
+                }
             }
+            // The daemon can publish a workspace before this projection
+            // materializes its row. Retry the original placement after the
+            // render pass so its completion callback is never stranded.
+            services.windows.retryPendingPlacements()
         }
         PendingWorkspaceRows.shared.redraws.add(self) { [weak self] in
             guard let self, let id = self.state?.id else { return }

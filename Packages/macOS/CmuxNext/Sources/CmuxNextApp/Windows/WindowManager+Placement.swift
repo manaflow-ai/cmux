@@ -24,6 +24,15 @@ struct PendingPlacement {
 // personal order in the home session, else `move-workspace-to-group` on the
 // owning daemon.
 extension WindowManager {
+    /// Revisit creates whose daemon row arrived before the sidebar projection
+    /// did. SidebarBridge calls this after each rendered projection pass, so a
+    /// delayed document/order update can complete the original action without
+    /// another membership change.
+    func retryPendingPlacements() {
+        guard !pendingPlacements.isEmpty else { return }
+        applyPendingPlacements(live: Set(pendingPlacements.keys))
+    }
+
     func applyPendingPlacements(live: Set<String>) {
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
         for (id, pending) in pendingPlacements where live.contains(id) && services.machines.workspace(id: id)?.0.isProvisional != true {
