@@ -76,6 +76,14 @@ def publication_text(comments: list[dict], line: str, previous: str = "") -> str
     return "Shipped in:\n" + "\n".join(lines)
 
 
+def has_publication_line(comments: list[dict], line: str) -> bool:
+    """Whether a publication line survived in status or a legacy comment."""
+    sections = [pr_status.parse(c["body"]).get(SECTION, "")
+                for c in pr_status.bot_comments(comments, pr_status.MARKER)]
+    sections += [c["body"] for c in pr_status.bot_comments(comments, MARKER)]
+    return any(line in body.splitlines() for body in sections)
+
+
 def status_api(method: str, path: str, payload: dict | None = None) -> object:
     return gh("-X", method, path.lstrip("/"), payload=payload)
 
@@ -118,6 +126,13 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
                 time.sleep(pause)
             did = "written"
         else:
+            # A status comment can already be at GitHub's size cap. In that
+            # case render() may trim the newly appended line and produce the
+            # exact body that is already present, so plan() quite correctly
+            # reports no write even though this publication was lost. Keep a
+            # standalone legacy comment as the lossless overflow path.
+            if not has_publication_line(snapshot, line):
+                return legacy_publish(repo, number, line, snapshot, pause)
             return did
     return did + " (unconfirmed: another writer kept replacing the comment)"
 

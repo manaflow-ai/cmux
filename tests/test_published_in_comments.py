@@ -140,6 +140,33 @@ class PublishedInTests(unittest.TestCase):
         self.assertIn(new, calls[1][2]["body"])
         self.assertNotIn("cmux-pr-status", calls[1][2]["body"])
 
+    def test_truncated_status_without_line_uses_lossless_fallback_when_plan_is_empty(self):
+        old = module.build_line("v1", "https://x/v1", "a" * 40)
+        new = module.build_line("v2", "https://x/v2", "b" * 40)
+        comments = [{
+            "id": 1,
+            "body": module.pr_status.render({
+                "published": "Shipped in:\n" + old +
+                "\n\n(cut to fit GitHub's comment limit; the run that wrote this has the rest)",
+            }),
+            "user": {"login": "github-actions[bot]"},
+        }]
+        calls = []
+
+        def api(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                return comments
+
+        # This is the cap-boundary case: render() has discarded `new` and
+        # happened to return the body already on GitHub, so plan() has no
+        # write to report even though the requested line is absent.
+        with patch.object(module.pr_status, "plan", return_value=[]), \
+             patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            self.assertEqual(module.publish("o/r", 7, new, comments, 0), "written")
+        self.assertEqual([method for method, _, _ in calls], ["GET", "POST"])
+        self.assertIn(new, calls[-1][2]["body"])
+
     def test_duplicate_legacy_is_deleted_when_status_already_has_line(self):
         line = module.build_line("v1", "https://x/v1", "a" * 40)
         comments = [
