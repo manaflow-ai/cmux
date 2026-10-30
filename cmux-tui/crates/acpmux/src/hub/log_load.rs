@@ -162,6 +162,7 @@ impl Hub {
         // A subagent retry the restart dropped, hosted or not (`subagent_retry.rs`).
         self.settle_subagent_retries(session);
         self.restore_queue(session);
+        self.drop_unsent_subagent_retries(session);
         // A crash may leave a durable prompt/queue record before its acceptance
         // callback writes `_acpmux/message`; reconstruct those projections before
         // clients can attach or the restored queue resumes.
@@ -254,6 +255,7 @@ impl Hub {
             && let Some(prompt_id) = self.mark_unknown_outcome(session)
         {
             self.restore_queue(session);
+            self.drop_unsent_subagent_retries(session);
             let _ = self.move_queued(session, &prompt_id, 0, None);
         }
     }

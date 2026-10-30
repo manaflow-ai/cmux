@@ -5,6 +5,7 @@ use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 
 mod briefs;
+pub(super) mod cancel_refused;
 mod composer;
 mod events;
 mod info;
@@ -133,9 +134,9 @@ pub(super) async fn handle_notification(
             // the same origin/ownership boundary as request-form cancels,
             // the VM boundary's owner rule included (`hub/vm_boundary.rs`).
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+            let sent = params.get("sessionId").cloned().unwrap_or(Value::Null);
             if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params) {
-                tracing::debug!(conn = %conn.id, "cancel refused: {e}");
-                return;
+                return cancel_refused::tell(hub, conn, &sent, &e);
             }
             let device = super::remote_guard::full_access_device(hub, conn, &params);
             if conn.origin != Origin::Local
@@ -146,16 +147,15 @@ pub(super) async fn handle_notification(
                     device.as_deref(),
                     m,
                     &mut params,
+                    false,
                 )
                 .await
             {
-                tracing::debug!(conn = %conn.id, "cancel refused: {e}");
-                return;
+                return cancel_refused::tell(hub, conn, &sent, &e);
             }
             // Again after the guard's awaits (`hub/vm_boundary.rs`).
             if let Err(e) = hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params) {
-                tracing::debug!(conn = %conn.id, "cancel refused: {e}");
-                return;
+                return cancel_refused::tell(hub, conn, &sent, &e);
             }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
@@ -164,7 +164,8 @@ pub(super) async fn handle_notification(
                     if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
-                } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
+                } else if let Some((peer, id, row)) = hub.resolve_remote(key) {
+                    let turn = cancel_refused::row_turn(&row);
                     let mut forwarded = json!({"sessionId": id});
                     super::remote_guard::mark_forwarded(
                         conn.origin,
@@ -173,7 +174,7 @@ pub(super) async fn handle_notification(
                         &mut forwarded,
                     );
                     person_stop::mark(conn, &params, &peer, &mut forwarded);
-                    let _ = peer.notify(method::SESSION_CANCEL, forwarded).await;
+                    cancel_refused::forward(conn, peer, key, turn, forwarded).await;
                 }
             }
         }
@@ -443,6 +444,7 @@ async fn dispatch_brief(
             None,
             method::SESSION_NEW,
             &mut new_params,
+            false,
         )
         .await?;
     }
@@ -644,11 +646,34 @@ pub(super) async fn handle_request(
     // boundary, runs under the Web's rules from here on (`hub/vm_boundary.rs`).
     let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
+    // A policy raise the person proved in another machine's app, for a chat here: counted and
+    // its challenge spent once, before any check reads it, and the change goes to that very
+    // chat (`hub/person/policy_grant.rs`).
+    let proved_chat = hub.take_person_policy(m, &params);
+    let policy_proved = proved_chat.is_some();
+    // A refused raise of a chat here carries a challenge the person's app can prove.
+    let challenge = |e: RpcError, params: &Value| {
+        hub.with_policy_challenge(
+            m,
+            params,
+            &[super::remote_guard::POLICY_REFUSED, crate::hub::person::REASON],
+            e,
+        )
+    };
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         let device = super::remote_guard::full_access_device(hub, conn, &params);
-        super::remote_guard::check(hub, conn.origin, conn.auth, device.as_deref(), m, &mut params)
-            .await?;
+        super::remote_guard::check(
+            hub,
+            conn.origin,
+            conn.auth,
+            device.as_deref(),
+            m,
+            &mut params,
+            policy_proved,
+        )
+        .await
+        .map_err(|e| challenge(e, &params))?;
     }
     caller_sends_no_files(hub, conn, m, &params)?;
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
@@ -660,17 +685,19 @@ pub(super) async fn handle_request(
             == crate::hub::Control::Web;
     let verdict = hub
         .person_check(
-            conn.is_person(),
+            conn.is_person() || policy_proved,
             remote_authenticated,
             conn.caller(),
             !conn.origin.web_class(),
             m,
             &params,
         )
-        .await?;
+        .await
+        .map_err(|e| challenge(e, &params))?;
     // Again after the guard's awaits: a session that took the name meanwhile (`hub/vm_boundary.rs`).
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
-    let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
+    let resolved = proved_chat
+        .or_else(|| super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok()));
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     // A message's class is checked here, before a peer's prompt is forwarded: an older peer
     // ignores the field, and a send queued for later would fail only once it is delivered.
@@ -819,7 +846,7 @@ async fn dispatch_request(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, SESSION_RESUME_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE], "trustGate": true}}
             });
             // Only a local client can use the app launcher's bundled CLI.
             if conn.origin == Origin::Local
@@ -1188,7 +1215,7 @@ async fn dispatch_request(
         }
         method::SESSION_LOAD => session_open::load(hub, conn, resolved.as_ref(), &params),
         method::SESSION_RESUME => session_open::resume(hub, conn, resolved.as_ref(), &params),
-        method::SESSION_LIST => super::list_reply::acp_list(hub, conn).await,
+        method::SESSION_LIST => super::list_reply::acp_list(hub, conn, &params).await,
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
@@ -1511,7 +1538,15 @@ async fn dispatch_request(
             }
         }
         method::MUX_STATUS => Ok(hub.status().await),
-        method::MUX_SESSIONS => super::list_reply::sessions(hub, conn, &params).await,
+        method::MUX_SESSIONS => {
+            // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
+            // until now first (`hub/usage_view.rs`); else rows carry the last pass's.
+            if params.get("usage") == Some(&Value::Bool(true)) {
+                let read = hub.refresh_usage_stats();
+                let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+            }
+            super::list_reply::sessions(hub, conn, &params).await
+        }
         method::MUX_WEB_MODES => hub.web_modes_view(&params),
         method::MUX_WEB_TOKEN_ROTATE => hub.rotate_web_token().await,
         method::MUX_WARM => {
@@ -2048,7 +2083,9 @@ async fn dispatch_request(
         method::MUX_KILL => {
             let s = hub.resolve(session_key(&params)?)?;
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
-            hub.kill(&s, purge).await?;
+            // `ifIdle`: refused unless idle, checked under the turn lock (`stop_if_idle.rs`).
+            let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;
+            hub.stop(&s, purge, condition).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
         method::MUX_WATCH_TAKE_OVER => super::chats::watch_take_over(hub, &params).await,
@@ -2155,7 +2192,8 @@ async fn dispatch_request(
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {
-            let s = hub.resolve(session_key(&params)?)?;
+            // The chat a proved raise was checked for (`hub/person/policy_grant.rs`).
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let policy: PermissionPolicy = str_param(&params, "policy")
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()

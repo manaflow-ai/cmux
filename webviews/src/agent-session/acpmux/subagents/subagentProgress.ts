@@ -12,8 +12,7 @@ export function subagentProgress(t: Translate, language: PaneLanguage, agent: Pi
     parts.push(t("subagents.workflowAgents", { n: agent.agents.started, done: agent.agents.done }));
   if (agent.agents?.failed && agent.agents.failed > 0)
     parts.push(t("summary.subagents.failed", { n: agent.agents.failed }));
-  if (agent.agents?.queued && agent.agents.queued > 0)
-    parts.push(t("workflow.queued", { n: agent.agents.queued }));
+  if (agent.agents?.queued && agent.agents.queued > 0) parts.push(t("workflow.queued", { n: agent.agents.queued }));
   if (agent.tokens)
     parts.push(
       t("subagents.tokens", {

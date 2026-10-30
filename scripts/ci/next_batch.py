@@ -1315,8 +1315,11 @@ class Controller:
 
     def job_log(self, job_id: int | str) -> str | None:
         # The job's log, readable while the rest of its run still goes.
-        got = self.gh.gh("api", "--allow-escape-sequences", f"repos/{self.args.repo}/actions/jobs/{job_id}/logs",
-                         check=False)
+        # A gh too old for the escape flag is asked once more without it; any other failure stays None.
+        route = f"repos/{self.args.repo}/actions/jobs/{job_id}/logs"
+        got = self.gh.gh("api", base_red_excuse.ESCAPE_FLAG, route, check=False)
+        if got.returncode != 0 and base_red_excuse.escape_flag_unknown(got.stderr):
+            got = self.gh.gh("api", route, check=False)
         return got.stdout if got.returncode == 0 else None
 
     def expand_job(self, name: str, job_id: int | str, job: dict | None = None) -> set[str]:
