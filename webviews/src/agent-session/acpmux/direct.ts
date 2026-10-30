@@ -557,6 +557,13 @@ function queuedEntry(
   };
 }
 
+/// `entry` with `from`'s Stop hold (`heldByStop`): an entry rebuilt from a record or a list keeps it
+/// while it is still another agent's message. An edit makes it the person's (hub/queue_edit.rs), and
+/// a person's Stop holds only other agents' messages.
+function keepStopHold(entry: QueuedPrompt, from: QueuedPrompt | undefined): QueuedPrompt {
+  return from?.heldByStop && !entry.heldByStop && entry.message ? { ...entry, heldByStop: true } : entry;
+}
+
 /// Whether listed chat `session` is the one `name` names: its name, its short name, or, for a chat
 /// on another machine (listed as `<peer>/<name>`), its bare name, which its messages sign with.
 function namesChat(session: Session, name: string): boolean {
@@ -680,7 +687,7 @@ export function mergeQueue(
         : authors?.has(id)
           ? (authors.get(id) ?? undefined)
           : had?.author;
-    return queuedEntry(
+    const merged = queuedEntry(
       id,
       whole ? had.prompt : preview,
       had?.next === true,
@@ -690,6 +697,10 @@ export function mergeQueue(
       author,
       recordedPromptParts(entry, had?.inlineParts) ?? had?.inlineParts,
     );
+    // Whether a person's Stop holds it, as acpmux lists it (`heldByStop`); listed unheld, it was
+    // let go. A list without the field (an older acpmux) keeps what the records said.
+    if (entry?.heldByStop === true && entry?.held !== false) return { ...merged, heldByStop: true };
+    return entry?.held === false || entry?.heldByStop === false ? merged : keepStopHold(merged, had);
   });
 }
 
@@ -3784,15 +3795,18 @@ export class AcpmuxDirectClient {
       if (entry.message || !msg || String(msg.text ?? "") !== entry.prompt) return entry;
       const message = queuedMessage(msg, this.incomingContext());
       return message
-        ? queuedEntry(
-            entry.id,
-            entry.prompt,
-            entry.next === true,
-            entry.sending === true,
-            entry.images,
-            message,
-            entry.author,
-            entry.inlineParts,
+        ? keepStopHold(
+            queuedEntry(
+              entry.id,
+              entry.prompt,
+              entry.next === true,
+              entry.sending === true,
+              entry.images,
+              message,
+              entry.author,
+              entry.inlineParts,
+            ),
+            entry,
           )
         : entry;
     });
@@ -3916,15 +3930,18 @@ export class AcpmuxDirectClient {
       if (parts && this.optimisticPromptParts.has(id)) this.optimisticPromptParts.set(id, parts);
       this.queue = this.queue.map((entry) =>
         entry.id === id
-          ? queuedEntry(
-              id,
-              String(msg.text ?? ""),
-              entry.next === true,
-              false,
-              recordImages(msg),
-              undefined,
-              promptAuthor(msg),
-              recordedPromptParts(msg, entry.inlineParts) ?? entry.inlineParts,
+          ? keepStopHold(
+              queuedEntry(
+                id,
+                String(msg.text ?? ""),
+                entry.next === true,
+                false,
+                recordImages(msg),
+                undefined,
+                promptAuthor(msg),
+                recordedPromptParts(msg, entry.inlineParts) ?? entry.inlineParts,
+              ),
+              entry,
             )
           : entry,
       );
@@ -3942,17 +3959,40 @@ export class AcpmuxDirectClient {
         .map((entry) =>
           next === undefined
             ? entry
-            : queuedEntry(
-                entry.id,
-                entry.prompt,
-                entry.id === next,
-                false,
-                entry.images,
-                entry.message,
-                entry.author,
-                entry.inlineParts,
+            : keepStopHold(
+                queuedEntry(
+                  entry.id,
+                  entry.prompt,
+                  entry.id === next,
+                  false,
+                  entry.images,
+                  entry.message,
+                  entry.author,
+                  entry.inlineParts,
+                ),
+                // Sent now, it is no longer held (hub/queue.rs `put_next`).
+                entry.id === next ? undefined : entry,
               ),
         );
+    } else if (event.kind === "queue_paused" || event.kind === "queue_resumed") {
+      // A person's Stop holds other agents' messages (`reason: "stop"`, hub/cancel.rs) until their
+      // next turn completes or the queue is resumed; a resume names the prompts it let go, or none
+      // for the whole queue.
+      const ids = (value: unknown) => (Array.isArray(value) ? new Set(value.map(String)) : undefined);
+      if (event.kind === "queue_paused" && msg.reason === "stop") {
+        const held = ids(msg.held);
+        if (held)
+          this.queue = this.queue.map((entry) =>
+            held.has(entry.id) && !entry.heldByStop ? { ...entry, heldByStop: true } : entry,
+          );
+      } else if (event.kind === "queue_resumed") {
+        const resumed = ids(msg.promptIds);
+        this.queue = this.queue.map((entry) => {
+          if (!entry.heldByStop || (resumed && !resumed.has(entry.id))) return entry;
+          const { heldByStop: _, ...released } = entry;
+          return released;
+        });
+      }
     } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
       // A task's result waiting behind the turn draws its received line now (offer/SuggestedTasks.tsx).
