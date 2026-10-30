@@ -23,11 +23,12 @@ struct BrowserCallerTarget: Sendable, Equatable {
     /// mirroring pane for a mirrored tab it shows; nil when no pane shows it.
     var shownIn: ControlPaneInfo?
 
-    /// The browser nearest `location`, nil when none is in its workspace, group or window.
-    /// `sameSession` keeps to the caller's own session (the daemon the CLI and MCP address).
-    static func resolve(near location: ControlCallerLocation, in topology: ControlTopology, sameSession: Bool = false) -> Self? {
+    /// The browser nearest `location`, nil when none is in its workspace, group or window. It keeps
+    /// to the caller's own session (the daemon the CLI and MCP address), so page verbs, actions and
+    /// `identify` always pick the same browser.
+    static func resolve(near location: ControlCallerLocation, in topology: ControlTopology) -> Self? {
         for workspace in nearbyWorkspaces(of: location.workspace, in: topology)
-        where !sameSession || workspace.sessionID == location.workspace.sessionID {
+        where workspace.sessionID == location.workspace.sessionID {
             if let found = browser(in: workspace, near: workspace.id == location.workspace.id ? location : nil, topology: topology) {
                 return found
             }

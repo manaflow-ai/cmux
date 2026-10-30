@@ -23,20 +23,41 @@ extension BrowserPageService {
                            _ arguments: @escaping @Sendable (ControlCall) -> [String: JSONValue]) -> ControlMethod {
         .async("browser.page.\(name)") { [weak router] call in
             guard let router else { throw ControlRouter.stopped }
-            let tab = try Self.tab(call)
-            var params: [String: JSONValue] = ["action": .string(action), "target": .string("tab:" + tab.id),
-                                               "wait": call.request.params["wait"] ?? true]
+            var params: [String: JSONValue] = ["action": .string(action), "wait": call.request.params["wait"] ?? true]
+            var tab: Tab?
+            if name == "new_tab", let lonely = try Self.callerWithNoBrowserNear(call) {
+                // The caller's first browser, rather than a refusal: an agent's opens beside its chat
+                // (`openBrowser` places it), a terminal's in its own pane.
+                if lonely.caller.agentSession != nil || lonely.caller.homeChat {
+                    params["caller"] = call.request.params["caller"]
+                } else {
+                    params["target"] = .string("tab:" + lonely.location.tab.id)
+                }
+            } else {
+                let anchor = try Self.tab(call)
+                params["target"] = .string("tab:" + anchor.id)
+                tab = anchor
+            }
             if let key = call.request.params["idempotency_key"] { params["idempotency_key"] = key }
             let args = arguments(call)
             if !args.isEmpty { params["args"] = .object(args) }
             let request = ControlRequest(id: call.request.id, method: call.method, params: params)
             let run = try await router.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
                                                              deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
-            var result = Self.base(tab)
+            var result = tab.map(Self.base) ?? [:]
             for key in ["ran", "waited", "created"] { result.updateValue(run[key] ?? .null, forKey: key) }
             if let sequence = run["sequence"] { result["sequence"] = sequence }
             return .object(result)
         }.claimingProgress()
+    }
+
+    /// The caller of a call that names no tab, when no browser is near it (``BrowserCallerTarget``).
+    static func callerWithNoBrowserNear(_ call: ControlCall) throws -> (caller: ControlCaller, location: ControlCallerLocation)? {
+        let params = call.request.params
+        guard params["tab"]?.stringValue?.isEmpty ?? true, let caller = try ControlCaller(params),
+              let location = ControlCallerLocation.resolve(caller, in: call.snapshot.topology),
+              BrowserCallerTarget.resolve(near: location, in: call.snapshot.topology) == nil else { return nil }
+        return (caller, location)
     }
 
     /// The app browser tabs of one workspace: the named browser tab's, else

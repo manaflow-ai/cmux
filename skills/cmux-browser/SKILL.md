@@ -79,8 +79,9 @@ There are two kinds of browser in cmux, with different ids:
 In the app, use the `tab_…` form. Page commands accept a tab id or any unique
 prefix of one. `page` means the browser nearest you: one in your own workspace,
 then one in your sidebar group, then one in your window, never the person's
-focused tab in another window. With none near you it fails; list every tab with
-`cmux browser page tabs --all` and name one. `cmux --json identify` reports it
+focused tab in another window, and never one in another session. With none near
+you it fails (`page new-tab URL` opens your first one instead); list every tab
+with `cmux browser page tabs --all` and name one. `cmux --json identify` reports it
 as `browser`.
 
 ## Open a browser tab
