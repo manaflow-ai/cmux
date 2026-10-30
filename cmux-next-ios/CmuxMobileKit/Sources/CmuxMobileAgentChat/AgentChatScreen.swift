@@ -102,6 +102,10 @@ public final class AgentChatSurface {
     /// it from the keyboard layout guide in the keyboard's own animation.
     public internal(set) var stackHeight: CGFloat?
     public internal(set) var stackMaxY: CGFloat?
+    /// Window y the bottom stack may not rise above: under the transcript's header and,
+    /// for the pushed chat, inside the dock's host. The transcript sets it as it lays
+    /// out; the composer's slash-command list scrolls inside the room below it.
+    var stackCeiling: CGFloat?
     /// The live transcript's scroll view (jump to bottom, demos).
     @ObservationIgnored weak var scroller: (any ChatTranscriptScrolling)?
     /// The bottom stack's height as drawn, once per frame while it animates
@@ -552,6 +556,10 @@ public struct AgentChatBottomStack: View {
     @Bindable var surface: AgentChatSurface
     var bottomPadding: CGFloat = 8
     @State private var reportedHeight: CGFloat = 0
+    /// The composer's top in the stack: what the stack shows over it (an error, plan
+    /// progress, queued prompts) and their spacing.
+    @State private var composerOffset: CGFloat = 0
+    nonisolated private static let stackSpace = "AgentChatBottomStack"
     /// The composer field's focus (a UITextView that follows it both ways).
     @State private var composerFocused = false
 
@@ -609,10 +617,15 @@ public struct AgentChatBottomStack: View {
                     ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: !store.turns.isEmpty,
                                  expandOnAppear: surface.replyInsteadOfPermission,
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
-                                 denyingPermission: replying)
+                                 denyingPermission: replying,
+                                 suggestionsCeiling: surface.stackCeiling.map { $0 + composerOffset })
+                        .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
+                            if composerOffset != offset { composerOffset = offset }
+                        }
                         .transition(.opacity)
                 }
             }
+            .coordinateSpace(.named(Self.stackSpace))
             // The transcript's bottom margin follows this top. The jump
             // button is not in this stack: counting it moved the margin,
             // which moved the distance, which toggled the button (a layout
