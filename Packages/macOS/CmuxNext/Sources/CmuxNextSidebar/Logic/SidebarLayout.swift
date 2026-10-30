@@ -36,6 +36,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
     public static let empty = SidebarLayout(rows: [], totalHeight: 0, gapY: nil, gapHeight: 0, gapShift: 0)
 
+    /// True when opt-in fleet host buckets are actually drawn. Grouped mode
+    /// disables in-sidebar reordering so the projection cannot disagree with
+    /// the document landing; drags out to panes and windows remain available.
+    public var hostHeadersShowing: Bool {
+        rows.contains { if case .sessionHost = $0.key { true } else { false } }
+    }
+
     public func row(for key: SidebarRowKey) -> SidebarRow? { index.position(of: key).map { rows[$0] } }
 
     /// The position of `key`'s row in `rows`, or nil.

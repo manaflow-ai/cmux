@@ -72,7 +72,6 @@ extension SidebarListViewComponents {
         drag.restFrame.origin.x -= stepIn
         drag.restFrame.size.width += stepIn
         drag.morphs = rows.count == 1
-        drag.sourceHost = displayed.sessionHost(for: press.key)
         self.drag = drag
         // The document's acceptance table: the drag's one reducer call before its drop.
         if let doc = model.docDrag, let items = doc.items(payload) {
@@ -171,6 +170,14 @@ extension SidebarListViewComponents {
     /// pass after the first), then the list shows the drop as before.
     private func updateDocDrag(_ drag: Drag, point: NSPoint) {
         guard let doc = model.docDrag else { return }
+        guard !displayed.hostHeadersShowing else {
+            drag.docTarget = nil
+            drag.target = nil
+            drag.blockTarget = nil
+            drag.lift.setRefused(true)
+            showDragLayout()
+            return
+        }
         if drag.docGeometry == nil {
             drag.geometryRevision = model.sectionsRevision
             drag.blockBases = blockBases()
@@ -218,11 +225,7 @@ extension SidebarListViewComponents {
         var blockTarget: SidebarBlockGap?
         if let docTarget = hit.target {
             if let row = rows[hit.slot.key] {
-                if let grouped = displayed.groupedDropTarget(row: row, after: hit.zone == .after, sourceHost: drag.sourceHost) {
-                    target = grouped.flatMap { $0 }
-                } else {
-                    target = SidebarDocDrag.display(hit, row: row)
-                }
+                target = SidebarDocDrag.display(hit, row: row)
             } else {
                 blockTarget = SidebarBlockGap(section: hit.slot.section,
                                               index: blockIndex(docTarget, section: hit.slot.section, moving: drag.docItems ?? []))

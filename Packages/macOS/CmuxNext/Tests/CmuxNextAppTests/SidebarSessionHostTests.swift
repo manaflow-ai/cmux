@@ -205,7 +205,6 @@ import Testing
         #expect(layout.row(for: .sessionHost(SidebarSessionTree.hostKey(Self.host, section: .machine(.local)))) != nil)
         #expect(layout.rows.filter { $0.key == .workspace(Self.child) }.count == 1)
         #expect(layout.row(for: .workspace(Self.child))?.siblingIndex == 2)
-        #expect(layout.row(for: .workspace(Self.child))?.dropIndex == 2)
     }
 
     @Test func dropBeforeReorderedChildAndAtListEndReservesRealSpace() throws {
@@ -227,20 +226,9 @@ import Testing
         }
     }
 
-    @Test func groupedDropSlotsFollowDrawnNeighborsAndRefuseOtherFamilies() throws {
-        let layout = Self.layout(Self.state())
-        let coordinator = try #require(layout.row(for: .workspace(Self.parent)))
-        let worker = try #require(layout.row(for: .workspace(Self.child)))
-        let plain = try #require(layout.row(for: .workspace(Self.other)))
-        let host = SidebarSessionTree.hostKey(Self.host, section: .machine(.local))
-        let upper = layout.groupedDropTarget(row: coordinator, after: false, sourceHost: Self.host)
-        let lower = layout.groupedDropTarget(row: coordinator, after: true, sourceHost: Self.host)
-        #expect(upper == .some(.position(DropPosition(section: .machine(.local), index: coordinator.siblingIndex))))
-        #expect(lower == .some(.position(DropPosition(section: .machine(.local), index: worker.siblingIndex))))
-        let familyEnd = layout.groupedDropTarget(row: worker, after: true, sourceHost: Self.host)
-        #expect(familyEnd == .some(.position(DropPosition(section: .machine(.local), index: plain.siblingIndex))))
-        #expect(layout.groupedDropTarget(row: coordinator, after: false, sourceHost: nil) == .some(nil))
-        #expect(layout.row(for: .sessionHost(host)) != nil)
+    @Test func hostHeadersDisableInSidebarReordering() {
+        #expect(Self.layout(Self.state()).hostHeadersShowing)
+        #expect(!Self.layout(nil).hostHeadersShowing)
     }
 
     @Test func sectionEndDropDoesNotFollowAWorkspaceFromTheNextMachine() throws {

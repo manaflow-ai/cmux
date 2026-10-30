@@ -202,10 +202,9 @@ public final class SidebarSessionTreeFeed {
             }
         }
         if localHost == nil {
-            // Without this install's identity, neither fleet buckets nor lineage
-            // can be trusted to distinguish local sessions. Leave the projection flat.
+            // Without this install's identity, fleet buckets stay off. Recorded
+            // lineage remains useful and is still projected by Session Tree.
             state.hosts.removeAll()
-            state.parents.removeAll()
         }
         return Pass(state: state, asks: asks)
     }

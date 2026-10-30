@@ -54,7 +54,6 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     /// The projected insertion slot used by the shared drop reducer. Session host
     /// grouping keeps `siblingIndex` as the document identity for selection and
     /// drag origins, while this optional slot follows the drawn neighbor.
-    public var dropIndex: Int?
     /// For a grouped workspace: the group's index in its section.
     public var parentIndex: Int?
     public var isLastInGroup: Bool

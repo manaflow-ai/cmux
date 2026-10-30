@@ -41,8 +41,6 @@ final class SidebarListDrag {
     var band = SidebarGroupBand()
     /// Where the dragged workspaces started (what Cmd-Z puts them back to).
     var origin: DropPosition?
-    /// Stable host family captured before the source row is hidden.
-    var sourceHost: String?
     /// The row a drop grouped with: its new group renames in place once the drag has landed and the rows have settled.
     var renameOnLand: WorkspaceID?
     /// The last pointer y in the list and the drag's vertical direction.
@@ -109,19 +107,12 @@ final class SidebarListDrag {
     /// edge elsewhere (DropResolver.resolveDrag).
     func resolve(card: CGRect, displayed: SidebarLayout, base: SidebarLayout, sections: [SidebarSection],
                  ungroupedFirst: Bool) -> DropTarget?? {
+        guard !displayed.hostHeadersShowing else { return .some(nil) }
         let leading = movingUp ? card.minY : card.maxY
         guard let resolved = DropResolver.resolveDrag(centreY: card.midY, leadingY: leading, gapY: displayed.gapY, gapHeight: displayed.gapShift,
                                                       payload: payload, base: base, sections: sections, ungroupedFirst: ungroupedFirst) else {
             noteProbe(nil, card: card, displayed: displayed, base: base)
             return nil
-        }
-        if displayed.rows.contains(where: { if case .sessionHost = $0.key { true } else { false } }),
-           let y = DropResolver.baseY(forDisplayY: resolved.probe == .centre ? card.midY : leading,
-                                      gapY: displayed.gapY, gapHeight: displayed.gapShift),
-           let row = base.row(at: y),
-           let grouped = displayed.groupedDropTarget(row: row, after: y >= row.y + row.height / 2, sourceHost: sourceHost) {
-            noteProbe(resolved.probe, card: card, displayed: displayed, base: base, target: grouped.flatMap { $0 })
-            return grouped
         }
         noteProbe(resolved.probe, card: card, displayed: displayed, base: base, target: resolved.target)
         return .some(resolved.target)

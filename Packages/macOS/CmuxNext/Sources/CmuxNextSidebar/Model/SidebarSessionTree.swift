@@ -233,11 +233,16 @@ public final class SidebarSessionTree {
 
     /// Ephemeral row identity for a host in one machine section. The host id
     /// remains the fold key, while the section suffix prevents pool/key collisions.
-    public static func hostKey(_ host: String, section: SectionID) -> String {
-        "\(host)\u{1f}\(section.rawValue)"
+    public nonisolated static func hostKey(_ host: String, section: SectionID) -> String {
+        let sectionKey: String = switch section {
+        case .pinned: "pinned"
+        case let .machine(id): "machine:\(id.rawValue)"
+        case let .custom(id): "custom:\(id)"
+        }
+        return "\(host)\u{1f}\(sectionKey)"
     }
 
-    public static func hostID(from key: String) -> String {
+    public nonisolated static func hostID(from key: String) -> String {
         key.split(separator: "\u{1f}", maxSplits: 1).first.map(String.init) ?? key
     }
 

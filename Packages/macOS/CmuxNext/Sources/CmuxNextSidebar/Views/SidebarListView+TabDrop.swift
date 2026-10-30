@@ -51,6 +51,11 @@ extension SidebarListViewComponents {
             self.external = external
             setHovered(nil)
         }
+        if displayed.hostHeadersShowing {
+            external.proposal = nil
+            reload(animated: true)
+            return nil
+        }
         autoscroll.update(windowPoint: windowPoint)
         if let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) {
             let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
