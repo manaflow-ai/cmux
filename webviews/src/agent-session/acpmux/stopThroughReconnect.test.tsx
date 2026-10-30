@@ -3,7 +3,8 @@
 // and it didnt do anything".
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { keptStopStep, useStopThroughReconnect, type StopView } from "./stopThroughReconnect";
+import { promptRoot } from "./direct";
+import { keptStopStep, useStopThroughReconnect, type KeptStop, type StopView } from "./stopThroughReconnect";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -18,34 +19,50 @@ afterAll(() => {
     else delete scope[key];
 });
 
-const working: StopView = { sessionId: "s1", connection: "connected", isWorking: true };
+const working: StopView = { sessionId: "s1", connection: "connected", isWorking: true, turnPrompt: "p1" };
 
-test("a kept Stop waits through the lost connection and goes out once it is back", () => {
-  let kept = { sessionId: "s1", awaitsDisconnect: false };
+test("a kept Stop waits through the lost connection and goes out once its turn runs again", () => {
+  let kept: KeptStop = { sessionId: "s1", turnPrompt: "p1", awaitsDisconnect: false };
   const lost = keptStopStep(kept, { ...working, connection: "disconnected" });
   expect(lost.step).toBe("keep");
   kept = lost.kept;
   expect(keptStopStep(kept, { ...working, connection: "reconnecting" }).step).toBe("keep");
   expect(keptStopStep(kept, working).step).toBe("send");
-  // acpmux came back with the turn not running yet (its retry waits): the Stop still goes, and
-  // acpmux's Stop withdraws the waiting retry.
-  expect(keptStopStep(kept, { ...working, isWorking: false }).step).toBe("send");
+  // Back with nothing running (acpmux's continuation of the turn still waits): nothing goes yet,
+  // so a session-wide cancel never lands while the chat runs nothing; it goes once that turn runs.
+  expect(keptStopStep(kept, { ...working, isWorking: false, turnPrompt: undefined }).step).toBe("keep");
+});
+
+test("a kept Stop never stops another turn", () => {
+  const kept: KeptStop = { sessionId: "s1", turnPrompt: "p1", awaitsDisconnect: false };
+  // A prompt that waited started while the pane was away (Codex review of #27804, P1).
+  expect(keptStopStep(kept, { ...working, turnPrompt: "p2" }).step).toBe("drop");
+  // One whose prompt the pane does not know is not taken for the stopped one either.
+  expect(keptStopStep(kept, { ...working, turnPrompt: undefined }).step).toBe("drop");
 });
 
 test("a Stop refused while the pane still read connected waits for the disconnect first", () => {
-  const closing = { sessionId: "s1", awaitsDisconnect: true };
+  const closing: KeptStop = { sessionId: "s1", turnPrompt: "p1", awaitsDisconnect: true };
   expect(keptStopStep(closing, working).step).toBe("keep");
   const lost = keptStopStep(closing, { ...working, connection: "disconnected" });
-  expect(lost).toEqual({ step: "keep", kept: { sessionId: "s1", awaitsDisconnect: false } });
+  expect(lost).toEqual({ step: "keep", kept: { sessionId: "s1", turnPrompt: "p1", awaitsDisconnect: false } });
   expect(keptStopStep(lost.kept, working).step).toBe("send");
   // It never lost the connection and the turn ended: nothing is left to stop.
   expect(keptStopStep(closing, { ...working, isWorking: false }).step).toBe("drop");
+  // Nor does a next turn read Stopping… until some later disconnect (Codex review of #27804, P1).
+  expect(keptStopStep(closing, { ...working, turnPrompt: "p2" }).step).toBe("drop");
 });
 
 test("a kept Stop is for its chat only", () => {
-  const kept = { sessionId: "s1", awaitsDisconnect: false };
+  const kept: KeptStop = { sessionId: "s1", turnPrompt: "p1", awaitsDisconnect: false };
   expect(keptStopStep(kept, { ...working, sessionId: "s2" }).step).toBe("drop");
   expect(keptStopStep(kept, { ...working, sessionId: undefined, connection: "disconnected" }).step).toBe("drop");
+});
+
+test("acpmux's continuation of a cut turn runs for that turn's prompt", () => {
+  expect(promptRoot("p1~resume-1")).toBe("p1");
+  expect(promptRoot("p1~resume-12")).toBe("p1");
+  expect(promptRoot("p1")).toBe("p1");
 });
 
 test("the composer's Stop during a reconnect says it is stopping and stops the turn once acpmux is back", async () => {
@@ -104,4 +121,75 @@ test("a Stop acpmux took is not sent again", async () => {
   expect(cancels).toHaveLength(1);
   expect(shown!.stopping).toBe(false);
   await act(async () => root.unmount());
+});
+
+test("a kept Stop does not stop the queued prompt that started while the pane was away", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  let online = false;
+  const cancels: string[] = [];
+  let shown: { stop: () => void; stopping: boolean } | undefined;
+  function Probe({ view }: { view: StopView }) {
+    shown = useStopThroughReconnect(view, () => {
+      cancels.push(online ? "sent" : "refused");
+      return online ? Promise.resolve() : Promise.reject(new Error("not connected"));
+    });
+    return null;
+  }
+  const root = createRoot(dom.window.document.body.appendChild(dom.window.document.createElement("div")));
+  const render = (view: StopView) => act(async () => root.render(<Probe view={view} />));
+  await render({ ...working, connection: "disconnected" });
+  await act(async () => shown!.stop());
+  expect(shown!.stopping).toBe(true);
+  // Back, and the stopped turn ended meanwhile; the next queued prompt (p2) runs now.
+  online = true;
+  await render({ ...working, turnPrompt: "p2" });
+  expect(cancels).toEqual(["refused"]);
+  expect(shown!.stopping).toBe(false);
+  // Its continuation never comes back to life through that Stop either.
+  await render({ ...working, isWorking: false, turnPrompt: undefined });
+  await render(working);
+  expect(cancels).toEqual(["refused"]);
+  await act(async () => root.unmount());
+});
+
+test("the snapshot names the running turn's prompt, its continuation's as the cut turn's", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const daemon = socket as unknown as {
+    emit: (target: string, step: unknown) => void;
+    touch: (target: string, fields: Record<string, unknown>) => void;
+  };
+  const view = { shown: { isWorking: false } as { isWorking: boolean; turnPrompt?: string; summary?: unknown } };
+  const waiters: Array<() => void> = [];
+  const until = async (check: () => boolean) => {
+    while (!check()) await new Promise<void>((resolve) => waiters.push(resolve));
+  };
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      view.shown = snapshot as unknown as typeof view.shown;
+      for (const wake of waiters.splice(0)) wake();
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  const id = mockHost.sessionId!;
+  try {
+    await until(() => view.shown.summary !== undefined);
+    daemon.touch(id, { status: "running" });
+    daemon.emit(id, { mux: "turn_started", msg: { promptId: "p1", turnId: "t1" } });
+    await until(() => view.shown.turnPrompt === "p1");
+    daemon.emit(id, { mux: "turn_result", msg: { status: "failed", turnId: "t1" } });
+    daemon.touch(id, { status: "ready" });
+    await until(() => !view.shown.isWorking);
+    expect(view.shown.turnPrompt).toBeUndefined();
+    daemon.touch(id, { status: "running" });
+    daemon.emit(id, { mux: "turn_started", msg: { promptId: "p1~resume-1", turnId: "t2" } });
+    await until(() => view.shown.isWorking);
+    expect(view.shown.turnPrompt).toBe("p1");
+  } finally {
+    client.close?.();
+  }
 });
