@@ -27,11 +27,19 @@ struct EventSourceProcessesTests {
             var reads: [Read] = []
             var watches: [pid_t: [Int: @Sendable () -> Void]] = [:]
             var nextWatch = 0
+            var refused: Set<pid_t> = []
         }
 
         var reads: [Read] { state.withLock { $0.reads } }
 
         func set(_ pid: pid_t, _ process: EventSourceProcess?) { state.withLock { $0.processes[pid] = process } }
+
+        /// The kernel refuses (true) or attaches (false) an exit watch on `pid`.
+        func refuseWatch(_ pid: pid_t, _ refused: Bool) {
+            state.withLock { state in
+                if refused { state.refused.insert(pid) } else { state.refused.remove(pid) }
+            }
+        }
 
         /// The process ends: every watch armed on its pid runs, on the table's queue.
         func end(_ pid: pid_t) {
@@ -51,15 +59,25 @@ struct EventSourceProcessesTests {
                     }
                 },
                 watchExit: { [self] pid, _, exited in
-                    let id = state.withLock { state in
+                    let id: Int? = state.withLock { state in
+                        guard !state.refused.contains(pid) else { return nil }
                         state.nextWatch += 1
                         state.watches[pid, default: [:]][state.nextWatch] = exited
                         return state.nextWatch
                     }
+                    guard let id else { return nil }
                     return { [self] in state.withLock { _ = $0.watches[pid]?.removeValue(forKey: id) } }
                 },
                 queue: queue)
         }
+    }
+
+    /// A mouse move posted by `pid`.
+    static func move(pid: pid_t) throws -> NSEvent {
+        let cgEvent = try #require(CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+                                           mouseCursorPosition: .zero, mouseButton: .left))
+        cgEvent.setIntegerValueField(.eventSourceUnixProcessID, value: Int64(pid))
+        return try #require(NSEvent(cgEvent: cgEvent))
     }
 
     /// A mouse-down posted by `pid` from a source in `state`. No event source: making one (CGEventSource)
@@ -139,5 +157,93 @@ struct EventSourceProcessesTests {
         for _ in 0..<10 { #expect(check.isPerson(event)) }
         #expect(!check.isPerson(try Self.event(pid: 77, state: .privateState)), "the state is read from the event")
         #expect(fake.reads.count == 1 && fake.reads.allSatisfy { !$0.onMain })
+    }
+
+    /// A remote session moves the mouse before it clicks: the app's ledger queues the read on the move
+    /// (no system call, no verdict), so the first click already counts.
+    @Test func aMouseMoveFillsTheTableBeforeTheFirstClick() async throws {
+        let fake = FakeProcesses()
+        fake.set(4242, EventSourceProcess(start: 100, path: Self.screenSharing))
+        let table = fake.table()
+        let ledger = PersonInputLedger(check: { _ in false }, sources: table)
+        ledger.observe(try Self.move(pid: 4242))
+        #expect(ledger.last == nil, "a move is no gesture")
+        await table.settled()
+        #expect(AgentPanePersonInput.isPerson(try Self.event(pid: 4242), sources: table), "the first click counts")
+        #expect(fake.reads.count == 1 && fake.reads.allSatisfy { !$0.onMain })
+    }
+
+    /// SECURITY: a process whose exit the kernel will not watch is never kept, so no verdict can outlive
+    /// it and pass to a process that reuses its pid. Its events take the safe default and each later one
+    /// reads it again, off the main thread.
+    @Test func aProcessWithNoExitWatchIsNeverKept() async throws {
+        let fake = FakeProcesses()
+        fake.set(4242, EventSourceProcess(start: 100, path: Self.screenSharing))
+        fake.refuseWatch(4242, true)
+        let table = fake.table()
+        let event = try Self.event(pid: 4242)
+        for _ in 0..<3 {
+            #expect(!AgentPanePersonInput.isPerson(event, sources: table), "no watch: never the person's")
+            await table.settled()
+            #expect(table.cached(4242) == nil)
+        }
+        #expect(fake.reads.isEmpty, "no watch, no read: nothing to keep")
+        fake.refuseWatch(4242, false)
+        #expect(!AgentPanePersonInput.isPerson(event, sources: table))
+        await table.settled()
+        #expect(AgentPanePersonInput.isPerson(event, sources: table), "watched: kept")
+        #expect(fake.reads.count == 1 && fake.reads.allSatisfy { !$0.onMain })
+    }
+
+    /// The kernel's exit watch, as this user, on processes another user owns: launchd (pid 1, root), the
+    /// WindowServer and Screen Sharing's daemon when they run. Prints each answer (`exit-watch-proof:`)
+    /// for the PR. And on a child of this test: its exit reaches the handler.
+    @Test func theKernelExitWatchAttachesAsThisUser() async throws {
+        var targets: [(String, pid_t)] = [("launchd", 1)]
+        for (name, label) in [("WindowServer", "com.apple.WindowServer"), ("screensharingd", "com.apple.screensharing")] {
+            if let pid = await Task.detached(priority: .userInitiated) { Self.launchdPID(label) }.value { targets.append((name, pid)) } else {
+                print("exit-watch-proof: \(name) not running (launchctl print system/\(label) names no pid)")
+            }
+        }
+        for (name, pid) in targets {
+            let answer = EventSourceProcesses.exitQueue(pid)
+            switch answer {
+            case let .success(descriptor):
+                close(descriptor)
+                print("exit-watch-proof: \(name) pid \(pid) as uid \(getuid()): attached")
+            case let .failure(error):
+                print("exit-watch-proof: \(name) pid \(pid) as uid \(getuid()): refused errno \(error.code.rawValue) (\(error.code))")
+            }
+            if name == "launchd" { #expect((try? answer.get()) != nil, "launchd: \(answer)") }
+        }
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        child.arguments = ["30"]
+        try child.run()
+        let queue = DispatchQueue(label: "com.cmuxterm.next.event-source-processes", qos: .userInitiated)
+        let exited = AsyncStream<Void>.makeStream()
+        let cancel = EventSourceProcesses.kernelExit(child.processIdentifier, queue) { exited.continuation.yield() }
+        #expect(cancel != nil, "a child of this test")
+        child.terminate()
+        var iterator = exited.stream.makeAsyncIterator()
+        await iterator.next()
+    }
+
+    /// The pid launchd names for system service `label`, nil when it is not running.
+    nonisolated static func launchdPID(_ label: String) -> pid_t? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = ["print", "system/\(label)"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return nil }
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        for line in output.split(separator: "\n") {
+            let parts = line.split(separator: "=").map { $0.trimmingCharacters(in: .whitespaces) }
+            if parts.count == 2, parts[0] == "pid", let pid = pid_t(parts[1]) { return pid }
+        }
+        return nil
     }
 }

@@ -46,6 +46,14 @@ enum AgentPanePersonInput {
         if byPerson, currentIsPerson(sources: sources) { gestures.record(click: answer) }
     }
 
+    /// The pid of the process that posted `event`, when it is another process (not the HID system's
+    /// 0, not this process): the pid ``EventSourceProcesses`` reads. No system call.
+    static func postingPID(_ event: NSEvent) -> pid_t? {
+        guard let source = event.cgEvent?.getIntegerValueField(.eventSourceUnixProcessID), source > 0,
+              source != Int64(EventSourceProcesses.ownPID) else { return nil }
+        return pid_t(exactly: source)
+    }
+
     /// The executable path of process `pid` (`proc_pidpath`), nil when unknown. A system call: only
     /// ``EventSourceProcesses``'s read calls it, on the table's own queue, never on the key path.
     nonisolated static func executablePath(_ pid: pid_t) -> String? {
@@ -95,29 +103,37 @@ public struct PersonInputCheck: Sendable {
     /// What a page counts as its gesture (``PageWKWebView``'s key and mouse events), and more.
     public static let types: NSEvent.EventTypeMask = [.leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown, .rightMouseUp,
                                                       .otherMouseDown, .otherMouseUp, .keyDown, .keyUp]
+    /// Events that are no gesture but still name their poster: each queues the read of a process the
+    /// table does not hold yet (``EventSourceProcesses/prime(_:)``), so a remote session's mouse moves
+    /// fill the table before its first click.
+    public static let primingTypes: NSEvent.EventTypeMask = [.mouseMoved, .scrollWheel, .rightMouseDragged, .otherMouseDragged,
+                                                             .flagsChanged]
     /// The latest input: its `timestamp` (system uptime) and whether it was the person's.
     public private(set) var last: (uptime: TimeInterval, person: Bool)?
     private let check: @MainActor (NSEvent) -> Bool
+    private let sources: EventSourceProcesses?
     private var monitor: Any?
 
-    public init(check: @escaping @MainActor (NSEvent) -> Bool) {
+    /// `sources`: the table the priming events fill; nil, none.
+    public init(check: @escaping @MainActor (NSEvent) -> Bool, sources: EventSourceProcesses? = nil) {
         self.check = check
+        self.sources = sources
     }
 
     /// The ledger of ``PersonInputCheck`` over `sources` (`AppServices.eventSources`).
     public convenience init(sources: EventSourceProcesses) {
         let check = PersonInputCheck(sources: sources)
-        self.init(check: { check.isPerson($0) })
+        self.init(check: { check.isPerson($0) }, sources: sources)
     }
 
     public func start() {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: Self.types) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: Self.types.union(Self.primingTypes)) { [weak self] event in
             // AppKit calls a local monitor on the main thread; anywhere else, nothing is recorded, so no
             // grant is backed (fail closed).
             guard Thread.isMainThread else { return event }
             // main-proof: guarded by Thread.isMainThread above (AppKit calls local monitors on main; it records before the page sees the event)
-            MainActor.assumeIsolated { self?.record(event) }
+            MainActor.assumeIsolated { self?.observe(event) }
             return event
         }
     }
@@ -125,6 +141,11 @@ public struct PersonInputCheck: Sendable {
     public func stop() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+    }
+
+    /// One event the monitor saw: a gesture type is recorded; any other queues its poster's read.
+    public func observe(_ event: NSEvent) { // perf-hot: 2us key-dispatch (every key and mouse event of the app, mouse moves included)
+        if Self.types.contains(NSEvent.EventTypeMask(type: event.type)) { record(event) }
     }
 
     public func record(_ event: NSEvent) {
