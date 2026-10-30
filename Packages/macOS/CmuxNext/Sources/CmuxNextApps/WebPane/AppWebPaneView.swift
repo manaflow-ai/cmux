@@ -71,6 +71,7 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
         content.addUserScript(AppWebPaneBridge.noPeerConnections)
         content.addUserScript(AppWebPaneBridge.script(appID: pane.appID))
         content.addScriptMessageHandler(bridge, contentWorld: .page, name: AppWebPaneBridge.handlerName)
+        // webview-allow: a sandboxed WebKit pane for user-written app code (non-persistent store, CSP floor, closed network hosts); a cmux page or browser tab engine would drop the sandbox
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init(frame: .zero)
         webView.navigationDelegate = self
