@@ -122,7 +122,10 @@ await requireBrowserLane("new-tab-draft-survives-host-failure.test.ts", async ()
         focused: document.activeElement === field,
       };
     });
-    await writeFile(path.join(directory, `${classic ? "classic" : "new-tab"}-${phase}.json`), JSON.stringify(selection));
+    await writeFile(
+      path.join(directory, `${classic ? "classic" : "new-tab"}-${phase}.json`),
+      JSON.stringify(selection),
+    );
     await page.emulateMedia({ colorScheme: "light" });
   }
 

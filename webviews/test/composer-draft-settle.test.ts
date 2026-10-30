@@ -382,18 +382,14 @@ test("a stale rejection adopts the daemon generation for the mounted composer's 
   scope.localStorage = {
     getItem: (key: string) => {
       if (!key.endsWith(".state-v1")) return null;
-      const session = decodeURIComponent(
-        key.slice("cmux.acpmux.composer-draft.".length, -".state-v1".length),
-      );
+      const session = decodeURIComponent(key.slice("cmux.acpmux.composer-draft.".length, -".state-v1".length));
       const text = values.get(session);
       const generation = generations.get(session);
       return generation === undefined ? null : JSON.stringify({ text, generation, known: true });
     },
     setItem: (key: string, raw: string) => {
       if (!key.endsWith(".state-v1")) return;
-      const session = decodeURIComponent(
-        key.slice("cmux.acpmux.composer-draft.".length, -".state-v1".length),
-      );
+      const session = decodeURIComponent(key.slice("cmux.acpmux.composer-draft.".length, -".state-v1".length));
       const state = JSON.parse(raw) as { text: string; generation: number };
       values.set(session, state.text);
       generations.set(session, state.generation);

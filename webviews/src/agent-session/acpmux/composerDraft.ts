@@ -172,10 +172,7 @@ function discardStaleDraftWrite(write: DraftWrite): void {
       // that generation in the remount cache: the mounted composer will promote its next edit
       // to it in `writePersistedDraft`, rather than sending another write the daemon must reject.
       // Never replace a newer local cache (or a write that raced this read).
-      if (
-        state.generation < write.generation ||
-        state.generation < readPersistedDraftGeneration(write.sessionId)
-      )
+      if (state.generation < write.generation || state.generation < readPersistedDraftGeneration(write.sessionId))
         return;
       cachePersistedDraft(write.sessionId, state.draft ?? "", state.generation);
     })
