@@ -52,6 +52,8 @@ extension BrowserPageScripts {
         return wrap(find(selector) + """
         const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
         if (!(el instanceof W.HTMLInputElement) || String(el.type).toLowerCase() !== 'file') { return { error: 'Element is not a file input: ' + raw, code: 'not_file_input' }; }
+        // One id names one upload: a second start with an active id would take over its input.
+        if (\(uploadTargets).has(\(literal(id)))) { return { error: 'Upload id is already active', code: 'upload_id_in_use' }; }
         const uploads = el.__cmuxUploads || (el.__cmuxUploads = new Map());
         const state = { files: [\(files.map { "{ name: \(literal($0.name)), type: \(literal($0.type)), parts: [] }" }.joined(separator: ", "))], at: cmuxAt(el) };
         uploads.set(\(literal(id)), state);
