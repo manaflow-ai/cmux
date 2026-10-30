@@ -71,11 +71,12 @@ enum AgentPaneCapture {
             let outcome = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: executable), arguments,
                                                                       errorOutput: .separate))
             let said = String(decoding: outcome.errorOutput, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            // An Esc writes no file and says nothing, whatever status the macOS version gives it; an end
-            // that says why, leaves a partial file, or comes from a signal is an error (no Screen
-            // Recording grant, a crash).
-            let quietCancel = outcome.exited && said.isEmpty && !FileManager.checked.fileExists(atPath: file.path)
-            result = outcome.succeeded || quietCancel ? .taken
+            // With a file, the status decides (0: the image). With none, an Esc says nothing, whatever
+            // status the macOS version gives it, and an end that says why is an error (no Screen
+            // Recording grant). A signal is always an error (a crash).
+            let wrote = FileManager.checked.fileExists(atPath: file.path)
+            let ok = outcome.exited && (wrote ? outcome.status == 0 : said.isEmpty)
+            result = ok ? .taken
                 : .failed("\(said.isEmpty ? "no message" : said) (\(outcome.exited ? "exit" : "signal") \(outcome.status))")
         } catch {
             result = .failed(String(describing: error))

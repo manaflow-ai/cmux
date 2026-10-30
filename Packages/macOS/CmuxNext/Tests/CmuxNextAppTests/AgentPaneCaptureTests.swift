@@ -44,6 +44,17 @@ struct AgentPaneCaptureTests {
         }
     }
 
+    /// An error that `screencapture` reports with status 0 and no image is not an Esc either.
+    @Test(.timeLimit(.minutes(1))) func anErrorSaidWithStatusZeroAndNoImageIsAFailure() async throws {
+        let stub = try Self.stub(#"echo "could not create image from display" >&2; exit 0"#)
+        defer { try? FileManager.default.removeItem(at: stub.root) }
+        let result = await AgentPaneCapture.capture(window: false, to: stub.file, executable: stub.tool)
+        guard case .failed = result else {
+            Issue.record("an error said with status 0 read as \(result)")
+            return
+        }
+    }
+
     /// An Esc in the pick exits 0 and writes nothing: still a cancel, not an error.
     @Test(.timeLimit(.minutes(1))) func anEscapedPickIsTakenWithNoImage() async throws {
         let stub = try Self.stub("exit 0")
