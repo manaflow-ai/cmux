@@ -140,14 +140,9 @@ enum PaneHandlers {
             defer { BenchSpans.measure("split.layout") { content?.applyCurrent() } }
             return BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional) }
         }
-        // An optimistic split joins the workspace's creates, as New Column and New Row do
-        // (`WorkspaceContentController.createInKeysTurn`): it goes out once the create before it is in the store, so a
-        // quick second Cmd-D on the first one's stand-in names the daemon's pane (P0 2026-10-30).
-        let previous = intended == nil ? nil : content?.pendingCreate
-        let work: ActionWork = Task {
+        ctx.registry.track(Task {
             var landed = false
             defer { ctx.services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
-            await previous?.value
             do {
                 let created = if let intended {
                     try await intended()
@@ -164,9 +159,7 @@ enum PaneHandlers {
                 logger.error("split failed: \(String(describing: error), privacy: .public)")
                 return "split: \(error)"
             }
-        }
-        if intended != nil { content?.pendingCreate = Task { _ = await work.value } }
-        ctx.registry.track(work)
+        })
     }
 
     static func edge(_ direction: PaneDirection) -> PaneEdge {
