@@ -71,6 +71,13 @@ import Testing
         switched.replied(Data("HTTP/1.1 101 Switching Protocols\r\n\r\n".utf8))
         #expect(switched.check(Data([0x81, 0x85, 1, 2, 3, 4])) == .forward(Data([0x81, 0x85, 1, 2, 3, 4])))
 
+        // A 101 that arrives in two reads.
+        let split = LoopbackRequestGate(port: 5173)
+        _ = split.check(upgrade)
+        split.replied(Data("HTTP/1.".utf8))
+        split.replied(Data("1 101 Switching Protocols\r\n\r\n".utf8))
+        #expect(split.check(Data([0x81, 0x80, 0, 0, 0, 0])) == .forward(Data([0x81, 0x80, 0, 0, 0, 0])))
+
         // Not switched: back to checked requests.
         let refused = LoopbackRequestGate(port: 5173)
         _ = refused.check(upgrade)

@@ -39,6 +39,8 @@ final class LoopbackRequestGate: @unchecked Sendable {
     private var head = Data()
     private var bodyLeft = 0
     private var state = State.requests
+    /// The start of the Mac's reply to an upgrade request, until its status is known.
+    private var reply = Data()
 
     /// The longest request head held before a request is refused.
     static let maximumHead = 64 * 1024
@@ -56,7 +58,12 @@ final class LoopbackRequestGate: @unchecked Sendable {
     func replied(_ data: Data) {
         lock.withLock {
             guard case .awaitingUpgrade = state else { return }
-            state = data.starts(with: Data("HTTP/1.1 101".utf8)) ? .upgraded : .requests
+            // The status may arrive split across reads: decide once it is whole.
+            reply.append(data.prefix(16 - reply.count))
+            let status = Data("HTTP/1.1 101".utf8)
+            if reply.count < status.count, status.starts(with: reply) { return }
+            state = reply.starts(with: status) ? .upgraded : .requests
+            reply = Data()
         }
     }
 

@@ -28,6 +28,9 @@ public final class NativeBrowserTabs {
     private var nativeKeys: Set<String>
     @ObservationIgnored private var entries: [String: Entry]
     @ObservationIgnored private var models: [String: BrowserTabModel] = [:]
+    /// The `localhost` ports each tab opened: they stay forwarded until the tab
+    /// mirrors or closes (a sign-in round trip through another site comes back).
+    @ObservationIgnored private var tabPorts: [String: Set<UInt16>] = [:]
     @ObservationIgnored private let defaults: UserDefaults
     static let defaultsKey = "cmuxMobile.browser.nativeTabs"
     /// Forwards a tab's `localhost:<port>` page to its Mac's loopback (nil: those
@@ -94,6 +97,7 @@ public final class NativeBrowserTabs {
         }
         do throws(LocalhostForwarder.Failure) {
             try await forwarder.forward(port: port, macID: Self.macID(ofKey: key))
+            tabPorts[key, default: []].insert(port)
             return .forwarded
         } catch .portInUse {
             return .macOnly(detail: String(localized: "Another app on this iPhone uses port \(port), so the mirrored page has to show it."))
@@ -105,8 +109,9 @@ public final class NativeBrowserTabs {
     /// Stops forwarding ports no tab on this iPhone shows any more.
     private func retainPorts() {
         guard let forwarder else { return }
-        let ports = Set(nativeKeys.compactMap { entries[$0]?.url.flatMap(URL.init(string:)).flatMap(PhoneReach.port) })
-        forwarder.retain(ports: ports)
+        tabPorts = tabPorts.filter { nativeKeys.contains($0.key) }
+        let shown = nativeKeys.compactMap { entries[$0]?.url.flatMap(URL.init(string:)).flatMap(PhoneReach.port) }
+        forwarder.retain(ports: Set(shown).union(tabPorts.values.joined()))
     }
 
     public func isNative(tab: String, macID: String?) -> Bool {

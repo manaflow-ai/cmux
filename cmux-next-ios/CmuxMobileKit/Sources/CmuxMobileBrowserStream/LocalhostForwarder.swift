@@ -37,8 +37,6 @@ public final class LocalhostForwarder {
         var v6: NWListener?
         /// The bind in flight: a second caller for the port waits for it.
         var binding: Task<Result<Void, Failure>, Never>?
-        /// This app listened on the port before (a rebind may meet its own TIME_WAIT).
-        var held = false
         init(macID: String?) { self.macID = macID }
 
         var isUp: Bool { v4?.state == .ready }
@@ -55,6 +53,11 @@ public final class LocalhostForwarder {
     private var forwards: [UInt16: Forward] = [:]
     /// Listeners are down while the app is in the background or unlinked.
     private var suspended = false
+    /// Ports this app listened on lately: their closed connections' TIME_WAIT would
+    /// refuse a plain rebind, so these rebind with address reuse. Kept past `stop()`.
+    private var held: [UInt16: ContinuousClock.Instant] = [:]
+    /// Longer than TIME_WAIT on the loopback (2 × MSL).
+    static let heldFor: Duration = .seconds(60)
     /// Why the Mac last refused a connection to a port ("Nothing is listening on
     /// port 3000 on this Mac."), until a connection to it goes through.
     public private(set) var refusals: [UInt16: String] = [:]
@@ -95,14 +98,23 @@ public final class LocalhostForwarder {
 
     public func stop(_ port: UInt16) {
         guard let forward = forwards.removeValue(forKey: port) else { return }
+        if forward.isUp { held[port] = .now }
         forward.binding?.cancel()
         forward.cancel()
         refusals[port] = nil
     }
 
+    /// Whether this app listened on the port within `heldFor`.
+    private func heldLately(_ port: UInt16) -> Bool {
+        let now = ContinuousClock.now
+        held = held.filter { now - $0.value < Self.heldFor }
+        return held[port] != nil
+    }
+
     /// The app went to the background, or the link went: listeners stop (the ports stay known).
     public func suspend() {
         suspended = true
+        for (port, forward) in forwards where forward.isUp { held[port] = .now }
         for forward in forwards.values { forward.cancel() }
     }
 
@@ -122,11 +134,11 @@ public final class LocalhostForwarder {
             forward.cancel()
             let v4: NWListener
             do throws(Failure) {
-                v4 = try await listen(host: .ipv4(.loopback), port: port, reuse: forward.held)
+                v4 = try await listen(host: .ipv4(.loopback), port: port, reuse: heldLately(port))
             } catch {
                 return .failure(error)
             }
-            let v6 = try? await listen(host: .ipv6(.loopback), port: port, reuse: forward.held)
+            let v6 = try? await listen(host: .ipv6(.loopback), port: port, reuse: heldLately(port))
             // Stopped, moved or suspended while these bound.
             guard forwards[port] === forward, !suspended, !Task.isCancelled else {
                 v4.cancel()
@@ -135,7 +147,7 @@ public final class LocalhostForwarder {
             }
             forward.v4 = v4
             forward.v6 = v6
-            forward.held = true
+            held[port] = .now
             log.notice("forwarding localhost:\(port, privacy: .public)\(v6 == nil ? " (IPv4 only)" : "", privacy: .public)")
             return .success(())
         }

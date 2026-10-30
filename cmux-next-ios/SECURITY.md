@@ -362,8 +362,12 @@ manaflow-ai/cmux#13742 (comment 6534420678).
   (they stop in the background and come back after). A first bind never asks
   for address reuse, so no other app can share the port, and an app already on
   it makes the phone keep the tab mirrored ("Another app on this iPhone uses
-  port N"). A rebind of a port the app held (after the background) asks for
-  reuse so its own closed connections don't block it for half a minute.
+  port N"). A rebind of a port the app listened on in the last minute (after the
+  background, or Open on iPhone again) asks for reuse so its own closed
+  connections don't block it for half a minute; another app that bound the
+  port with reuse in between could then share it. A tab keeps every port it
+  opened until it mirrors or closes, so a sign-in round trip through another
+  site comes back to an open port.
   Another app on the phone could connect to a running listener and forge the
   `Host` and `Origin` headers the checks read, so for other apps the checks
   are no barrier: such an app reaches the Mac port that the person on this

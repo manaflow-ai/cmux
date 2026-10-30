@@ -175,6 +175,18 @@ final class OpenLog: @unchecked Sendable {
         forwarder.retain(ports: [])
     }
 
+    /// A port this app just stopped (Mirror, then Open on iPhone again) forwards again
+    /// at once: its own closed connections never read as another app's.
+    @Test func aPortStoppedLatelyForwardsAgainAtOnce() async throws {
+        let forwarder = LocalhostForwarder { _, _ in FakeLoopbackChannel(body: "again") }
+        let port = try await forwardOnFreePort(forwarder, macID: "mac-a")
+        #expect(await fetch(port)?.body == "again")
+        forwarder.stop(port)
+        try await forwarder.forward(port: port, macID: "mac-a")
+        #expect(await fetch(port)?.body == "again")
+        forwarder.retain(ports: [])
+    }
+
     /// No other app can share a forwarded port, even one that asks for address reuse.
     @Test func anotherAppCannotShareAForwardedPort() async throws {
         let forwarder = LocalhostForwarder { _, _ in FakeLoopbackChannel(body: "ours") }
