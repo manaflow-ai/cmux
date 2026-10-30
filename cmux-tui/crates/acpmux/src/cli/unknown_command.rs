@@ -8,6 +8,7 @@
 use crate::cli::errors::{AppError, Code};
 use crate::harness_health::channel::quote;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
+use cmux_json::JsonSet as _;
 use serde_json::json;
 use std::ffi::OsString;
 
@@ -103,7 +104,7 @@ pub(crate) fn envelope(e: &clap::Error, program: &str) -> Option<AppError> {
     let message = text.trim().strip_prefix("error: ").unwrap_or(text.trim()).to_owned();
     let mut data = json!({"reason": reason, "try": format!("{program} --help")});
     if let Some(ContextValue::Strings(suggested)) = e.get(ContextKind::SuggestedSubcommand) {
-        data["suggested"] = json!(suggested);
+        data.set("suggested", json!(suggested));
     }
     Some(AppError::new(Code::Usage, "usage", message).with_data(data))
 }
@@ -137,7 +138,7 @@ pub(crate) fn stdin_dash(
     let mut left = dashes(&parsed);
     let mut p = at + 1;
     while left > 0 && p < line.len() {
-        if line[p] != "-" {
+        if line.get(p).is_some_and(|word| word != "-") {
             p += 1;
             continue;
         }
