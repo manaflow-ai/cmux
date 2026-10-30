@@ -152,6 +152,27 @@ import Testing
         #expect(target(0.95) == .position(DropPosition(section: section, group: group.id, index: 0)), "lower half: into the group")
     }
 
+    /// A parent whose own members are all behind its closed "Done (N)" row still draws a subgroup when that subgroup is
+    /// one same-named row: the drop resolver reads the parent as open, as it did with the subgroup's header, so a drop
+    /// on the parent header's body goes into the parent at its start (not "into" a folded group).
+    @Test func aParentOfASoleRowSubgroupStaysOpenForDrops() throws {
+        var done = ws("w-old", "Old notes")
+        done.taskStatus = .done
+        let parent = SidebarGroup(id: GroupID("g-design"), name: "Design review", workspaces: [done])
+        var child = SidebarGroup(id: GroupID("g-visual"), name: "visual-check", workspaces: [ws("w-visual", "visual-check")])
+        child.parent = parent.id
+        child.depth = 1
+        let sections = [SidebarSection(kind: .machine(machine), nodes: [.workspace(ws("w-loose", "loose")), .group(parent), .group(child)])]
+        var options = SidebarLayoutOptions()
+        options.foldsDone = true
+        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: options)
+        #expect(try #require(layout.row(for: .workspace(WorkspaceID("w-visual")))).standsForGroup)
+        let header = try #require(layout.row(for: .group(parent.id)))
+        let target = DropResolver.resolve(y: header.y + header.height * 0.6, payload: .workspaces([WorkspaceID("w-loose")]), base: layout,
+                                          sections: sections, onto: (0, 0))
+        #expect(target == .position(DropPosition(section: .machine(machine.id), group: parent.id, index: 0)))
+    }
+
     /// The group's line runs along the one row, at the header bar's left edge, in the group's color.
     @Test func theOneRowCarriesTheGroupsLine() throws {
         let group = SidebarGroup(id: GroupID("g-coord"), name: "release-coord", color: .purple, workspaces: [ws("w-coord", "release-coord")])

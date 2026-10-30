@@ -356,7 +356,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     }
                     let groupCollapsed = group.isCollapsed && !filtering
                     // One member named as its group (`acpmux new --group X` names both X): the member's row alone, in
-                    // the header's place, folded or not (`SidebarLayout+SoleMember`).
+                    // the header's place, where it draws as a live row (`SidebarLayout+SoleMember`).
                     if let sole = Self.soleMember(group, members, hasSubgroups: subgroupParents.contains(group.id)),
                        let depth = Self.liveDepth(of: sole, members, in: group, collapsed: groupCollapsed,
                                                   fold: SidebarDoneFoldID(section: section.id, group: group.id), options: o) {
