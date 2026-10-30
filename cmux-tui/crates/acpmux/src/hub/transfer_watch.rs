@@ -18,6 +18,7 @@
 
 use super::transfer_out::{bundle_files, transfers_dir};
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// How long a move may go without its client before the source ends it.
 pub(super) const TRANSFER_LEASE: std::time::Duration = std::time::Duration::from_secs(300);
@@ -219,7 +220,7 @@ impl Hub {
                 let mut to = json!({"sessionId": session.id, "by": "watch"});
                 // Where it went, so `resolve` follows it to that peer (`locate.rs`).
                 if let Ok(host) = std::fs::read_to_string(dir.join("to-host")) {
-                    to["host"] = json!(host.trim());
+                    to.set("host", json!(host.trim()));
                 }
                 self.transfer_commit(session, transfer_id, to).await.map(|_| ())
             }
