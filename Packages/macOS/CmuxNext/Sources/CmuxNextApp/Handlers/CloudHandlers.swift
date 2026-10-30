@@ -217,11 +217,17 @@ enum CloudHandlers {
                                              beforeCreate: () throws -> Void = {}) async throws -> (id: String, created: Bool) {
         let daemon = session.daemon
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
-        if let first = try await existingWorkspace(in: daemon.store) { return (first, false) }
-        // Re-evaluate after the live tree arrives: this is the last point before
-        // creation, so a caller's confirmation/proceed hook sees the real state.
+        return try await firstWorkspaceResult(in: daemon.store, beforeCreate: beforeCreate) {
+            await context.services.windows.createWorkspace(on: daemon)
+        }
+    }
+
+    @MainActor static func firstWorkspaceResult(in store: DaemonStore, beforeCreate: () throws -> Void,
+                                                create: () async -> String?) async throws -> (id: String, created: Bool) {
+        if let first = try await existingWorkspace(in: store) { return (first, false) }
+        // The live tree, rather than the stale pre-wait tree, decides whether creation needs consent.
         try beforeCreate()
-        guard let id = await context.services.windows.createWorkspace(on: daemon) else { throw ActionFailure(message: CloudStrings.notConnected) }
+        guard let id = await create() else { throw ActionFailure(message: CloudStrings.notConnected) }
         return (id, true)
     }
 

@@ -36,6 +36,66 @@ struct CloudOpenMachineExistingWorkspaceTests {
         #expect(try await read.value == nil, "a stale nonempty tree must not suppress creation after live empty state")
     }
 
+    @Test func liveEmptyTreeChecksProceedBeforeCreatingAndReportsCreation() async throws {
+        let store = DaemonStore()
+        _ = store.apply(.connected(DaemonIdentity(generation: "before"), generationChanged: false))
+        store.apply(snapshot: DaemonTree(registryID: "s-vm", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "old"), name: "old"),
+        ]))
+        _ = store.apply(.disconnected(reason: "paused"))
+        _ = store.apply(.connected(DaemonIdentity(generation: "new"), generationChanged: false))
+        var calls: [String] = []
+        let read = Task { @MainActor in
+            try await CloudHandlers.firstWorkspaceResult(in: store, beforeCreate: { calls.append("proceed") }) {
+                calls.append("create")
+                return "created"
+            }
+        }
+        await Task.yield()
+        #expect(calls.isEmpty)
+        store.apply(snapshot: DaemonTree(registryID: "s-vm"))
+        let result = try await read.value
+        #expect(calls == ["proceed", "create"])
+        #expect(result.id == "created")
+        #expect(result.created, "terminalAnchor must not create again while this workspace's mirror is late")
+        #expect(store.workspaces.isEmpty, "the creation result must not depend on its mirror arriving")
+    }
+
+    @Test func refusedProceedDoesNotCreateAfterReadingTheTree() async {
+        let store = DaemonStore()
+        _ = store.apply(.connected(DaemonIdentity(generation: "live"), generationChanged: false))
+        store.apply(snapshot: DaemonTree(registryID: "s-vm"))
+        var created = false
+        await #expect(throws: ActionFailure.self) {
+            _ = try await CloudHandlers.firstWorkspaceResult(in: store, beforeCreate: { throw ActionFailure(message: "cancelled") }) {
+                created = true
+                return "unexpected"
+            }
+        }
+        #expect(!created)
+    }
+
+    @Test func liveExistingWorkspaceDoesNotCheckProceedOrCreate() async throws {
+        let store = DaemonStore()
+        _ = store.apply(.connected(DaemonIdentity(generation: "before"), generationChanged: false))
+        store.apply(snapshot: DaemonTree(registryID: "s-vm"))
+        _ = store.apply(.disconnected(reason: "paused"))
+        _ = store.apply(.connected(DaemonIdentity(generation: "new"), generationChanged: false))
+        let read = Task { @MainActor in
+            try await CloudHandlers.firstWorkspaceResult(in: store, beforeCreate: { Issue.record("unexpected proceed") }) {
+                Issue.record("unexpected create")
+                return nil
+            }
+        }
+        await Task.yield()
+        store.apply(snapshot: DaemonTree(registryID: "s-vm", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "existing"), name: "existing"),
+        ]))
+        let result = try await read.value
+        #expect(result.id == "existing")
+        #expect(!result.created)
+    }
+
     /// The daemon's connection is published before the store hears `.connected` (which moves the
     /// epoch): a read in that window still waits for the new connection's tree (review finding).
     @Test func aReadBeforeTheStoreHearsTheConnectionWaits() async throws {
