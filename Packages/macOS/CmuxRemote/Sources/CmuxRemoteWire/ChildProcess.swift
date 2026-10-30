@@ -16,7 +16,7 @@ public struct ChildProcess: Sendable {
     /// inherited. A normal child of this process: macOS attributes its
     /// Accessibility and Screen Recording checks to this process.
     public static func spawn(executable: String, arguments: [String], environment: [String: String],
-                             logPath: String) throws -> ChildProcess {
+                             logPath: String, inherit: [(source: Int32, target: Int32)] = []) throws -> ChildProcess {
         var toChild: [Int32] = [-1, -1]
         var fromChild: [Int32] = [-1, -1]
         guard pipe(&toChild) == 0 else { throw LocalSocket.Failure.system("pipe", errno) }
@@ -41,6 +41,7 @@ public struct ChildProcess: Sendable {
         _ = logPath.withCString { path in
             posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, path, O_WRONLY | O_CREAT | O_APPEND, 0o600)
         }
+        for (source, target) in inherit { posix_spawn_file_actions_adddup2(&actions, source, target) }
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
         let argv: [UnsafeMutablePointer<CChar>?] = ([executable] + arguments).map { strdup($0) } + [nil]
         let envp: [UnsafeMutablePointer<CChar>?] = environment.sorted { $0.key < $1.key }.map { strdup("\($0.key)=\($0.value)") } + [nil]
