@@ -50,5 +50,10 @@ export function latestMessageRow(rows: readonly AcpmuxRow[], layout: Conversatio
 }
 
 export function latestMessage(rows: readonly AcpmuxRow[], layout: ConversationLayout): AcpmuxRow | undefined {
-  return rows[latest.get(layout) ?? -1];
+  return rows[latestMessageIndex(layout)];
+}
+
+/// The latest message's index in the rows `layout` placed, or -1 when there is none.
+export function latestMessageIndex(layout: ConversationLayout): number {
+  return latest.get(layout) ?? -1;
 }
