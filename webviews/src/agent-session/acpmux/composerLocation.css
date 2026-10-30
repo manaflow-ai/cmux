@@ -1515,13 +1515,14 @@
 /* The + that starts the field's row (every look's New Tab with its chips, Lucas 2026-10-30): its glyph
    sits 22px in from the box, over the mode's shield in the quiet row under it, and the prompt starts
    5px past the button's own inset ("way less" than the 36px it had). The field keeps the shell
-   glyph's column only while one shows. */
+   glyph's column only while one shows. The row's gap goes, so the field keeps the row's old 8px to
+   the mic and Send after it. */
 .nt-input:has(.nt-split-plus) {
   gap: 0;
   padding-inline-start: var(--ds-space-2);
 }
 .nt-input:has(.nt-split-plus) .nt-field-slot {
-  margin-inline-start: 5px;
+  margin-inline: 5px var(--ds-space-2, 8px);
 }
 .nt-input:has(.nt-split-plus) .nt-field-slot:not(:has(.nt-input-glyph)) .nt-field {
   padding-inline-start: 0;
