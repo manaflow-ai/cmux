@@ -46,7 +46,8 @@ impl Settings {
             && env("CMUX_VM_API_KEY").is_none()
             && !explicit_config
         {
-            if token.seconds_left(now_unix).is_none_or(|left| left > 0) {
+            let left = token.seconds_left(now_unix);
+            if left.is_some_and(|left| left > 0) {
                 let base_url = base_url_flag
                     .map(str::to_owned)
                     .or_else(|| env("CMUX_VM_BASE_URL"))
@@ -65,10 +66,16 @@ impl Settings {
             }
             // Refused, never replaced by the default config file's key,
             // which may carry far more than the token's scopes and budget.
-            return Err(CliError::unauthenticated(format!(
-                "the stored VM token {} expired at {}: run `cmux vm token create`, or set CMUX_VM_API_KEY",
-                token.key_id, token.expires_at
-            )));
+            return Err(CliError::unauthenticated(match left {
+                Some(_) => format!(
+                    "the stored VM token {} expired at {}: run `cmux vm token create`, or set CMUX_VM_API_KEY",
+                    token.key_id, token.expires_at
+                ),
+                None => format!(
+                    "the stored VM token {} has no readable expiry ({:?}): run `cmux vm token create`, or set CMUX_VM_API_KEY",
+                    token.key_id, token.expires_at
+                ),
+            }));
         }
         let mut warnings = Vec::new();
         let file = match load_config(config_flag, &env) {

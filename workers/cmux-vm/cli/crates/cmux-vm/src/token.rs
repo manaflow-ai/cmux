@@ -82,7 +82,11 @@ impl StoredToken {
                 .ok_or_else(|| CliError::unexpected("the agent key response had no key"))?,
             key_id: text("id")
                 .ok_or_else(|| CliError::unexpected("the agent key response had no id"))?,
-            expires_at: text("expiresAt").unwrap_or_default(),
+            expires_at: text("expiresAt")
+                .filter(|at| parse_rfc3339(at).is_some())
+                .ok_or_else(|| {
+                    CliError::unexpected("the agent key response had no readable expiry")
+                })?,
             team_id,
             base_url,
             scopes: created["scopes"]
@@ -367,9 +371,46 @@ pub async fn create(
     out: &mut dyn Write,
 ) -> Result<(), CliError> {
     let body: types::CreateAgentKeyRequest = request_body(create_body(args)?)?;
-    let created = fetch_body(client.agents_create_agent_key(None, &body)).await?;
-    let token = StoredToken::from_created(&created, team_id, base_url)?;
-    store_and_report(&token, env, json_output, out)
+    // The service takes no idempotency key for agent keys, so a create is
+    // never retried: a lost answer leaves at most one key nobody holds, with
+    // no VMs, that expires within its --ttl.
+    let created = fetch_body(client.agents_create_agent_key(None, &body))
+        .await
+        .map_err(|error| {
+            if error.status().is_none_or(|status| status >= 500) {
+                error.with_recovery("if the service issued a key, it was never shown, has no VMs and expires within its --ttl")
+            } else {
+                error
+            }
+        })?;
+    let stored = StoredToken::from_created(&created, team_id, base_url).and_then(|token| {
+        save(&token, env)
+            .map_err(CliError::unexpected)
+            .map(|()| token)
+    });
+    match stored {
+        Ok(token) => report(&token, "stored", json_output, out),
+        Err(error) => Err(revoke_unkept(client, &created, error).await),
+    }
+}
+
+/// Revokes a key that was minted but cannot be kept (unreadable or not
+/// stored), so it never outlives the command that made it.
+async fn revoke_unkept(client: &Client, created: &[u8], error: CliError) -> CliError {
+    let id = serde_json::from_slice::<Value>(created)
+        .ok()
+        .and_then(|created| created["id"].as_str().map(str::to_owned));
+    let Some(id) = id else {
+        return error.with_recovery("the service's answer named no key to revoke; any key it issued expires within its --ttl");
+    };
+    match call(client.agents_revoke_agent_key(&id, None)).await {
+        Ok(_) => error.with_recovery(&format!(
+            "the new key {id} was revoked, since it could not be kept"
+        )),
+        Err(_) => error.with_recovery(&format!(
+            "the new key {id} could not be revoked; it was never shown and expires within its --ttl"
+        )),
+    }
 }
 
 /// Stores a freshly minted token, replacing any earlier one, and prints its

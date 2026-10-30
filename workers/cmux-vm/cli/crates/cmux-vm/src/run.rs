@@ -112,8 +112,9 @@ pub struct RunArgs {
     #[arg(long, value_name = "SECONDS", default_value_t = DEFAULT_IDLE_TIMEOUT_SECONDS,
           value_parser = clap::value_parser!(i64).range(60..=86_400))]
     idle_timeout: i64,
-    /// Kill the command after this many seconds (0: no limit)
-    #[arg(long, value_name = "SECONDS", default_value_t = 3600)]
+    /// Kill the command after this many seconds (0: no limit; at most 7 days)
+    #[arg(long, value_name = "SECONDS", default_value_t = 3600,
+          value_parser = clap::value_parser!(u64).range(0..=604_800))]
     timeout: u64,
     /// Minimum vCPU count
     #[arg(long, value_parser = clap::value_parser!(u32).range(2..=32))]

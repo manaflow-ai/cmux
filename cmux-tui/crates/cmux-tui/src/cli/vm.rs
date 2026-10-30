@@ -119,22 +119,41 @@ pub(super) fn split_raw(args: &[String]) -> Option<(GlobalArgs, &[String])> {
     None
 }
 
+/// The words after `vm` without the `--json` flags before any `--`, and
+/// whether there was one.
+pub(super) fn without_json(words: &[String]) -> (Vec<String>, bool) {
+    let mut json = false;
+    let mut passthrough = false;
+    let kept = words
+        .iter()
+        .filter(|word| {
+            passthrough |= *word == "--";
+            let flag = !passthrough && *word == "--json";
+            json |= flag;
+            !flag
+        })
+        .cloned()
+        .collect();
+    (kept, json)
+}
+
 /// `cmux vm …`. `None` for any other command.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
-    let (mut global, rest) = split_raw(args)?;
-    // `--json` after `vm` reaches cmux-vm as its own global flag; the app
-    // mint path reads it too.
-    let prefix_output = global.output;
-    if rest.iter().take_while(|word| *word != "--").any(|word| word == "--json") {
+    let (mut global, raw) = split_raw(args)?;
+    // `--json` anywhere after `vm` (before `--`) sets the output mode, like
+    // `--json` before it; `plan` then hands it to cmux-vm first.
+    let (rest, json) = without_json(raw);
+    if json {
         global.output = OutputMode::Json;
     }
+    let rest = rest.as_slice();
     if rest.len() == 1
         && rest.first().is_some_and(|word| matches!(word.as_str(), "-h" | "--help" | "help"))
     {
         println!("{VM_HELP}");
         return Some(0);
     }
-    let plan = match plan(rest, prefix_output) {
+    let plan = match plan(rest, global.output) {
         Ok(plan) => plan,
         Err(error) => {
             return Some(super::app::failure(

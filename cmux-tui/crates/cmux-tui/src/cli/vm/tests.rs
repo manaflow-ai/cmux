@@ -107,6 +107,20 @@ fn token_create_is_recognized_with_or_without_json() {
 }
 
 #[test]
+fn json_after_vm_is_the_output_mode_wherever_it_sits() {
+    for words in [&["--json", "ls"][..], &["ls", "--json"][..]] {
+        let (rest, json) = without_json(&args(words));
+        assert!(json);
+        assert_eq!(rest, args(&["ls"]));
+        assert_eq!(plan(&rest, OutputMode::Json).unwrap(), args(&["--json", "list"]));
+    }
+    // After `--` it belongs to the remote command.
+    let (rest, json) = without_json(&args(&["exec", "vm_1", "--", "tool", "--json"]));
+    assert!(!json);
+    assert_eq!(rest, args(&["exec", "vm_1", "--", "tool", "--json"]));
+}
+
+#[test]
 fn token_create_with_an_explicit_issuer_or_help_runs_in_process() {
     assert!(!is_token_create(&args(&["token", "create", "--config", "/tmp/issuer.json"])));
     assert!(!is_token_create(&args(&["token", "create", "--config=/tmp/issuer.json"])));
