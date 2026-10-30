@@ -72,6 +72,7 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
         }
         retry();
       } catch (cause) {
+        if (disposed) return;
         if (resuming && cause instanceof NativeError && cause.retryable === false) {
           setResuming(false);
           setError(true);
