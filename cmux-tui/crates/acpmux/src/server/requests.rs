@@ -1243,6 +1243,12 @@ async fn dispatch_request(
             });
             let provenance =
                 stamp_bound_sender(hub, conn, &s.id, &params, provenance, person_message);
+            // A Chief's turn names the Chief (manaflow-ai/cmux#27914), by the session's exact id.
+            let provenance = provenance.map(|p| {
+                crate::prompt_provenance::stamp_chief(p, |id| {
+                    hub.resolve(id).ok().filter(|from| from.id == id).map(|from| from.meta())
+                })
+            });
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
             let agent = declared
@@ -2035,9 +2041,10 @@ async fn dispatch_request(
             super::outbox::handle(hub, conn, m, &params).await
         }
         method::MUX_SESSION_AUTH => super::session_auth::handle(hub, conn, params).await,
-        method::MUX_PROMPT_WITHDRAW | method::MUX_AGENT_PAIR_RESUME | method::MUX_RETRY => {
-            super::agent_messages::handle(hub, conn, m, &params).await
-        }
+        method::MUX_PROMPT_WITHDRAW
+        | method::MUX_AGENT_PAIR_RESUME
+        | method::MUX_RETRY
+        | method::MUX_INBOX_DIGEST => super::agent_messages::handle(hub, conn, m, &params).await,
         method::MUX_PERMISSION_GROUPS => {
             let s = hub.resolve(session_key(&params)?)?;
             let mut list = hub.permission_groups(&s, &params)?;
