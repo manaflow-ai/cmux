@@ -4431,6 +4431,55 @@ class OpenHeadFailoverSweepTests(unittest.TestCase):
         self.assertEqual(reruns, [[str(stuck["id"]), "rerun-failed-jobs"]])
         self.assertEqual([e["run_id"] for e in fake.snapshots[-1]["lost_reruns"]], [earlier["id"]])
 
+    def test_a_cancel_github_took_but_whose_response_was_lost_is_still_re_run(self):
+        # The POST failed on a dropped connection after GitHub took it: the run ends cancelled at the open head,
+        # and only the kept entry brings it back.
+        stuck, fake = self.world()
+        original = fake.request
+
+        def dropped(method, path, body=None, *, app_only=False):
+            result = original(method, path, body, app_only=app_only)
+            if method == "POST" and path.endswith(f"/runs/{stuck['id']}/cancel"):
+                raise RuntimeError(f"POST /repos/manaflow-ai/cmux/actions/runs/{stuck['id']}/cancel failed "
+                                   "(RemoteDisconnected)")
+            return result
+        fake.request = dropped
+        with tempfile.TemporaryDirectory() as temp:
+            code, text = self.sweep(fake, temp)
+        self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"]])
+        self.assertEqual(fake.runs[stuck["id"]]["conclusion"], "cancelled")
+        entries = fake.snapshots[-1]["lost_reruns"]
+        self.assertEqual([(e["run_id"], e.get("open_head"), e.get("cancel_unconfirmed")) for e in entries],
+                         [(stuck["id"], True, True)])
+        fake.request = original
+        fake.log.clear()
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertEqual(fake.posts(), [[str(stuck["id"]), "rerun-failed-jobs"]])
+        self.assertEqual(fake.runs[stuck["id"]]["triggering_actor"], {"login": "cmux-bot[bot]"})
+        self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+
+    def test_a_cancel_that_did_not_take_drops_its_entry_once_the_run_finishes(self):
+        stuck, fake = self.world()
+        original = fake.request
+
+        def failed(method, path, body=None, *, app_only=False):
+            if method == "POST" and path.endswith(f"/runs/{stuck['id']}/cancel"):
+                fake.log.append((method, path))
+                raise RuntimeError(f"POST /repos/manaflow-ai/cmux/actions/runs/{stuck['id']}/cancel failed (500)")
+            return original(method, path, body, app_only=app_only)
+        fake.request = failed
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertEqual([e["run_id"] for e in fake.snapshots[-1]["lost_reruns"]], [stuck["id"]])
+        fake.request = original
+        fake.runs[stuck["id"]].update(status="completed", conclusion="success")
+        fake.log.clear()
+        with tempfile.TemporaryDirectory() as temp:
+            self.sweep(fake, temp)
+        self.assertEqual(fake.posts(), [])
+        self.assertEqual(fake.snapshots[-1]["lost_reruns"], [])
+
     def test_the_workflow_hands_the_janitor_cmux_bots_token_twice(self):
         workflow = yaml.safe_load(WORKFLOW.read_text())
         step = next(step for step in workflow["jobs"]["sweep"]["steps"] if step.get("name") == "Cancel wasted macOS runs")
