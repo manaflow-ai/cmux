@@ -37,6 +37,9 @@ public nonisolated enum ChildCrashFrames {
         let file = path(name, parent: getppid())
         unlink(file)
         framesPath = strdup(file)
+        // A Swift global is made at its first use: touch the buffer here, so the handler never allocates
+        // (a malloc inside a handler can deadlock when the signal came from inside malloc).
+        frameBuffer.initialize(repeating: nil, count: Int(frameCapacity))
         for signal in fatalSignals {
             var action = sigaction()
             action.__sigaction_u.__sa_handler = writeFramesAndExit
@@ -67,13 +70,17 @@ public nonisolated enum ChildCrashFrames {
 /// The child's frames file, set before any signal: the handler must not allocate.
 nonisolated(unsafe) private var framesPath: UnsafeMutablePointer<CChar>?
 
-/// Room for the frames, made before any signal: the handler must not allocate.
-nonisolated(unsafe) private let frameBuffer = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: 128)
+/// The most frames the handler writes.
+private let frameCapacity: Int32 = 128
+
+/// Room for the frames, made by ``ChildCrashFrames/printOnFatalSignal(_:)`` before any handler is set: the handler
+/// must not allocate.
+nonisolated(unsafe) private let frameBuffer = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: Int(frameCapacity))
 
 /// The fatal-signal handler: async-signal-safe calls only (write, open, backtrace, backtrace_symbols_fd, _exit).
 nonisolated(unsafe) private let writeFramesAndExit: @convention(c) (Int32) -> Void = { signal in
     let header: StaticString = "*** exit test child: fatal signal; the crashing thread's frames:\n"
-    let count = backtrace(frameBuffer, 128)
+    let count = backtrace(frameBuffer, frameCapacity)
     _ = write(STDERR_FILENO, header.utf8Start, header.utf8CodeUnitCount)
     backtrace_symbols_fd(frameBuffer, count, STDERR_FILENO)
     if let framesPath {
