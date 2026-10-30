@@ -937,7 +937,8 @@ def handle_prompt(rid, params):
                              "content": {"type": "text", "text": "old answer"}})
         update("orch-child", {"sessionUpdate": "agent_message_chunk", "messageId": "last",
                              "content": {"type": "text", "text": "é" * 300}})
-        update("orch-child", {"sessionUpdate": "usage_update", "used": 1234, "size": 200000})
+        # A real cumulative total (`totalTokens`); `used` is context occupancy, never tokens.
+        update("orch-child", {"sessionUpdate": "usage_update", "totalTokens": 1234, "used": 99, "size": 200000})
         update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "orch-child", "state": "completed"})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
