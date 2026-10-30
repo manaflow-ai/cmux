@@ -358,7 +358,11 @@ impl Hub {
         }
         // Logged while the chat is still frozen: a new move begins only after it, so this
         // record never follows (and undoes) a newer `transfer_out` (`transfer_authority.rs`).
-        self.append(session, "mux", "transfer_aborted", record);
+        // One that never reached the log leaves it frozen, as its `transfer_out` says.
+        let (_, logged) = self.append_at(session, "mux", "transfer_aborted", record, None, None);
+        if !logged {
+            return Err(transfer_error("store", "could not durably record transfer_aborted"));
+        }
         self.end_move(session);
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "aborted": true}))

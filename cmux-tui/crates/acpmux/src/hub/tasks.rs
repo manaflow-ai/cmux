@@ -270,7 +270,10 @@ impl Hub {
         let mut away = false;
         let kinds = ["transferred", "transferred_in"];
         self.store.scan_kinds(id, &kinds, &mut |e: crate::store::EventRecord| {
-            away = e.kind == "transferred";
+            // The daemon's own records only: an agent's update may carry any kind.
+            if e.dir == "mux" {
+                away = e.kind == "transferred";
+            }
             true
         })?;
         Ok(away)

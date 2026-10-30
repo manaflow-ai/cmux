@@ -279,12 +279,21 @@ impl Hub {
         // Indexed again once published: a lookup before that found no session and dropped it.
         self.child_tags.note(&session);
         self.offers.forget(&meta.id);
-        self.append(
+        let (_, logged) = self.append_at(
             &session,
             "mux",
             "imported",
             json!({"from": bundle, "nativeRestored": restored}),
+            None,
+            None,
         );
+        // Without its own receipt the copied records would decide its transfer state after a
+        // restart (`transfer_authority.rs`): the import fails and leaves no chat.
+        if !logged {
+            self.recover_staged_replacements();
+            let _ = self.kill(&session, true).await;
+            return Err(RpcError::internal("import: could not durably record imported"));
+        }
         self.save_meta(&session);
         if !defer_finalize && let Err(error) = self.finalize_harness_state(&session.meta()) {
             self.recover_staged_replacements();

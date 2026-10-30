@@ -105,7 +105,8 @@ impl Hub {
         }
         let mut moved = session.moving().is_some();
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            moved |= e.kind == "transferred";
+            // The daemon's own records only: an agent's update may carry any kind.
+            moved |= e.dir == "mux" && e.kind == "transferred";
             !moved
         });
         moved
