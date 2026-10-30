@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR f505270819036f4e40907a17894671335dd8fb375d3db3962e2872e5538742b9. */
+/* cmux-tui mux protocol 12, IR 98c4043022f88fb5841f377edc178aa568c70700c97ca18735403806195acaf3. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "f505270819036f4e40907a17894671335dd8fb375d3db3962e2872e5538742b9" as const;
+export const SDK_IR_SHA256 = "98c4043022f88fb5841f377edc178aa568c70700c97ca18735403806195acaf3" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -687,7 +687,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. limit is 1-200. With neither limit nor cursor, the whole inbox (every page, next_cursor null); with either, one page and its next_cursor. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+      "Trusted local connections only. limit is 1-200. One page from cursor (the next_cursor of the page before), with the owner's next_cursor (null on the last page). Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
   "cloud-inbox-op": {

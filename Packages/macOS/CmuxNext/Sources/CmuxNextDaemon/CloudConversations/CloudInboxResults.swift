@@ -84,13 +84,21 @@ public struct CloudInboxEntry: Decodable, Sendable, Hashable {
     public var isListed: Bool { !removed && !archived }
 }
 
-/// `cloud-inbox-list` data. `revision` is the owner's opaque read revision.
+/// `cloud-inbox-list` data: one page. `revision` is the owner's opaque read revision;
+/// `nextCursor` the owner's cursor of the next page, nil on the last (and from an older daemon).
 public struct CloudInboxList: Decodable, Sendable, Equatable {
     public var entries: [CloudInboxEntry]
     public var revision: JSONValue?
+    public var nextCursor: String?
 
-    public init(entries: [CloudInboxEntry], revision: JSONValue? = nil) {
+    public init(entries: [CloudInboxEntry], revision: JSONValue? = nil, nextCursor: String? = nil) {
         self.entries = entries
         self.revision = revision
+        self.nextCursor = nextCursor
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case entries, revision
+        case nextCursor = "next_cursor"
     }
 }

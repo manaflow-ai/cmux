@@ -7673,14 +7673,14 @@ refused before anything is sent, with `cloud_conversation_rejected`,
 plans/cmux-next/home-cloud-proxy.md.
 `cloud-conversation-snapshot` and `cloud-conversation-history` pass the
 owner's `threads` field through unchanged when it sends one.
-`cloud-inbox-list {limit?, include_archived?, cursor?}` returns
-`object{entries, revision, next_cursor}`. With `limit` (1-200) or `cursor` (the
-`next_cursor` of the page before) it is one page of UserDO `inbox.list`, and
-`next_cursor` is null on the last page. With neither it is the whole inbox: the
-daemon follows `next_cursor` for at most 50 pages of 200, keeps an entry that a
-later page lists again only once (where it was first listed), answers the first
-page's `revision`, and `next_cursor` is null unless the cap stopped the read.
-`home-inbox`'s Cloud rows are that whole inbox.
+`cloud-inbox-list {limit?, include_archived?, cursor?}` returns one page of
+UserDO `inbox.list` as `object{entries, revision, next_cursor}`: `limit` (1-200,
+default 200) entries from `cursor` (the `next_cursor` of the page before; absent
+for the first page). `next_cursor` is null on the last page. One page per call,
+so every reply is one bounded read; a client reads the whole inbox by following
+`next_cursor`. `home-inbox`'s Cloud rows do: every page, at most 50 and within
+10 s after the first, an entry a later page lists again kept once where it was
+first listed; a later page's failure keeps the pages already read.
 
 ### cloud-requests-list
 

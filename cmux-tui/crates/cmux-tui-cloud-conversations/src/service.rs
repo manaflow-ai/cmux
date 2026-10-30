@@ -309,6 +309,8 @@ pub struct CloudConversations {
 
 /// The refusal text of a lease change from a connection that is not the app.
 /// Pages `CloudConversations::inbox_list_all` reads at most (200 entries each).
+/// Wall time `home-inbox` spends on the Cloud inbox's pages after the first.
+pub const INBOX_ALL_BUDGET: Duration = Duration::from_secs(10);
 pub const MAX_INBOX_PAGES: usize = 50;
 /// The owner's longest `inbox.list` cursor (ops-home-inbox.ts).
 const MAX_INBOX_CURSOR: usize = 256;
@@ -453,34 +455,45 @@ impl CloudConversations {
         Ok(RequestPermit { inner: self.inner.clone() })
     }
 
-    /// `cloud-inbox-list`: one page of the inbox (`limit` entries from
-    /// `cursor`, the owner's `next_cursor` of the page before), or, with
-    /// neither, the whole inbox (`Self::inbox_list_all`).
+    /// `cloud-inbox-list`: one page of the inbox, `limit` entries (default
+    /// 200) from `cursor` (the owner's `next_cursor` of the page before), with
+    /// the owner's `next_cursor` (null on the last page). One page per call,
+    /// so every reply is one bounded read; a client pages with the cursor.
     pub fn inbox_list(
         &self,
         limit: Option<u32>,
         include_archived: bool,
         cursor: Option<&str>,
     ) -> Result<Value, CloudError> {
-        if limit.is_none() && cursor.is_none() {
-            return self.inbox_list_all(include_archived);
-        }
         self.inbox_page(limit.unwrap_or(MAX_PAGE), include_archived, cursor)
     }
 
-    /// The whole inbox: every page the owner has, following `next_cursor`,
-    /// at most `MAX_INBOX_PAGES` of them. An entry a later page lists
-    /// again (its activity moved it while the pages were read) is kept once,
-    /// where it was first listed. The revision is the first page's, so an
-    /// inbox event that came after any page counts as newer than the list.
-    /// `next_cursor` is null, or where to go on when the cap stopped the read.
-    pub fn inbox_list_all(&self, include_archived: bool) -> Result<Value, CloudError> {
+    /// The inbox for `home-inbox`'s Cloud rows: every page the owner has,
+    /// following `next_cursor`, while `budget` lasts and for at most
+    /// `MAX_INBOX_PAGES` pages. An entry a later page lists again (its
+    /// activity moved it while the pages were read) is kept once, where it
+    /// was first listed. The first page's failure is the read's; a later
+    /// page's failure, the budget or the cap ends the read with the pages
+    /// already read (`next_cursor` then names where it stopped, else null).
+    pub fn inbox_list_all(
+        &self,
+        include_archived: bool,
+        budget: Duration,
+    ) -> Result<Value, CloudError> {
+        let started = Instant::now();
         let mut entries: Vec<Value> = Vec::new();
         let mut seen: BTreeSet<String> = BTreeSet::new();
         let mut revision = Value::Null;
         let mut cursor: Option<String> = None;
         for page_index in 0..MAX_INBOX_PAGES {
-            let page = self.inbox_page(MAX_PAGE, include_archived, cursor.as_deref())?;
+            if page_index > 0 && started.elapsed() >= budget {
+                break;
+            }
+            let page = match self.inbox_page(MAX_PAGE, include_archived, cursor.as_deref()) {
+                Ok(page) => page,
+                Err(error) if page_index == 0 => return Err(error),
+                Err(_) => break,
+            };
             if page_index == 0 {
                 revision = page.get("revision").cloned().unwrap_or(Value::String(String::new()));
             }
@@ -493,7 +506,11 @@ impl CloudConversations {
             match page.get("next_cursor").and_then(Value::as_str) {
                 // A cursor that does not move would read the same page forever.
                 Some(next) if Some(next) != cursor.as_deref() => cursor = Some(next.to_owned()),
-                _ => return Ok(json!({"entries": entries, "revision": revision, "next_cursor": null})),
+                _ => {
+                    return Ok(
+                        json!({"entries": entries, "revision": revision, "next_cursor": null}),
+                    );
+                }
             }
         }
         Ok(json!({"entries": entries, "revision": revision, "next_cursor": cursor}))
@@ -514,7 +531,9 @@ impl CloudConversations {
         }
         if let Some(cursor) = cursor {
             if cursor.len() > MAX_INBOX_CURSOR {
-                return Err(CloudError::BadRequest(format!("cursor is over {MAX_INBOX_CURSOR} bytes")));
+                return Err(CloudError::BadRequest(format!(
+                    "cursor is over {MAX_INBOX_CURSOR} bytes"
+                )));
             }
             params.set("cursor", json!(cursor));
         }

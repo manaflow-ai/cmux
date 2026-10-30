@@ -384,7 +384,7 @@ pub(super) fn home_inbox(mux: &Mux, client: u64, params: HomeInboxParams) -> any
 /// whether they are in: `included`, `signed_out` (this connection is not the
 /// person with the app's lease, or there is no lease or no Cloud here) or
 /// `unavailable` (the Cloud did not answer). A Cloud failure never hides the
-/// local rows. The whole inbox, every page (`inbox_list_all`).
+/// local rows. Every page of the inbox within a time budget (`inbox_list_all`).
 fn cloud_home_rows(mux: &Mux, client: u64) -> (Vec<cmux_conversation::HomeRow>, &'static str) {
     use crate::cloud_conversations::CloudError;
     // Only the person's own clients (the app, an authenticated page) get the
@@ -395,7 +395,9 @@ fn cloud_home_rows(mux: &Mux, client: u64) -> (Vec<cmux_conversation::HomeRow>, 
     // The read holds one of the Cloud's request slots, as cloud-inbox-list does.
     let listed = super::cloud_conversations::lease_user(mux, client).and_then(|service| {
         let _permit = service.begin_request()?;
-        service.inbox_list_all(false).map_err(anyhow::Error::from)
+        service
+            .inbox_list_all(false, crate::cloud_conversations::INBOX_ALL_BUDGET)
+            .map_err(anyhow::Error::from)
     });
     let value = match listed {
         Ok(value) => value,

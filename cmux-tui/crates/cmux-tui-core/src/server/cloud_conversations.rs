@@ -153,7 +153,7 @@ pub(super) struct InboxListParams {
     limit: Option<u32>,
     #[serde(default)]
     include_archived: bool,
-    /// The `next_cursor` of the page before; with neither it nor `limit`, the whole inbox.
+    /// The `next_cursor` of the page before (absent: the first page).
     #[serde(default)]
     cursor: Option<String>,
 }

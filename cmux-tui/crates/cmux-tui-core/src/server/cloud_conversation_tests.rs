@@ -1085,59 +1085,89 @@ fn inbox_page(conversations: &[&str], next_cursor: Value, revision: &str) -> Val
     json!({"ok":true,"op":"inbox.list","value":{"entries":entries,"next_cursor":next_cursor},"revision":revision})
 }
 
-/// The whole inbox, not its newest page: Home (`home-inbox`'s Cloud rows, the
-/// Mac's Cloud list) listed only the first 200 entries, so every Chief and
-/// conversation past them never showed and left the list on each refresh.
-#[test]
-fn inbox_list_without_a_limit_reads_every_page() {
-    let (mux, client, backend) = cloud_mux();
-    sign_in(&mux, client);
-    backend.reply("/v1/read", 200, inbox_page(&["conv_a", "conv_b"], json!("k1"), "7"));
-    // conv_b moved while the pages were read: the second page lists it again.
-    backend.reply("/v1/read", 200, inbox_page(&["conv_b", "conv_c"], json!("k2"), "8"));
-    backend.reply("/v1/read", 200, inbox_page(&["conv_d"], Value::Null, "9"));
-    let listed = reply(&mux, client, json!({"id":1,"cmd":"cloud-inbox-list"}));
-    assert_eq!(listed["ok"], true, "{listed}");
-    let ids: Vec<&str> = listed["data"]["entries"]
+fn listed_ids(value: &Value) -> Vec<&str> {
+    value["entries"]
         .as_array()
         .unwrap()
         .iter()
         .filter_map(|entry| entry["conversation"].as_str())
-        .collect();
-    assert_eq!(ids, ["conv_a", "conv_b", "conv_c", "conv_d"]);
-    // The first page's revision: an inbox event after any page is newer than the list.
-    assert_eq!(listed["data"]["revision"], "7");
-    assert_eq!(listed["data"]["next_cursor"], Value::Null);
+        .collect()
+}
+
+/// `cloud-inbox-list` is one page per call, from the client's cursor, and hands
+/// back the owner's `next_cursor`, so a client can read past the newest 200.
+#[test]
+fn inbox_list_reads_one_page_from_the_cursor_and_returns_the_next() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    let first = reply(&mux, client, json!({"id":1,"cmd":"cloud-inbox-list"}));
+    assert_eq!(first["data"]["next_cursor"], "k1", "{first}");
+    backend.reply("/v1/read", 200, inbox_page(&["conv_b"], Value::Null, "8"));
+    let second =
+        reply(&mux, client, json!({"id":2,"cmd":"cloud-inbox-list","cursor":"k1","limit":5}));
+    assert_eq!(listed_ids(&second["data"]), ["conv_b"], "{second}");
+    assert_eq!(second["data"]["next_cursor"], Value::Null);
+    let posted = backend.posted();
+    assert_eq!(posted.len(), 2, "one read per call");
+    assert_eq!(posted[0].body["params"], json!({"limit":200}));
+    assert_eq!(posted[1].body["params"], json!({"limit":5,"cursor":"k1"}));
+}
+
+/// `home-inbox`'s Cloud rows: every page, an entry a later page lists again
+/// once (first copy), the first page's revision.
+#[test]
+fn inbox_list_all_reads_every_page_once() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a", "conv_b"], json!("k1"), "7"));
+    backend.reply("/v1/read", 200, inbox_page(&["conv_b", "conv_c"], json!("k2"), "8"));
+    backend.reply("/v1/read", 200, inbox_page(&["conv_d"], Value::Null, "9"));
+    let all = super::lease_user(&mux, client)
+        .unwrap()
+        .inbox_list_all(false, Duration::from_secs(60))
+        .unwrap();
+    assert_eq!(listed_ids(&all), ["conv_a", "conv_b", "conv_c", "conv_d"]);
+    assert_eq!(all["revision"], "7");
+    assert_eq!(all["next_cursor"], Value::Null);
     let cursors: Vec<Value> =
         backend.posted().iter().map(|post| post.body["params"]["cursor"].clone()).collect();
     assert_eq!(cursors, [Value::Null, json!("k1"), json!("k2")]);
 }
 
+/// A cursor the owner hands back unchanged ends the read instead of looping;
+/// a later page that fails keeps the pages read (and names where it stopped).
 #[test]
-fn inbox_list_with_a_limit_or_cursor_reads_one_page() {
+fn inbox_list_all_stops_on_a_stuck_cursor_and_keeps_pages_on_a_later_failure() {
     let (mux, client, backend) = cloud_mux();
     sign_in(&mux, client);
-    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
-    let first = reply(&mux, client, json!({"id":1,"cmd":"cloud-inbox-list","limit":1}));
-    assert_eq!(first["data"]["next_cursor"], "k1", "{first}");
-    backend.reply("/v1/read", 200, inbox_page(&["conv_b"], Value::Null, "8"));
-    let second = reply(&mux, client, json!({"id":2,"cmd":"cloud-inbox-list","cursor":"k1"}));
-    assert_eq!(second["data"]["entries"][0]["conversation"], "conv_b", "{second}");
-    assert_eq!(second["data"]["next_cursor"], Value::Null);
-    let posted = backend.posted();
-    assert_eq!(posted.len(), 2);
-    assert_eq!(posted[0].body["params"], json!({"limit":1}));
-    assert_eq!(posted[1].body["params"], json!({"limit":200,"cursor":"k1"}));
-}
-
-/// A cursor the owner hands back unchanged ends the read instead of looping.
-#[test]
-fn inbox_list_stops_on_a_cursor_that_does_not_move() {
-    let (mux, client, backend) = cloud_mux();
-    sign_in(&mux, client);
+    let service = super::lease_user(&mux, client).unwrap();
     backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
     backend.reply("/v1/read", 200, inbox_page(&["conv_b"], json!("k1"), "7"));
-    let listed = reply(&mux, client, json!({"id":1,"cmd":"cloud-inbox-list"}));
-    assert_eq!(listed["data"]["entries"].as_array().unwrap().len(), 2, "{listed}");
+    let stuck = service.inbox_list_all(false, Duration::from_secs(60)).unwrap();
+    assert_eq!(listed_ids(&stuck), ["conv_a", "conv_b"]);
     assert_eq!(backend.posted().len(), 2);
+
+    backend.reply("/v1/read", 200, inbox_page(&["conv_c"], json!("k9"), "8"));
+    backend.fail("/v1/read", "connection reset");
+    let partial = service.inbox_list_all(false, Duration::from_secs(60)).unwrap();
+    assert_eq!(listed_ids(&partial), ["conv_c"]);
+    assert_eq!(partial["next_cursor"], "k9");
+
+    // The first page's failure is the read's.
+    backend.fail("/v1/read", "connection reset");
+    assert!(service.inbox_list_all(false, Duration::from_secs(60)).is_err());
+}
+
+/// Past the budget, no further page is read.
+#[test]
+fn inbox_list_all_stops_at_its_budget() {
+    let (mux, client, backend) = cloud_mux();
+    sign_in(&mux, client);
+    backend.reply("/v1/read", 200, inbox_page(&["conv_a"], json!("k1"), "7"));
+    let read =
+        super::lease_user(&mux, client).unwrap().inbox_list_all(false, Duration::ZERO).unwrap();
+    assert_eq!(listed_ids(&read), ["conv_a"]);
+    assert_eq!(read["next_cursor"], "k1");
+    assert_eq!(backend.posted().len(), 1);
 }
