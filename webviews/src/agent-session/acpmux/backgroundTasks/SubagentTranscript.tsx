@@ -57,6 +57,13 @@ export function SubagentTranscript({
   const top = useRef<HTMLDivElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const [range, setRange] = useState(() => windowRange(rows, anchor));
+  // Opened before acpmux streamed any of its rows: the window is taken from the first rows that
+  // arrive, so a long transcript still mounts one window, not every row.
+  const [seeded, setSeeded] = useState(rows.length > 0);
+  if (!seeded && rows.length > 0) {
+    setSeeded(true);
+    setRange(windowRange(rows, anchor));
+  }
   const atBottom = useRef(anchor === undefined);
   const grown = useRef<number | undefined>(undefined);
   const placed = useRef(false);
@@ -69,6 +76,7 @@ export function SubagentTranscript({
     const view = scroller.current;
     if (!view) return;
     if (!placed.current) {
+      if (rows.length === 0) return;
       placed.current = true;
       const target = anchor ? view.querySelector<HTMLElement>(`[data-row-id="${CSS.escape(anchor)}"]`) : null;
       if (target) view.scrollTop = Math.max(0, target.offsetTop - view.clientHeight / 3);

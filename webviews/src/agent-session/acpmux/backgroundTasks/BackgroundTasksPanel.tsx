@@ -27,6 +27,7 @@ import type { AcpmuxRow } from "../model";
 import { useNow } from "../subagents/SubagentGroup";
 import {
   anyRunning,
+  isLive,
   finishedGroupIds,
   type BackgroundGroup,
   type BackgroundTask,
@@ -129,7 +130,7 @@ export function BackgroundTasksPanel({
                 group={group}
                 look={look}
                 now={now}
-                startsOpen={index === 0 && group.state === "running"}
+                startsOpen={index === 0 && isLive(group)}
                 onDrill={open}
                 onStop={onStop}
                 onOpenSession={onOpenSession}
@@ -274,11 +275,13 @@ function GroupBlock({
       ? () => onOpenSession(sessionId)
       : undefined;
   const counts = <Counts total={group.total} failed={group.failed} />;
+  // A group whose own agent ended still runs while any of its tasks (a nested agent) does.
+  const live = isLive(group);
   return (
-    <div className="acpmux-bg__group" data-state={group.state} data-group={group.id}>
+    <div className="acpmux-bg__group" data-state={live ? "running" : group.state} data-group={group.id}>
       <div className="acpmux-bg__agent">
         <button type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
-          {group.state === "running" && <Spinner size={12} loading />}
+          {live && <Spinner size={12} loading />}
           <span className="acpmux-bg__label">{group.name}</span>
           {opens && (
             <span className="acpmux-bg__chevron" aria-hidden="true">
@@ -291,7 +294,7 @@ function GroupBlock({
             {counts}
           </button>
         )}
-        <span className="acpmux-bg__time">{time(group.startedAt, group.endedAt, now)}</span>
+        <span className="acpmux-bg__time">{time(group.startedAt, live ? undefined : group.endedAt, now)}</span>
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
       {look === "nested" && group.total > 0 && (
