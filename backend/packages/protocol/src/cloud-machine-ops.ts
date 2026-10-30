@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { HostId, Revision, TeamId, UserId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * cmux-next Cloud machines (plans/cmux-next/cloud-client-contract.md 1.2, 1.3 and 1.7;
@@ -11,11 +12,11 @@ import { HostId, Revision, TeamId, UserId } from "./schemas.ts"
  * The shared vectors are backend/catalog/cloud-vectors.json.
  */
 
-export const MachineId = Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)).annotate({ identifier: "MachineId", description: "A Cloud machine." })
-export const SnapshotId = Schema.String.check(Schema.isPattern(/^snap_[a-z0-9]{20}$/)).annotate({ identifier: "SnapshotId", description: "A Cloud machine snapshot." })
-const PlanId = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9_-]{0,63}$/))
+export const MachineId = Schema.String.check(isPattern(/^vm_[a-z0-9]{20}$/)).annotate({ identifier: "MachineId", description: "A Cloud machine." })
+export const SnapshotId = Schema.String.check(isPattern(/^snap_[a-z0-9]{20}$/)).annotate({ identifier: "SnapshotId", description: "A Cloud machine snapshot." })
+const PlanId = Schema.String.check(isPattern(/^[a-z0-9][a-z0-9_-]{0,63}$/))
 const ImageId = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128))
-const MachineName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80))
+export const MachineName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80))
 const Millis = Schema.Int
 
 export const CloudMachineStatus = Schema.Literals(["provisioning", "starting", "running", "pausing", "paused", "deleting", "failed"]).annotate({ identifier: "CloudMachineStatus" })
@@ -76,6 +77,15 @@ export const CloudPlan = Schema.Struct({
   usage: Schema.Struct({ active: Schema.Int, saved: Schema.Int, vm_hours_used: Schema.Number, period_end: Millis })
 }).annotate({ identifier: "CloudPlan" })
 
+/**
+ * The caller's kind on one machine, the classic attach answer's `vmKind` (web vmKindForCaller):
+ * `owner` only for the machine's creator on the creator's personal team, never an agent token;
+ * every shared-team machine is `team`, its creator included. Computed per request, never stored.
+ * A client grants owner privileges only on the exact value `owner`.
+ */
+export const CloudVmKind = Schema.Literals(["owner", "team"])
+export type CloudVmKind = typeof CloudVmKind.Type
+
 export const CloudConnectInfo = Schema.Struct({
   machine: MachineId,
   host: HostId,
@@ -94,10 +104,12 @@ export const CloudConnectInfo = Schema.Struct({
   ),
   services: Schema.Array(Schema.Literals(["daemon", "ssh"])),
   daemon: Schema.Struct({ version: Schema.NullOr(Schema.String), capabilities: Schema.Array(Schema.String) }),
+  /** The caller's kind on this machine, per request (CloudVmKind). */
+  vm_kind: CloudVmKind,
   revision: Revision
 }).annotate({ identifier: "CloudConnectInfo" })
 
-const MachineResult = Schema.Struct({ machine: CloudMachine })
+export const MachineResult = Schema.Struct({ machine: CloudMachine })
 const Deleted = Schema.Struct({ deleted: Schema.Literal(true) })
 const MachineParams = Schema.Struct({ machine: MachineId })
 
@@ -106,23 +118,23 @@ const GATES = ["auth.sso_required", "client.too_old", "owner.unreachable"]
 const READ = ["auth.forbidden", "auth.unauthenticated", "selector.not_found", "validation.invalid", ...GATES]
 const MUTATION = [...mutationErrors, ...GATES]
 /** A provider call can fail for now or be cut off; the caller retries the same key after mutation.indeterminate. */
-const PROVIDER = ["cloud.provider.unavailable", "mutation.indeterminate"]
+export const PROVIDER = ["cloud.provider.unavailable", "mutation.indeterminate"]
 /** Create and delete are limited per team (CLOUD_MUTATION_LIMIT); retryable, retry after a minute. */
-const LIMITED = ["cloud.rate_limited"]
-const KEY = " After mutation.indeterminate, retry with the same idempotency key."
+export const LIMITED = ["cloud.rate_limited"]
+export const KEY = " After mutation.indeterminate, retry with the same idempotency key."
 /**
  * The G8 approval path (cx-wb5.65, domains/cloud.ts CLOUD_APPROVAL_OPS): a non-agent install
  * never runs these ops itself; the person approves each request in the feed with their own session.
  */
-const APPROVAL = ["approval.pending", "approval.denied", "approval.expired", "approval.too_many_pending"]
-const APPROVAL_DOC =
+export const APPROVAL = ["approval.pending", "approval.denied", "approval.expired", "approval.too_many_pending"]
+export const APPROVAL_DOC =
   " From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team."
 const PERSON = " Agent principals are refused; the client asks a person first."
 
-const cloudRead = <P extends Schema.Top, R extends Schema.Top>(name: string, params: P, result: R, errors: Array<string>, docs: string, cli: string) =>
+export const cloudRead = <P extends Schema.Top, R extends Schema.Top>(name: string, params: P, result: R, errors: Array<string>, docs: string, cli: string) =>
   def({ name, owner: "cloud:CloudDO", class: "read", risk: "read", target: "team", principals: ["session", "install"], params, result, errors: [...READ, ...errors], docs, cli: { path: cli, visible: true }, mcp: { expose: "default", group: "cloud" } })
 
-const cloudMutation = <P extends Schema.Top, R extends Schema.Top>(
+export const cloudMutation = <P extends Schema.Top, R extends Schema.Top>(
   name: string,
   risk: "mutate-own" | "mutate-shared" | "execute" | "money" | "destructive",
   params: P,
@@ -203,7 +215,7 @@ export const CloudMachineConnectInfo = cloudRead(
   Schema.Struct({ machine: Schema.optionalKey(MachineId), host: Schema.optionalKey(HostId) }),
   CloudConnectInfo,
   ["cloud.machine.not_bound", "cloud.machine.not_found"],
-  "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token.",
+  "How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. vm_kind is the caller's kind on this machine (owner only for its creator on the creator's personal team; every shared-team machine is team).",
   "cloud machine connect-info"
 )
 
@@ -226,11 +238,13 @@ export const CloudMachineLinkToken = def({
     expires_at: Millis,
     host: HostId,
     epoch: Schema.Int,
-    services: LinkServices
+    services: LinkServices,
+    /** The caller's kind on this machine, also signed into the token (claim `vmk`): the answer of this one dial. */
+    vm_kind: CloudVmKind
   }),
   // No key and no revision input, so no idempotency.conflict and no revision.conflict.
   errors: [...MUTATION.filter((code) => code !== "revision.conflict" && code !== "idempotency.conflict"), ...LIMITED, "cloud.link.install_refused", "cloud.machine.not_bound", "cloud.machine.not_found", "cloud.machine.paused"],
-  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
+  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. The token carries the caller's vm_kind (claim vmk, the same value as the result's vm_kind), so the owner answer is bound to this dial and ends with the token. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
   cli: { path: "cloud machine link-token", visible: false },
   mcp: { expose: "never", group: "cloud" }
 })
@@ -289,7 +303,7 @@ export const CloudBillingCheckout = cloudMutation(
   "cloud.billing.checkout",
   "money",
   Schema.Struct({ plan: PlanId }),
-  Schema.Struct({ url: Schema.String.check(Schema.isPattern(/^https:\/\//)) }),
+  Schema.Struct({ url: Schema.String.check(isPattern(/^https:\/\//)) }),
   [],
   "Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux.",
   "cloud billing checkout",

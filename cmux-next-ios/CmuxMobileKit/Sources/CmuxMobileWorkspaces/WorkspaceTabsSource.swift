@@ -35,12 +35,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored let creator: WorkspaceCreator?
     /// Leaves the workspace (back to the list).
     @ObservationIgnored public var exit: @MainActor () -> Void = {}
-    @ObservationIgnored private var surfaces: [String: AgentChatSurface] = [:]
+    @ObservationIgnored var surfaces: [String: AgentChatSurface] = [:]
     /// Created with their tabs (never during a view update); each model is
     /// itself observable, so toolbar state follows the page.
     @ObservationIgnored private var browsers: [String: BrowserTabModel] = [:]
     /// Streamed browser tabs while linked to a Mac.
-    @ObservationIgnored private let streamed = StreamedBrowserDirectory.shared
+    @ObservationIgnored let streamed: StreamedBrowserDirectory
+    /// Browser tabs this iPhone shows itself instead of the Mac's page (Open on iPhone).
+    @ObservationIgnored let native: NativeBrowserTabs
     /// The chrome insets the pages were last laid out with, for cards.
     @ObservationIgnored private var lastInsets = EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)
     @ObservationIgnored var pageHeight: CGFloat = 874
@@ -50,8 +52,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored private(set) var focusOnOpen = false
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
-                sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil) {
+                sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
+                native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared) {
         self.store = store
+        self.native = native
+        self.streamed = streamed
         self.creator = creator
         self.workspaceID = workspaceID
         self.terminal = terminal
@@ -91,7 +96,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         return store.teams.flatMap(\.macs).first { $0.id == macID }?.name ?? "Mac"
     }
 
-    private func workspaceTab(_ id: String) -> WorkspaceTab? {
+    func workspaceTab(_ id: String) -> WorkspaceTab? {
         workspace?.tabs.first { $0.id == id }
     }
 
@@ -196,7 +201,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 statusBarStyle: .lightContent
             )
         case .browser:
-            let model: (any BrowserTabState)? = streamed.model(tab: tab.id, url: tab.url, macID: workspace.macID) ?? browsers[tab.id]
+            let model: (any BrowserTabState)? = native.model(tab: tab.id, macID: workspace.macID)
+                ?? streamed.model(tab: tab.id, url: tab.url, macID: workspace.macID) ?? browsers[tab.id]
             // A new tab's about:blank is no address: the field reads "Search or enter website",
             // never "about:blank" (VoiceOver read it after a navigation, parity finding 4).
             let url = (model?.url ?? tab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
@@ -271,6 +277,32 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // its terminal with no way back. Ask first, exactly as the Mac's tab
         // close does (TabCloseGuard), from the Mac's own process state.
         guard await confirmClose([tab], in: workspace) else { return false }
+        return await closeConfirmed(tab, in: workspace)
+    }
+
+    /// The tabs Close Tabs to the Left (`left`) or to the Right closes for `tab`, in order: the
+    /// unpinned tabs before or after it in its pane on the Mac (`TabStripModel.closedByCloseToLeft`).
+    nonisolated static func closedBySide(of tab: WorkspaceTab, left: Bool, in tabs: [WorkspaceTab]) -> [WorkspaceTab] {
+        // Without the Mac's pane ids the phone can't tell panes apart: no side closes then.
+        guard let pane = tab.linkIDs?.pane else { return [] }
+        let peers = tabs.filter { $0.linkIDs?.pane == pane }
+        guard let index = peers.firstIndex(where: { $0.id == tab.id }) else { return [] }
+        return (left ? Array(peers[..<index]) : Array(peers[(index + 1)...])).filter { !$0.isPinned }
+    }
+
+    /// Close Tabs to the Left / to the Right: one question for all of them when one is doing
+    /// work (as Close Tab asks), then each closes on the Mac as Close Tab closes it.
+    public func closeSide(of id: TabsKitTab.ID, left: Bool) async {
+        guard let workspace, let tab = workspaceTab(id) else { return }
+        let closing = Self.closedBySide(of: tab, left: left, in: workspace.tabs)
+        guard !closing.isEmpty, await confirmClose(closing, in: workspace) else { return }
+        for other in closing {
+            guard let current = self.workspace, await closeConfirmed(other, in: current) else { return }
+        }
+    }
+
+    private func closeConfirmed(_ tab: WorkspaceTab, in workspace: Workspace) async -> Bool {
+        let id = tab.id
         guard let creator else {
             show("Connect to \(macName) first.")
             CmuxMobileTheme.standard.haptics.error()
@@ -287,6 +319,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         surfaces[id] = nil
         browsers[id] = nil
         streamed.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
+        native.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
         if selectedTabID == id || workspaceTab(selectedTabID ?? "") == nil {
             selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
@@ -396,20 +429,17 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// The workspace's toast (a tab that could not be opened or closed): one short line
     /// (`TabNotice`). `WorkspaceScreen` draws it as a `cmuxMobileDismissibleToast` above the
-    /// bottom chrome; it clears after `noticeLifetime`, on a swipe or on a tap.
+    /// bottom chrome; it clears after `ToastDismissal.lifetime(for:)`, on a swipe or on a tap.
     public private(set) var toastText: String?
     /// TabsKit's own toast is never used: it draws at the top, over the title and Back
     /// (upstream request U6), so the kit always sees no notice.
     public var notice: String? { nil }
     public func clearNotice() { toastText = nil }
 
-    /// How long a toast stays (a UI timeout, not synchronization).
-    static let noticeLifetime: Duration = .seconds(4)
-
-    private func show(_ text: String) {
+    func show(_ text: String) {
         toastText = text
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: Self.noticeLifetime)
+            try? await Task.sleep(for: ToastDismissal.lifetime(for: text))
             if self?.toastText == text { withAnimation { self?.clearNotice() } }
         }
     }
@@ -430,7 +460,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     /// "this Mac" / "your Mac" in a phone-written line, as the Mac's name.
-    private func named(_ text: String) -> String {
+    func named(_ text: String) -> String {
         text.replacingOccurrences(of: "your Mac", with: macName).replacingOccurrences(of: "this Mac", with: macName)
     }
 
@@ -490,7 +520,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     /// The new-tab option being created on the Mac ("New Claude Chat"), or nil.
-    public private(set) var pendingTabTitle: String?
+    public internal(set) var pendingTabTitle: String?
     /// A tab the Mac just created and this phone made active: the screen leaves the
     /// grid for it, then clears this.
     public var openedTab: TabsKitTab.ID?
@@ -570,9 +600,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
         sessions.store(workspace: workspace, tab: tab, macName: macName)
     }
 
-    /// The tab's page: streamed from the Mac while linked, else a local web view.
+    /// The tab's page: this iPhone's own when the person opened it here, else
+    /// streamed from the Mac while linked, else a local web view.
     func browser(_ tab: WorkspaceTab) -> any BrowserTabState {
-        if let model = streamed.model(tab: tab.id, url: tab.url, macID: store.workspace(id: workspaceID)?.macID) { return model }
+        let macID = store.workspace(id: workspaceID)?.macID
+        if let model = native.model(tab: tab.id, macID: macID) { return model }
+        if let model = streamed.model(tab: tab.id, url: tab.url, macID: macID) { return model }
         return localBrowser(tab)
     }
 
@@ -684,6 +717,48 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    // MARK: Open Address in New Tab (the Mac omnibar's Open Address in New Tab)
+
+    /// The address bar's "Open in New Tab" row: offered while a browser tab's address is
+    /// being edited, the text is not its own address, and tabs can open on the Mac.
+    public func canOpenAddressInNewTab(_ editing: TabsKitAddressEditing) -> Bool {
+        guard canEditTabs, let id = editing.tab?.id, workspaceTab(id)?.kind == .browser else { return false }
+        let text = editing.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if case .url(_, let shown, _)? = editing.tab?.address, shown == editing.query { return false }
+        return BrowserTabModel.url(for: text) != nil
+    }
+
+    /// Opens what is typed (an address, a bare host, or a search) in a new browser tab beside
+    /// the edited one on the Mac (`new-browser-tab {url, pane}`), and returns the tab once the
+    /// Mac lists it. The edited tab keeps its page.
+    public func openAddressInNewTab(_ text: String, besides id: TabsKitTab.ID) async -> TabsKitTab.ID? {
+        guard let workspace, let creator, let tab = workspaceTab(id), pendingTabTitle == nil,
+              let url = BrowserTabModel.url(for: text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+        pendingTabTitle = Self.openAddressTitle
+        defer { pendingTabTitle = nil }
+        do {
+            let opened = try await creator.backend.openLink(url, besides: tab, in: workspace)
+            if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == opened.id }) != true {
+                store.appendTab(opened, to: workspaceID)
+            }
+            if !streamed.isLive, browsers[opened.id] == nil { browsers[opened.id] = BrowserTabModel(url: url) }
+            return opened.id
+        } catch let error as WorkspaceCreationError where error.isForPerson {
+            show(named(error.message))
+        } catch {
+            show(TabNotice(action: .open(optionTitle: Self.openAddressTitle), macName: macName, reason: Self.message(error)))
+        }
+        CmuxMobileTheme.standard.haptics.error()
+        return nil
+    }
+
+    /// The Mac's title (`action.omnibar.openInForegroundTab`).
+    public static let openAddressTitle = "Open Address in New Tab"
+
+    public func editingBackground(_ editing: TabsKitAddressEditing) -> WorkspaceAddressSuggestions {
+        WorkspaceAddressSuggestions(editing: editing, source: self)
+    }
+
     /// Opens a copy of the tab on the Mac and goes to it once the Mac lists it.
     public func duplicate(_ id: TabsKitTab.ID) async {
         guard let workspace, let creator, let tab = workspaceTab(id), pendingTabTitle == nil else { return }
@@ -746,16 +821,41 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    // MARK: Panes (verify/parity-mac.md, Panes; actions in WorkspaceTabsSource+Panes.swift)
+
+    /// The pane whose name the person is editing (Rename Pane…).
+    public var renamingPane: WorkspaceLayout.Pane?
+    /// An Undo Layout Change that closes panes, waiting for the person's yes.
+    public var pendingLayoutUndo: LayoutUndoConfirmation?
+    /// The chat whose fork destination the person is picking (Fork Conversation…).
+    public var forkingTab: WorkspaceTab?
+
     // MARK: Move to another workspace, pins, groups, chat menu (verify/parity-mac.md)
 
     /// The tab whose destination the person is picking (Move Tab to Workspace…).
     public var movingTab: WorkspaceTab?
     /// The tab whose group the person is picking (Add Tab to Group…).
     public var addingToGroupTab: WorkspaceTab?
-    /// The tab whose group's actions are open (the Mac's group chip menu).
-    public var groupActionsTab: WorkspaceTab?
-    /// The tab whose group the person is renaming (Rename Tab Group…).
-    public var renamingGroupTab: WorkspaceTab?
+    /// A page pushed over the workspace (swipe back returns): its Screens, its Panes, or a tab group's
+    /// actions (the Mac's group chip menu).
+    public var route: WorkspaceRoute?
+    /// The screen whose name the person is editing (Rename Screen…).
+    public var renamingScreen: MacScreen?
+
+    public enum WorkspaceRoute: Hashable, Identifiable {
+        case screens
+        /// The Panes page (the Mac's panes of this workspace).
+        case panes
+        /// The group's id.
+        case tabGroup(String)
+        public var id: String {
+            switch self {
+            case .screens: "screens"
+            case .panes: "panes"
+            case .tabGroup(let group): "tab-group.\(group)"
+            }
+        }
+    }
 
     /// The other workspaces on this workspace's Mac, in list order (Move Tab to Workspace…).
     public var otherWorkspaces: [Workspace] {
@@ -815,9 +915,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// A tab group change from the tab's menu. Membership and names change here at once (the
     /// Mac's list confirms them); Close Tab Group waits for the Mac, as closing a tab does.
     public func editGroup(_ edit: TabGroupEdit, _ id: TabsKitTab.ID) async {
-        groupActionsTab = nil
         addingToGroupTab = nil
-        renamingGroupTab = nil
         guard let workspace, let creator, let tab = workspaceTab(id) else { return }
         if case .rename(let name) = edit, name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return }
         // Close Tab Group asks as closing its tabs one by one would (A2).
@@ -830,14 +928,16 @@ public final class WorkspaceTabsSource: TabsDataSource {
         do {
             try await creator.backend.editTabGroup(edit, tab: tab, in: workspace)
             if edit == .close, let group = tab.group {
-                for member in before where member.group?.id == group.id {
-                    _ = store.removeTab(member.id, from: workspaceID)
-                    surfaces[member.id] = nil
-                    browsers[member.id] = nil
-                    streamed.drop(tab: member.id)
-                }
-                if workspaceTab(selectedTabID ?? "") == nil { selectedTabID = self.workspace?.tabs.first?.id }
-                if self.workspace?.tabs.isEmpty ?? true { exit() }
+                dropClosedTabs(before.filter { $0.group?.id == group.id }.map(\.id))
+            }
+            if case .moveToWorkspace(let destination) = edit, let group = tab.group {
+                route = nil
+                show("Moved \(group.displayName) to \(store.workspace(id: destination)?.title ?? "the workspace").")
+                CmuxMobileTheme.standard.haptics.success()
+            } else if edit == .moveToNewWorkspace, let group = tab.group {
+                route = nil
+                show("Moved \(group.displayName) to a new workspace.")
+                CmuxMobileTheme.standard.haptics.success()
             }
         } catch {
             for old in before { store.updateTab(old.id, in: workspaceID) { $0.group = old.group } }
@@ -848,6 +948,20 @@ public final class WorkspaceTabsSource: TabsDataSource {
             }
             CmuxMobileTheme.standard.haptics.error()
         }
+    }
+
+    /// Tabs the Mac closed (a tab group, a screen): gone here too, with their pages; the
+    /// workspace leaves when none is left.
+    func dropClosedTabs(_ ids: [String]) {
+        for id in ids {
+            _ = store.removeTab(id, from: workspaceID)
+            surfaces[id] = nil
+            browsers[id] = nil
+            streamed.drop(tab: id)
+            native.drop(tab: id, macID: workspace?.macID)
+        }
+        if workspaceTab(selectedTabID ?? "") == nil { selectedTabID = workspace?.tabs.first?.id }
+        if workspace?.tabs.isEmpty ?? true { exit() }
     }
 
     /// What an edit does to this phone's copy before the Mac lists it.
@@ -874,7 +988,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
             members { $0.group?.isSaved = true }
         case .unsave:
             members { $0.group?.isSaved = false }
-        case .close:
+        case .setColor(let color):
+            members { $0.group?.color = color }
+        case .setIcon(let icon):
+            members { $0.group?.icon = icon }
+        case .setCollapsed(let collapsed):
+            members { $0.group?.isCollapsed = collapsed }
+        case .close, .moveLeft, .moveRight, .moveToSplit, .moveToColumn, .moveToNewWorkspace, .moveToWorkspace:
+            // Places come from the Mac's list (the phone's list has no panes to move in).
             break
         }
     }
@@ -883,7 +1004,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     private func chatItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
         guard canEditTabs else { return [] }
         return [
-            TabsKitMenuItem(title: "Fork", systemImage: "arrow.triangle.branch") { [weak self] in Task { await self?.fork(tab.id) } },
+            // The Mac's Fork Conversation destinations (AgentActionCatalog): beside the chat,
+            // in a new tab, or in a new workspace.
+            TabsKitMenuItem(id: "fork-conversation", title: "Fork Conversation…", systemImage: "arrow.triangle.branch") { [weak self] in
+                self?.forkingTab = tab
+            },
             TabsKitMenuItem(title: "Archive", systemImage: "archivebox") { [weak self] in Task { await self?.archive(tab.id) } },
         ]
     }
@@ -918,6 +1043,91 @@ public final class WorkspaceTabsSource: TabsDataSource {
         surfaces[id] = nil
         if selectedTabID == id || workspaceTab(selectedTabID ?? "") == nil { selectedTabID = next?.id }
         if self.workspace?.tabs.isEmpty ?? true { exit() }
+    }
+
+    // MARK: Agent chats (Search Agent Chats, Open Chat Folder in Terminal)
+
+    /// The backend's agent chats (nil: this backend has none).
+    var chatsBackend: (any AgentChatsBackend)? { creator?.backend as? any AgentChatsBackend }
+
+    /// Whether the Mac's chats can be listed now.
+    public var canListAgentChats: Bool {
+        guard let workspace, let chatsBackend else { return false }
+        return chatsBackend.canListAgentChats(on: workspace.macID)
+    }
+
+    /// The Chats list is pushed over the workspace.
+    public var showsAgentChats = false
+
+    /// Opens another workspace (the Chats list's Open in New Workspace); set by the screen.
+    @ObservationIgnored public var openWorkspace: (@MainActor (Workspace) -> Void)?
+
+    /// The Chats list's Open: the chat as a tab here (the tab already showing it, else a new
+    /// one), made active once the Mac lists it. Nil on success, else what to tell the person.
+    public func openAgentChat(_ chat: AgentChatListing) async -> String? {
+        guard let workspace, let chatsBackend else { return "Connect to \(macName) first." }
+        do {
+            let tab = try await chatsBackend.openAgentChat(chat, in: workspace)
+            if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == tab.id }) != true {
+                store.appendTab(tab, to: workspaceID)
+            }
+            activate(tab.id)
+            openedTab = tab.id
+            return nil
+        } catch {
+            CmuxMobileTheme.standard.haptics.error()
+            return Self.personMessage(error, macName: macName)
+        }
+    }
+
+    /// The Chats list's Open in New Workspace: a new workspace whose only tab is the chat,
+    /// shown once the Mac lists it. Nil on success, else what to tell the person.
+    public func openAgentChatInNewWorkspace(_ chat: AgentChatListing) async -> String? {
+        guard let workspace, let chatsBackend else { return "Connect to \(macName) first." }
+        do {
+            let created = try await chatsBackend.openAgentChatInNewWorkspace(chat, on: workspace.macID)
+            if let tab = created.tabs.first { store.noteOpened(tabID: tab.id, in: created.id) }
+            openWorkspace?(created)
+            return nil
+        } catch {
+            CmuxMobileTheme.standard.haptics.error()
+            return Self.personMessage(error, macName: macName)
+        }
+    }
+
+    /// A refusal in the person's words: the phone's or the Mac's own sentence, else the
+    /// Mac's reason after a plain lead-in.
+    static func personMessage(_ error: any Error, macName: String) -> String {
+        if let error = error as? WorkspaceCreationError, error.isForPerson {
+            return error.message.replacingOccurrences(of: "your Mac", with: macName).replacingOccurrences(of: "this Mac", with: macName)
+        }
+        return "\(macName) couldn't do that: \(message(error))"
+    }
+
+    /// The Mac's Open Chat Folder in Terminal (`agentPane.openCwdInTerminal`): a new terminal
+    /// tab beside the chat, in the chat's folder, which then comes to the front.
+    public func openChatFolderInTerminal(_ id: TabsKitTab.ID) async {
+        guard let workspace, let chatsBackend, let tab = workspaceTab(id), tab.kind == .agent, pendingTabTitle == nil else { return }
+        pendingTabTitle = "New Terminal"
+        defer { pendingTabTitle = nil }
+        do {
+            let terminalTab = try await chatsBackend.openChatFolderInTerminal(tab, in: workspace)
+            if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == terminalTab.id }) != true {
+                store.appendTab(terminalTab, to: workspaceID)
+            }
+            activate(terminalTab.id)
+            openedTab = terminalTab.id
+        } catch {
+            show(error, doing: "open a terminal for", tab.title)
+        }
+    }
+
+    /// The page menu's Search Agent Chats (the Mac's `agentPane.searchChats`).
+    private var chatsItems: [TabsKitMenuItem] {
+        guard canListAgentChats else { return [] }
+        return [TabsKitMenuItem(title: "Search Agent Chats", systemImage: "bubble.left.and.text.bubble.right") { [weak self] in
+            self?.showsAgentChats = true
+        }]
     }
 
     // MARK: Saved tab groups (Reopen / Delete Saved Tab Group…)
@@ -999,7 +1209,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// A refusal: the phone's or the Mac's own sentence when it is written for the person,
     /// else one short line ("Couldn't fork Claude.").
-    private func show(_ error: any Error, doing verb: String, _ title: String) {
+    func show(_ error: any Error, doing verb: String, _ title: String) {
         if let error = error as? WorkspaceCreationError, error.isForPerson {
             show(named(error.message))
         } else {
@@ -1032,7 +1242,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 Task { await self?.editGroup(.remove, tab.id) }
             })
             items.append(TabsKitMenuItem(id: "tab-group-actions", title: "Tab Group: \(group.displayName)…", systemImage: "folder") { [weak self] in
-                self?.groupActionsTab = tab
+                self?.route = .tabGroup(group.id)
             })
         } else if !tab.isPinned {
             items.append(TabsKitMenuItem(title: TabGroupEdit.create.title, systemImage: "rectangle.badge.plus") { [weak self] in
@@ -1070,13 +1280,35 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// which has room for them.
     public func cardMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let tab = workspaceTab(kit.id) else { return [] }
-        return [editItems(tab), groupItems(tab)].filter { !$0.isEmpty }
+        return [editItems(tab), groupItems(tab), sideCloseItems(tab)].filter { !$0.isEmpty }
     }
+
+    /// Close Tabs to the Left / to the Right (the Mac's tab menu), each only when it has a tab
+    /// to close.
+    private func sideCloseItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
+        // Home's tabs never close (the Mac's `isClosable`).
+        guard canEditTabs, let workspace, !workspace.isHome else { return [] }
+        return [true, false].compactMap { left in
+            guard !Self.closedBySide(of: tab, left: left, in: workspace.tabs).isEmpty else { return nil }
+            return TabsKitMenuItem(title: left ? Self.closeLeftTitle : Self.closeRightTitle,
+                                   systemImage: left ? "arrow.left.to.line.compact" : "arrow.right.to.line.compact",
+                                   isDestructive: true) { [weak self] in
+                Task { await self?.closeSide(of: tab.id, left: left) }
+            }
+        }
+    }
+
+    /// The Mac's titles (`action.closeTabsToLeft`, `action.closeTabsToRight`).
+    public static let closeLeftTitle = "Close Tabs to the Left"
+    public static let closeRightTitle = "Close Tabs to the Right"
 
     public func pageMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let workspace, let tab = workspaceTab(kit.id) else { return [] }
         let edit = editItems(tab) + groupItems(tab) + moveItems(tab) + savedGroupItems(tab)
+        // Panes and Screens: the workspace's layout pages.
+        let layoutPages = panesItems() + screensItems(tab)
         let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
+        let closes = [close] + sideCloseItems(tab)
         let leave = TabsKitMenuItem(title: "All Workspaces", systemImage: "square.stack.3d.up") { [weak self] in self?.exit() }
         switch tab.kind {
         case .agent:
@@ -1097,12 +1329,20 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     : []) + [
                     TabsKitMenuItem(title: "Continue in…", systemImage: "arrow.triangle.branch") { surface.parityRoute = .handoff },
                 ] + chatItems(tab),
+                [
+                    TabsKitMenuItem(title: "Find in Chat…", systemImage: "magnifyingglass", isEnabled: !store.turns.isEmpty) {
+                        surface.openFind()
+                    },
+                ] + (canEditTabs && chatsBackend != nil
+                    ? [TabsKitMenuItem(title: "Open Chat Folder in Terminal", systemImage: "apple.terminal") { [weak self] in
+                        Task { await self?.openChatFolderInTerminal(tab.id) }
+                    }] : []) + chatsItems,
+                layoutPages,
                 edit,
                 [leave],
                 [
                     TabsKitMenuItem(title: "Stop Agent", systemImage: "stop.circle", isEnabled: store.isRunning, isDestructive: true) { store.cancel() },
-                    close,
-                ],
+                ] + closes,
             ].filter { !$0.isEmpty }
         case .terminal:
             let own = terminal.actions(for: tab, in: workspace).map { action in
@@ -1117,17 +1357,30 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 }] : []
             // Files and Links, Paste, Clear | Copy Directory | Close Tab: no
             // "All Workspaces" (Back leaves the workspace; design/terminal P1).
-            return [restart, own, [copy], edit, [close]].filter { !$0.isEmpty }
+            return [restart, own, [copy], chatsItems, layoutPages, edit, closes].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
+            // Linked: the page is the Mac's, mirrored; Open on iPhone loads it here instead.
+            let placement: [TabsKitMenuItem] = nativeBrowser(tab) != nil
+                ? !canMirror(tab) ? [] : [TabsKitMenuItem(id: "browser.mirrorFromMac", title: "Mirror from \(macName)", systemImage: "macbook") { [weak self] in
+                    self?.mirrorFromMac(tab.id)
+                }]
+                : canOpenOnPhone(tab)
+                ? [TabsKitMenuItem(id: "browser.openOnPhone", title: "Open on iPhone", systemImage: "iphone") { [weak self] in
+                    self?.openOnPhone(tab.id)
+                }]
+                : []
             return [
                 [
                     TabsKitMenuItem(title: "Copy Link", systemImage: "link", isEnabled: model.url != nil) { UIPasteboard.general.url = model.url },
                     TabsKitMenuItem(title: "Reload", systemImage: "arrow.clockwise") { model.reloadOrStop() },
                 ],
+                placement,
+                chatsItems,
+                layoutPages,
                 edit,
                 [leave],
-                [close],
+                closes,
             ].filter { !$0.isEmpty }
         case .simulator:
             let model = simulator(tab)
@@ -1136,9 +1389,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     TabsKitMenuItem(title: "Home", systemImage: "circle", isEnabled: model != nil) { model?.pressButton("home") },
                     TabsKitMenuItem(title: "Lock", systemImage: "lock", isEnabled: model != nil) { model?.pressButton("lock") },
                 ],
+                layoutPages,
                 edit,
                 [leave],
-                [close],
+                closes,
             ].filter { !$0.isEmpty }
         }
     }
@@ -1196,7 +1450,12 @@ struct WorkspaceTabPage: View {
                     }
                 }
         case .browser:
-            if let model = source.browser(tab) as? StreamedBrowserModel {
+            if let model = source.nativeBrowser(tab) {
+                NativeBrowserPage(model: model, macName: source.macName, insets: insets,
+                                  isZoomGestureActive: context.isZoomGestureActive,
+                                  reportScroll: { context.reportScroll(fingerDelta: $0) },
+                                  canMirror: source.canMirror(tab), mirror: { source.mirrorFromMac(tab.id) })
+            } else if let model = source.browser(tab) as? StreamedBrowserModel {
                 StreamedBrowserPage(model: model, insets: insets, reportScroll: { context.reportScroll(fingerDelta: $0) })
             } else {
                 BrowserPage(model: source.localBrowser(tab), insets: insets, isZoomGestureActive: context.isZoomGestureActive,
@@ -1293,8 +1552,14 @@ struct WorkspaceTabCard: View {
             preview(tab, workspace)
                 // The card shows the top of the page, scaled down: the chip sits there, sized
                 // in page points so it reads like the card's title.
+                // Under the group chip: which of the Mac's screens the tab is on, when the workspace
+                // has more than one (the card shows only the top of the page).
                 .overlay(alignment: .topLeading) {
-                    if let group = tab.group { TabGroupChip(group: group).padding(.leading, 16).padding(.top, 14) }
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let group = tab.group { TabGroupChip(group: group) }
+                        if let screen = workspace.screenLabel(ofTab: tab.id) { ScreenChip(title: screen) }
+                    }
+                    .padding(.leading, 16).padding(.top, 14)
                 }
         } else {
             Color.cmuxMobileBackground
@@ -1311,7 +1576,9 @@ struct WorkspaceTabCard: View {
             case .terminal:
                 source.terminal.card(for: tab, in: workspace)
             case .browser:
-                if let model = source.browser(tab) as? StreamedBrowserModel {
+                if let model = source.nativeBrowser(tab) {
+                    BrowserCard(model: model, insets: insets)
+                } else if let model = source.browser(tab) as? StreamedBrowserModel {
                     StreamedBrowserCard(model: model)
                 } else {
                     BrowserCard(model: source.localBrowser(tab), insets: insets)
@@ -1332,7 +1599,10 @@ struct TabGroupChip: View {
     let group: WorkspaceTab.TabGroupRef
 
     var body: some View {
-        Text(group.displayName)
+        HStack(spacing: 8) {
+            if let icon = group.icon { TabGroupIcon(icon: icon) }
+            Text(group.displayName)
+        }
             .font(.system(size: 26, weight: .semibold))
             .lineLimit(1)
             .foregroundStyle(.white)

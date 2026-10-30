@@ -46,6 +46,8 @@ public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
         showHint()
     }
 
+    override var initialResponder: NSView? { name }
+
     public override func viewDidAppear() {
         super.viewDidAppear()
         view.window?.makeFirstResponder(name)

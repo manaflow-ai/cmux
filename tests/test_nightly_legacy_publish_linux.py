@@ -26,10 +26,23 @@ sys.path.insert(0, str(ROOT / "scripts/ci"))
 import appcast_minimum_system_version as floor  # noqa: E402
 
 
+STEP_SCRIPT = re.compile(r"^(\s+run: )bash (?:\.publish-tooling/)?(scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh)\s*$",
+                         re.MULTILINE)
+
+
+def inline_step_scripts(text: str) -> str:
+    """Run blocks moved into scripts/ci/nightly-steps (#25879) read as if still inline."""
+    def body(match: re.Match) -> str:
+        script = (ROOT / match.group(2)).read_text(encoding="utf-8")
+        indent = " " * (len(match.group(1)) + 2)
+        return match.group(0) + "\n" + "".join(f"{indent}{line}\n" for line in script.splitlines())
+    return STEP_SCRIPT.sub(body, text)
+
+
 def job(name: str) -> str:
     start = NIGHTLY.index(f"\n  {name}:\n")
     end = re.compile(r"^  [A-Za-z0-9_-]+:\n", re.MULTILINE).search(NIGHTLY, start + 3)
-    return NIGHTLY[start:end.start() if end else len(NIGHTLY)]
+    return inline_step_scripts(NIGHTLY[start:end.start() if end else len(NIGHTLY)])
 
 
 def step(body: str, name: str) -> str:
@@ -49,7 +62,7 @@ class Workflow(unittest.TestCase):
     def test_publish_runs_on_blacksmith_linux(self) -> None:
         body = job("publish-nightly-identity-legacy")
         runs_on = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
-        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}")
+        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}")
         # It holds the Sparkle and R2 keys: never an owned host, never a Mac.
         self.assertNotIn("LINUX_RUNNER", runs_on)
 

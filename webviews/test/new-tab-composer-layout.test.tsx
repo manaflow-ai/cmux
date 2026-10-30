@@ -1,5 +1,5 @@
-// New Tab preserves the shared composer controls. Claude's split places location and model in
-// one quiet footer row; other looks keep their existing strip and in-card controls.
+// New Tab preserves the shared composer controls. The model always sits in the footer;
+// Claude may place location in that row while Codex keeps its tray above the box.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -121,7 +121,7 @@ test("Codex slash commands are available before the first message and selecting 
   expect(requests).toEqual(["codex"]);
 });
 
-test("the New Tab card is the composer's: the project strip on its top edge, then field, model and Send", async () => {
+test("the New Tab card keeps Send in the box and model in the footer", async () => {
   await mount();
   const composer = host.querySelector<HTMLElement>(".nt-composer")!;
   const card = composer.querySelector<HTMLElement>(".nt-box")!;
@@ -131,32 +131,35 @@ test("the New Tab card is the composer's: the project strip on its top edge, the
   expect(parts.map((part) => part.className.split(" ")[0])).toEqual([
     "acpmux-composer-strip",
     "nt-field",
-    "acpmux-chips",
     "acpmux-send",
+    "acpmux-chips",
   ]);
   // The project is the location strip's (hq#1957 composer location strip), as in the agent
   // composer: never in the card or its bar.
   const row = composer.querySelector<HTMLElement>(".acpmux-composer-strip .acpmux-composer-context")!;
   expect(row.textContent).toContain("app");
-  expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button")).toBeNull();
+  expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button, .acpmux-chips")).toBeNull();
+  expect(composer.querySelector(".acpmux-composer-foot .acpmux-chips")).not.toBeNull();
 });
 
-// Leo: "the claw thing should be one single row". The Claude split keeps the existing
-// mode/model row and moves the folder/computer into it; Codex retains its top tray.
-test("Claude New Tab location and model share the quiet row under the box", async () => {
+// Leo 2026-10-29 (#27956, which takes back #24519's one row): "project and cloudness at the top".
+// The Claude split keeps the mode and model in the quiet row under the box and heads the box with
+// the folder/computer, as Codex does.
+test("Claude New Tab location heads the box and the model keeps the quiet row under it", async () => {
   const { setComposerLook } = await import("../src/agent-session/acpmux/composerLook");
   act(() => setComposerLook("claude", { remember: false }));
   await mount({ template: "cards" });
   const composer = host.querySelector<HTMLElement>(".nt-composer")!;
   const row = composer.querySelector<HTMLElement>(".nt-foot .acpmux-composer-foot")!;
-  expect(row.querySelector(".acpmux-composer-context")?.textContent).toContain("app");
   expect(row.querySelector(".acpmux-chips")).not.toBeNull();
-  expect(composer.querySelector(".nt-above")).toBeNull();
+  expect(row.querySelector(".acpmux-composer-context")).toBeNull();
+  expect(composer.querySelector(".nt-above .acpmux-composer-context")?.textContent).toContain("app");
   expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
 
   act(() => setComposerLook("codex", { remember: false }));
   expect(composer.querySelector(".nt-above .acpmux-composer-context")).not.toBeNull();
-  expect(composer.querySelector(".nt-foot")).toBeNull();
+  expect(composer.querySelector(".nt-foot .acpmux-chips")).not.toBeNull();
+  expect(composer.querySelector(".nt-foot .acpmux-composer-context")).toBeNull();
   act(() => setComposerLook("claude", { remember: false }));
 });
 
