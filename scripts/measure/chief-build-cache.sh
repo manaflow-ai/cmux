@@ -22,11 +22,17 @@ cleanup() {
 trap cleanup EXIT
 
 export CI=1
-unset CMUX_FLEET_WORKER_TRUSTED CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY CMUX_NEXT_OPTCHAT_CHIEF_ENVIRONMENT_KEY || true
+# The base side builds commit-keyed: clear the mode switch too, or an exported
+# nightly setting would make the baseline input-keyed and the comparison void.
+unset CMUX_FLEET_WORKER_TRUSTED CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEY \
+  CMUX_NEXT_OPTCHAT_CHIEF_ENVIRONMENT_KEY CMUX_NEXT_OPTCHAT_CHIEF_REQUIRE_IDENTITY || true
 export CMUX_NEXT_OPTCHAT_CHIEF_ARCHS=arm64
 
 for sha in "$base" "$head"; do
-  git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$repo" fetch --quiet origin "$sha"
+  # A cmux-ci step checkout may have no origin remote; fetch from the public repository then.
+  git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$repo" fetch --quiet --no-tags origin "$sha" 2>/dev/null \
+    || git -C "$repo" fetch --quiet --no-tags https://github.com/manaflow-ai/cmux.git "$sha" \
+    || { echo "chief-build-cache.sh: cannot fetch $sha" >&2; exit 1; }
 done
 echo "host: $(uname -m) $(sw_vers -productVersion 2>/dev/null || true) cpus=$(sysctl -n hw.ncpu 2>/dev/null || nproc)"
 echo "python3: $(python3 --version 2>&1)"
