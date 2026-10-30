@@ -175,7 +175,7 @@ RUN = f"repos/{REPO}/actions/runs/40973865955"
 
 class ExpectedCommitTests(unittest.TestCase):
     """The commit a build was made from: its signed release notes' head (nightly.yml may build an
-    earlier commit than its run's head), else its completed run's head; Unknown otherwise."""
+    earlier commit than its run's head); without those notes the source stays unknown."""
 
     def setUp(self) -> None:
         patcher = mock.patch.object(check, "CONTENT_PUBLIC_KEY", CONTENT_KEY)
@@ -222,10 +222,10 @@ class ExpectedCommitTests(unittest.TestCase):
         with self.assertRaisesRegex(check.Unknown, "no signature"):
             self.resolve(served, run_record(status="completed"))
 
-    def test_without_notes_a_completed_runs_head(self) -> None:
-        commit, source = self.resolve({}, run_record(status="completed"))
-        self.assertEqual(commit, HEAD)
-        self.assertIn("no signed release notes", source)
+    def test_without_notes_a_completed_run_does_not_prove_the_artifact_source(self) -> None:
+        # A recovered/resolver-behind build may stamp OTHER while the run reports HEAD.
+        with self.assertRaisesRegex(check.Unknown, "does not prove"):
+            self.resolve({}, run_record(status="completed"))
         self.assertEqual(self.api_calls, [RUN])
 
     def test_without_notes_a_run_still_going_is_unknown(self) -> None:
