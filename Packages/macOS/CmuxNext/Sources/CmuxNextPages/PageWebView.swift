@@ -419,11 +419,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// Page zoom follows `uiScale`; the chrome multiplier is only the `--cmux-interface-scale` token.
+    /// Page zoom follows `uiScale` times this page's additional zoom; the chrome multiplier remains
+    /// a separate `--cmux-interface-scale` token.
     func applyUIScale() {
+        evaluateInPage(DesignSettings.shared.interfaceScaleScript(pageZoom: pageZoom))
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
-        evaluateInPage(DesignSettings.shared.interfaceScaleScript)
         if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
     }
 
@@ -553,12 +554,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
-        if window == nil {
-            popupHost?.dismiss()
-        }
+        if window == nil { popupHost?.dismiss() }
+        setChromiumVisibility(true)
         let visible = window != nil && !isHiddenOrHasHiddenAncestor
         if !visible { chromiumSession?.questionKeys?.invalidate() }
-        chromiumSession?.page.setVisible(visible)
         onVisibilityChanged?(visible)
         applyTheme()
         windowDidChangeChrome()
@@ -573,14 +572,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidHide()
         chromiumSession?.questionKeys?.invalidate()
         popupHost?.dismiss()
-        chromiumSession?.page.setVisible(false)
+        setChromiumVisibility(false)
         onVisibilityChanged?(false)
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         let visible = window != nil && !isHiddenOrHasHiddenAncestor
-        chromiumSession?.page.setVisible(visible)
+        setChromiumVisibility(true)
         onVisibilityChanged?(visible)
     }
 

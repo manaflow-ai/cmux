@@ -105,7 +105,7 @@ HELPER_CANDIDATES = (Path.home() / "Applications/CuaSshScreenCapture.app",
 MAX_STEPS = 30
 READ_ONLY_POSTCONDITION_METHODS = {
     "debug.layers", "debug.surfaces", "debug.focus", "debug.window_list", "debug.windows",
-    "debug.pane_chrome", "debug.notifications", "debug.themes",
+    "debug.pane_chrome", "debug.notifications", "debug.themes", "debug.dialog",
 }
 # The tour's shells read these rc files, never the runner account's, whose `%n@%m` prompt names the CI
 # Mac. A DEBUG app launched with CMUX_CAPTURE_SHELL_HOME (as a PR capture slot is) starts its terminals'
@@ -783,6 +783,13 @@ def shoot_other_windows(app: App, main_shot: Path) -> tuple[list[dict[str, Any]]
     return shots, "; ".join(problems)[:500] or None
 
 
+def step_label(result: dict[str, Any]) -> str:
+    """A step's status as reports show it: "unchecked" for an ok step whose shot no `expect` checked."""
+    if result.get("status") == "ok" and result.get("shot") and result.get("checked") is False:
+        return "unchecked"
+    return str(result.get("status", ""))
+
+
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
     started = time.monotonic()
     result: dict[str, Any] = {"index": index, "title": step["title"], "status": "ok"}
@@ -823,6 +830,9 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         "status": postcondition_status,
         "detail": postcondition_detail,
     }
+    # Whether an `expect` read the app's state and matched it. A step without one reports "ok" once
+    # it ran, whatever its shot shows, so its shot is unchecked (see `step_label`).
+    result["checked"] = postcondition_status == "passed"
     if postcondition_status in ("failed", "unavailable"):
         result["status"] = postcondition_status
         result["detail"] = (result.get("detail", "") + " " + postcondition_detail).strip()
@@ -897,7 +907,7 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
             recorder.step = index
             result = run_step(app, screen, step, index, shots)
             manifest["steps"].append(result)
-            print(f"[{tour['name']}] {index:02d} {result['status']:<11} {step['title']}"
+            print(f"[{tour['name']}] {index:02d} {step_label(result):<11} {step['title']}"
                   + (f": {result['detail']}" if result.get("detail") else ""), flush=True)
             if not app.alive():
                 manifest["error"] = "the app exited during the tour: " + app.log_tail()
