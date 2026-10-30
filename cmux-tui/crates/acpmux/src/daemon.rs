@@ -557,16 +557,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
             hub.hold_policies_again().await;
             hub.finish_startup().await;
-            // After the login env import: it names harness homes.
-            let sources = crate::chats::ChatSources::daemon(&*hub.config.read().await);
-            if let Some(sources) = sources
-                && let Err(e) = hub.start_chats(sources).await
-            {
-                tracing::warn!("{e}");
-            }
+            // Until shutdown aborts this task, on every path (a signal too).
+            hub.run_after_startup().await;
         })
     };
-    let artifacts_sync = tokio::spawn(crate::artifacts_sync::run_background(hub.clone()));
     tokio::spawn(notify::notify_loop(hub.clone()));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
@@ -604,9 +598,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tailnet.fence().await;
     startup.abort();
     let _ = startup.await;
-    // A signal stop does not notify `hub.shutdown`, which the sync waits on; it ends here.
-    artifacts_sync.abort();
-    let _ = artifacts_sync.await;
     // Its last heartbeat empties this daemon's rows in the hub's address book.
     if let Some(relay) = mesh_relay {
         let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
