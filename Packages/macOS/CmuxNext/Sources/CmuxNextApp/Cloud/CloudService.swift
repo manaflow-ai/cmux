@@ -447,7 +447,10 @@ final class CloudService {
                 list = listed.machines
                 limits = listed.limits
             }
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else {
+                finishRecordRead(read)
+                return
+            }
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
@@ -457,7 +460,11 @@ final class CloudService {
             listLoadedAt = .now
             await startHubForSSHRoutes()
         } catch {
-            guard listGeneration == generation, auth.isSignedIn, listAccount == account else { return }
+            guard listGeneration == generation, auth.isSignedIn, listAccount == account else {
+                finishRecordRead(read)
+                return
+            }
+            finishRecordRead(read)
             lastError = CloudStrings.errorText(error)
             logger.error("machine list failed: \(String(describing: error), privacy: .public)")
         }
@@ -488,6 +495,11 @@ final class CloudService {
         recordReads += 1
         recordReadsOutstanding.insert(recordReads)
         return recordReads
+    }
+
+    /// Retires a read whose request failed or was superseded before it produced a record.
+    private func finishRecordRead(_ read: Int) {
+        recordReadsOutstanding.remove(read)
     }
 
     func reconcile(_ list: [CloudMachine], read: Int) {
