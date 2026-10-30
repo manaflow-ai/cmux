@@ -584,6 +584,7 @@ final class CloudService {
               read > recordReadApplied[machine.id, default: 0], machines.session(machine.id) === session else { return }
         recordReadApplied[machine.id] = read
         if machine.status == .destroyed {
+            session.machine = machine
             removeConfirmedMachine(machine.id, destructionConfirmed: true)
             return
         }
