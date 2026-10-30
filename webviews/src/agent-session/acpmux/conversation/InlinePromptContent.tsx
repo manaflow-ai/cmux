@@ -2,7 +2,7 @@ import { Fragment, memo, useContext, type ReactNode } from "react";
 import type { PromptContentPart, PromptImage } from "../model";
 import { FindReveal } from "./chatFind";
 import { attachmentPath, FileAttachment } from "../FileAttachment";
-import { PasteChip, PromptText } from "./PromptText";
+import { PasteChip, PromptText, PromptTyped } from "./PromptText";
 
 /** Sent prompt content in ACP order. Text and attachment runs stay in one bubble, like Messages.
  * A pasted block is the same chip a legacy prompt draws (PromptText.tsx), opening to its text. */
@@ -48,7 +48,7 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   );
 
   function renderPart(part: PromptContentPart, index: number, open: () => void): ReactNode {
-    if (part.kind === "text") return <span key={`text-${index}`}>{show(part.text)}</span>;
+    if (part.kind === "text") return <PromptTyped key={`text-${index}`} text={part.text} show={show} />;
     if (part.kind === "image")
       return (
         <span key={`image-${part.id}-${index}`} className="cv-user__inline-image">

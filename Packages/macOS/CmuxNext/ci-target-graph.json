@@ -380,6 +380,7 @@
         "CmuxNextAgentPermissions",
         "CmuxNextAgentUpdates",
         "CmuxNextApp",
+        "CmuxNextAppCore",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
         "CmuxNextBrowserImport",
@@ -948,6 +949,7 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextDesignTokens",
+        "CmuxNextTestSupport",
         "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
@@ -996,6 +998,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDictation",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -1094,7 +1097,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFloatingTests",
       "targets": [
-        "CmuxNextFloating"
+        "CmuxNextFloating",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -1196,6 +1200,7 @@
       "targets": [
         "CmuxNextDaemon",
         "CmuxNextDesign",
+        "CmuxNextHome",
         "CmuxNextHomeEngine"
       ],
       "packages": [
@@ -1401,8 +1406,10 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding",
       "targets": [
         "CmuxNextBrowserImport",
+        "CmuxNextCompat",
         "CmuxNextDesign",
-        "CmuxNextIcons"
+        "CmuxNextIcons",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -1459,7 +1466,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPaletteTests",
       "targets": [
-        "CmuxNextPalette"
+        "CmuxNextPalette",
+        "CmuxNextTestSupport"
       ],
       "packages": [
         "CmuxTheme"
@@ -1648,7 +1656,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
       "targets": [
         "CmuxNextFileGrid",
-        "CmuxNextFiles"
+        "CmuxNextFiles",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -1849,7 +1858,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalTests",
       "targets": [
-        "CmuxNextTerminal"
+        "CmuxNextTerminal",
+        "CmuxNextTestSupport"
       ],
       "packages": [],
       "reads": []

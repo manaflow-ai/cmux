@@ -69,8 +69,8 @@ export const SOAK_MINUTES = 60
 export const SPACING_HOURS = 6
 export const STALE_HOURS = 24
 export const STALE_COMMITS = 20
-/** G7: production vars whose change spends money or sends messages; each new value needs an approval. */
-export const GUARDED_VAR = /^(INFERENCE_|AUTOMATION_CAP_|HOME_INVITES_SEND$|HOME_INVITES_TEXT$|CHIEF_BRAIN_|CHIEF_CREDITS_|CHIEF_RUN_TOKEN_CAP_USD$|CLOUD_PLAN_ENTITLEMENTS$)/
+/** G7: production vars whose change spends money, sends messages or opens a service-binding surface; each new value needs an approval. */
+export const GUARDED_VAR = /^(INFERENCE_|AUTOMATION_CAP_|HOME_INVITES_SEND$|HOME_INVITES_TEXT$|CHIEF_BRAIN_|CHIEF_CREDITS_|CHIEF_RUN_TOKEN_CAP_USD$|CLOUD_PLAN_ENTITLEMENTS$|PLATFORM_MACHINES$)/
 
 export interface Approvals {
   /** Secrets production must have before any deploy (names). */

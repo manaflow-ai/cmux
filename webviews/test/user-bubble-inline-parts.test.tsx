@@ -215,6 +215,23 @@ try {
     expect(host.querySelector(".cv-user__images")).toBeNull();
     expect(inlineShape()).toEqual(["look at this", "image:trail.png"]);
   });
+  test("inline: a placed prompt's text reads as a legacy prompt's does, Markdown and all", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    await render(
+      prompt("markdown-order", "see **this** one", [
+        { kind: "text", text: "see **this**" },
+        { kind: "image", id: "md", mimeType: "image/png", name: "md.png", placed: true },
+        { kind: "text", text: "one" },
+      ]),
+    );
+    const content = host.querySelector("[data-inline-content]")!;
+    // The shared prompt renderer (PromptText.tsx PromptTyped): no literal asterisks in the bubble.
+    expect(content.querySelector(".cv-user__markdown strong")?.textContent).toBe("this");
+    expect(content.textContent).not.toContain("**");
+    expect(content.querySelector(".cv-user__typed")?.textContent).toBe("one");
+  });
   test("inline: a placed leading paste then a trailing image keep their order", async () => {
     clearImageEntries();
     resetTranscriptDisclosure();

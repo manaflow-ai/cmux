@@ -7,13 +7,18 @@ export type WorkflowAgent = {
   index?: number;
   agentId?: string;
   lastProgressAt?: number;
+  /// Monotonic folded event sequence, including progress events that only update usage.
+  progressVersion?: number;
   retryReason?: string;
   cached?: boolean;
   doing?: string;
+  lastMessage?: string;
   tokens?: number;
   transcriptRowId?: string;
   /// The model it runs on, as the harness names it (`claude-opus-5-5`, `opus`).
   model?: string;
+  /// The reasoning effort, when the workflow event supplies it.
+  effort?: string;
   /// How long it ran, once it ended; while it runs, from `startedAt`.
   elapsedMs?: number;
   startedAt?: number;
@@ -89,6 +94,7 @@ export function workflowFromWire(value: unknown): WorkflowSummary | undefined {
       return undefined;
     if (agentIds.has(agentId)) return undefined;
     if (has(agent, "doing") && text(agent.doing) === undefined) return undefined;
+    if (has(agent, "effort") && text(agent.effort) === undefined) return undefined;
     if (has(agent, "tokens") && count(agent.tokens) === undefined) return undefined;
     if (has(agent, "transcriptRowId") && text(agent.transcriptRowId) === undefined) return undefined;
     agentIds.add(agentId);
@@ -97,6 +103,7 @@ export function workflowFromWire(value: unknown): WorkflowSummary | undefined {
       name,
       state: agentState as WorkflowAgent["state"],
       ...(text(agent.doing) ? { doing: text(agent.doing) } : {}),
+      ...(text(agent.effort) ? { effort: text(agent.effort) } : {}),
       ...(count(agent.tokens) !== undefined ? { tokens: count(agent.tokens) } : {}),
       ...(text(agent.transcriptRowId) ? { transcriptRowId: text(agent.transcriptRowId) } : {}),
     });
