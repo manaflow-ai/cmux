@@ -72,6 +72,7 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
           strings={strings}
           actions={actions}
           closeButton={false}
+          glass={false}
         />
       ),
     );
