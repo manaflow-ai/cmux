@@ -908,7 +908,11 @@ impl Peer {
             // cache while handling it, so a daemon restart mid-wait keeps the parked deadline.
             let delay = (!restarting).then(|| {
                 self.with_link(|l| {
-                    l.schedule_retry(&mut backoff, crate::store::now_ms(), crate::peer_link::jitter())
+                    l.schedule_retry(
+                        &mut backoff,
+                        crate::store::now_ms(),
+                        crate::peer_link::jitter(),
+                    )
                 })
             });
             if let Some(notice) = notice {

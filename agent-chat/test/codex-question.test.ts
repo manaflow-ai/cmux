@@ -132,6 +132,15 @@ test("declining, Stop, Codex settling it, and the turn ending each close the que
   ]);
   expect(failed.writes).toEqual([{ jsonrpc: "2.0", id: 17, result: { answers: {} } }]);
   expect(failed.events[1]).toEqual({ kind: "question-resolved", questionId: "codex-item-1", outcome: "expired" });
+
+  const closed = codexSessionForTest();
+  closed.feed([
+    { method: "turn/started", params: { threadId, turn: { id: "turn-1" } } },
+    ask(20, [region]),
+    { method: "thread/closed", params: { threadId } },
+  ]);
+  expect(closed.writes).toEqual([{ jsonrpc: "2.0", id: 20, result: { answers: {} } }]);
+  expect(closed.events[1]).toEqual({ kind: "question-resolved", questionId: "codex-item-1", outcome: "expired" });
   expect(ended.events[1]).toEqual({ kind: "question-resolved", questionId: "codex-item-1", outcome: "expired" });
 });
 
