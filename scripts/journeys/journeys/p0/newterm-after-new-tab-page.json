@@ -1,10 +1,10 @@
 {
  "id": "newterm-after-new-tab-page",
  "priority": "P0",
- "title": "Ctrl-` and Cmd-D right after Cmd-T always give a new terminal that takes the keys; the old terminal gets none of them",
+ "title": "Ctrl-`, Cmd-D and terminal-first Cmd-N right after Cmd-T always give a new terminal that takes the keys; the old terminal gets none of them",
  "why": "Lawrence on v2.2.9-opt (4 h session): \"at some points I can no longer make new terminals via Ctrl-` or Cmd-D\". Fleet repro 4/4 (cmux17, cmux20, cmux21): the New Tab page's new-conversation-tab held the app's daemon connection, the Ctrl-` new-tab missed the 5 s client start deadline, the app took the stand-in back, and the typed line ran in the OLD terminal. Invariant (principled-audit R3): Ctrl-` and Cmd-D always give a terminal that takes keys, whatever the New Tab spare and the daemon's latency.",
  "source": "P0 bug (handoff/v229-lawrence-newterm-2026-10-30), fix/p0-new-terminal-always",
- "budget_seconds": 240,
+ "budget_seconds": 300,
  "steps": [
   {
    "do": "new_terminal",
@@ -256,6 +256,83 @@
    ]
   },
   {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "nt4"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd-T a fourth time shows the New Tab page (its new-conversation-tab is in flight)",
+   "since": "nt4",
+   "timeout": 20,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "in": [
+       "agentPage",
+       "page",
+       "textField"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "settings_file",
+   "set": {
+    "tabs": {
+     "terminalFirst": true
+    }
+   }
+  },
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "cmdn"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "t5",
+   "timeout": 30
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo nt5-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "e5"
+  },
+  {
+   "do": "expect",
+   "title": "terminal-first Cmd-N right after Cmd-T gave a new workspace whose terminal takes the keys",
+   "since": "e5",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "nt5-${nonce}-42"
+    },
+    {
+     "app_text_line": "nt5-${nonce}-42"
+    },
+    {
+     "frame_text": "nt5-${nonce}-42"
+    }
+   ]
+  },
+  {
    "do": "use",
    "name": "t0"
   },
@@ -275,8 +352,19 @@
      "daemon_lacks": "nt4-${nonce}"
     },
     {
+     "daemon_lacks": "nt5-${nonce}"
+    },
+    {
      "daemon_prompt": true
     }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "settings_file",
+   "unset": [
+    "tabs.terminalFirst"
    ]
   }
  ]
