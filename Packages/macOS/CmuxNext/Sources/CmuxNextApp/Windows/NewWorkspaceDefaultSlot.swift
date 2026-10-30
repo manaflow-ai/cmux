@@ -166,7 +166,9 @@ enum NewWorkspacePlacements {
                        then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil, windows: WindowManager) {
         guard slot != nil || byDefault != nil || then != nil else { return }
         if windows.pendingPlacements[id] == nil { windows.pendingPlacementOrder.append(id) }
-        windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
+        let seen = windows.pendingPlacements[id]?.hasSeenWorkspace == true
+        windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then,
+                                                         hasSeenWorkspace: seen)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
     }
 

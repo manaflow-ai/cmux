@@ -14,6 +14,8 @@ struct PendingPlacement {
     /// The action run that asked for the placement: `then` runs later,
     /// outside its task, and keeps its view-change permission.
     var run: ActionRunScope? = ActionRunScope.current
+    /// Distinguishes a workspace that disappeared from a create not yet mirrored.
+    var hasSeenWorkspace = false
 }
 
 // Placing new workspaces (New Workspace Above/Below/at Top/Like This, a
@@ -32,17 +34,39 @@ extension WindowManager {
     }
 
     func applyPendingPlacements(live: Set<String>) {
-        // A placement's rows refresh runs the sidebar's rows pass, whose callback retries deferred
-        // placements: a nested call returns at once (no re-entry).
-        let rows = PendingWorkspaceRows.shared
-        guard !rows.placing else { return }
-        rows.placing = true
-        defer { rows.placing = false }
+        // Rows refreshes and completion callbacks can request more placements. Coalesce those
+        // requests into one additional pass, never recursive retries or an unbounded drain.
+        guard !placingWorkspaces else {
+            placementRetryIDs.formUnion(live)
+            return
+        }
+        placingWorkspaces = true
+        defer { placingWorkspaces = false }
+        let requested = live.union(placementRetryIDs)
+        placementRetryIDs.removeAll()
+        var refreshed: Set<String> = []
+        applyPendingPlacementPass(live: requested, refreshed: &refreshed)
+        if !placementRetryIDs.isEmpty {
+            let retry = placementRetryIDs
+            placementRetryIDs.removeAll()
+            applyPendingPlacementPass(live: retry, refreshed: &refreshed)
+        }
+    }
+
+    private func applyPendingPlacementPass(live: Set<String>, refreshed: inout Set<String>) {
+        // A provisional create stays pending. Only a workspace this placement has actually
+        // seen can be gone; registrations before the create reaches the store must survive.
+        for id in pendingPlacementOrder {
+            if services.machines.workspace(id: id) != nil {
+                pendingPlacements[id]?.hasSeenWorkspace = true
+            } else if pendingPlacements[id]?.hasSeenWorkspace == true {
+                pendingPlacements[id] = nil
+            }
+        }
         // A stand-in Cmd-N shows waits: a placement moves a workspace the daemon has.
         let ready = pendingPlacementOrder.filter { live.contains($0) && services.machines.workspace(id: $0)?.0.isProvisional == false }
         // A placement waiting on its current row keeps its entry and its place in the order.
         defer { pendingPlacementOrder.removeAll { pendingPlacements[$0] == nil } }
-        var refreshed: Set<String> = []
         for id in ready {
             guard let pending = pendingPlacements[id] else { continue }
             // A rows-pass retry can run before membership names the owner: keep the entry for that pass.
