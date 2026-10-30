@@ -93,8 +93,10 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     // steers"; #27313, inside the row since #27256).
     const sendNowButton = pending.querySelector(".cv-user__send-now")!;
     expect(sendNowButton.querySelector("svg")).toBeNull();
+    const copy = pending.querySelector(`button[aria-label="${translate("turn.copy")}"]`);
+    expect(copy).not.toBeNull();
+    expect(copy!.querySelector("svg")).not.toBeNull();
     const glyphs = [...pending.querySelectorAll("svg")];
-    expect(glyphs.length).toBeGreaterThan(0);
     expect(glyphs.every((svg) => svg.closest("button.cv-iconbtn") !== null)).toBe(true);
     const actions = pending.parentElement!;
     expect(actions.classList.contains("cv-user__actions")).toBe(true);
