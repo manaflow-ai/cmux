@@ -2108,7 +2108,7 @@ export function Composer({
               key="send"
               ref={sendButton}
               type="submit"
-              disabled={Boolean(authBlock || blocked) && !shell}
+              disabled={Boolean(authBlock || authBlocked || blocked) && !shell}
               className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}`}
               aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
               title={
