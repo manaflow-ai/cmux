@@ -96,7 +96,7 @@ final class ScreenSharingLiveUITests: XCTestCase {
         }
 
         // Trackpad mode (Options › Input): one finger moves the pointer, a tap clicks where it is.
-        app.buttons["Options"].firstMatch.tap()
+        app.buttons["screen.options"].tap()
         let input = app.buttons["Input"].firstMatch
         if input.waitForExistence(timeout: 5) {
             input.tap()
@@ -108,6 +108,12 @@ final class ScreenSharingLiveUITests: XCTestCase {
             center.tap()
             settle(app, 1.5)
             attach(app, "10b-trackpad-move-and-tap")
+            // Back to Direct Touch for the rest of the run.
+            app.buttons["screen.options"].tap()
+            if app.buttons["Input"].firstMatch.waitForExistence(timeout: 5) {
+                app.buttons["Input"].firstMatch.tap()
+                app.buttons["Direct Touch"].firstMatch.tap()
+            }
         } else {
             app.tap()
         }

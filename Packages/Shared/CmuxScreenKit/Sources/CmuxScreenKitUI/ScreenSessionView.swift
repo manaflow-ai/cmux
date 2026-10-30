@@ -180,9 +180,11 @@ public struct ScreenSessionView: View {
                 Button("Hide Toolbar", systemImage: "chevron.up") { withAnimation { chromeVisible = false } }
             }
         } label: {
-            Label("Options", systemImage: "ellipsis.circle")
+            // Icon-only on the trigger alone: on the Menu it also stripped the titles of the
+            // Toggle and Picker rows inside (empty rows with only a checkmark).
+            Label("Options", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
         }
-        .labelStyle(.iconOnly)
+        .accessibilityIdentifier("screen.options")
     }
 
     private var stats: some View {
