@@ -138,7 +138,10 @@ Each run directory keeps `run.json` (all samples), `driver.log`, `app-log.txt`, 
 - `workspace_close_app_ms` / `workspace_close_daemon_ms`: time from the close action until the
   app's topology and the daemon's list no longer have the workspace; `workspace_close_not_done`.
 - `acpmux_new_ms`, `acpmux_prompt_ms`, `acpmux_errors`, `acpmux_restarts` (the daemon pid changed),
-  `acpmux_unresponsive_log`.
+  `acpmux_unresponsive_log`; `acpmux_opens`, `acpmux_open_failures`, `acpmux_open_failure_share`,
+  `acpmux_host_start_timeouts` ("agent host start did not finish within 10s") and
+  `acpmux_agent_start_timeouts` ("agent_start did not finish within 90s") from the Chief waves' `session/new`
+  calls (owner of the fix: pa-b10).
 - `memory`: RSS and footprint over time for the app, the daemon and acpmux; `growth_per_hour` (RSS,
   footprint and fds, least-squares slope); `fds` (open file descriptors, `lsof`); `load1`,
   `swap_used_mb`, `memory_level_min`.

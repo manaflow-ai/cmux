@@ -241,6 +241,14 @@ def run_metrics(run):
         "acpmux_new_ms": dist(a["ms"] for a in answers if a["method"] == "session/new"),
         "acpmux_prompt_ms": dist(a["ms"] for a in answers if a["method"] == "session/prompt"),
         "acpmux_errors": counts(a["error"][:80] for a in answers if a.get("error")),
+        # pa-b10's measure: chat opens (session/new) in the Chief waves and how many failed, by cause.
+        "acpmux_opens": sum(1 for a in answers if a["method"] == "session/new"),
+        "acpmux_open_failures": sum(1 for a in answers if a["method"] == "session/new" and a.get("error")),
+        "acpmux_open_failure_share": (round(sum(1 for a in answers if a["method"] == "session/new" and a.get("error"))
+                                            / max(1, sum(1 for a in answers if a["method"] == "session/new")), 4)
+                                      if any(a["method"] == "session/new" for a in answers) else None),
+        "acpmux_host_start_timeouts": sum(1 for a in answers if "agent host start did not finish" in (a.get("error") or "")),
+        "acpmux_agent_start_timeouts": sum(1 for a in answers if "agent_start did not finish" in (a.get("error") or "")),
         "acpmux_waves": len(series["waves"]),
         "acpmux_restarts": restarts, "acpmux_unresponsive_log": run["app_log"].get("acpmux_unresponsive"),
         "load1": dist(s.get("load1") for s in load_samples),
@@ -291,6 +299,7 @@ def run_metrics(run):
         "app_no_reply": (m["app_no_reply_within"] or 0) > 0 or bool(m["app_requests"] and m["app_requests"].get("timeouts")),
         "lock_wait_p99_over_1s": (lock_wait.get("p99") or 0) > 1_000_000,
         "acpmux_restarts": restarts > 0 or (m["acpmux_unresponsive_log"] or 0) > 0,
+        "acpmux_open_failures": (m["acpmux_open_failures"] or 0) > 0,
         # Only CODE stalls are a cmux red (rule G); WAITs are the memory owner's (B8), reported apart.
         "cmux_stalls": m["stalls_over_100ms_cmux"] > 0,
     }
@@ -314,6 +323,11 @@ KEY = [  # (label, path in metrics) for the text summary
     ("workspace close not done", ("workspace_close_not_done",)),
     ("acpmux restarts", ("acpmux_restarts",)),
     ("acpmux new p99 ms", ("acpmux_new_ms", "p99")),
+    ("acpmux chat opens", ("acpmux_opens",)),
+    ("acpmux open failures", ("acpmux_open_failures",)),
+    ("acpmux open failure share", ("acpmux_open_failure_share",)),
+    ("acpmux host-start 10 s time-outs", ("acpmux_host_start_timeouts",)),
+    ("acpmux agent_start 90 s time-outs", ("acpmux_agent_start_timeouts",)),
     ("app RSS max MB", ("memory", "app", "rss_mb", "max")),
     ("daemon RSS max MB", ("memory", "daemon", "rss_mb", "max")),
     ("acpmux RSS max MB", ("memory", "acpmux", "rss_mb", "max")),
@@ -455,6 +469,11 @@ METRIC_FAILURE = {
     "workspace close p95 ms": _close("workspace close p95 ms"),
     "workspace close p99 ms": _close("workspace close p99 ms"),
     "workspace close not done": _close("workspace close p99 ms"),
+    # Chat opens fail on Austin's day (pa-b10): a share or count needs a base that failed some opens.
+    "acpmux open failures": lambda m: (m.get("acpmux_open_failures") or 0) > 0,
+    "acpmux open failure share": lambda m: (m.get("acpmux_open_failures") or 0) > 0,
+    "acpmux host-start 10 s time-outs": lambda m: (m.get("acpmux_host_start_timeouts") or 0) > 0,
+    "acpmux agent_start 90 s time-outs": lambda m: (m.get("acpmux_agent_start_timeouts") or 0) > 0,
 }
 
 

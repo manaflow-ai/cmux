@@ -94,7 +94,9 @@ def synthetic_run():
                                                                                          "p99": 17_000_000, "max": 20_000_000}}}}],
               "person_cli": [{"phase": "load", "ms": float(i), "code": "server.busy" if i == 99 else None} for i in range(100)],
               "app_control": [], "closes": [{"made": True, "app_gone_ms": 30.0, "daemon_gone_ms": None}],
-              "waves": [{"answers": [{"method": "session/new", "ms": 40.0, "error": None}]}],
+              "waves": [{"answers": [{"method": "session/new", "ms": 40.0, "error": None},
+                                     {"method": "session/new", "ms": 10000.0, "error": "agent host start did not finish within 10s"},
+                                     {"method": "session/new", "ms": 90000.0, "error": "agent_start did not finish within 90s"}]}],
               "acpmux_pids": [{"pid": 1}, {"pid": 2}], "notes": []}
     return {"series": series, "agents": 80, "agent_records": [{"kind": "start", "hooked": True}, {"kind": "hook", "ms": 3, "rc": 0}],
             "app_probe": {"start": {"bounds_us": [1000, 10000, 100000], "counts": [5, 0, 0], "timeouts": 0, "max_us": 900},
@@ -135,6 +137,9 @@ class Summary(unittest.TestCase):
             self.assertEqual(m["app_requests"]["timeouts"], 2)
             self.assertEqual(m["workspace_close_not_done"], 1)
             self.assertEqual(m["acpmux_restarts"], 1)
+            self.assertEqual((m["acpmux_opens"], m["acpmux_open_failures"]), (3, 2))
+            self.assertEqual((m["acpmux_host_start_timeouts"], m["acpmux_agent_start_timeouts"]), (1, 1))
+            self.assertEqual(m["acpmux_open_failure_share"], round(2 / 3, 4))
             self.assertEqual(m["stalls_over_100ms_cmux"], 1)
             self.assertEqual([s["symbol"] for s in m["stall_sites"]], ["CmuxNextSidebar.Foo.bar()"])
             self.assertEqual(m["stall_sites"][0]["owner"], "a590 (sidebar-owner agent)")
@@ -157,6 +162,7 @@ def write_run(root, name, arm, sha, round_, quiet=False, scale=1.0):
         run_["app_log"]["no_reply_within"] = 0
         run_["app_probe"]["end"]["timeouts"] = 0
         run_["stalls"] = []
+        run_["series"]["waves"] = [{"answers": [{"method": "session/new", "ms": 40.0, "error": None}]}]
     for p in run_["series"]["person_cli"]:
         p["ms"] *= scale
     with open(os.path.join(d, "run.json"), "w") as f:
