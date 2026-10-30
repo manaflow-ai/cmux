@@ -102,6 +102,8 @@ pub struct Peer {
     token: Option<String>,
     /// The peer's peer token (`server/peer_auth.rs`), sent with `token`.
     peer_token: Option<String>,
+    /// A per-link random value shared only through the daemon handshake.
+    owner_link_secret: String,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
     wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
@@ -221,6 +223,7 @@ impl Peer {
             url: url.to_owned(),
             token,
             peer_token,
+            owner_link_secret: crate::hub::person::new_nonce(),
             tunnel: Mutex::new(None),
             wireguard: std::sync::OnceLock::new(),
             out,
@@ -275,6 +278,10 @@ impl Peer {
         address: std::net::SocketAddr,
     ) {
         let _ = self.wireguard.set((transport, address));
+    }
+
+    pub(crate) fn owner_link_secret(&self) -> &str {
+        &self.owner_link_secret
     }
 
     pub fn link(&self) -> Link {
@@ -1077,8 +1084,9 @@ impl Peer {
         let handshake = tokio::spawn(async move {
             let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}});
             // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
+            hello.set("_meta", json!({"acpmux": {"ownerPolicyLink": me.owner_link_secret}}));
             if me.github_broker() {
-                hello.set("_meta", json!({"acpmux": {"githubBroker": true}}));
+                hello.set("_meta", json!({"acpmux": {"githubBroker": true, "ownerPolicyLink": me.owner_link_secret}}));
             }
             let init = me.link_request_on(method::INITIALIZE, hello, Some(link)).await?;
             let v = init

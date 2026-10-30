@@ -133,15 +133,8 @@ pub(super) async fn handle_notification(
             }
             let device = super::remote_guard::full_access_device(hub, conn, &params);
             if conn.origin != Origin::Local
-                && let Err(e) = super::remote_guard::check(
-                    hub,
-                    conn.origin,
-                    conn.auth,
-                    device.as_deref(),
-                    m,
-                    &mut params,
-                )
-                .await
+                && let Err(e) =
+                    super::remote_guard::check(hub, conn, device.as_deref(), m, &mut params).await
             {
                 tracing::debug!(conn = %conn.id, "cancel refused: {e}");
                 return;
@@ -427,15 +420,7 @@ async fn dispatch_brief(
         }
     }
     if conn.origin != Origin::Local {
-        super::remote_guard::check(
-            hub,
-            conn.origin,
-            conn.auth,
-            None,
-            method::SESSION_NEW,
-            &mut new_params,
-        )
-        .await?;
+        super::remote_guard::check(hub, conn, None, method::SESSION_NEW, &mut new_params).await?;
     }
     let remote_authenticated = conn.auth.authenticated()
         && super::remote_guard::control_of(conn.origin, conn.auth, &new_params)
@@ -445,6 +430,7 @@ async fn dispatch_brief(
         remote_authenticated,
         conn.caller(),
         !conn.origin.web_class(),
+        false,
         method::SESSION_NEW,
         &new_params,
     )
@@ -457,7 +443,9 @@ async fn dispatch_brief(
         );
     }
     let created =
-        match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
+        match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None, None))
+            .await
+        {
             Ok(created) => created,
             Err(error) => {
                 hub.briefs.release(&id);
@@ -602,6 +590,7 @@ pub(super) async fn handle_request(
     m: &str,
     mut params: Value,
 ) -> Result<Value, RpcError> {
+    conn.capture_owner_policy_link(m, &params);
     // The pane's fork through a turn is a session/fork, checked as one from
     // here on (`fork_through.rs`).
     let m = super::fork_through::as_session_fork(hub, m, &mut params).await?;
@@ -612,8 +601,7 @@ pub(super) async fn handle_request(
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         let device = super::remote_guard::full_access_device(hub, conn, &params);
-        super::remote_guard::check(hub, conn.origin, conn.auth, device.as_deref(), m, &mut params)
-            .await?;
+        super::remote_guard::check(hub, conn, device.as_deref(), m, &mut params).await?;
     }
     caller_sends_no_files(hub, conn, m, &params)?;
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
@@ -623,12 +611,14 @@ pub(super) async fn handle_request(
     let remote_authenticated = conn.auth.authenticated()
         && super::remote_guard::control_of(conn.origin, conn.auth, &params)
             == crate::hub::Control::Web;
+    let owner_policy_grant = super::remote_guard::owner_policy_context(hub, conn, &params);
     let verdict = hub
         .person_check(
             conn.is_person(),
             remote_authenticated,
             conn.caller(),
             !conn.origin.web_class(),
+            owner_policy_grant.is_some(),
             m,
             &params,
         )
@@ -662,7 +652,7 @@ pub(super) async fn handle_request(
             )),
         }
     } else {
-        dispatch_request(hub, conn, m, params, resolved).await
+        dispatch_request(hub, conn, m, params, resolved, owner_policy_grant).await
     };
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     reply
@@ -686,6 +676,7 @@ async fn dispatch_request(
     m: &str,
     params: Value,
     resolved: Option<Arc<crate::hub::Session>>,
+    owner_policy_grant: Option<super::remote_guard::OwnerPolicyGrant>,
 ) -> Result<Value, RpcError> {
     // A session that lives on a peer (`peer_forward.rs`).
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
@@ -2087,7 +2078,12 @@ async fn dispatch_request(
                 .parse()
                 .map_err(RpcError::invalid_params)?;
             refuse_full_access_policy(hub, Some(policy))?;
-            hub.set_policy_unless_moving(&s, policy).await?;
+            if let Some(grant) = owner_policy_grant {
+                hub.set_policy_unless_moving_from_owner(&s, policy, &grant.host, &grant.nonce)
+                    .await?;
+            } else {
+                hub.set_policy_unless_moving(&s, policy).await?;
+            }
             Ok(hub.session_summary(&s))
         }
         method::MUX_EXPORT => {

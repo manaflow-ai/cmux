@@ -110,7 +110,11 @@ impl C {
 const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 async fn client(h: Arc<Hub>) -> C {
-    let _ = h.person.install_spawn_key(PERSON_KEY);
+    client_with_key(h, PERSON_KEY).await
+}
+
+async fn client_with_key(h: Arc<Hub>, key: &str) -> C {
+    let _ = h.person.install_spawn_key(key);
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(h, in_rx, out_tx));
@@ -120,7 +124,7 @@ async fn client(h: Arc<Hub>) -> C {
     // The app's proof of the key for this connection's challenge (`hub/person.rs`).
     let challenge = &init["_meta"]["acpmux"]["personChallenge"];
     let proof = acpmux::hub::person::person_proof(
-        PERSON_KEY,
+        key,
         acpmux::hub::person::TRANSPORT_UNIX,
         challenge["nonce"].as_str().unwrap(),
         challenge["connection"].as_str().unwrap(),
@@ -255,6 +259,51 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     let st = ca.call(method::MUX_STATUS, json!({})).await.unwrap();
     assert_eq!(st["peers"][0]["name"], "b");
     assert_eq!(st["peers"][0]["connected"], true);
+}
+
+#[tokio::test]
+async fn a_person_proven_local_policy_raise_reaches_the_owned_peer() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let mut cb = client_with_key(
+        b.clone(),
+        "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    )
+    .await;
+    let created = cb
+        .call(
+            method::SESSION_NEW,
+            json!({
+                "cwd": std::env::temp_dir(),
+                "mcpServers": [],
+                "_meta": {"acpmux": {"name": "owner-policy"}}
+            }),
+        )
+        .await
+        .unwrap();
+    let remote_id = created["sessionId"].as_str().unwrap().to_owned();
+
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "owner-policy").await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client_with_key(
+        a.clone(),
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    )
+    .await;
+    let result = ca
+        .call(method::MUX_SET_POLICY, json!({"session": "b/owner-policy", "policy": "approve-all"}))
+        .await
+        .unwrap();
+    assert_eq!(result["policy"], "approve-all", "{result}");
+    let meta = b.resolve(&remote_id).unwrap().meta();
+    assert_eq!(meta.permission_policy.as_deref(), Some("approve-all"));
+    assert!(
+        meta.policy_source.as_deref().is_some_and(|source| source.starts_with("owner:")),
+        "owner policy source should identify the approving host: {:?}",
+        meta.policy_source
+    );
 }
 
 /// An agent on A reports to a chat on B through A's peer link (`acpmux send b/chat` in an acpmux

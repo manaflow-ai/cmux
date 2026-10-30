@@ -137,6 +137,18 @@ impl Hub {
         self.set_policy_from(session, policy, SET).await;
     }
 
+    /// An owner-approved policy raise forwarded by the person's daemon. Keep
+    /// the existing `set` semantics while recording the approving host in the
+    /// durable source value (`owner:<host>`).
+    pub(crate) async fn set_policy_from_owner(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        policy: PermissionPolicy,
+        host: &str,
+    ) {
+        self.set_policy_from(session, policy, &format!("owner:{host}")).await;
+    }
+
     /// The approve-all a vmHost machine gives a chat its owner's peer daemon starts with no
     /// policy (`requests.rs`).
     pub(crate) async fn grant_vm_host_approve_all(self: &Arc<Self>, session: &Arc<Session>) {

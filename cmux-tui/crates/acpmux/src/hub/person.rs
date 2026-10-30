@@ -322,6 +322,8 @@ pub const HOLDS_LIMIT: &str = "person.holds_limit";
 /// answers count only in their own HMAC domain.
 pub const HOLDS_PER_CONNECTION: u32 = 8;
 
+const OWNER_POLICY_DOMAIN: &[u8] = b"acpmux-owner-policy-v1\0";
+
 /// At most this many spent decision nonces are kept.
 pub const SPENT_LIMIT: usize = 4096;
 /// A spent decision nonce is kept this long.
@@ -779,6 +781,34 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
     )))
 }
 
+/// Computes the daemon-to-daemon owner-policy proof for a per-link value.
+/// Callers must keep the value private to that link.
+pub(crate) fn owner_policy_proof_for_secret(
+    secret: &str,
+    session: &str,
+    policy: &str,
+    host: &str,
+    nonce: &str,
+) -> String {
+    owner_policy_proof_for_secret_bytes(secret.as_bytes(), session, policy, host, nonce)
+}
+
+fn owner_policy_proof_for_secret_bytes(
+    key: &[u8],
+    session: &str,
+    policy: &str,
+    host: &str,
+    nonce: &str,
+) -> String {
+    use cmux_local_auth::frontend_proof::{hex, hmac_sha256};
+    let mut message = OWNER_POLICY_DOMAIN.to_vec();
+    for value in [session, policy, host, nonce] {
+        message.extend_from_slice(value.as_bytes());
+        message.push(0);
+    }
+    hex(&hmac_sha256(key, &message))
+}
+
 mod decision_answers;
 pub use decision_answers::decision_answers_proof;
 /// The bytes a decision proof covers.
@@ -918,6 +948,7 @@ impl Hub {
         remote_authenticated: bool,
         caller: Option<&str>,
         starts_modes: bool,
+        owner_policy_grant: bool,
         m: &str,
         params: &Value,
     ) -> Result<PersonVerdict, RpcError> {
@@ -931,9 +962,16 @@ impl Hub {
             // handler forwards it and never handles it here.
             return Ok(PersonVerdict::PeerOnly);
         }
-        self.person_check_local(remote_authenticated, caller, starts_modes, m, params)
-            .await
-            .map(|()| PersonVerdict::Handle)
+        self.person_check_local(
+            remote_authenticated,
+            caller,
+            starts_modes,
+            owner_policy_grant,
+            m,
+            params,
+        )
+        .await
+        .map(|()| PersonVerdict::Handle)
     }
 
     /// `person_check` for a request this daemon handles itself.
@@ -942,6 +980,7 @@ impl Hub {
         remote_authenticated: bool,
         caller: Option<&str>,
         starts_modes: bool,
+        owner_policy_grant: bool,
         m: &str,
         params: &Value,
     ) -> Result<(), RpcError> {
@@ -1002,7 +1041,9 @@ impl Hub {
                 _ => Err(person_required("allowing a permission group")),
             },
             method::MUX_SET_POLICY | "_acpmux/set_default_policy" => {
-                if asking_policy_value(params.get("policy")) {
+                if (m == method::MUX_SET_POLICY && owner_policy_grant)
+                    || asking_policy_value(params.get("policy"))
+                {
                     Ok(())
                 } else {
                     Err(person_required("a permission policy other than ask or deny-all"))
