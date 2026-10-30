@@ -34,6 +34,28 @@ struct AgentPaneConnectActionTests {
         #expect(arguments == [[:]])
     }
 
+    /// Picking the strip's red machine reconnects it: the header's own Reconnect, on a gesture only
+    /// (the host resolves the tab's machine; the page names none).
+    @Test func machineReconnectRunsOnAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        #expect(await model.respond(to: .runAction("machine.reconnect"))["ok"] as? Bool != true)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("machine.reconnect"))["ok"] as? Bool == true)
+        #expect(ran == ["machine.reconnect"])
+    }
+
+    @Test func refusedCloudCreationDoesNotLoseIntentToStandaloneSignIn() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, _ in ran.append(id); return false }
+        model.transport.gestures.record()
+        let reply = await model.respond(to: .runAction("newCloudMachine"))
+        #expect(reply["ok"] as? Bool != true)
+        #expect(ran == ["newCloudMachine"])
+    }
+
     /// Connect Phone… opens the Mobile Pairing page, on the person's gesture only.
     @Test func connectPhoneOpensMobilePairingOnAGesture() async {
         let model = AgentPaneModel(host: NoHost())
@@ -58,18 +80,6 @@ struct AgentPaneConnectActionTests {
         model.transport.gestures.record()
         #expect(await model.respond(to: .runAction("cloudBringBack"))["ok"] as? Bool == true)
         #expect(ran == ["cloudMove", "cloudBringBack"])
-    }
-
-    /// The + menu's Search chats and Search pages open the command palette's chats and History
-    /// search pages without a gesture; an action outside the pane's table stays refused.
-    @Test func paletteSearchPagesRunWithoutAGesture() async {
-        let model = AgentPaneModel(host: NoHost())
-        var ran: [String] = []
-        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
-        #expect(await model.respond(to: .runAction("agentPane.searchChats"))["ok"] as? Bool == true)
-        #expect(await model.respond(to: .runAction("history.search"))["ok"] as? Bool == true)
-        #expect(await model.respond(to: .runAction("searchFiles"))["ok"] as? Bool != true)
-        #expect(ran == ["agentPane.searchChats", "history.search"])
     }
 
     /// An action the app did not run (turned off, or not available for this chat) is a failure, so

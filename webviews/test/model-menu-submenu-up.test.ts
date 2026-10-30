@@ -4,6 +4,8 @@
 // Effort submenu opened down from its row, toward the window's edge. A submenu now grows toward the
 // room its row has: up from the row's bottom here, as Claude Code's does, and down from its top for
 // a menu near the top of the window. Base UI still flips it when that side has no room.
+// Here the running model's effort is a side dropdown beside its row (#27948), the same room-aware
+// Submenu (ui/Menu.tsx) as the Effort row a menu without one keeps.
 // Real Chromium and WebKit (the app's engine) on the gallery stage, the composer pinned to the
 // bottom (or the top) of the viewport. CI fails the file when it cannot launch them
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/model-menu-submenu-up.test.ts
@@ -86,8 +88,8 @@ await requireBrowserLane("model-menu-submenu-up.test.ts", async () => {
       await window.cmuxPaintFrame();
     });
 
-  /** Opens the model menu and its Effort submenu; the row's and the submenu's boxes, and the viewport's height. */
-  const effortBoxes = async (page: Page) => {
+  /** Opens the model menu and the running model's effort dropdown (else its Effort submenu); the row's and the submenu's boxes, and the viewport's height. */
+  const submenuBoxes = async (page: Page) => {
     const button = page.locator('button[aria-haspopup][aria-label="Model"]').first();
     const box = (await button.boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -127,9 +129,9 @@ await requireBrowserLane("model-menu-submenu-up.test.ts", async () => {
   };
 
   for (const [engine] of engines) {
-    test(`${engine}: at the window's foot, Effort opens up from its row`, async () => {
+    test(`${engine}: at the window's foot, a submenu opens up from its row`, async () => {
       const page = await open(engine, "bottom");
-      const boxes = await effortBoxes(page);
+      const boxes = await submenuBoxes(page);
       expect(boxes.menu.bottom, "the menu opens above the model button").toBeLessThanOrEqual(boxes.button.top + 1);
       expect(boxes.sub.top, "the submenu's top is above its row").toBeLessThan(boxes.row.top - 1);
       expect(Math.abs(boxes.sub.bottom - boxes.row.bottom), "its bottom meets its row's").toBeLessThanOrEqual(12);
@@ -138,9 +140,9 @@ await requireBrowserLane("model-menu-submenu-up.test.ts", async () => {
       await page.close();
     });
 
-    test(`${engine}: at the window's top, Effort opens down from its row`, async () => {
+    test(`${engine}: at the window's top, a submenu opens down from its row`, async () => {
       const page = await open(engine, "top");
-      const boxes = await effortBoxes(page);
+      const boxes = await submenuBoxes(page);
       expect(boxes.menu.top, "the menu opens below the model button").toBeGreaterThanOrEqual(boxes.button.bottom - 1);
       expect(Math.abs(boxes.sub.top - boxes.row.top), "its top meets its row's").toBeLessThanOrEqual(12);
       expect(boxes.sub.bottom, "inside the window").toBeLessThanOrEqual(boxes.height);
