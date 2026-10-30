@@ -45,6 +45,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub(super) fn spawn_surface_with(
         self: &Arc<Self>,
         cwd: Option<String>,

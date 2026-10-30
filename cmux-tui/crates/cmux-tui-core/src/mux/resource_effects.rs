@@ -32,6 +32,7 @@ impl Mux {
             .clone()
     }
 
+    #[track_caller]
     pub(crate) fn local_resource_context(
         &self,
     ) -> anyhow::Result<crate::resource_api::LocalResourceContext> {
@@ -46,6 +47,7 @@ impl Mux {
         })
     }
 
+    #[track_caller]
     pub(crate) fn with_resource_projection<R>(
         &self,
         project: impl FnOnce(&WorkspaceRegistry, &State) -> anyhow::Result<R>,
@@ -55,6 +57,7 @@ impl Mux {
         project(&registry, &state)
     }
 
+    #[track_caller]
     pub(crate) fn lookup_resource_effect(
         &self,
         idempotency_key: &str,
@@ -84,6 +87,7 @@ impl Mux {
     /// Commit an agent report and its resource projection under the sequence
     /// fence used to preserve hook ordering across retries and restarts.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn prepare_resource_effect(
         &self,
         mutation: &WorkspaceMutation,
@@ -105,6 +109,7 @@ impl Mux {
 
     /// One durable commit that records a new effect intent as `executing`
     /// (`WorkspaceRegistry::prepare_resource_effect_executing_for`).
+    #[track_caller]
     pub(crate) fn prepare_resource_effect_executing(
         &self,
         mutation: &WorkspaceMutation,
@@ -125,6 +130,7 @@ impl Mux {
             )
     }
 
+    #[track_caller]
     pub(crate) fn mark_resource_effect_executing(
         &self,
         idempotency_key: &str,
@@ -138,6 +144,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn commit_resource_effect(
         &self,
         idempotency_key: &str,
@@ -176,6 +183,7 @@ impl Mux {
     /// connection -> state; the writer needs the connection), and state is
     /// locked again to install the committed revision. Readers in between see
     /// the pre-commit state and revision, as before publication.
+    #[track_caller]
     pub(crate) fn commit_resource_effect_projection(
         &self,
         idempotency_key: &str,
@@ -217,6 +225,7 @@ impl Mux {
         Ok(commit)
     }
 
+    #[track_caller]
     pub(crate) fn commit_full_resource_effect_projection(
         &self,
         idempotency_key: &str,
@@ -235,6 +244,7 @@ impl Mux {
     /// Reconcile an already-committed local mutation into one public topology
     /// revision. This is reserved for legacy/internal paths whose durable
     /// side effect predates the resource coordinator.
+    #[track_caller]
     pub(super) fn commit_ordinary_full_resource_projection(
         &self,
         actor: &Actor,
@@ -251,6 +261,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn commit_full_resource_projection_with_mutation(
         &self,
         mutation: &WorkspaceMutation,
@@ -276,6 +287,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn mark_resource_effect_indeterminate(
         &self,
         idempotency_key: &str,
@@ -283,6 +295,7 @@ impl Mux {
         self.workspace_registry.lock().unwrap().mark_resource_effect_indeterminate(idempotency_key)
     }
 
+    #[track_caller]
     pub(crate) fn resource_surface_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,

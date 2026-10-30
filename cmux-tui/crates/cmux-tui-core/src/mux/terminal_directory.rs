@@ -91,6 +91,7 @@ impl Mux {
     }
 
     /// Close the startup race where the first prompt preceded runtime registration.
+    #[track_caller]
     pub(crate) fn publish_pending_terminal_directories(&self) {
         let terminals =
             self.state.lock().unwrap().terminal_catalog.values().cloned().collect::<Vec<_>>();
