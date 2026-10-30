@@ -345,8 +345,8 @@ final class GroupHeaderRowView: SidebarRowView {
         let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: min(b.height, SidebarLayoutMetrics.standard.rowHeight))
         let columns = SidebarColumns(rowWidth: b.width, comfortable: SidebarDensityTokens.isComfortable,
                                      leadingOffset: railReach,
-                                     leadingInset: LayoutGrid.sidebarLead - (SidebarStyle.horizontalInset - Metrics.space1),
-                                     trailingInset: SidebarStyle.horizontalInset)
+                                     leadingInset: LayoutGrid.sidebarLead - SidebarStyle.horizontalInset,
+                                     trailingInset: SidebarStyle.rowEdgeGap)
         // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
         let lead = columns.lead
@@ -418,7 +418,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let iconLead = lead
         glyph.frame = NSRect(x: iconLead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
         // The label's frame sits its text inset left of the column, as a workspace title's does.
-        let nx = columns.text(hasLeadingMark: hasIcon || pinned) - SidebarStyle.labelCellPadding - (hasIcon || pinned ? 0 : Metrics.space2)
+        let nx = columns.text(hasLeadingMark: hasIcon || pinned) - SidebarStyle.labelCellPadding
         let countWidth = count.stringValue.isEmpty || renaming ? 0 : Self.drawnWidth(count)
         let nh = ceil(name.intrinsicContentSize.height)
         count.isHidden = countWidth == 0

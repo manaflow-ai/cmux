@@ -18,8 +18,8 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     /// at lead, including a group name aligned with its iconless members.
     func text(hasLeadingMark: Bool) -> CGFloat {
         guard hasLeadingMark else {
-            // Text-only rows keep the base row inset; an empty icon column is not a gutter.
-            return leadingInset + Metrics.space1 + CGFloat(max(0, depth)) * LayoutGrid.sidebarDepthIndent + leadingOffset
+            // Text-only rows start on lead; an empty icon column is not a gutter.
+            return lead
         }
         return text
     }

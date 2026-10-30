@@ -16,9 +16,10 @@ performance.
 
 ### Shared grid columns (2026-10-30)
 
-Native sidebar rows consume `SidebarColumns` for lead, text, nesting and trailing slots. Text-only
-rows start on the lead without reserving an empty icon well; group headers keep their members'
-text column while the existing rail and edge geometry stays unchanged. Requested by Leo's grid
+The native sidebar rows consume `SidebarColumns` for their lead, text, nesting and trailing
+slots. Text-only rows start at the lead without reserving an empty icon well; group headers keep
+their members' text column while the existing rail and edge geometry stays unchanged. Trailing
+marks use the shared 20 pt pitch and the existing row edge contract. Requested by Leo's grid
 alignment ask (grid.md 5.4), coordinated by `claude-sr2/grid-system`.
 
 ### Group editor opening (2026-10-28)

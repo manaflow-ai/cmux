@@ -238,7 +238,7 @@ class SidebarItemRowView: NSView {
         // (a band row's glyph, a pinned row's pin) starts where a workspace row's text starts (its inset plus the
         // pill inset), and a title after that glyph starts at the one text column (`SidebarStyle.leadingTextX`).
         // A pinned row's own icon or color dot, when it has one, takes the text column after the pin.
-        let columns = SidebarStyle.columns(rowWidth: b.width - SidebarStyle.rowEdgeGap, depth: info.indent, leadingOffset: inset)
+        let columns = SidebarStyle.columns(rowWidth: b.width - SidebarStyle.rowEdgeGap, depth: info.indent)
         let rowLead = columns.lead
         let pinFrame = info.leadingPin ? pinGlyphFrame(side: Metrics.smallIconSize, leading: bare && !showsSwatchDot ? rowLead : rowLead - LayoutGrid.iconBox, height: b.height) : .zero
         let lead = style == .chip ? Metrics.space2 : columns.lead
