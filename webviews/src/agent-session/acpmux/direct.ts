@@ -6544,8 +6544,11 @@ export class AcpmuxDirectClient {
       // The trust route asks about the folder; this is no failure to resume.
       if (trustRefusal(error)) return;
       if (error instanceof AcpmuxRpcError && error.reason === "adopt.live" && !adopt.ifLive) {
+        // The person moved to another chat while acpmux answered: nothing shows for this one.
+        if (this.closed || generation !== this.selectionGeneration) return;
         const live = liveDetails((error as { details?: unknown }).details);
         if (!adopt.watch && (await this.watchLive(adopt, live))) return;
+        if (this.closed || generation !== this.selectionGeneration) return;
         this.liveAdopt = { adopt, ...live };
         this.emit();
         return;
