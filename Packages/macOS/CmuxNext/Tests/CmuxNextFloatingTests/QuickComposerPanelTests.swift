@@ -69,6 +69,7 @@ import Testing
     /// The chat released while the panel still moves into the floating chat (Cmd-Return during the
     /// move): the move does not land later, so the next composer opens at the composer's size, not
     /// the floating chat's.
+    /// skip-owner: PL-rendering; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @Test(.enabled(if: NSScreen.main != nil, "the floating chat needs a screen: run on a GUI host"))
     func releasingTheChatMidMoveKeepsTheComposerSize() {
         _ = NSApplication.shared

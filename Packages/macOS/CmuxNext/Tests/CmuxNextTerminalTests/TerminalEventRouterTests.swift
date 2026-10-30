@@ -56,7 +56,7 @@ import Testing
     /// after it swaps.
     @Test func refusedReadyIsNoContent() async {
         let fixture = Fixture(label: "test.router-ready-refused", restores: false)
-        defer { fixture.lane.close() }
+        defer { fixture.lane.close {} }
         var router = fixture.router
         #expect(await router.route(.snapshot(Data("snap".utf8), phase: .ready)))
         await fixture.lane.drained()
@@ -71,7 +71,7 @@ import Testing
         #expect(fixture.mailbox.take()?.contentQueued == true)
 
         let restoring = Fixture(label: "test.router-ready-restored")
-        defer { restoring.lane.close() }
+        defer { restoring.lane.close {} }
         var restored = restoring.router
         #expect(await restored.route(.snapshot(Data("snap".utf8), phase: .ready)))
         await restoring.lane.drained()
@@ -88,7 +88,7 @@ import Testing
         let local = TerminalSnapshotPhase.readyLocalHistory(
             TerminalLocalHistory(columns: 80, rows: 24, historyRows: 10, digest: Data([1, 2, 3])))
         let fixture = Fixture(label: "test.router-local-error", localHistory: Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue))
-        defer { fixture.lane.close() }
+        defer { fixture.lane.close {} }
         var router = fixture.router
         #expect(await router.route(.snapshot(Data("snap".utf8), phase: local)))
         await fixture.lane.drained()
@@ -100,7 +100,7 @@ import Testing
         #expect(fixture.steps.entries == ["restore local", "output vt"])
 
         let mismatch = Fixture(label: "test.router-local-mismatch", localHistory: Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_MISMATCH.rawValue))
-        defer { mismatch.lane.close() }
+        defer { mismatch.lane.close {} }
         var mismatched = mismatch.router
         #expect(await mismatched.route(.snapshot(Data("snap".utf8), phase: local)))
         await mismatch.lane.drained()
@@ -115,7 +115,7 @@ import Testing
     /// until the detached loop is done, so the loop provably never needed the main actor.
     @MainActor @Test func outputAndGridStepsReachTheLaneInOrderWithMainHeld() {
         let fixture = Fixture(label: "test.router-order")
-        defer { fixture.lane.close() }
+        defer { fixture.lane.close {} }
         let routed = DispatchSemaphore(value: 0)
         let lane = fixture.lane, start = fixture.router
         Task.detached {
@@ -141,7 +141,7 @@ import Testing
     /// and the turn sees the latest of each.
     @Test func statusAndGridCoalesceToOneMainTurn() async {
         let fixture = Fixture(label: "test.router-coalesce")
-        defer { fixture.lane.close() }
+        defer { fixture.lane.close {} }
         var router = fixture.router
         let chip = TerminalSizedFor(deviceName: "iPad", deviceKind: "ipad", sameDevice: false,
                                     grid: TerminalGridSize(columns: 60, rows: 20), fixedSize: false)
@@ -202,7 +202,7 @@ import Testing
     /// The router records the stream `.restoring`, chip, `.connected` as one by one: no chip.
     @Test func chipWhileRestoringStaysHidden() async {
         let fixture = Fixture(label: "test.router-chip-restoring")
-        defer { fixture.lane.close() }
+        defer { fixture.lane.close {} }
         var router = fixture.router
         let chip = TerminalSizedFor(deviceName: "iPad", deviceKind: "ipad", sameDevice: false,
                                     grid: TerminalGridSize(columns: 60, rows: 20), fixedSize: false)

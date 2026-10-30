@@ -439,6 +439,7 @@ mod reading {
             writer: writer.clone(),
             ipc: mux.ipc_stats().clone(),
             inbound: connection.clone(),
+            hangs: mux.echo_watch(),
         };
         if let Err(error) = mux.mux_io.register(&handle, registration) {
             eprintln!("cmux-tui: connection not served: {error}");

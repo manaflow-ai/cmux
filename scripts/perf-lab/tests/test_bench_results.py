@@ -169,6 +169,7 @@ class RecordTest(unittest.TestCase):
         self.assertEqual(unset.getvalue(), "")
 
 
+# skip-owner: PL-perf-lab; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
 @unittest.skipIf(shutil.which("node") is None, "node is not installed")
 class WebviewsWriterTest(unittest.TestCase):
     """webviews/scripts/perf-result.mjs under node, as the .mjs benches run it (bun loads the same file)."""

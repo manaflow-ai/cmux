@@ -97,10 +97,10 @@ import Testing
         caches.trim(toFraction: 0)
         #expect(caches.bytes == 0)
 
-        let share = MessagesLabTranscriptCaches.shares(of: 336 << 20)
-        #expect(share.rows + share.media + share.tiles + share.markdown == 336 << 20)
+        let share = MessagesLabTranscriptCaches.shares(of: 304 << 20)
+        #expect(share.rows + share.media + share.tiles + share.markdown == 304 << 20)
         #expect(share.rows > share.media && share.media > share.tiles && share.tiles > share.markdown)
-        caches.setBudget(bytes: 336 << 20)
+        caches.setBudget(bytes: 304 << 20)
         #expect(rows.byteBudget == share.rows)
         #expect(tiles.budget == share.tiles)
         #expect(media.budget == MediaCache.labBudget ?? share.media)
