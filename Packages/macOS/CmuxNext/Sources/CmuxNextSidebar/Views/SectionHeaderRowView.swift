@@ -221,6 +221,8 @@ final class SectionHeaderRowView: SidebarRowView {
         }
     }
 
+    override var fillVerticalInset: CGFloat { 0 }
+
     override func layout() {
         super.layout()
         let b = layoutBounds
@@ -244,10 +246,10 @@ final class SectionHeaderRowView: SidebarRowView {
         let control = SidebarStyle.controlSize
         if allowsAdd {
             addButton.frame = columns.trailingFrame(index: 1, centerY: b.midY, side: control)
-            trailing = min(trailing, columns.trailingCenter(index: 1) - control / 2 - Metrics.space2)
+            trailing = columns.trailingEdge(before: addButton.frame)
         }
         chevron.isHidden = isEmpty
-        let chevronSide = LayoutGrid.glyph
+        let chevronSide = SidebarStyle.controlSize
         chevron.frame = columns.trailingFrame(centerY: b.midY, side: chevronSide)
         let dot = SidebarStyle.dotSize
         status.isHidden = statusTone == nil

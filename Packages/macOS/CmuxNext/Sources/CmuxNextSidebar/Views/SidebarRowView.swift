@@ -141,11 +141,13 @@ class SidebarRowView: NSView {
         fadesNextFill = false
     }
 
+    var fillVerticalInset: CGFloat { LayoutGrid.pillInset }
+
     override func layout() {
         super.layout()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        fillLayer.frame = layoutBounds.insetBy(dx: 0, dy: LayoutGrid.pillInset)
+        fillLayer.frame = layoutBounds.insetBy(dx: 0, dy: fillVerticalInset)
         fillLayer.cornerRadius = SidebarStyle.rowCornerRadius
         CATransaction.commit()
     }

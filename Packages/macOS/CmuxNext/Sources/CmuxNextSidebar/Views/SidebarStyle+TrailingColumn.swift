@@ -5,10 +5,11 @@ import CmuxNextDesign
 extension SidebarStyle {
     static func columns(rowWidth: CGFloat, depth: Int = 0, leadingOffset: CGFloat = 0) -> SidebarColumns {
         SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
-                       depth: depth, leadingOffset: leadingOffset)
+                       depth: depth, leadingOffset: leadingOffset,
+                       leadingInset: horizontalInset, trailingInset: rowEdgeGap)
     }
 
-    static var trailingSlotSide: CGFloat { LayoutGrid.iconBox }
+    static var trailingSlotSide: CGFloat { controlSize }
 
     static func trailingColumnCenterX(rowWidth: CGFloat) -> CGFloat {
         columns(rowWidth: rowWidth).trailingCenter()
@@ -33,7 +34,7 @@ extension SidebarStyle {
     /// slot 1 (a row's disclosure, a header's more) and slot 2 (a hovered row's more, a header's +) step left by
     /// this one pitch, so ⋮ ⌄ ✕ on a hovered row and + ⋮ ⌄ on a group header fall on the same lines (Leo 2026-10-29:
     /// "I SAID THE SHIT WAS MISALIGNED LAST FUCCKING NIGHT"; a hovered row stepped 22 pt then 20 pt).
-    static var trailingSlotPitch: CGFloat { controlSize + Metrics.space1 }
+    static var trailingSlotPitch: CGFloat { LayoutGrid.sidebarSecondMarkPitch }
 
     /// The center x of trailing slot `slot` (0 is the column) in a row of `rowWidth`.
     static func trailingSlotCenterX(rowWidth: CGFloat, slot: Int) -> CGFloat {

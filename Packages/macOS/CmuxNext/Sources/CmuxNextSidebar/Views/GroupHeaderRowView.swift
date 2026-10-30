@@ -342,7 +342,7 @@ final class GroupHeaderRowView: SidebarRowView {
         // (the sidebar density: compact 24, comfortable 32 pt).
         // The bar fills the row (as tall as a workspace row); the type and glyphs keep their scale.
         // Type and glyphs follow a one-line row: an Expanded header is two lines tall, its name is not bigger.
-        let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: min(b.height, SidebarDensityTokens.groupLabelReferenceHeight))
+        let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: min(b.height, SidebarLayoutMetrics.standard.rowHeight))
         let columns = SidebarStyle.columns(rowWidth: b.width, leadingOffset: railReach)
         // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
@@ -383,12 +383,12 @@ final class GroupHeaderRowView: SidebarRowView {
         // workspace or whatever, just don't show the spinner": a hover hides it at once and brings the
         // chevron back on the column, with the + and more left of it; never the spinner beside them.
         setHoverShown(chevron, !onColumn, fades: !onColumn && (fades || fadesNextActivity), token: .hoverReveal)
-        var trailing = (showsActions ? (offersAdd ? addButton.frame.minX : moreButton.frame.minX) : chevronFrame.minX) - Metrics.space2
+        var trailing = columns.trailingEdge(before: showsActions ? (offersAdd ? addButton.frame : moreButton.frame) : chevronFrame)
         if badge.state.isUnread {
             badge.isHidden = false
             let w = badge.preferredWidth, h = SidebarStyle.badgeHeight
             badge.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: w, height: h))
-            trailing = badge.frame.minX - Metrics.space2
+            trailing = columns.trailingEdge(before: badge.frame)
         } else {
             badge.isHidden = true
         }
@@ -429,7 +429,7 @@ final class GroupHeaderRowView: SidebarRowView {
         // The name and the color line only: no bar (cx-7yywz).
         pill.isHidden = renaming || look.style == .line || look.style == .tinted
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
-        pill.frame = b.insetBy(dx: 0, dy: LayoutGrid.pillInset)
+        pill.frame = b
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
         pill.maskedCorners = SidebarGroupLine.barCorners(open: !collapsed, flipped: pill.contentsAreFlipped()) // joined: an L
         // The quiet styles' dot sits where the members' line starts (`railReach` less the layout's overhang, `groupLineX`).

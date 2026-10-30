@@ -8,9 +8,11 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     var comfortable: Bool
     var depth: Int = 0
     var leadingOffset: CGFloat = 0
+    var leadingInset: CGFloat = LayoutGrid.sidebarHighlightInset
+    var trailingInset: CGFloat = LayoutGrid.sidebarHighlightInset
 
     var iconBox: CGFloat { comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
-    var lead: CGFloat { LayoutGrid.sidebarLead - LayoutGrid.sidebarHighlightInset + CGFloat(max(0, depth)) * LayoutGrid.sidebarDepthIndent + leadingOffset }
+    var lead: CGFloat { LayoutGrid.sidebarLead - leadingInset + CGFloat(max(0, depth)) * LayoutGrid.sidebarDepthIndent + leadingOffset }
     var text: CGFloat { lead + iconBox + LayoutGrid.gap }
     /// Only a visible leading icon or pin reserves the icon column. Text-only rows start
     /// at lead, including a group name aligned with its iconless members.
@@ -30,7 +32,7 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     }
 
     func trailingCenter(index: Int = 0) -> CGFloat {
-        rowWidth - (LayoutGrid.sidebarTrailCenter - LayoutGrid.sidebarHighlightInset) - CGFloat(index) * LayoutGrid.sidebarSecondMarkPitch
+        rowWidth - (LayoutGrid.sidebarTrailCenter - trailingInset) - CGFloat(index) * LayoutGrid.sidebarSecondMarkPitch
     }
 
     func trailingFrame(index: Int = 0, centerY: CGFloat, side: CGFloat) -> CGRect {
@@ -53,7 +55,10 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
 
     /// Reserve whole pitches for a wide badge, so the next mark stays on a column and never overlaps it.
     func trailingEdge(before frame: CGRect) -> CGFloat {
-        let limit = frame.minX - LayoutGrid.base
+        // Adjacent 20-point hit boxes may touch; their 16-point glyphs still have a gap.
+        let gap = frame.width <= LayoutGrid.sidebarSecondMarkPitch
+            ? min(LayoutGrid.base, (LayoutGrid.sidebarSecondMarkPitch - frame.width) / 2) : LayoutGrid.base
+        let limit = frame.minX - gap
         let slots = max(1, Int(((trailingEdge - limit) / LayoutGrid.sidebarSecondMarkPitch).rounded(.up)))
         return trailingEdge - CGFloat(slots) * LayoutGrid.sidebarSecondMarkPitch
     }

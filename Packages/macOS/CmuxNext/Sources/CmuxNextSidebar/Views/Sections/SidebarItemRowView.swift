@@ -238,7 +238,7 @@ class SidebarItemRowView: NSView {
         // (a band row's glyph, a pinned row's pin) starts where a workspace row's text starts (its inset plus the
         // pill inset), and a title after that glyph starts at the one text column (`SidebarStyle.leadingTextX`).
         // A pinned row's own icon or color dot, when it has one, takes the text column after the pin.
-        let columns = SidebarStyle.columns(rowWidth: b.width - inset, depth: info.indent, leadingOffset: inset)
+        let columns = SidebarStyle.columns(rowWidth: b.width - SidebarStyle.rowEdgeGap, depth: info.indent, leadingOffset: inset)
         let rowLead = columns.lead
         let pinFrame = info.leadingPin ? pinGlyphFrame(side: Metrics.smallIconSize, leading: bare && !showsSwatchDot ? rowLead : rowLead - LayoutGrid.iconBox, height: b.height) : .zero
         let lead = style == .chip ? Metrics.space2 : columns.lead
@@ -316,7 +316,7 @@ class SidebarItemRowView: NSView {
     /// column is measured from the fill's end. Lawrence msg 11914: the status drew after the title,
     /// 3.5 pt right of the column every other dot and spinner shares.
     private func layoutColumnMark(in b: NSRect) -> CGFloat? {
-        let rowWidth = b.width - SidebarStyle.horizontalInset
+        let rowWidth = b.width - SidebarStyle.rowEdgeGap
         let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
         if !rowBadge.isHidden {
             let side = rowBadge.cellSide, width = rowBadge.preferredWidth
