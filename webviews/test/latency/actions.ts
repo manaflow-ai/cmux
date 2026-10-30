@@ -915,7 +915,14 @@ async function railAway(page: Page): Promise<void> {
 
 /** Puts the transcript and the rail list at their ends; the tick in the middle of the rail's view. */
 async function railRestTick(page: Page): Promise<{ index: number; x: number; y: number }> {
-  await page.waitForSelector(RAIL_LIST);
+  // The flows fixture opens Session Info, which narrows the transcript until the rail would cover its
+  // text and hides at rest (data-occluded): close it, so the rail sits beside the text as it does in a
+  // plain chat and the pointer lands on a live tick.
+  if (await page.$("aside.acpmux-chat-inspector")) {
+    await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
+    await page.waitForSelector("aside.acpmux-chat-inspector", { state: "detached" });
+  }
+  await page.waitForSelector(`.acpmux-minimap__rail:not([data-occluded]) ${RAIL_LIST}`, { state: "attached" });
   await page.evaluate((selector) => {
     const transcript = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     transcript.scrollTop = transcript.scrollHeight;
