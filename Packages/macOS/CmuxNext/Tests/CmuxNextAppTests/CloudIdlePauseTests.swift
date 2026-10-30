@@ -341,6 +341,25 @@ struct CloudIdlePauseTests {
         session.disconnect()
     }
 
+    /// A list asked before a Machine Status read that found the machine lands after it without
+    /// that machine (the list was read before the machine showed in it). It does not remove or
+    /// disconnect the machine: the newer read saw it. A list asked later still removes it.
+    @Test(.timeLimit(.minutes(1)))
+    func anOlderListWithoutTheMachineDoesNotRemoveANewerRecord() throws {
+        let f = Self.pausedMachine(reason: nil)
+        let session = f.session, cloud = f.services.cloud
+        let olderList = cloud.beginRecordRead(), status = cloud.beginRecordRead()
+        var running = session.machine
+        running.status = .running
+        cloud.apply(running, to: session, read: status)
+
+        cloud.reconcile([], read: olderList)
+        #expect(f.services.machines.session(session.machineID) === session, "the newer read's machine stays")
+
+        cloud.reconcile([], read: cloud.beginRecordRead())
+        #expect(f.services.machines.session(session.machineID) == nil, "a newer list removes it")
+    }
+
     /// Waits up to 20 seconds for `condition`, which the session's connect makes true.
     static func waitUntil(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(20)
