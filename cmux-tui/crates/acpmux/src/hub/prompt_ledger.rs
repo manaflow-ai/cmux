@@ -65,6 +65,10 @@ impl Hub {
         session: &Session,
         prompt_id: &str,
     ) -> Option<Result<Value, crate::rpc::RpcError>> {
+        // Another agent's message the inbox took (`inbox.rs`): answered from its records.
+        if let Some(inbox) = self.logged_inbox(session, prompt_id) {
+            return Some(Ok(inbox));
+        }
         // The last completed turn may predate a later queued/declined incarnation reusing
         // this client id. Reconstruct the latest incarnation from its ordered durable records.
         let mut turn_id: Option<String> = None;

@@ -349,6 +349,16 @@ impl Peer {
         self.with_link(|l| l.seed(last_seen));
     }
 
+    /// What its last handshake would have said of attachments: a test's peer that never ran.
+    #[cfg(test)]
+    pub(crate) fn seed_send_attach(&self, takes: bool) {
+        let mut features = self.features.lock_or_recover();
+        features.retain(|f| f != crate::attach::FEATURE);
+        if takes {
+            features.push(crate::attach::FEATURE.to_owned());
+        }
+    }
+
     pub(crate) fn seed_cached_link(
         &self,
         last_seen: Option<u64>,
