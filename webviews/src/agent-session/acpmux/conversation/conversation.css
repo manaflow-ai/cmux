@@ -2111,8 +2111,49 @@ pre.cv-math-source {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* No output yet (a command that has printed nothing): no box. */
+.cv-shell__body:empty {
+  display: none;
+}
+/* Past eight lines the output scrolls inside an eight-line box (the lane under them added, never
+   taken out), so a long or streaming output never pushes the transcript down; its bottom edge fades
+   only while more lies under it (moreBelow.ts), hard once scrolled to the end. */
 .cv-shell__body[data-preview="cut"] {
-  max-height: calc(8lh + 8px + var(--cv-lane, 0px));
+  max-height: calc(8lh + var(--cv-lane, 0px));
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+/* The command, in a block of its own over its output (ShellBlock.tsx ShellCommand): its words in
+   their code colors (shellHighlight.ts), always wrapped, each line hanging under its start; a
+   hairline divides it from the output. The "$ " prompt is not the command's text: a selection's
+   copy leaves it out. */
+.cv-shell__command {
+  margin: 6px 0 0;
+  color: var(--cv-text);
+  font-style: normal;
+  font-weight: 400;
+  font-size: calc(var(--cv-font-size) * 12 / 14);
+  line-height: calc(var(--cv-font-size) * 18 / 14);
+  font-family: var(--cv-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cv-shell__command .cv-line {
+  display: block;
+  min-height: 1lh;
+  padding-inline-start: 2ch;
+  text-indent: -2ch;
+}
+.cv-shell__command:has(+ .cv-shell__body:not(:empty)) {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--cv-card-ring);
+}
+.cv-shell__command + .cv-shell__body {
+  margin-top: 8px;
+}
+.cv-shell__prompt {
+  color: var(--cv-text-dim);
+  user-select: none;
 }
 .cv-shell__exit {
   margin-top: 6px;
@@ -2689,6 +2730,11 @@ a.cv-sha:focus-visible {
 }
 :is(.cv-edit-diff__body, .cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-preview="cut"] {
   --cv-fade-bottom: 28px;
+}
+/* A shell body scrolled to its end (moreBelow.ts) has a hard bottom edge. It comes after the shared
+   fade above: the two selectors weigh the same, so the later one wins. */
+.cv-shell__body[data-preview="cut"]:not([data-more-below]) {
+  --cv-fade-bottom: 0px;
 }
 :is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-more-right] {
   --cv-fade-right: 32px;
