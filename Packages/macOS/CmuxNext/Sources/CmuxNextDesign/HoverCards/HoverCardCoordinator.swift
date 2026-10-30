@@ -542,7 +542,7 @@ public final class HoverCardCoordinator {
         ]
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The currently interactive card, for synthetic native input proofs.
     /// Coordinates are relative to the card, excluding the window's shadow band.
     public var debugInteractiveCard: (window: NSWindow, frame: CGRect)? {
