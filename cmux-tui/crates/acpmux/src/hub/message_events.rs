@@ -94,15 +94,18 @@ pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
     // describe the parent's delivery and must never recreate a sender-side copy in the child.
     // Stay conservative if a crash left no marker: skip the inherited prefix entirely.
     let mut inherited = session.meta().fork_seq.is_some();
-    let _ =
-        hub.store.scan_kinds(&session.id, &["queued", "user_message", "forked"], &mut |record| {
+    let _ = hub.store.scan_kinds(
+        &session.id,
+        &["queued", "user_message", "inbox", "forked"],
+        &mut |record| {
             if inherited {
                 if record.kind == "forked" {
                     inherited = false;
                 }
                 return true;
             }
-            if !matches!(record.kind.as_str(), "queued" | "user_message") {
+            // An inbox message (`inbox.rs`) is accepted as a queued one is, under its own kind.
+            if !matches!(record.kind.as_str(), "queued" | "user_message" | "inbox") {
                 return true;
             }
             let Some(provenance) = crate::prompt_provenance::recorded(&record.msg) else {
@@ -110,7 +113,8 @@ pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
             };
             collect_message_contexts(&provenance, &session.id, &mut pending);
             true
-        });
+        },
+    );
     for message in pending {
         append_or_repair(hub, &session.id, &message, None);
         if message.record_sender_copy && message.sender_session != session.id {
