@@ -1,3 +1,4 @@
+import { DELETED_ACCOUNT_ACTOR_ID } from "../auth/deletedAccount";
 import { requirePersonalPlanIdForSubscription } from "./subscriptionPlan";
 export { personalPlanIdForSubscription } from "./subscriptionPlan";
 import { findIdentitySnapshotUserIdsByEmail } from "../auth/identitySnapshot";
@@ -71,7 +72,6 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
   "trialing",
   "past_due",
 ]);
-const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 const PURCHASE_MAGIC_LINK_CALLBACK = "https://cmux.com/handler/after-sign-in";
 const MAX_STACK_USER_LOOKUP_PAGES = 100;
 
