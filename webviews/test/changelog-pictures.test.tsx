@@ -53,6 +53,7 @@ afterAll(() => {
 });
 
 const picture = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+const video = "data:video/mp4;base64,AAAA";
 
 function nightly(): ReleaseNotes {
   return {
@@ -132,4 +133,29 @@ test("a change's picture opens enlarged on a click, and Close closes it", async 
   for (let turn = 0; turn < 50 && doc.querySelector(".cl-lightbox"); turn++)
     await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(doc.querySelector(".cl-lightbox")).toBeNull();
+});
+
+test("an optional video stays a lazy looping video and enlarges accessibly", async () => {
+  const notes = nightly();
+  notes.highlights[0]!.media = [{ url: video, sha256: "0".repeat(64), kind: "video", alt: "The colored labels" }];
+  const view = releaseView(notes, "en");
+  const item = view.hero ?? view.groups[0]?.items[0];
+  expect(item?.media?.video).toBe(true);
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SpanNews } = await import("../src/pages/changelog/SpanNews");
+  const html = renderToStaticMarkup(
+    <SpanNews
+      view={view}
+      ctx={{
+        strings: { language: "en", t: (key: string) => key, format: (key: string) => key } as never,
+        onTry: () => undefined,
+      }}
+    />,
+  );
+  const root = dom.window.document.createElement("div");
+  root.innerHTML = html;
+  const player = root.querySelector("video");
+  expect(player?.getAttribute("preload")).toBe("none");
+  expect(player?.hasAttribute("loop")).toBe(true);
+  expect(root.querySelector(".ui-glass")).not.toBeNull();
 });

@@ -90,7 +90,7 @@ export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }
         <div className="cln-lead-row" data-count={lead.length}>
           {lead.map((item, index) => (
             <article key={`${item.id}-${index}`} className="cln-lead">
-              {item.media && <Media media={item.media} className="cln-lead-media" />}
+              {item.media && <Media media={item.media} className="cln-lead-media" strings={ctx.strings} />}
               <h2 className="cln-lead-title">{item.title}</h2>
               {item.summary && <p className="cln-lead-summary">{firstParagraph(item.summary)}</p>}
               <ItemActions item={item} ctx={ctx} />
@@ -105,7 +105,7 @@ export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }
               <span className="cln-card-kind">{categoryLabel(ctx.strings, item.category)}</span>
               <h3 className="cln-card-title">{item.title}</h3>
               {item.summary && <p className="cln-card-summary">{firstParagraph(item.summary)}</p>}
-              {item.media && <Media media={item.media} className="cln-card-media" />}
+              {item.media && <Media media={item.media} className="cln-card-media" strings={ctx.strings} />}
               <RowActions item={item} ctx={ctx} />
             </li>
           ))}

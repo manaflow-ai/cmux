@@ -48,7 +48,7 @@ export function Media({ media, className, strings }: { media: MediaRef; classNam
     <img key={src} src={src} alt={media.alt} loading="lazy" decoding="async" />
   );
   return (
-    <figure className={`cl-media${className ? ` ${className}` : ""}`}>
+    <figure className={`cl-media ui-glass${className ? ` ${className}` : ""}`}>
       {strings ? (
         <button
           type="button"

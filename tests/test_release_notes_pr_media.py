@@ -7,6 +7,7 @@ import hashlib, json, os, subprocess, sys, tempfile, unittest
 
 SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts", "cmux-next", "release-notes.py")
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isommp42"
 MEDIA = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/pr-123/after.png"
 
 
@@ -60,9 +61,25 @@ class PullRequestMediaTests(unittest.TestCase):
         highlight = self.build(f'<img width="600" alt="after" src="{MEDIA}">', {MEDIA: PNG})
         self.assertEqual(highlight["media"][0]["url"], MEDIA)
 
+    def test_a_public_video_is_carried_as_optional_video_media(self):
+        video = MEDIA[:-4] + ".mp4"
+        highlight = self.build(f'<video src="{video}"></video>', {video: MP4})
+        self.assertEqual(highlight["media"][0]["kind"], "video")
+
+    def test_a_fixed_highlight_does_not_take_pr_media(self):
+        path = os.path.join(self.repo, "release-notes/next/highlights/group-colors.md")
+        with open(path, "w") as f:
+            f.write("title: Group labels keep their band color\ncategory: fixed\n\nA label keeps its band's color.\n")
+        git(self.repo, "add", ".")
+        git(self.repo, "commit", "-q", "--amend", "-m", "sidebar: group labels keep their color (#123)")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        self.assertEqual(self.build(f"![a]({MEDIA})", {MEDIA: PNG})["media"], [])
+
     def test_a_picture_from_anywhere_else_or_not_a_picture_is_left_out(self):
         other = "https://raw.githubusercontent.com/someone/fork/pr-media/after.png"
         self.assertEqual(self.build(f"![a]({other})", {other: PNG})["media"], [])
+        lookalike = "https://raw.githubusercontent.com.evil.example/manaflow-ai/cmux/pr-media/after.png"
+        self.assertEqual(self.build(f"![a]({lookalike})", {lookalike: PNG})["media"], [])
         self.assertEqual(self.build(f"![a]({MEDIA})", {MEDIA: b"<html>not found</html>"})["media"], [])
         self.assertEqual(self.build(f"![a]({MEDIA})", {MEDIA: PNG + b"\x00" * (4 << 20)})["media"], [])
         # A download that fails leaves the highlight without a picture, never the build without notes.

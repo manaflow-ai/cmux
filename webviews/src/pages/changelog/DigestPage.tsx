@@ -73,7 +73,7 @@ function DigestRelease({
             {item.summary && <span className="cl-row-summary">{item.summary.split(/\n{2,}/)[0]}</span>}
             <RowActions item={item} ctx={ctx} />
           </div>
-          {item.media ? <Media media={item.media} className="cld-thumb" /> : <span />}
+          {item.media ? <Media media={item.media} className="cld-thumb" strings={ctx.strings} /> : <span />}
         </div>
       ))}
       {view && <ChangesFold changes={view.changes} hidden={view.underTheHood} strings={ctx.strings} />}
