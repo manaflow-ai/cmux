@@ -152,7 +152,7 @@ pub(super) fn digest_provenance(parts: &[Part]) -> Value {
         .map(|part| {
             let mut m = json!({"promptId": part.prompt_id, "from": part.sender});
             if let Some(class) = part.run.class {
-                m["class"] = json!(class);
+                m.set("class", json!(class));
             }
             if let Some(p) = &part.run.provenance {
                 m.set("provenance", p.clone());
@@ -399,7 +399,7 @@ impl Hub {
                 queued.set("fromAgent", json!(agent));
             }
             if let Some(class) = q.run.class {
-                queued["class"] = json!(class);
+                queued.set("class", json!(class));
             }
             let images = super::prompt_images::keep(&q.run.blocks);
             if !images.is_empty() {
