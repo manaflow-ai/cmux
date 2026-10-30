@@ -277,7 +277,7 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "no failed job"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
 
-    def test_a_guard_status_aggregate_with_only_routed_failure_steps_is_excused(self):
+    def test_a_guard_status_is_judged_by_its_routed_child(self):
         name = "nightly-guards / Guard status"
         head = failed_job(3, 10, HEAD, name=name, step="Check routed guard jobs")
         base = failed_job(4, 20, BASE_SHA, name=name, step="Check routed guard jobs")
@@ -290,8 +290,41 @@ class Excusing(unittest.TestCase):
         self.with_checks([{"id": 3, "name": name, "status": "completed", "conclusion": "failure",
                            "app": {"slug": "github-actions"},
                            "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
+        child_name = "nightly-guards / workflow-guard-tests / release-notary"
+        step = "Test What's New highlights and release notes"
+        self.gh.jobs[5] = failed_job(5, 10, HEAD, name=child_name, step=step)
+        self.gh.jobs[6] = failed_job(6, 20, BASE_SHA, name=child_name, step=step)
+        self.gh.logs[5] = log(child_name, step, "error: missing release note")
+        self.gh.logs[6] = log(child_name, step, "error: missing release note")
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
-        self.assertIn("Check routed guard jobs", "\n".join(lines))
+        self.assertIn("release-notary", "\n".join(lines))
+
+    def test_guard_child_new_step_is_not_excused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.jobs[5]["steps"][-1]["name"] = "New source lint"
+        with self.assertRaisesRegex(excuse.Refused, "New source lint"):
+            self.judge()
+
+    def test_guard_child_new_error_is_not_excused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.logs[5] = "error: new source lint violation"
+        with self.assertRaisesRegex(excuse.Refused, "new source lint violation"):
+            self.judge()
+
+    def test_guard_child_new_job_is_not_excused(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        self.gh.jobs[5]["name"] = "nightly-guards / workflow-guard-source-lints / lint"
+        with self.assertRaisesRegex(excuse.Refused, "no completed"):
+            self.judge()
+
+    def test_newest_red_base_job_wins_over_older_green(self):
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        older = copy.deepcopy(self.gh.jobs[6])
+        older.update(id=7, run_id=19, conclusion="success")
+        older["steps"][-1]["conclusion"] = "success"
+        self.gh.jobs[7] = older
+        self.gh.base_runs.append({"id": 19, "event": "push", "conclusion": "success"})
+        self.assertIn("run 20", "\n".join(self.judge()))
 
     def test_a_guard_status_does_not_match_an_unrelated_routed_job(self):
         name = "nightly-guards / Guard status"
@@ -305,7 +338,7 @@ class Excusing(unittest.TestCase):
         self.with_checks([{"id": 3, "name": name, "status": "completed", "conclusion": "failure",
                            "app": {"slug": "github-actions"},
                            "details_url": f"https://github.com/{REPO}/actions/runs/10/job/3"}])
-        with self.assertRaisesRegex(excuse.Refused, "routed failures"):
+        with self.assertRaisesRegex(excuse.Refused, "no failed job"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[name])
 
 
