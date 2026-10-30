@@ -32,6 +32,20 @@ final class CreationInputCoordinator {
         return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab)
     }
 
+    /// A creation's placement continues after its create reply (Home moves the new terminal beside
+    /// its dock). Open the placement's ticket before the creator resolves its own, so held keys
+    /// cannot run into the old terminal during the move. A move without a creation adds no hold.
+    func continueCreation(in window: NSWindow?, generation: UInt64?) -> CreationInputBuffer.Ticket? {
+        guard hasPendingCreation(in: window) else { return nil }
+        return begin(in: window, generation: generation)
+    }
+
+    /// Whether a creation or its asynchronous placement is still outstanding in this window.
+    func hasPendingCreation(in window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return buffers[window.windowNumber]?.hasPendingCreation == true
+    }
+
     /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys held
     /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``).
     func drop(tab: String, in window: NSWindow?) {
