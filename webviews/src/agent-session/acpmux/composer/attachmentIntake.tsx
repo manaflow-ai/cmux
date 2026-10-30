@@ -192,8 +192,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
-  /// Each staged image whose original's upload failed: its file, for Retry, and the chat it is in.
-  const originals = useRef(new Map<string, { file: File; scope?: string }>());
+  /// Each staged image whose original's upload failed: its file, for Retry, while its chip is in the
+  /// strip (a chip that leaves it, by its x, a send or a chat switch, takes its file with it; a kept
+  /// draft keeps no mark, keptAttachments.ts keptChips).
+  const originals = useRef(new Map<string, File>());
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
   stagedNow.current = attachments;
@@ -324,8 +326,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           // The preview still sends; the chip says its original was not saved and offers Retry.
           originalFailed: (index, error) => {
             const id = made[index];
-            if (!id || !staged.has(id)) return;
-            originals.current.set(id, { file: settled[index]!, scope: batch.scope });
+            // Only in the chat shown: a chip in another chat's kept draft comes back unmarked.
+            if (!id || !staged.has(id) || batch.scope !== live.current.options.scope) return;
+            originals.current.set(id, settled[index]!);
             const failed = intakeErrorText(error, live.current.t);
             setAttachments((chips) =>
               chips.map((chip) => (chip.id === id ? { ...chip, originalFailed: failed } : chip)),
@@ -349,9 +352,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   /// A staged image's Retry for its original: the original uploads again, its preview staying staged.
   const [retryOriginal] = useState(() => async (id: string) => {
-    const original = originals.current.get(id);
+    const file = originals.current.get(id);
     const upload = live.current.options.upload;
-    if (!original || !upload) return;
+    if (!file || !upload) return;
     originals.current.delete(id);
     const patch = (change: Partial<ComposerAttachment>) =>
       setAttachments((chips) =>
@@ -362,25 +365,25 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         }),
       );
     patch({});
-    // Sent or removed meanwhile: the upload stops, silently.
-    const gone = () =>
-      original.scope === live.current.options.scope && !stagedNow.current.some((chip) => chip.id === id);
-    const sent = await upload([original.file], gone).catch((failure: unknown): UploadResult => ({
+    // Out of the strip meanwhile (sent, removed, or the composer moved to another chat): the upload
+    // stops, silently.
+    const gone = () => !stagedNow.current.some((chip) => chip.id === id);
+    const sent = await upload([file], gone).catch((failure: unknown): UploadResult => ({
       error: failure instanceof Error ? failure.message : String(failure),
     }));
     const path = sent && "paths" in sent ? sent.paths[0] : undefined;
-    if (path) return patch({ originalPath: path, originalName: original.file.name });
     if (gone()) return;
-    originals.current.set(id, original);
+    if (path) return patch({ originalPath: path, originalName: file.name });
+    originals.current.set(id, file);
     const error: IntakeError =
-      sent && "error" in sent ? { text: sent.error } : { name: original.file.name, reason: "unsupported" };
+      sent && "error" in sent ? { text: sent.error } : { name: file.name, reason: "unsupported" };
     patch({ originalFailed: intakeErrorText(error, live.current.t) });
   });
-  /// A sent or removed image's original is not kept for a Retry it can no longer show.
+  /// An image no longer in the strip has no Retry to show: its original's file goes.
   useEffect(() => {
-    for (const [id, original] of originals.current)
-      if (original.scope === scope && !attachments.some((chip) => chip.id === id)) originals.current.delete(id);
-  }, [attachments, scope]);
+    for (const id of originals.current.keys())
+      if (!attachments.some((chip) => chip.id === id)) originals.current.delete(id);
+  }, [attachments]);
   /// A failed chip's Retry: its file is read again (and uploaded again when it was); a staged
   /// image's, its original is uploaded again.
   const [retry] = useState(() => (id: string) => {
