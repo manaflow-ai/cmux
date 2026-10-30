@@ -402,10 +402,8 @@ fn answer(stream: std::net::TcpStream) -> std::io::Result<()> {
 
 /// The fake `claude`, copied executable into `root`.
 fn fake_claude(root: &Path) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let path = root.join("claude");
-    std::fs::copy(FAKE_CLAUDE, &path).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test_exec::write_executable(&path, std::fs::read(FAKE_CLAUDE).unwrap());
     path
 }
 

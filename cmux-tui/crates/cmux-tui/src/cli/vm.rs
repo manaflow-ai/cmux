@@ -4,7 +4,8 @@
 //! refusals (exit 12 is a 402, 16 a quota). Every `cmux-vm` verb is forwarded
 //! with the friendly aliases `new`, `ls` and `rm`; `--json` is passed through.
 //! Opening a VM as a workspace is an app action (`cmux cloud new-workspace`),
-//! not a CLI verb.
+//! and resizing a Cloud machine is `cmux cloud resize-machine`; neither is a
+//! VM verb.
 
 #[cfg(test)]
 mod tests;
@@ -28,10 +29,10 @@ const FORWARDED: &[&str] = &[
     "stop",
     "pause",
     "resume",
-    "resize",
     "retire",
     "fork",
     "identity",
+    "client-session",
     "exec",
     "ssh",
     "scp",
@@ -68,7 +69,7 @@ const VERBS: &[&str] = &[
     "stop",
     "pause",
     "resume",
-    "resize",
+    "fork",
     "exec",
     "ssh",
     "scp",
@@ -76,6 +77,7 @@ const VERBS: &[&str] = &[
     "pull",
     "file",
     "session",
+    "client-session",
     "identity",
     "terminal",
     "snapshot",
@@ -94,10 +96,38 @@ pub(super) fn split(command_args: &[String]) -> Option<&[String]> {
     (first == "vm").then_some(rest)
 }
 
+const VM_HELP: &str = "usage: cmux vm <verb> [options]
+
+VERBS
+  new       Create a VM (alias: create)
+  ls        List VMs (alias: list)
+  get       Show a VM
+  pause     Pause a VM
+  resume    Resume a VM
+  start     Start a VM
+  stop      Stop a VM
+  rm        Delete a VM (alias: delete)
+  exec      Run a command in a VM
+  fork      Fork a VM
+  snapshot  Manage snapshots (create, get, list, delete)
+  client-session  Manage scoped client sessions (create, list, revoke)
+
+Every other cmux-vm verb is forwarded as is: update, retire, identity, ssh,
+scp, push, pull, file (fs), session, terminal, image, vpc (mesh), tunnel,
+firewall, https-proxy, domain, tls, api-key, creation, device.
+
+Use `cmux cloud resize-machine` for Cloud machine resizing.
+Use `cmux vm <verb> --help` for the bundled cmux-vm command's options.
+";
+
+fn usage(message: impl AsRef<str>) -> UsageError {
+    UsageError::new(format!("{}\n\n{}", message.as_ref(), VM_HELP.trim_end()))
+}
+
 /// The `cmux-vm` argument list for `cmux vm <rest>`.
 pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, UsageError> {
     let Some((verb, tail)) = rest.split_first() else {
-        return Err(UsageError::new(format!(
+        return Err(usage(format!(
             "cmux vm needs a verb: {} (see `cmux vm --help`)",
             VERBS.join(", ")
         )));
@@ -114,14 +144,17 @@ pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, U
         "new" => "create",
         "ls" => "list",
         "rm" => "delete",
+        "resize" => {
+            return Err(usage("`cmux vm resize` moved to `cmux cloud resize-machine`"));
+        }
         "workspace" => {
-            return Err(UsageError::new(
+            return Err(usage(
                 "a VM opens as a workspace through the app: run `cmux cloud new-workspace`",
             ));
         }
         known if FORWARDED.contains(&known) => known,
         other => {
-            return Err(UsageError::new(format!(
+            return Err(usage(format!(
                 "unknown vm verb \"{other}\"; verbs: {}",
                 VERBS.join(", ")
             )));
@@ -156,6 +189,12 @@ fn binary() -> OsString {
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, command_args) = super::parse_globals(args).ok()?;
     let rest = split(&command_args)?;
+    if rest.len() == 1
+        && rest.first().is_some_and(|word| matches!(word.as_str(), "-h" | "--help" | "help"))
+    {
+        println!("{VM_HELP}");
+        return Some(0);
+    }
     let plan = match plan(rest, global.output) {
         Ok(plan) => plan,
         Err(error) => {

@@ -37,6 +37,8 @@ fn hub() -> Arc<Hub> {
 fn hub_env(env: Value) -> Arc<Hub> {
     let mut cfg = config_env(env);
     cfg.store.mode = StoreMode::Memory;
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
 }
@@ -45,6 +47,8 @@ fn hub_env(env: Value) -> Arc<Hub> {
 fn durable_hub(dir: &Path) -> Arc<Hub> {
     let mut cfg = config();
     cfg.store.mode = StoreMode::Local;
+    // The queue path before the inbox (`hub/inbox.rs`), which these tests cover.
+    cfg.agent_inbox = Some(false);
     let store = acpmux::store::open(&cfg.store, dir).unwrap();
     Hub::new(cfg, store)
 }
@@ -244,11 +248,13 @@ async fn a_prompt_queued_before_a_restart_is_still_replaced() {
     let (new, accepted) =
         c.accepted(prompt(&session, "p-new", "correction", "lane-a", Some("k"))).await;
     assert_eq!(accepted["replaced"], 1, "{accepted}");
-    c.reply_to(new).await;
+    // The turn the restart cut goes on first (`restart_resume.rs`), then the replacement.
     hub.resume_queues();
+    c.reply_to(new).await;
     c.call("session/prompt", prompt(&session, "p-after", "after", "person", None)).await;
     assert!(!c.ran(&session, "p-old").await, "a restart ran a replaced prompt");
     assert!(c.ran(&session, "p-new").await, "the replacement never ran");
+    assert!(c.ran(&session, "p-run~resume-1").await, "the cut turn did not go on");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }

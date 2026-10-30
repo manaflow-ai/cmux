@@ -12,6 +12,8 @@
 # - a symlink on the way is refused;
 # - a same-user client that is not acpmux gets past the uid gate and is
 #   refused by code identity (unknown_code), before it sends a byte;
+# - the host consent socket refuses a peer that is not a team-signed cmux
+#   app (python3 here) with host_unverified, before it sends a byte;
 # - stdin EOF removes the socket.
 # The other-user client case needs a second account (bead cx-8coo).
 # macOS only; run on a fleet Mac or cmux-lawrence-2:
@@ -38,11 +40,14 @@ def user_temp():
                           text=True, check=True).stdout.strip()
     return path.rstrip("/")
 
-def start(socket_path):
+def start(socket_path, host_socket=None):
     proc = subprocess.Popen([helper], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL)
     msg = {"type": "configure", "socket": socket_path, "secret": "ab" * 32,
            "acpmux_cdhashes": [], "acpmux_requirement": None}
+    if host_socket:
+        msg["host_socket"] = host_socket
+        msg["host_secret"] = uuid.uuid4().hex * 2
     proc.stdin.write((json.dumps(msg) + "\n").encode())
     proc.stdin.flush()
     # The helper answers configure at once; never block the lane on it.
@@ -68,8 +73,10 @@ try:
     cleanup.append(base)
     sock = os.path.join(base, "s", "h.sock")
     check(len(sock.encode()) < 104, f"socket path fits sun_path ({len(sock.encode())} bytes)")
-    proc, ready = start(sock)
-    check(ready.get("type") == "ready" and ready.get("socket") == sock, f"ready in the user temp dir: {ready}")
+    host_sock = os.path.join(base, "s", "c.sock")
+    proc, ready = start(sock, host_sock)
+    check(ready.get("type") == "ready" and ready.get("socket") == sock and ready.get("host_socket") == host_sock,
+          f"ready in the user temp dir: {ready}")
     if ready.get("type") == "ready":
         d = os.lstat(os.path.dirname(sock))
         s = os.lstat(sock)
@@ -88,6 +95,14 @@ try:
         # does not validate. Never foreign_user: the uid gate passes for us.
         check(reply.get("error") == "refused" and reply.get("reason") in ("unknown_code", "invalid_signature"),
               f"same-user non-acpmux client refused by code identity: {reply}")
+        # The host consent socket: python3 is not a team-signed cmux app.
+        host = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        host.settimeout(10)
+        host.connect(host_sock)
+        reply = json.loads(host.makefile().readline() or "{}")
+        host.close()
+        check(reply.get("error") == "refused" and reply.get("reason") == "host_unverified",
+              f"host socket refuses a non-app peer: {reply}")
     code = stop(proc)
     check(code == 0 and not os.path.exists(sock), f"stdin EOF: exit {code}, socket removed")
 

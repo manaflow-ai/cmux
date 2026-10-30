@@ -1,4 +1,5 @@
 {
+  "watch-pair": {"items": [{"title":"First watch permission","kind":"execute"}, {"title":"Second watch permission","kind":"execute"}]},
   "parallel": {
     "items": [
       {"title":"Write a.txt","kind":"edit"},

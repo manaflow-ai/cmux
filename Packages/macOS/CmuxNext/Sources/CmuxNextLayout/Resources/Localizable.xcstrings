@@ -1834,6 +1834,792 @@
           }
         }
       }
+    },
+    "layout.resizeMode.push": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌥ Push: the column grows and moves the columns after it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌥ 押し出し: 列が広がり、後ろの列を動かします"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ دفع: يتسع العمود ويحرّك الأعمدة التي تليه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Guranje: kolona raste i pomjera kolone iza nje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Skub: kolonnen vokser og flytter kolonnerne efter den"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Schieben: Die Spalte wächst und verschiebt die Spalten danach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Empujar: la columna crece y desplaza las columnas siguientes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Pousser : la colonne s’élargit et déplace les colonnes suivantes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Spingi: la colonna si allarga e sposta le colonne successive"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ រុញ៖ ជួរឈរពង្រីក ហើយរំកិលជួរឈរបន្ទាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ 밀기: 열이 넓어지고 뒤의 열들이 이동합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Skyv: kolonnen vokser og flytter kolonnene etter den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Przesuń: kolumna rośnie i przesuwa kolejne kolumny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Empurrar: a coluna cresce e move as colunas seguintes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Сдвиг: столбец растёт и сдвигает следующие столбцы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ ดัน: คอลัมน์ขยายและเลื่อนคอลัมน์ที่อยู่ถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ İt: sütun genişler ve sonraki sütunları kaydırır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Зсув: стовпець росте й зсуває наступні стовпці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Đẩy: cột rộng ra và đẩy các cột phía sau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ 推移：该列变宽，并推动其后的列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ 推移：該欄變寬，並推動其後的欄"
+          }
+        }
+      }
+    },
+    "layout.resizeMode.trade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌥ Trade: the width comes from the next column"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌥ 譲り合い: 幅を次の列から取ります"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ مبادلة: يأتي العرض من العمود التالي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Razmjena: širina dolazi od sljedeće kolone"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Byt: bredden tages fra den næste kolonne"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Tauschen: Die Breite kommt von der nächsten Spalte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Intercambiar: el ancho sale de la columna siguiente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Échanger : la largeur vient de la colonne suivante"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Scambia: la larghezza viene dalla colonna successiva"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ ផ្លាស់ប្ដូរ៖ ទទឹងយកពីជួរឈរបន្ទាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ 교환: 너비를 다음 열에서 가져옵니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Bytt: bredden tas fra neste kolonne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Wymiana: szerokość pochodzi z następnej kolumny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Trocar: a largura vem da próxima coluna"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Обмен: ширина берётся у следующего столбца"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ แลก: ความกว้างมาจากคอลัมน์ถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Takas: genişlik sonraki sütundan gelir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Обмін: ширина береться з наступного стовпця"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ Đổi: độ rộng lấy từ cột kế tiếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ 互换：宽度取自下一列"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌥ 互換：寬度取自下一欄"
+          }
+        }
+      }
+    },
+    "layout.resizeMode.allColumns": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘ All columns: every column takes this width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘ すべての列: すべての列がこの幅になります"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ كل الأعمدة: تأخذ كل الأعمدة هذا العرض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Sve kolone: svaka kolona dobija ovu širinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Alle kolonner: hver kolonne får denne bredde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Alle Spalten: Jede Spalte erhält diese Breite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Todas las columnas: cada columna toma este ancho"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Toutes les colonnes : chaque colonne prend cette largeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Tutte le colonne: ogni colonna prende questa larghezza"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ ជួរឈរទាំងអស់៖ ជួរឈរនីមួយៗយកទទឹងនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ 모든 열: 모든 열이 이 너비가 됩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Alle kolonner: hver kolonne får denne bredden"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Wszystkie kolumny: każda kolumna dostaje tę szerokość"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Todas as colunas: cada coluna fica com esta largura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Все столбцы: каждый столбец получает эту ширину"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ ทุกคอลัมน์: ทุกคอลัมน์ใช้ความกว้างนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Tüm sütunlar: her sütun bu genişliği alır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Усі стовпці: кожен стовпець отримує цю ширину"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Mọi cột: mọi cột lấy độ rộng này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ 所有列：每一列都采用此宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ 所有欄：每一欄都採用此寬度"
+          }
+        }
+      }
+    },
+    "layout.resizeMode.even": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘ Even: the panes on each side stay equal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘ 均等: 両側のペインを均等に保ちます"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ متساوٍ: تبقى الأجزاء على كل جانب متساوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Jednako: okna sa svake strane ostaju jednaka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Ens: ruderne på hver side forbliver lige store"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Gleichmäßig: Die Bereiche auf jeder Seite bleiben gleich groß"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Igualar: los paneles de cada lado quedan iguales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Égaliser : les panneaux de chaque côté restent égaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Uniforme: i riquadri di ogni lato restano uguali"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ ស្មើ៖ ផ្ទាំងនៅសងខាងនៅតែស្មើគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ 균등: 양쪽의 패널이 같은 크기를 유지합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Jevnt: rutene på hver side forblir like store"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Równo: panele po obu stronach pozostają równe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Igualar: os painéis de cada lado ficam iguais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Поровну: панели с каждой стороны остаются равными"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ เท่ากัน: แผงแต่ละด้านยังคงเท่ากัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Eşit: her iki taraftaki bölmeler eşit kalır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Порівну: панелі з кожного боку лишаються рівними"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ Đều: các khung mỗi bên giữ bằng nhau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ 均分：两侧的窗格保持等大"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌘ 均分：兩側的窗格保持等大"
+          }
+        }
+      }
+    },
+    "layout.resizeMode.snap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⇧ Snap: halves and thirds only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⇧ スナップ: 2分の1と3分の1のみ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ محاذاة: الأنصاف والأثلاث فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Poravnanje: samo polovine i trećine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Fastgør: kun halvdele og tredjedele"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Einrasten: nur Hälften und Drittel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Ajustar: solo mitades y tercios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Aimanter : moitiés et tiers seulement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Aggancia: solo metà e terzi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ ភ្ជាប់៖ តែពាក់កណ្ដាល និងមួយភាគបី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ 스냅: 1/2과 1/3만"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Fest: bare halvdeler og tredjedeler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Przyciąganie: tylko połowy i tercje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Encaixar: apenas metades e terços"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Привязка: только половины и трети"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ สแนป: ครึ่งและหนึ่งในสามเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Hizala: yalnızca yarımlar ve üçte birler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Прив’язка: лише половини й третини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ Bắt dính: chỉ một nửa và một phần ba"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ 吸附：仅二分之一和三分之一"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⇧ 吸附：僅二分之一和三分之一"
+          }
+        }
+      }
+    },
+    "layout.resizeMode.fine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃ Fine: a quarter of the pointer’s speed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌃ 微調整: ポインタの4分の1の速さ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ دقيق: ربع سرعة المؤشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ Fino: četvrtina brzine pokazivača"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ Fin: en fjerdedel af markørens fart"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ Fein: ein Viertel der Zeigergeschwindigkeit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ Fino: un cuarto de la velocidad del puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ Précis : un quart de la vitesse du pointeur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ Fine: un quarto della velocità del puntatore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ ល្អិត៖ មួយភាគបួននៃល្បឿនទ្រនិច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ 미세: 포인터 속도의 1/4"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ Fin: en firedel av pekerens fart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ Precyzyjnie: ćwierć prędkości wskaźnika"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ Fino: um quarto da velocidade do ponteiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ Точно: четверть скорости указателя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ ละเอียด: หนึ่งในสี่ของความเร็วตัวชี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ İnce: işaretçi hızının dörtte biri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ Точно: чверть швидкості вказівника"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ Tinh chỉnh: một phần tư tốc độ con trỏ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ 微调：指针速度的四分之一"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌃ 微調：指標速度的四分之一"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

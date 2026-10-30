@@ -304,8 +304,11 @@ final class ServerReachService {
 
     /// This Mac as a possible placed server: every name it answers to
     /// (gethostname, LocalHostName, computer name) and the brain's daemon
-    /// socket, when one exists (a stat; nothing is read).
-    static func thisMac() -> ServerReachPlan.LocalServer? {
+    /// socket, when one exists (a stat; nothing is read). A run under PR capture
+    /// (`MacName.captureOverride`) is never the placed server and reads none of
+    /// this Mac's names: its slot is not the server a pairing named.
+    static func thisMac(captureOverride: String? = MacName.captureOverride) -> ServerReachPlan.LocalServer? {
+        guard captureOverride == nil else { return nil }
         let socket = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cmux/brains/chief/daemon/cmux.sock").path
         guard FileManager.default.fileExists(atPath: socket) else { return nil }
         var names: [String] = []

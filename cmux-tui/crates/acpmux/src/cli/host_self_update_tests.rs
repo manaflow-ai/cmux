@@ -10,7 +10,7 @@ use super::super::host_self_update::{
 };
 use super::*;
 use crate::cli::hosts::host_auto_update::{
-    NO_AUTO_UPDATE, UPDATE_SERVICE, UPDATE_TIMER, install_script,
+    AUTO_UPDATE_OFF, NO_AUTO_UPDATE, UPDATE_SERVICE, UPDATE_TIMER, install_script,
 };
 use crate::cli::hosts::{Remote, lock_to_install, lock_updates};
 use futures::future::BoxFuture;
@@ -80,6 +80,7 @@ fn paths(peer: &FakePeer) -> Paths {
         installed: peer.home.join(".local/bin/acpmux"),
         off: peer.home.join(".acpmux").join(NO_AUTO_UPDATE),
         cloud_vm: peer.home.join("etc/cmux/vm-kind"),
+        unit: peer.home.join(format!("{UNITS}/acpmux.service")),
         target: TARGET,
     }
 }
@@ -392,13 +393,37 @@ async fn one_self_update_runs_at_a_time_and_the_opt_out_stops_them() {
 
 #[tokio::test]
 async fn a_cloud_vm_is_refused_before_anything_is_read() {
-    let peer = FakePeer::new("self-cloud-vm");
-    peer.write("etc/cmux/vm-kind", "cloud\n");
-    let files = serving(&fake_acpmux(NEW, Some(NEW)));
-    let why = refused(&peer, &files).await;
-    assert!(why.contains("--to-bundled"), "{why}");
-    assert!(files.asked().is_empty());
-    peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+    // cmux Cloud's own shape: no acpmux.service, or one someone else wrote.
+    for theirs in [None, Some("# theirs\n")] {
+        let peer = FakePeer::new("self-cloud-vm");
+        peer.write("etc/cmux/vm-kind", "cloud\n");
+        let unit = peer.home.join(format!("{UNITS}/acpmux.service"));
+        match theirs {
+            None => std::fs::remove_file(&unit).unwrap(),
+            Some(edit) => std::fs::write(&unit, format!("{SYSTEMD_UNIT}{edit}")).unwrap(),
+        }
+        let files = serving(&fake_acpmux(NEW, Some(NEW)));
+        let why = refused(&peer, &files).await;
+        assert!(why.contains("--to-bundled"), "{why}");
+        assert!(files.asked().is_empty());
+        peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+    }
+}
+
+/// A cmux Cloud VM set up as a fleet lane host (2026-10-30) runs
+/// acpmux's own `acpmux.service`; its timer refused every run and the host
+/// stayed on its first build. That daemon is nobody else's, so it updates.
+#[tokio::test]
+async fn a_cloud_vm_running_acpmux_service_updates_itself() {
+    let peer = FakePeer::new("self-cloud-vm-own-unit");
+    peer.write("etc/cmux/vm-kind", "team\n");
+    let new = fake_acpmux(NEW, Some(NEW));
+    let files = serving(&new);
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), new);
+    assert_eq!(peer.daemon(), NEW);
 }
 
 #[tokio::test]
@@ -413,6 +438,7 @@ async fn a_host_update_and_a_self_update_of_one_host_never_run_at_once() {
     let opts = UpdateOptions {
         binary_dir: Some(peer.home.join("binaries")),
         if_idle: false,
+        keep_newer: false,
         caller: None,
     };
 
@@ -523,23 +549,19 @@ echo "systemctl $*" >> "$HOME/calls""#;
 /// [`install_script`] in `home` with [`FAKE_MANAGER`] as `systemctl`: the
 /// calls and stderr.
 fn install_units(home: &Path) -> (Vec<String>, String) {
-    use std::os::unix::fs::PermissionsExt;
     let bin = home.join("fakebin");
     std::fs::create_dir_all(&bin).unwrap();
     let systemctl = bin.join("systemctl");
-    std::fs::write(&systemctl, format!("#!/bin/sh\n{FAKE_MANAGER}\n")).unwrap();
-    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test_exec::write_executable(&systemctl, format!("#!/bin/sh\n{FAKE_MANAGER}\n"));
     // With `cat-cut` in the home, a write from stdin fails (a full /tmp).
     let cat = bin.join("cat");
     let fail =
         "if [ -e \"$HOME/cat-cut\" ] && [ $# -eq 0 ]; then head -c 20 > /dev/null; exit 1; fi";
-    std::fs::write(&cat, format!("#!/bin/sh\n{fail}\nexec /bin/cat \"$@\"\n")).unwrap();
-    std::fs::set_permissions(&cat, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test_exec::write_executable(&cat, format!("#!/bin/sh\n{fail}\nexec /bin/cat \"$@\"\n"));
     // With `cp-cut` in the home, a copy stops halfway (a full disk, a kill).
     let cp = bin.join("cp");
     let cut = "if [ -e \"$HOME/cp-cut\" ]; then head -c 20 \"$1\" > \"$2\"; exit 1; fi";
-    std::fs::write(&cp, format!("#!/bin/sh\n{cut}\nexec /bin/cp \"$@\"\n")).unwrap();
-    std::fs::set_permissions(&cp, std::fs::Permissions::from_mode(0o755)).unwrap();
+    crate::test_exec::write_executable(&cp, format!("#!/bin/sh\n{cut}\nexec /bin/cp \"$@\"\n"));
     let out = Command::new("sh")
         .args(["-c", &install_script()])
         .env("HOME", home)
@@ -549,7 +571,7 @@ fn install_units(home: &Path) -> (Vec<String>, String) {
     assert!(out.status.success(), "{out:?}");
     let calls = std::fs::read_to_string(home.join("calls")).unwrap_or_default();
     let _ = std::fs::remove_file(home.join("calls"));
-    (calls.lines().map(str::to_owned).collect(), String::from_utf8_lossy(&out.stderr).into_owned())
+    (calls.lines().map(str::to_owned).collect(), String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 #[test]
@@ -607,6 +629,7 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     let (calls, err) = install_units(&home);
     assert!(calls.is_empty(), "{calls:?}");
     assert!(err.contains("acpmux-update.timer is a unit acpmux did not write"), "{err}");
+    assert!(err.starts_with(AUTO_UPDATE_OFF), "the row's marker, on stdout: {err}");
     assert_eq!(read("acpmux-update.timer"), theirs);
     assert!(!units.join("acpmux-update.service").exists());
 
@@ -649,9 +672,15 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     // The opt-out stops the timer and writes nothing.
     std::fs::create_dir_all(home.join(".acpmux")).unwrap();
     std::fs::write(home.join(".acpmux").join(NO_AUTO_UPDATE), "").unwrap();
-    let (calls, _) = install_units(&home);
+    let (calls, off) = install_units(&home);
     assert_eq!(calls, ["systemctl --user disable --now acpmux-update.timer"]);
     assert!(!units.exists());
+    assert!(off.is_empty(), "an opt-out is no reason to report: {off}");
+    // Review: nor is one whose units could not be staged.
+    std::fs::write(home.join("cat-cut"), "").unwrap();
+    let (_, off) = install_units(&home);
+    assert!(off.is_empty(), "{off}");
+    std::fs::remove_file(home.join("cat-cut")).unwrap();
 
     // Review of #24232: the opt-out stops only acpmux's timer, never one
     // someone else wrote.
@@ -669,6 +698,79 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     let (calls, _) = install_units(&home);
     assert_eq!(calls, ["systemctl --user disable --now acpmux-update.timer"]);
     let _ = std::fs::remove_dir_all(&home);
+}
+
+/// A host that does not update itself says why in `host update`'s row, not
+/// only on a stderr nobody reads.
+#[test]
+fn an_update_row_says_when_the_host_does_not_update_itself() {
+    let peer = FakePeer::new("update-auto-off");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(true);
+    assert_eq!((up.outcome, up.auto_update_off.as_deref()), (Outcome::Updated, None), "{up:?}");
+    assert!(up.to_json("p", "fake").get("autoUpdateOff").is_none());
+
+    let peer = FakePeer::new("update-auto-off-theirs");
+    peer.write(&format!("{UNITS}/acpmux-update.timer"), "[Timer]\nOnCalendar=daily\n");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    let why = up.auto_update_off.clone().unwrap_or_default();
+    assert!(why.contains("acpmux-update.timer is a unit acpmux did not write"), "{up:?}");
+    assert!(!why.starts_with(AUTO_UPDATE_OFF), "{why}");
+    assert_eq!(up.to_json("p", "fake")["autoUpdateOff"], why.as_str());
+    assert!(up.line().ends_with(&format!("; auto-update off: {why}")), "{}", up.line());
+    assert!(!up.status.unwrap_or_default().contains(AUTO_UPDATE_OFF));
+}
+
+/// A [`FakePeer`] that takes a script's stdin, as `host setup` writes the
+/// daemon config (`host update` feeds none, which the peer itself checks).
+struct SetupPeer(FakePeer);
+
+impl Remote for SetupPeer {
+    fn host(&self) -> &str {
+        self.0.host()
+    }
+
+    fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
+        use std::io::Write as _;
+        use std::process::Stdio;
+        let Some(input) = stdin else { return self.0.exec(script, None) };
+        let mut sh = self.0.sh(script);
+        sh.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = sh.spawn()?;
+        child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin"))?.write_all(input)?;
+        let out = child.wait_with_output()?;
+        Ok(RemoteOut {
+            ok: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        })
+    }
+
+    fn spawn(&self, script: &str) -> Result<std::process::Child> {
+        self.0.spawn(script)
+    }
+
+    fn push(&self, local: &Path, remote: &str) -> Result<()> {
+        self.0.push(local, remote)
+    }
+}
+
+/// The same for `host setup` (and `host enroll --fix`): the install answers
+/// the reason beside the daemon's status.
+#[test]
+fn a_setup_says_when_the_host_does_not_update_itself() {
+    let peer = SetupPeer(FakePeer::new("setup-auto-off"));
+    let (_, off) = crate::cli::hosts::install_daemon(&peer, 47811, true).unwrap();
+    assert_eq!(off, None);
+
+    let peer = SetupPeer(FakePeer::new("setup-auto-off-theirs"));
+    peer.0.write(&format!("{UNITS}/acpmux-update.service"), "[Service]\nExecStart=/bin/true\n");
+    let (status, off) = crate::cli::hosts::install_daemon(&peer, 47811, true).unwrap();
+    let why = off.unwrap_or_default();
+    assert!(why.contains("acpmux-update.service is a unit acpmux did not write"), "{why}");
+    assert!(!status.contains(AUTO_UPDATE_OFF), "{status}");
 }
 
 #[test]

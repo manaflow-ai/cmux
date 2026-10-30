@@ -78,7 +78,7 @@ export function registerAgentDiffTheme() {
 
 const c = diffColors;
 const MONO = `"SF Mono", SFMono-Regular, ui-monospace, Menlo, monospace`;
-const UI = `system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif`;
+const UI = `var(--font-ui)`;
 
 /// Injected into each diff's shadow root: 12px / 18px code rows (the terminal's font, size and
 /// line height once the page sets the `--cmux-diff-*` variables, appearance.ts), a 4ch number

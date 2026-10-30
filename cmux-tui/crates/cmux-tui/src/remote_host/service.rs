@@ -99,14 +99,20 @@ pub(crate) fn running_pid() -> Option<u32> {
 }
 
 /// Stops the running `serve` (the pid that holds the lock) and returns when
-/// its lock is released.
-pub(crate) fn stop_running() {
-    let Some(pid) = running_pid() else { return };
+/// its lock is released. An error when it still holds the lock after a kill:
+/// its open connections are then still open, so no caller may report them closed.
+pub(crate) fn stop_running() -> anyhow::Result<()> {
+    let Some(pid) = running_pid() else { return Ok(()) };
     signal(pid, false);
     if !lock_released_within(STOP_BOUND) {
         signal(pid, true);
-        let _ = lock_released_within(STOP_BOUND);
+        if !lock_released_within(STOP_BOUND) {
+            bail!(
+                "the running `cmux host serve` (pid {pid}) did not stop; its connections stay open until it does"
+            );
+        }
     }
+    Ok(())
 }
 
 fn lock_released_within(bound: Duration) -> bool {
@@ -283,6 +289,50 @@ pub(crate) fn installed() -> bool {
     imp::installed().is_some()
 }
 
+/// Why the launchd agent's serve ends (`launchd_refresh.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) enum AgentExit {
+    /// An update replaced the binary: exit unsuccessfully, launchd starts the new one.
+    Replaced,
+    /// The app was deleted; the agent removed itself.
+    Removed,
+}
+
+/// This serve's launchd agent watch, when launchd runs it as its agent. Opened
+/// first thing in `serve`, before any setup (`launchd_refresh::for_agent`).
+#[cfg(target_os = "macos")]
+pub(crate) type AgentWatch = Option<crate::launchd_refresh::Agent>;
+#[cfg(not(target_os = "macos"))]
+pub(crate) type AgentWatch = Option<std::convert::Infallible>;
+
+pub(crate) fn agent_watch() -> AgentWatch {
+    #[cfg(target_os = "macos")]
+    return imp::plist_path()
+        .ok()
+        .and_then(|plist| crate::launchd_refresh::for_agent(LAUNCHD_LABEL, plist));
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
+/// Runs `watch` (from [`agent_watch`]) and sends its outcome to `done` once an
+/// update replaced the binary or the app was deleted. Nothing is ever sent
+/// otherwise.
+pub(crate) fn follow_app_updates(watch: AgentWatch, done: mpsc::Sender<Option<AgentExit>>) {
+    #[cfg(target_os = "macos")]
+    if let Some(agent) = watch {
+        std::thread::spawn(move || {
+            let exit = match agent.wait() {
+                crate::launchd_refresh::Outcome::Replaced => AgentExit::Replaced,
+                crate::launchd_refresh::Outcome::Removed => AgentExit::Removed,
+            };
+            let _ = done.send(Some(exit));
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (watch, done);
+}
+
 /// Replaces any running `serve` (the service's or a detached one) with a
 /// fresh one: through the service manager when `with_service` and one is
 /// installed, else detached. Returns a note for `status`.
@@ -291,7 +341,7 @@ pub(crate) fn restart(exe: &Path, with_service: bool) -> anyhow::Result<String> 
     if installed() {
         imp::stop();
     }
-    stop_running();
+    stop_running()?;
     let mut why = String::new();
     if service {
         match imp::start() {
@@ -324,7 +374,7 @@ fn run_quiet(program: &str, args: &[&str]) -> anyhow::Result<()> {
 mod imp {
     use super::*;
 
-    fn plist_path() -> anyhow::Result<PathBuf> {
+    pub(super) fn plist_path() -> anyhow::Result<PathBuf> {
         let home = cmux_tui_core::platform::home_dir()
             .ok_or_else(|| anyhow!("cannot find the home directory"))?;
         Ok(home.join("Library").join("LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist")))
@@ -353,6 +403,7 @@ mod imp {
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ThrottleInterval</key><integer>10</integer>
   <key>ProcessType</key><string>Background</string>
+  <key>EnvironmentVariables</key><dict><key>{}</key><string>{LAUNCHD_LABEL}</string></dict>
   <key>StandardOutPath</key><string>{}</string>
   <key>StandardErrorPath</key><string>{}</string>
 </dict>
@@ -360,6 +411,7 @@ mod imp {
 "#,
             escape(exe),
             escape(dir),
+            crate::launchd_refresh::AGENT_ENV,
             escape(&log),
             escape(&log),
         );

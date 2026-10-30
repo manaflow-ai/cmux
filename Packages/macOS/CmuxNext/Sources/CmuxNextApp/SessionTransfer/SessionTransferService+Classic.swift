@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextSessionTransfer
 import CmuxNextSettings
 import Foundation
 

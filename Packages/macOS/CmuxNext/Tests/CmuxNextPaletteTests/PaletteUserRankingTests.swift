@@ -1,12 +1,14 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// The user's aliases and pins (cmux.json `palette.aliases`, `palette.pins`, cx-9ce.43): pinned
 /// commands lead the empty palette under Pinned, in the user's order; typing a whole alias puts
 /// its command first; a changed setting shows on the next open.
 @MainActor
+@Suite(.closesItsWindows)
 struct PaletteUserRankingTests {
     @MainActor private final class Settings {
         var value = PaletteRankSettings()
@@ -34,7 +36,7 @@ struct PaletteUserRankingTests {
         let registry = ActionRegistry.standard()
         registry.bind("newWindow") {}
         let palette = PaletteController(registry: registry, sources: sources, frecencyPersistence: nil)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
 
         palette.show(.commands)
         await Self.waitForFirstSection(palette, "pinned")

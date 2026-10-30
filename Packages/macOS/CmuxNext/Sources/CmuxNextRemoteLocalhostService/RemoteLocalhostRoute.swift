@@ -27,13 +27,19 @@ public enum RemoteLocalhostStorePlan: Equatable {
     case profile(BrowserNavigationGuard)
     /// The derived store (profile x machine) behind the proxy.
     case derived
+    /// No page: an Open Desktop address no store here can show (it routes to no machine).
+    /// Chromium's guard refuses it in the profile's store, so that store would reroute it forever.
+    case blank
 
     /// A remote machine's loopback URL gets the derived store; any other URL
     /// of a remote tab stays in the profile's store and may not navigate to
     /// loopback. Tabs of this Mac, and remote tabs whose localhost is this Mac
-    /// on purpose (update, turned off, WebKit), are unrestricted.
+    /// on purpose (update, turned off, WebKit), may go anywhere but an Open
+    /// Desktop page, which reroutes to its machine's store (one that routes to none opens blank).
     public static func plan(route: RemoteLocalhostRoute, url: URL?) -> RemoteLocalhostStorePlan {
-        guard case .machine = route else { return .profile(.none) }
+        guard case .machine = route else {
+            return url.map(BrowserNavigationGuard.isCloudDesktop) == true ? .blank : .profile(.exceptCloudDesktop)
+        }
         return url.flatMap(LoopbackHost.init(url:))?.isLoopback == true ? .derived : .profile(.noLoopback)
     }
 }

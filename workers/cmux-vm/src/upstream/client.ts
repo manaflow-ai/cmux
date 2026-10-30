@@ -262,7 +262,7 @@ export interface UpstreamClientService extends UpstreamParityService {
   ) => Effect.Effect<UpstreamVm, UpstreamError>;
   /**
    * Boots a new VM for the caller's tenant. Its upstream name and metadata
-   * carry the tenant id and the cmux id. With `source`, it boots from that
+   * carry the tenant id and the cmux id; the tenant id is also its upstream customer. With `source`, it boots from that
    * snapshot of the tenant's.
    */
   readonly inspectCancellingCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly cancelling: CancellingVmCreation<C, V> }) => Effect.Effect<{ readonly upstreamId: UpstreamId } | null, UpstreamError>;

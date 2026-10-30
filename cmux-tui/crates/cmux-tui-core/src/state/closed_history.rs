@@ -27,6 +27,7 @@ use crate::state::prelude::*;
 use crate::state::remote_terminal_tabs_store::RemoteTerminalRecord;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
 use crate::user_settings::NewWorkspacePlacement;
+use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "closed.reopen";
 
@@ -55,16 +56,16 @@ impl ReopenRequest {
     fn fingerprint(&self) -> Value {
         let mut fingerprint = serde_json::json!({"operation": OPERATION, "closed": self.closed});
         if let Some(window) = &self.window {
-            fingerprint["window"] = serde_json::json!(window);
+            fingerprint.set("window", serde_json::json!(window));
         }
         if let Some(members) = &self.members {
-            fingerprint["members"] = serde_json::json!(members);
+            fingerprint.set("members", serde_json::json!(members));
         }
         if let Some(tab) = &self.tab {
-            fingerprint["tab"] = serde_json::json!(tab);
+            fingerprint.set("tab", serde_json::json!(tab));
         }
         if let Some(pane) = &self.fallback_pane {
-            fingerprint["fallback_pane"] = serde_json::json!(pane);
+            fingerprint.set("fallback_pane", serde_json::json!(pane));
         }
         fingerprint
     }
@@ -400,7 +401,7 @@ impl Mux {
                 if tabs.is_empty() {
                     continue;
                 }
-                group["tab_ids"] = serde_json::json!(tabs);
+                group.set("tab_ids", serde_json::json!(tabs));
             }
             self.reopen_tab_group(&mutation.actor, &group, closed, &mut reopened)?;
         }
@@ -834,7 +835,7 @@ impl Mux {
                 let (workspace, _) = state.screen_of(landed)?;
                 (record["split"].is_object()
                     && record["workspace_id"].as_str()
-                        == Some(state.workspaces[workspace].public_id.as_str()))
+                        == Some(state.workspaces.get(workspace)?.public_id.as_str()))
                 .then_some(landed)
             })
         };

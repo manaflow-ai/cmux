@@ -532,6 +532,11 @@ async fn a_linked_login_environment_cache_is_never_trusted() {
     let cache = dir.join("login-env.json");
     let planted = dir.join("planted-login-env.json");
     std::fs::copy(&cache, &planted).unwrap();
+    let mut planted_cache: Value =
+        serde_json::from_slice(&std::fs::read(&planted).unwrap()).unwrap();
+    planted_cache["vars"]["NO_PROXY"] = "from-linked-cache".into();
+    let planted_text = serde_json::to_string(&planted_cache).unwrap();
+    std::fs::write(&planted, &planted_text).unwrap();
     std::fs::remove_file(&cache).unwrap();
     std::os::unix::fs::symlink(&planted, &cache).unwrap();
     {
@@ -539,6 +544,8 @@ async fn a_linked_login_environment_cache_is_never_trusted() {
         startup_finished(&d).await;
     }
     assert_eq!(runs(), 2, "the daemon trusted a linked login cache");
+    assert_eq!(std::fs::read_to_string(&planted).unwrap(), planted_text);
+    assert!(!std::fs::symlink_metadata(&cache).unwrap().file_type().is_symlink());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

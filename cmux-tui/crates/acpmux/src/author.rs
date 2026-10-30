@@ -24,6 +24,7 @@
 use serde_json::{Value, json};
 
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 
 /// Where a request carries its author.
 pub const POINTER: &str = "/_meta/acpmux/author";
@@ -51,10 +52,10 @@ impl Author {
     pub fn provenance(&self) -> Value {
         let mut p = json!({"kind": PERSON_MESSAGE, "from": self.id, "fromName": self.name});
         if let Some(login) = &self.login {
-            p["login"] = json!(login);
+            p.set("login", json!(login));
         }
         if let Some(node) = &self.node {
-            p["node"] = json!(node);
+            p.set("node", json!(node));
         }
         p
     }
@@ -156,6 +157,19 @@ pub fn of_provenance(provenance: Option<&Value>) -> Option<&str> {
         .flatten()
 }
 
+/// The person a prompt's provenance names, as a queue list shows them (`QueuedPromptSummary`
+/// `author`, `_acpmux/composers`): `{id, name}`, the name falling back to the id when a record
+/// names none; `None` for the owner and for an agent's message.
+pub fn listed(provenance: Option<&Value>) -> Option<crate::protocol::session::QueuedAuthor> {
+    let id = of_provenance(provenance)?;
+    let name = provenance
+        .and_then(|p| p.get("fromName"))
+        .and_then(Value::as_str)
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(id);
+    Some(crate::protocol::session::QueuedAuthor { id: id.to_owned(), name: name.to_owned() })
+}
+
 /// Who changes a queued prompt or an unread steer (`hub/queue_edit.rs`, `_acpmux/queue_remove`):
 /// `Some(author id)`, `Some(None)` for the owner, checked against the prompt's sender under the
 /// lock that changes it; `None` is the hub's own change, never checked.
@@ -191,8 +205,8 @@ pub fn restored_supersede(queued: &Value) -> Option<&str> {
 pub fn answered_by(device: Option<Value>, author: Option<&Author>) -> Option<Value> {
     let Some(author) = author else { return device };
     let mut by = device.filter(Value::is_object).unwrap_or_else(|| json!({}));
-    by["id"] = json!(author.id);
-    by["name"] = json!(author.name);
+    by.set("id", json!(author.id));
+    by.set("name", json!(author.name));
     Some(by)
 }
 
@@ -225,6 +239,15 @@ mod tests {
         assert_eq!(of_provenance(Some(&bo.provenance())), Some("user_42"));
         assert_eq!(of_provenance(Some(&json!({"kind": "agent_message", "from": "acp:x"}))), None);
         assert_eq!(of_provenance(None), None);
+        let named = |p: Value| listed(Some(&p)).map(|a| (a.id, a.name));
+        assert_eq!(named(bo.provenance()), Some(("user_42".into(), "Bo".into())));
+        assert_eq!(
+            named(json!({"kind": "person_message", "from": "user_7"})),
+            Some(("user_7".into(), "user_7".into())),
+            "a record with no name lists the id"
+        );
+        assert_eq!(named(json!({"kind": "agent_message", "from": "acp:x", "fromName": "b"})), None);
+        assert!(listed(None).is_none());
         for bad in [
             json!("tailnet:ana"),
             json!({"name": "Ana"}),

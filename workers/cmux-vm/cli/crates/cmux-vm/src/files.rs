@@ -378,7 +378,9 @@ pub(crate) async fn file(
         FileCommand::Stat(args) => {
             let id = vm_id(&args.vm_id)?;
             let path = guest_path(&args.path)?;
-            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None)).await?;
+            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None))
+                .await
+                .map_err(|e| e.for_vm(id.as_str(), "file stat"))?;
             out.file_stat(&body)
         }
         FileCommand::Ls(args) => {
