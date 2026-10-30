@@ -248,6 +248,14 @@ def run_metrics(run):
         "stall_sites": stall_sites(run["stalls"]),
         "notes": series.get("notes", []),
     }
+    # The harness's own faults: a hooked agent that logged no hook run, or a hook thread that crashed.
+    faults = []
+    if m["agents_hooked"] and not hooks:
+        faults.append("hooked agents logged no hook runs")
+    crashed = [h["rc"] for h in hooks if str(h.get("rc", "")).startswith("harness-error")]
+    if crashed:
+        faults.append(f"{len(crashed)} hook runs hit a harness error ({crashed[0][:120]})")
+    m["harness_faults"] = faults
     m["austin_failure"] = {
         "refused_connections": (m["daemon_connections"]["refused"] or 0) > 0
         or any(k in ("server.busy", "session.busy") for k in {**m["person_cli_refusals"], **m["agent_cli_refusals"]}),
@@ -419,6 +427,9 @@ def validity(runs):
     missing = [r["dir"] for r in base + head if "metrics" not in r]
     if missing:
         return f"invalid: runs without results: {', '.join(missing)}"
+    broken = [f"{r.get('arm')} round {r.get('round')}" for r in base + head if r["metrics"]["harness_faults"]]
+    if broken:
+        return f"invalid: harness faults ({', '.join(broken)}): {base[0]['metrics']['harness_faults'] or head[0]['metrics']['harness_faults']}"
     quiet = [f"round {r.get('round')}" for r in base if not any(r["metrics"]["austin_failure"].values())]
     if quiet:
         return f"invalid: base did not reproduce ({', '.join(quiet)} showed none of Austin's failures)"
@@ -493,7 +504,8 @@ def main():
         m = r["metrics"]
         seen = [k for k, v in m["austin_failure"].items() if v]
         lines.append(f"{r.get('arm')} round {r.get('round')} on {r.get('host')}: agents {m['agents_started']}/{m['agents']} "
-                     f"(hooked {m['agents_hooked']}), hooks {m['agent_hooks']}; Austin's failures seen: {', '.join(seen) or 'NONE'}")
+                     f"(hooked {m['agents_hooked']}), hooks {m['agent_hooks']}; Austin's failures seen: {', '.join(seen) or 'NONE'}"
+                     + (f"; HARNESS FAULTS: {'; '.join(m['harness_faults'])}" if m["harness_faults"] else ""))
         lines.append(f"   stalls >100 ms: CODE {m['stall_code_count']} ({m['stall_code_total_ms']} ms), "
                      f"WAIT {m['stall_wait_count']} ({m['stall_wait_total_ms']} ms, max CPU share {m['stall_wait_cpu_share_max']}) "
                      f"next to swap max {m['swap_used_mb']['max']} MB, memory level min {m['memory_level_min']}; WAITs: owner B8 (memory)")

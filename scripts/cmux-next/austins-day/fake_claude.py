@@ -32,6 +32,7 @@ import json
 import os
 import random
 import re
+import select
 import signal
 import subprocess
 import sys
@@ -116,40 +117,36 @@ def run_hooks(hooks, event, payload, tool=None):
             log({"kind": "hook", "event": event, "ms": round((time.monotonic() - start) * 1000, 2), "rc": f"oserror:{error.errno}",
                  "cpu_ms": None})
             return
-        # Our own child, stopped at the hook's timeout as Claude Code stops a hook that runs too long. The
-        # kill happens only while the child is not reaped (`ended` is set under the lock after a WNOWAIT
-        # wait, while it is still a zombie), so it never reaches a pid the kernel gave to another process.
-        guard = threading.Lock()
-        state = {"ended": False, "killed": False}
-
-        def expire():
-            with guard:
-                if not state["ended"]:
-                    state["killed"] = True
-                    os.kill(child.pid, signal.SIGKILL)
-        timer = threading.Timer(timeout, expire)
-        timer.daemon = True
-        timer.start()
         try:
             try:
                 child.stdin.write(data)
                 child.stdin.close()
             except OSError:
                 pass
-            os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT)
-            with guard:
-                state["ended"] = True
-            timer.cancel()
+            # Stopped at the hook's timeout, as Claude Code stops a hook that runs too long. The kill happens
+            # only while our child is still unreaped (exited_within never reaps), so it cannot reach a pid
+            # the kernel gave to another process.
+            killed = not exited_within(child.pid, timeout)
+            if killed:
+                os.kill(child.pid, signal.SIGKILL)
             _, status, usage = os.wait4(child.pid, 0)
             child.returncode = os.waitstatus_to_exitcode(status)
-            rc = "timeout" if state["killed"] else child.returncode
+            rc = "timeout" if killed else child.returncode
             cpu_ms = round((usage.ru_utime + usage.ru_stime) * 1000, 2)
         except ChildProcessError:
             rc = "lost"
         log({"kind": "hook", "event": event, "ms": round((time.monotonic() - start) * 1000, 2), "rc": rc, "cpu_ms": cpu_ms})
 
+    def guarded(command, timeout):
+        # A harness fault in a hook thread is logged, never silent (2026-10-30: os.waitid is missing on the
+        # minis' Python 3.9, every hook thread died, and the runs logged no hooks).
+        try:
+            one(command, timeout)
+        except Exception as error:  # noqa: BLE001 - recorded as the hook's result
+            log({"kind": "hook", "event": event, "ms": None, "rc": f"harness-error:{type(error).__name__}: {error}", "cpu_ms": None})
+
     for command, timeout, detached in commands:
-        thread = threading.Thread(target=one, args=(command, timeout), daemon=True)
+        thread = threading.Thread(target=guarded, args=(command, timeout), daemon=True)
         thread.start()
         if not detached:  # an `async` hook runs on while Claude Code goes on
             threads.append(thread)
@@ -188,6 +185,30 @@ def think(seconds, cps, cpu, turn):
         if sleep > 0:
             time.sleep(sleep)
     out.write("\r\x1b[2K")
+
+
+def exited_within(pid, timeout):
+    """True when our child `pid` exits within `timeout` seconds; it stays unreaped either way. macOS: a
+    kqueue process-exit event (Python 3.9 on the minis has no os.waitid); Linux: a pidfd; else waitid."""
+    if hasattr(select, "kqueue"):
+        queue = select.kqueue()
+        try:
+            event = select.kevent(pid, filter=select.KQ_FILTER_PROC, flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                                  fflags=select.KQ_NOTE_EXIT)
+            try:
+                return bool(queue.control([event], 1, timeout))
+            except ProcessLookupError:
+                return True  # it exited before the event was registered (a zombie now)
+        finally:
+            queue.close()
+    if hasattr(os, "pidfd_open"):
+        fd = os.pidfd_open(pid)
+        try:
+            return bool(select.select([fd], [], [], timeout)[0])
+        finally:
+            os.close(fd)
+    os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)
+    return True
 
 
 def run_tool(name, argv, cwd):

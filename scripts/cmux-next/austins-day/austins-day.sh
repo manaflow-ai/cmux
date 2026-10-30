@@ -162,8 +162,16 @@ else
   read -r base_job base_commit < <(resolve "$base")
   read -r head_job head_commit < <(resolve "$head")
   for round in $(seq 1 "$runs"); do
-    run_arm base "$base_job" "$base_commit" "$round" "$out/base-$round" && dirs+=("$out/base-$round") || echo "base round $round failed" >&2
-    run_arm head "$head_job" "$head_commit" "$round" "$out/head-$round" && dirs+=("$out/head-$round") || echo "head round $round failed" >&2
+    # A run that got no lease or no app is tried once more (a round needs both arms to count).
+    for arm in base head; do
+      if [ $arm = base ]; then j=$base_job c=$base_commit; else j=$head_job c=$head_commit; fi
+      if run_arm $arm "$j" "$c" "$round" "$out/$arm-$round" || { rm -rf "$out/$arm-$round"; echo "$arm round $round: retry" >&2;
+         run_arm $arm "$j" "$c" "$round" "$out/$arm-$round"; }; then
+        dirs+=("$out/$arm-$round")
+      else
+        echo "$arm round $round failed" >&2
+      fi
+    done
   done
 fi
 [ ${#dirs[@]} -gt 0 ] || { echo "no run finished" >&2; exit 1; }
