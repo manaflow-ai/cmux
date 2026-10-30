@@ -158,6 +158,27 @@ def stall_sites(stalls):
     return sorted(sites.values(), key=lambda s: -s["total_ms"])
 
 
+def first_answers_all_chats(waves):
+    """Every chat attempt (review of d965fcf4b76: answered chats alone are survivor-biased when the arms'
+    answered counts differ): an answered chat at its first-answer time; a chat that got no answer at the time
+    it failed or gave up (its slowest recorded step, or the 120 s client time-out when none), a lower bound."""
+    out = []
+    for w in waves:
+        chats = w.get("chats")
+        if not isinstance(chats, list):
+            continue
+        for chat in chats:
+            if not isinstance(chat, list):
+                continue
+            answered = first_answers([{"chats": [chat]}])
+            if answered:
+                out.append(answered[0])
+                continue
+            spent = sum(a["ms"] for a in chat if isinstance(a.get("ms"), (int, float)))
+            out.append(spent if spent > 0 else 120_000.0)
+    return out
+
+
 def first_answers(waves):
     """Per chat that got an answer: session/new ms + the prompt's first agent_message_chunk ms."""
     out = []
@@ -294,6 +315,7 @@ def run_metrics(run):
         # text, for chats whose prompt got one (session/new time + the prompt's first-chunk time).
         "acpmux_first_answer_ms": dist(first_answers(series["waves"])),
         "acpmux_answered_chats": len(first_answers(series["waves"])),
+        "acpmux_first_answer_all_chats_ms": dist(first_answers_all_chats(series["waves"])),
         "acpmux_prompt_ms": dist(a["ms"] for a in answers if a["method"] == "session/prompt"),
         "acpmux_errors": counts(a["error"][:80] for a in answers if a.get("error")),
         # pa-b10's measure: each chat of a Chief wave is one attempt (its session/new, or the connection
@@ -682,11 +704,14 @@ REQUESTED = [
     ("registry lock held share", ("registry_lock_held_share",)),
     ("registry lock wait p99 us", ("daemon_lock_wait_us", "p99")),
     ("app request p99 ms", ("app_requests", "p99")),
-    # #28442 (pa-b10): the 90 s agent_start hangs and the time to first answer per chat.
-    ("acpmux agent_start 90 s time-outs", ("acpmux_agent_start_timeouts",)),
-    ("acpmux first answer median ms", ("acpmux_first_answer_ms", "p50")),
-    ("acpmux first answer p95 ms", ("acpmux_first_answer_ms", "p95")),
+    # #28442 (pa-b10): the time to first answer per chat (the 90 s agent_start time-outs are a verdict row).
+    ("acpmux first answer median ms (answered chats only)", ("acpmux_first_answer_ms", "p50")),
+    ("acpmux first answer p95 ms (answered chats only)", ("acpmux_first_answer_ms", "p95")),
     ("acpmux answered chats", ("acpmux_answered_chats",)),
+    ("acpmux first answer median ms (all chats; unanswered = time to failure, a lower bound)",
+     ("acpmux_first_answer_all_chats_ms", "p50")),
+    ("acpmux first answer p95 ms (all chats; unanswered = time to failure, a lower bound)",
+     ("acpmux_first_answer_all_chats_ms", "p95")),
 ] + [(f"{lock} lock {suffix} {what}", ("lock_sites", f"{lock}:{suffix}", key))
      for lock in ("registry",) for suffix in NAMED_LOCK_SITES
      for what, key in (("hold p99 us", "hold_p99_us"), ("hold total us", "hold_total_us"))]

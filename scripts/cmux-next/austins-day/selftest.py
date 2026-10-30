@@ -589,6 +589,9 @@ class FirstAnswer(unittest.TestCase):
         self.assertEqual(m["acpmux_answered_chats"], 2)
         self.assertEqual(m["acpmux_first_answer_ms"]["p50"], 2300.0)
         self.assertEqual(m["acpmux_first_answer_ms"]["max"], 4700.0)
+        # All chats: the unanswered one counts at its 90 s failure (a lower bound).
+        self.assertEqual(m["acpmux_first_answer_all_chats_ms"]["n"], 3)
+        self.assertEqual(m["acpmux_first_answer_all_chats_ms"]["max"], 90000.0)
 
     def test_the_driver_times_the_first_answer_chunk(self):
         """The driver's own acpmux_call against a tiny ACP server that streams one chunk, then answers."""
