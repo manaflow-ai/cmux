@@ -161,18 +161,34 @@ import Testing
     }
 
     /// `cmux browser page new-tab URL` with no browser near the caller opens its first one, not a
-    /// refusal: a terminal's in its own pane, an agent's beside its chat (`openBrowser` with the caller).
-    @Test func aNewTabWithNoBrowserNearOpensBesideTheCaller() async throws {
+    /// refusal: a terminal's in its own pane behind the terminal, an agent's beside its chat
+    /// (`openBrowser` with the caller, placed by `placeBesideCaller`).
+    @Test func aNewTabWithNoBrowserNearOpensOneForTheCaller() async throws {
         var snapshot = Self.snapshot(ownBrowser: false, neighbors: false)
-        snapshot.catalog.actions.append(ControlActionInfo(id: "openBrowser", title: "Open Browser", category: "browser", categoryTitle: "Browser",
-                                                          cliName: "browser open", symbol: "globe", keywords: [], shortcut: nil, shortcutConfig: nil,
-                                                          arguments: [], targets: ["pane", "tab"], requiresMask: 0, requires: [],
-                                                          isBound: true, isDebugOnly: false, mainMenu: nil))
+        let openBrowser = ControlActionInfo(id: "openBrowser", title: "New Browser Tab", category: "tab", categoryTitle: "Tab",
+                                            cliName: "tab new-browser", symbol: "globe", keywords: [], shortcut: nil, shortcutConfig: nil,
+                                            arguments: [], targets: ["tab"], requiresMask: 0, requires: [],
+                                            isBound: true, isDebugOnly: false, mainMenu: nil)
+        snapshot.catalog = ControlCatalog(actions: snapshot.catalog.actions + [openBrowser], contextMask: 1 << 1,
+                                          targetKinds: ["pane", "tab"], debugActionsAvailable: false)
+        let agentPane = snapshot.topology.workspaces[1].screens[0].panes[0]
+        var chat = ControlTabInfo(id: "tab-chat", surface: "tab-chat", kind: "agent", title: "Claude")
+        chat.agentSessionID = "agent-1"
+        snapshot.topology.workspaces[1].screens[0].panes = [agentPane, Self.pane("pane-chat", column: 1, [chat])]
         let (router, executor) = install(snapshot)
-        let result = await router.handle(ControlRequest(method: "browser.page.new_tab",
-                                                        params: ["caller": Self.agent, "wait": false]))
-        _ = try result.get()
+
+        _ = try await router.handle(ControlRequest(method: "browser.page.new_tab", params: ["caller": Self.agent, "wait": false])).get()
         #expect(executor.last?.actionID == "openBrowser")
         #expect(executor.last?.target == ControlTargetRef(kind: "tab", id: "tab-agent"))
+        #expect(executor.last?.background == true)
+
+        _ = try await router.handle(ControlRequest(method: "browser.page.new_tab",
+                                                   params: ["caller": ["agent_session": "agent-1"], "wait": false])).get()
+        #expect(executor.last?.actionID == "openBrowser")
+        #expect(executor.last?.callerAgentSession == "agent-1")
+        #expect(executor.last?.besideCaller == true)
+        // The chat's column is the rightmost: the browser opens in a new column beside it.
+        #expect(executor.last?.target == ControlTargetRef(kind: "tab", id: "tab-chat"))
+        #expect(executor.last?.newColumnBeside == true)
     }
 }

@@ -27,11 +27,13 @@ extension BrowserPageService {
             var tab: Tab?
             if name == "new_tab", let lonely = try Self.callerWithNoBrowserNear(call) {
                 // The caller's first browser, rather than a refusal: an agent's opens beside its chat
-                // (`openBrowser` places it), a terminal's in its own pane.
+                // (`openBrowser` places it), a terminal's in its own pane behind it, so the agent
+                // running there stays in view (page verbs reach a tab no pane shows).
                 if lonely.caller.agentSession != nil || lonely.caller.homeChat {
                     params["caller"] = call.request.params["caller"]
                 } else {
                     params["target"] = .string("tab:" + lonely.location.tab.id)
+                    params["background"] = true
                 }
             } else {
                 let anchor = try Self.tab(call)
@@ -54,7 +56,7 @@ extension BrowserPageService {
     /// The caller of a call that names no tab, when no browser is near it (``BrowserCallerTarget``).
     static func callerWithNoBrowserNear(_ call: ControlCall) throws -> (caller: ControlCaller, location: ControlCallerLocation)? {
         let params = call.request.params
-        guard params["tab"]?.stringValue?.isEmpty ?? true, let caller = try ControlCaller(params),
+        guard params["tab"]?.stringValue?.trimmingCharacters(in: .whitespaces).isEmpty ?? true, let caller = try ControlCaller(params),
               let location = ControlCallerLocation.resolve(caller, in: call.snapshot.topology),
               BrowserCallerTarget.resolve(near: location, in: call.snapshot.topology) == nil else { return nil }
         return (caller, location)
