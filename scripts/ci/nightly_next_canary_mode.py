@@ -296,6 +296,11 @@ def await_gate(fetch: Callable[[], list[Mapping[str, Any]]], job_name: str, queu
     errors = 0
     polls = int(run_budget_s // interval_s) + max_errors + 2
     why = "never looked"
+
+    def rest() -> None:
+        # The last look lands on the budget itself, never a whole interval past it.
+        sleep(max(0.0, min(interval_s, run_budget_s - (clock() - start))))
+
     for _ in range(polls):
         elapsed = clock() - start
         try:
@@ -305,7 +310,7 @@ def await_gate(fetch: Callable[[], list[Mapping[str, Any]]], job_name: str, queu
             why = f"could not read the run's jobs ({err})"
             if errors >= max_errors or elapsed >= run_budget_s:
                 return "unavailable", False, why
-            sleep(interval_s)
+            rest()
             continue
         errors = 0
         action, verdict, blocks, why = gate_action(jobs, job_name, elapsed, queue_budget_s, run_budget_s)
@@ -314,8 +319,7 @@ def await_gate(fetch: Callable[[], list[Mapping[str, Any]]], job_name: str, queu
                 # Seen only after the budget ran out: publication was promised it would not wait this long.
                 return "unavailable", False, f"{why}, but only after the {int(run_budget_s // 60)} min budget"
             return verdict, blocks, why
-        # The last look lands on the budget itself, never a whole interval past it.
-        sleep(max(0.0, min(interval_s, run_budget_s - (clock() - start))))
+        rest()
     return "unavailable", False, f"gave up after {polls} looks: {why}"
 
 

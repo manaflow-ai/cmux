@@ -777,6 +777,18 @@ class AwaitGateTests(unittest.TestCase):
                                                     clock=lambda: next(clock), sleep=lambda s: None)
         self.assertEqual((verdict, blocks), ("unavailable", False))
         self.assertIn("after the 10 min budget", why)
+        # An unreadable API near the budget is retried only up to it, not for five more minutes.
+        now, looks = [hold - 10.0], []
+
+        def failing():
+            looks.append(now[0])
+            raise RuntimeError("HTTP 502")
+        start = iter([0.0])
+        verdict, blocks, _ = self.mode.await_gate(failing, "visual-gate-nightly", queue, hold,
+                                                  clock=lambda: next(start, now[0]),
+                                                  sleep=lambda s: now.__setitem__(0, now[0] + s))
+        self.assertEqual((verdict, blocks), ("unavailable", False))
+        self.assertEqual(looks, [hold - 10, hold])
 
     def test_an_unreadable_api_blocks_nothing_and_a_blip_is_retried(self):
         (verdict, blocks, why), looks = self.poll(lambda now: RuntimeError("HTTP 502"))
