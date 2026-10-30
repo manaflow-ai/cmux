@@ -21,86 +21,88 @@ type Lines = {
   allSessions: number;
 };
 
-async function measure(page: Page): Promise<Lines> {
-  return page.evaluate(() => {
-    const root = document.querySelector<HTMLElement>(".acpmux-newtab")!;
-    const box = root.querySelector<HTMLElement>(".acpmux-newtab-box")!;
-    const boxRect = box.getBoundingClientRect();
-    const radius = parseFloat(getComputedStyle(box).borderBottomLeftRadius) || 0;
-    const name = (node: Element) =>
-      `${node.tagName.toLowerCase()}${[...node.classList].map((one) => `.${one}`).join("")}`;
-    const visible = (width: string, style: string, color: string) =>
-      parseFloat(width) > 0 && style !== "none" && style !== "hidden" && !/^rgba\(.*,\s*0\)$|transparent/.test(color);
-
-    // Every horizontal border drawn at the box's top or bottom edge (within 3 px), the box's own
-    // excepted (it draws its edge as an inset shadow that follows the radius).
-    const hairlines: Lines["hairlines"] = [];
-    for (const node of root.querySelectorAll<HTMLElement>("*")) {
-      if (node === box) continue;
-      const style = getComputedStyle(node);
-      if (style.display === "none" || style.visibility === "hidden") continue;
-      const rect = node.getBoundingClientRect();
-      if (rect.width === 0) continue;
-      const sides = [
-        ["top", rect.top, style.borderTopWidth, style.borderTopStyle, style.borderTopColor],
-        ["bottom", rect.bottom, style.borderBottomWidth, style.borderBottomStyle, style.borderBottomColor],
-      ] as const;
-      for (const [, y, width, lineStyle, color] of sides) {
-        if (!visible(width, lineStyle, color)) continue;
-        if (Math.abs(y - boxRect.bottom) > 3 && Math.abs(y - boxRect.top) > 3) continue;
-        hairlines.push({ owner: name(node), y, left: rect.left, right: rect.right });
-      }
-    }
-
-    // A text's ink starts at its first glyph's advance box less the glyph's left side bearing.
-    const canvas = document.createElement("canvas").getContext("2d")!;
-    const textInk = (node: Element) => {
-      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
-        acceptNode: (text) => {
-          const parent = text.parentElement;
-          if (!text.textContent?.trim() || !parent) return NodeFilter.FILTER_REJECT;
-          const style = getComputedStyle(parent);
-          if (style.visibility === "hidden" || parent.closest("[hidden],[aria-hidden='true']"))
-            return NodeFilter.FILTER_REJECT;
-          return parent.getBoundingClientRect().width > 0 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-        },
-      });
-      const text = walker.nextNode() as Text | null;
-      if (!text) throw new Error(`${name(node)} has no visible text`);
-      const at = text.textContent!.search(/\S/);
-      const range = document.createRange();
-      range.setStart(text, at);
-      range.setEnd(text, at + 1);
-      const style = getComputedStyle(text.parentElement!);
-      canvas.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-      return range.getBoundingClientRect().left - canvas.measureText(text.textContent![at]!).actualBoundingBoxLeft;
-    };
-    // A stroked glyph's ink: its shapes' geometry, widened by half the stroke.
-    const glyphInk = (svg: SVGSVGElement) => {
-      const scale =
-        svg.getBoundingClientRect().width / (svg.viewBox.baseVal?.width || svg.getBoundingClientRect().width);
-      let left = Infinity;
-      for (const shape of svg.querySelectorAll<SVGGraphicsElement>("path,circle,rect,line,polyline,polygon,ellipse")) {
-        const stroke = getComputedStyle(shape).stroke;
-        const half = stroke && stroke !== "none" ? (parseFloat(getComputedStyle(shape).strokeWidth) * scale) / 2 : 0;
-        left = Math.min(left, shape.getBoundingClientRect().left - half);
-      }
-      return left;
-    };
-
-    const row = box.querySelector(".acpmux-newtab-row")!;
-    return {
-      box: { left: boxRect.left, right: boxRect.right, top: boxRect.top, bottom: boxRect.bottom, radius },
-      hairlines,
-      lead: parseFloat(getComputedStyle(root).getPropertyValue("--acpmux-newtab-lead")),
-      glyph: glyphInk(row.querySelector<SVGSVGElement>(":scope > svg")!) - boxRect.left,
-      allSessions: textInk(root.querySelector(".acpmux-newtab-all")!) - boxRect.left,
-    };
-  });
-}
-
 await requireBrowserLane("new-tab-classic-lines.test.ts", async () => {
   setDefaultTimeout(180_000);
+  // The page's lines, read in the page (the browser-lane check keeps every helper inside this call).
+  async function measure(page: Page): Promise<Lines> {
+    return page.evaluate(() => {
+      const root = document.querySelector<HTMLElement>(".acpmux-newtab")!;
+      const box = root.querySelector<HTMLElement>(".acpmux-newtab-box")!;
+      const boxRect = box.getBoundingClientRect();
+      const radius = parseFloat(getComputedStyle(box).borderBottomLeftRadius) || 0;
+      const name = (node: Element) =>
+        `${node.tagName.toLowerCase()}${[...node.classList].map((one) => `.${one}`).join("")}`;
+      const visible = (width: string, style: string, color: string) =>
+        parseFloat(width) > 0 && style !== "none" && style !== "hidden" && !/^rgba\(.*,\s*0\)$|transparent/.test(color);
+
+      // Every horizontal border drawn at the box's top or bottom edge (within 3 px), the box's own
+      // excepted (it draws its edge as an inset shadow that follows the radius).
+      const hairlines: Lines["hairlines"] = [];
+      for (const node of root.querySelectorAll<HTMLElement>("*")) {
+        if (node === box) continue;
+        const style = getComputedStyle(node);
+        if (style.display === "none" || style.visibility === "hidden") continue;
+        const rect = node.getBoundingClientRect();
+        if (rect.width === 0) continue;
+        const sides = [
+          ["top", rect.top, style.borderTopWidth, style.borderTopStyle, style.borderTopColor],
+          ["bottom", rect.bottom, style.borderBottomWidth, style.borderBottomStyle, style.borderBottomColor],
+        ] as const;
+        for (const [, y, width, lineStyle, color] of sides) {
+          if (!visible(width, lineStyle, color)) continue;
+          if (Math.abs(y - boxRect.bottom) > 3 && Math.abs(y - boxRect.top) > 3) continue;
+          hairlines.push({ owner: name(node), y, left: rect.left, right: rect.right });
+        }
+      }
+
+      // A text's ink starts at its first glyph's advance box less the glyph's left side bearing.
+      const canvas = document.createElement("canvas").getContext("2d")!;
+      const textInk = (node: Element) => {
+        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
+          acceptNode: (text) => {
+            const parent = text.parentElement;
+            if (!text.textContent?.trim() || !parent) return NodeFilter.FILTER_REJECT;
+            const style = getComputedStyle(parent);
+            if (style.visibility === "hidden" || parent.closest("[hidden],[aria-hidden='true']"))
+              return NodeFilter.FILTER_REJECT;
+            return parent.getBoundingClientRect().width > 0 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+          },
+        });
+        const text = walker.nextNode() as Text | null;
+        if (!text) throw new Error(`${name(node)} has no visible text`);
+        const at = text.textContent!.search(/\S/);
+        const range = document.createRange();
+        range.setStart(text, at);
+        range.setEnd(text, at + 1);
+        const style = getComputedStyle(text.parentElement!);
+        canvas.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+        return range.getBoundingClientRect().left - canvas.measureText(text.textContent![at]!).actualBoundingBoxLeft;
+      };
+      // A stroked glyph's ink: its shapes' geometry, widened by half the stroke.
+      const glyphInk = (svg: SVGSVGElement) => {
+        const scale =
+          svg.getBoundingClientRect().width / (svg.viewBox.baseVal?.width || svg.getBoundingClientRect().width);
+        let left = Infinity;
+        const shapes = "path,circle,rect,line,polyline,polygon,ellipse";
+        for (const shape of svg.querySelectorAll<SVGGraphicsElement>(shapes)) {
+          const stroke = getComputedStyle(shape).stroke;
+          const half = stroke && stroke !== "none" ? (parseFloat(getComputedStyle(shape).strokeWidth) * scale) / 2 : 0;
+          left = Math.min(left, shape.getBoundingClientRect().left - half);
+        }
+        return left;
+      };
+
+      const row = box.querySelector(".acpmux-newtab-row")!;
+      return {
+        box: { left: boxRect.left, right: boxRect.right, top: boxRect.top, bottom: boxRect.bottom, radius },
+        hairlines,
+        lead: parseFloat(getComputedStyle(root).getPropertyValue("--acpmux-newtab-lead")),
+        glyph: glyphInk(row.querySelector<SVGSVGElement>(":scope > svg")!) - boxRect.left,
+        allSessions: textInk(root.querySelector(".acpmux-newtab-all")!) - boxRect.left,
+      };
+    });
+  }
+
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
