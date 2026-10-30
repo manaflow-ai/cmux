@@ -16,7 +16,8 @@ The place is read from the transcript's drawn rows (`debug.home.drive` `rows`, w
 `nx-remote --needs gui --app-from-fleet cmux --tag <tag> --ref <sha> -- 'python3 scripts/cmux-next/home-open-placement.py'`
 with an isolated HOME and Chief home under /tmp; it launches the app itself and ends with
 quitEndSessions, endAgents and the tag's acpmux daemon shutdown. Reads NX_APP, NX_APP_TAG, NX_APP_STOP,
-NX_ARTIFACTS.
+NX_ARTIFACTS. Without a GUI host, the same script runs against a downloaded fleet build in the background
+(`NX_APP=<app> NX_APP_TAG=<tag> python3 scripts/cmux-next/home-open-placement.py`; the app is never activated).
 """
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 
@@ -149,7 +150,7 @@ env.update({"HOME": HOME, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO
             "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_DEV_BACKEND_MODE": "local",
             "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"),
             "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1500,940", "CMUX_NEXT_ONBOARDING_COMPUTER_USE": "mock",
-            "CMUX_NEXT_CHIEF_HOME": CHIEF})
+            "CMUX_NEXT_CHIEF_HOME": CHIEF, "ACPMUX_AGENT_LAUNCH": "deny"})
 env.pop("CMUX_NEXT_CLASSIC_HOME", None)  # the default, docked Home
 if os.path.exists(SOCK):
     os.unlink(SOCK)

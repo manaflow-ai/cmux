@@ -50,6 +50,13 @@ extension HomeProjection {
         controller.host.scrollView.syncFromModel()
     }
 
+    /// Back at the newest message (a scroll down, a send): the kept place goes now, not only when the
+    /// view closes, so a quit or a crash, which closes no view, leaves no stale place in the Home cache.
+    func forgetPlaceAtNewest() {
+        guard !placesOnOpen, !stopped, let state = controller.store?.state, state.ui.scroll.pinnedToBottom, state.atNewest else { return }
+        homeStore.setScrollAnchor(nil, for: conversation)  // no write when there is none
+    }
+
     /// The width's measure replaced estimated rows; it keeps the first visible row in place, which
     /// moves the message the view opened at by the rows' error in between: it goes back to its place.
     func placeAgainAfterMeasure() {

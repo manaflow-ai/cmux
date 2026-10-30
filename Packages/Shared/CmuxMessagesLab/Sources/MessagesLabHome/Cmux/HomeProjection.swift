@@ -194,6 +194,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         revealIfLoaded()
         refreshThreadHeader()
         placeOnOpen()
+        forgetPlaceAtNewest()
     }
 
     /// The whole current value; unchanged values return before any work.
@@ -834,6 +835,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func scrolled() {
         openedPlace = nil
+        forgetPlaceAtNewest()
         video.place()
         if let previews = linkPreviews?.previews {
             // My link cards that scrolled in with no title (also from HomeStore): a cached title,
