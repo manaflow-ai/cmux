@@ -184,11 +184,12 @@ jobs:
           cannot() { echo "::warning title=nightly-next canary::build $BUILD could not be checked: $*"; exit 1; }
           unreachable='NSURLErrorDomain|CKErrorDomain|CloudKit|network|offline|timed out|could not connect|Internet connection|server'
           # check WHAT REJECTION-PATTERN CMD...: CMD's failure is invalid only
-          # when its output names a rejection and no unreachable service.
+          # when its output names a rejection and no unreachable service. The
+          # step's default shell has errexit on, so the status is read in an if.
           check() {
-            local what=$1 rejected=$2 out rc
+            local what=$1 rejected=$2 out rc=0
             shift 2
-            out="$("$@" 2>&1)"; rc=$?
+            if out="$("$@" 2>&1)"; then :; else rc=$?; fi
             printf '%s\n' "$out"
             (( rc == 0 )) && return 0
             grep -Eiq "$unreachable" <<<"$out" && cannot "$what could not reach Apple (exit $rc)"
