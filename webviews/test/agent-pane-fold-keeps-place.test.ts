@@ -8,12 +8,12 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-const ENTRY = "agent-pane.incoming-message-disclosure";
-const VARIANT = "a-shipped";
-
 await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
+  const ENTRY = "agent-pane.incoming-message-disclosure";
+  const VARIANT = "a-shipped";
   setDefaultTimeout(120_000);
   const launchOptions = process.env.CMUX_BROWSER_EXECUTABLE
     ? { executablePath: process.env.CMUX_BROWSER_EXECUTABLE }
@@ -47,26 +47,34 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
   const toggleOf = (page: Page) =>
     page.locator(".cv-received", { hasText: "fanout-infra" }).first().locator(".cv-disclosure__toggle");
   const topOf = (page: Page) => toggleOf(page).evaluate((node) => node.getBoundingClientRect().top);
-  /// Every finite animation over (the fold), then two frames for the hold's last passes.
+  /// Every finite animation over (the fold), then the view at rest: the scroller's offset and
+  /// height the same over STILL painted frames in a row, which outlasts the hold's last passes.
   const settled = (page: Page) =>
     page.evaluate(async () => {
-      const frame = () => new Promise((done) => requestAnimationFrame(done));
+      const STILL = 16;
       for (let tries = 0; tries < 20; tries++) {
         const running = document
           .getAnimations()
           .filter((each) => each.effect?.getComputedTiming().endTime !== Infinity && each.playState === "running");
         if (running.length === 0) break;
         await Promise.all(running.map((each) => each.finished.catch(() => undefined)));
+        await window.cmuxPaintFrame();
       }
-      await frame();
-      await frame();
-      await new Promise((done) => setTimeout(done, 250));
-      await frame();
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+      let last = "";
+      let still = 0;
+      for (let frames = 0; frames < 240 && still < STILL; frames++) {
+        await window.cmuxPaintFrame();
+        const now = `${scroller?.scrollTop}:${scroller?.scrollHeight}`;
+        still = now === last ? still + 1 : 0;
+        last = now;
+      }
     });
 
   async function open(): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
+    await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT })}`);
     await toggleOf(page).waitFor();
@@ -113,7 +121,8 @@ await requireBrowserLane("agent-pane-fold-keeps-place.test.ts", async () => {
       const tall = node.scrollHeight;
       node.scrollTop = 0;
       node.dispatchEvent(new Event("scroll"));
-      await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
       return { tall, now: node.scrollHeight, view: node.clientHeight };
     });
     // The kept room made the content taller than the view; released, it is shorter than that again.
