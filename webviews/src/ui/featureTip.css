@@ -12,6 +12,10 @@
   --glass-elevation: var(--elevation-2);
   position: relative;
   box-sizing: border-box;
+  /* A popup scrolls inside itself (ui/ui.css); a tip is one sentence, and its arrow sits outside it. */
+  overflow: visible;
+  max-height: none;
+  min-width: 0;
   width: max-content;
   max-width: min(280px, calc(100vw - 16px));
   padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-3);
@@ -35,7 +39,8 @@
 
 .ui-feature-tip-head {
   display: flex;
-  align-items: center;
+  /* The pill and the X keep to the title's first line when it wraps. */
+  align-items: flex-start;
   gap: var(--ds-space-2);
   min-height: 24px;
 }
@@ -48,6 +53,7 @@
 
 .ui-feature-tip-new {
   flex: none;
+  margin-block-start: 2px;
   padding: 0 var(--ds-space-1);
   border-radius: var(--ds-radius-control, 6px);
   font-size: var(--text-caption);

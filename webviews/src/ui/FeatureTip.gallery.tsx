@@ -7,7 +7,7 @@ import { componentEntry } from "../gallery/format";
 import type { Play } from "../gallery/play";
 import type { FeatureTipLook } from "./FeatureTip";
 import { PanelToggle } from "../agent-session/acpmux/header/PanelToggle";
-import { memoryLaunchStore, memoryTipHost } from "./featureTips/store";
+import { memoryTipHost } from "./featureTips/store";
 
 type Target = "browser" | "inspector" | "composer";
 /** `live`: the shipped wiring itself (PaneFeatureTips: the catalog, the anchor table and the
@@ -52,7 +52,6 @@ function GalleryChat({ target, look, live, Header, Tip, Live }: Props & Loaded) 
   const [open, setOpen] = useState(true);
   const [liveDeps] = useState(() => ({
     host: memoryTipHost(),
-    launch: memoryLaunchStore(),
     schedule: { openedAt: 0, focused: () => true },
   }));
   return (
@@ -71,7 +70,7 @@ function GalleryChat({ target, look, live, Header, Tip, Live }: Props & Loaded) 
       <div className="feature-tip-gallery-body" />
       <div className="ui-glass feature-tip-gallery-composer">Ask anything</div>
       {live ? (
-        <Live streaming={false} host={liveDeps.host} launchStore={liveDeps.launch} schedule={liveDeps.schedule} />
+        <Live streaming={false} host={liveDeps.host} schedule={liveDeps.schedule} />
       ) : (
         <Tip
           anchor={open ? anchor : null}

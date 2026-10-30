@@ -309,8 +309,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
     /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline` or `strip`).
     case displaySetting(path: [String], value: JSONValue?)
-    /// `tips.state {}` reads the feature tip records; `{id, state}` keeps one (``AgentPaneFeatureTipRecords``).
-    case featureTips(id: String?, state: String?)
+    /// `tips.state`: read the feature tip records, keep one, or claim this launch's tip
+    /// (``AgentPaneFeatureTipRecords``).
+    case featureTips(AgentPaneFeatureTipRequest)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)

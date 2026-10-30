@@ -6,9 +6,9 @@
 //   stopping, the toggle turning on), for the time policy.ts still needs; it never repeats on its own.
 //   It is not armed once this launch showed its tip, every tip is done, the toggle is off or the app
 //   keeps no records, and `stop()` clears it.
-// - Capture listeners for keydown, pointerdown, wheel and click, plus focus, visibilitychange and the
-//   launch store's storage event. They stay while some tip is not done (a use still has to be
-//   recorded after this launch's tip), and `stop()` or the last tip done removes them.
+// - Capture listeners for keydown, pointerdown, wheel and click, plus focus and visibilitychange.
+//   They stay while some tip is not done or one shows (a use still has to be recorded after this
+//   launch's tip), and `stop()` or the last tip done, once none shows, removes them.
 import {
   allDone,
   isDone,
@@ -20,7 +20,7 @@ import {
   type TipMoment,
   type TipRecords,
 } from "./policy";
-import type { LaunchStore, TipHost } from "./store";
+import type { TipHost } from "./store";
 
 export interface TipAnchor {
   /** The control, found in the page by this selector. */
@@ -39,7 +39,6 @@ export interface TipControllerOptions {
   tips: readonly FeatureTipEntry[];
   anchors: Readonly<Record<string, TipAnchor>>;
   host: TipHost;
-  launch: LaunchStore;
   doc: Document;
   /** A draft in the composer, or a field being typed in. */
   typing(): boolean;
@@ -52,7 +51,6 @@ export interface TipControllerOptions {
   overlayOpen?: (doc: Document) => boolean;
   /** The page is the one the person looks at (default: visible and focused). */
   focused?: (doc: Document) => boolean;
-  page?: string;
   /** When the page opened (default: now); the gallery's still passes a time long past. */
   openedAt?: number;
 }
@@ -93,13 +91,12 @@ export interface TipController {
 }
 
 export function createTipController(options: TipControllerOptions): TipController {
-  const { tips, anchors, host, launch, doc, typing, onChange } = options;
+  const { tips, anchors, host, doc, typing, onChange } = options;
   const now = options.now ?? (() => Date.now());
   const setTimer = options.setTimer ?? ((run, ms) => setTimeout(run, ms));
   const clearTimer = options.clearTimer ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
   const overlayOpen = options.overlayOpen ?? pageOverlayOpen;
   const focused = options.focused ?? pageFocused;
-  const page = options.page ?? `page-${Math.random().toString(36).slice(2)}`;
   const born = options.openedAt ?? now();
   let lastInput = born;
   let records: TipRecords | null = null;
@@ -110,7 +107,10 @@ export function createTipController(options: TipControllerOptions): TipControlle
   let timer: unknown;
   let listening = false;
   let stopped = false;
-  let unsubscribe: (() => void) | undefined;
+  /** This launch's tip went to some page (this one or another): this page shows none. */
+  let spent = false;
+  /** A claim is on its way to the app. */
+  let claiming = false;
 
   const element = (anchor: string) => {
     const spec = anchors[anchor];
@@ -126,7 +126,7 @@ export function createTipController(options: TipControllerOptions): TipControlle
     idleMs: now() - lastInput,
     overlayOpen: overlayOpen(doc),
     focused: focused(doc),
-    launch: launch.get(),
+    spent: spent || claiming,
   });
 
   const disarm = () => {
@@ -137,19 +137,19 @@ export function createTipController(options: TipControllerOptions): TipControlle
   const keep = (id: string, record: Parameters<TipHost["write"]>[1]) => {
     records = { ...records, [id]: record };
     void host.write(id, record).catch(() => undefined);
-    if (records && allDone(tips, records)) unlisten();
+    if (!shown && allDone(tips, records)) unlisten();
   };
 
   const putAway = () => {
     if (!shown) return;
     shown = null;
-    launch.release(page);
     onChange(null);
+    if (records && allDone(tips, records)) unlisten();
   };
 
   const arm = () => {
     disarm();
-    if (stopped || shown || !records || !enabled || launch.get() || allDone(tips, records)) return;
+    if (stopped || shown || spent || claiming || !records || !enabled || allDone(tips, records)) return;
     const current = moment();
     const pick = pickTip(current, tips, records, (anchor) => anchorShown(element(anchor)));
     if ("tip" in pick) return show(pick.tip);
@@ -157,11 +157,22 @@ export function createTipController(options: TipControllerOptions): TipControlle
   };
 
   const show = (tip: FeatureTipEntry) => {
-    const target = element(tip.anchor);
-    if (!target || !launch.claim(tip.id, page)) return;
-    keep(tip.id, shownRecord(records?.[tip.id]));
-    shown = { tip, element: target, side: anchors[tip.anchor]?.side ?? "bottom" };
-    onChange(shown);
+    claiming = true;
+    void host
+      .claim(tip.id)
+      .catch(() => false)
+      .then((won) => {
+        claiming = false;
+        // The moment may have passed while the app answered: the launch's tip is spent either way.
+        const target = element(tip.anchor);
+        const still = records && !stopped && "tip" in pickTip(moment(), [tip], records, () => anchorShown(target));
+        spent = true;
+        if (!won || !still || !records) return;
+        // Shown first, so keeping its last launch never stops the listeners it still needs.
+        shown = { tip, element: target!, side: anchors[tip.anchor]?.side ?? "bottom" };
+        keep(tip.id, shownRecord(records[tip.id]));
+        onChange(shown);
+      });
   };
 
   // Realm-safe: the page's own Node and Element (a test page is another window).
@@ -174,6 +185,7 @@ export function createTipController(options: TipControllerOptions): TipControlle
   const onInput = (event: Event) => {
     if (inside(event.target)) return;
     lastInput = now();
+    if (shown && !shown.element.isConnected) putAway();
     // The person went back to work: the tip goes away for this launch (a press on its control is a use, below).
     if (shown && !(event.type === "pointerdown" && shown.element.contains(asNode(event.target)))) putAway();
     arm();
@@ -184,13 +196,17 @@ export function createTipController(options: TipControllerOptions): TipControlle
     if (!target || !records) return;
     for (const tip of tips) {
       const spec = anchors[tip.anchor];
-      if (!spec || isDone(records[tip.id]) || !target.closest(spec.selector)) continue;
+      const open = shown?.tip.id === tip.id || !isDone(records[tip.id]);
+      if (!spec || !open || records[tip.id] === "used" || !target.closest(spec.selector)) continue;
       keep(tip.id, "used");
       if (shown?.tip.id === tip.id) putAway();
     }
   };
 
-  const onWake = () => arm();
+  const onWake = () => {
+    if (shown && !shown.element.isConnected) putAway();
+    arm();
+  };
 
   function listen() {
     if (listening) return;
@@ -200,7 +216,6 @@ export function createTipController(options: TipControllerOptions): TipControlle
     doc.addEventListener("click", onClick, { capture: true });
     doc.addEventListener("visibilitychange", onWake);
     doc.defaultView?.addEventListener("focus", onWake);
-    unsubscribe = launch.subscribe(onWake);
   }
 
   function unlisten() {
@@ -210,8 +225,6 @@ export function createTipController(options: TipControllerOptions): TipControlle
     doc.removeEventListener("click", onClick, { capture: true });
     doc.removeEventListener("visibilitychange", onWake);
     doc.defaultView?.removeEventListener("focus", onWake);
-    unsubscribe?.();
-    unsubscribe = undefined;
     disarm();
   }
 

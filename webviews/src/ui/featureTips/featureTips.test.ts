@@ -5,7 +5,7 @@ import { JSDOM } from "jsdom";
 import { createTipController, type ShownTip, type TipAnchor, type TipController } from "./controller";
 import { firstSentence, highlightTip } from "./catalog";
 import { TIP_IDLE_MS, TIP_MAX_LAUNCHES, TIP_SETTLE_MS, type FeatureTipEntry } from "./policy";
-import { memoryTipHost, storageLaunchStore, type LaunchStore, type TipHost } from "./store";
+import { memoryTipHost, type TipHost } from "./store";
 
 const TIPS: FeatureTipEntry[] = [
   { id: "browser-tip", anchor: "agent.browser", title: "Agents drive the browser", body: "One sentence." },
@@ -33,6 +33,7 @@ beforeEach(() => {
   clock = 0;
   timers = [];
   pages = [];
+  launchHost = memoryTipHost();
 });
 
 afterEach(() => {
@@ -56,7 +57,6 @@ function advance(ms: number) {
 
 interface PageOptions {
   host?: TipHost;
-  launch?: LaunchStore;
   typing?: () => boolean;
   enabled?: boolean;
   tips?: FeatureTipEntry[];
@@ -67,8 +67,7 @@ async function page(options: PageOptions = {}) {
   const controller = createTipController({
     tips: options.tips ?? TIPS,
     anchors: ANCHORS,
-    host: options.host ?? memoryTipHost(),
-    launch: options.launch ?? storageLaunchStore(dom.window.localStorage, dom.window),
+    host: options.host ?? launchHost,
     doc: dom.window.document,
     typing: options.typing ?? (() => false),
     onChange: (tip) => shown.push(tip),
@@ -93,34 +92,42 @@ async function page(options: PageOptions = {}) {
 const press = (selector: string, type = "pointerdown") =>
   dom.window.document.querySelector(selector)!.dispatchEvent(new dom.window.Event(type, { bubbles: true }));
 
-/** A new launch: the pages' shared store starts empty again. */
-const relaunch = () => dom.window.localStorage.clear();
+/** The app's records, shared by every page of a test; `relaunch` starts its next launch. */
+let launchHost: ReturnType<typeof memoryTipHost>;
+const relaunch = () => launchHost.relaunch();
+/** Moves the clock on, then lets the app's answer to a claim arrive. */
+async function settle(ms: number) {
+  advance(ms);
+  await Promise.resolve();
+  await new Promise((done) => setTimeout(done, 0));
+}
 
 describe("feature tips", () => {
   test("show at the first idle moment after the page settles, never on launch over work", async () => {
     const { controller } = await page();
-    advance(TIP_SETTLE_MS - 1);
+    await settle(TIP_SETTLE_MS - 1);
     expect(controller.shown).toBeNull();
-    advance(1);
+    await settle(1);
     expect(controller.shown?.tip.id).toBe("browser-tip");
   });
 
   test("wait for an idle moment: each key or press starts the wait again", async () => {
     const { controller } = await page();
-    advance(TIP_SETTLE_MS - 2000);
+    await settle(TIP_SETTLE_MS - 2000);
     press("#elsewhere", "keydown");
-    advance(TIP_IDLE_MS - 1);
+    await settle(TIP_IDLE_MS - 1);
     expect(controller.shown).toBeNull();
-    advance(1);
+    await settle(1);
     expect(controller.shown).not.toBeNull();
   });
 
   test("never while an agent is streaming, and a turn that starts puts one away", async () => {
     const { controller } = await page();
     controller.update({ enabled: true, streaming: true });
-    advance(TIP_SETTLE_MS * 4);
+    await settle(TIP_SETTLE_MS * 4);
     expect(controller.shown).toBeNull();
     controller.update({ enabled: true, streaming: false });
+    await settle(0);
     expect(controller.shown).not.toBeNull();
     controller.update({ enabled: true, streaming: true });
     expect(controller.shown).toBeNull();
@@ -129,11 +136,11 @@ describe("feature tips", () => {
   test("never while the person is typing, and a key puts one away", async () => {
     let draft = true;
     const { controller } = await page({ typing: () => draft });
-    advance(TIP_SETTLE_MS * 4);
+    await settle(TIP_SETTLE_MS * 4);
     expect(controller.shown).toBeNull();
     draft = false;
     press("#elsewhere", "keydown");
-    advance(TIP_IDLE_MS);
+    await settle(TIP_IDLE_MS);
     expect(controller.shown).not.toBeNull();
     press("#elsewhere", "keydown");
     expect(controller.shown).toBeNull();
@@ -142,36 +149,36 @@ describe("feature tips", () => {
   test("one tip at a time, and one per launch across every page", async () => {
     const first = await page();
     const second = await page();
-    advance(TIP_SETTLE_MS);
+    await settle(TIP_SETTLE_MS);
     expect([first.controller.shown, second.controller.shown].filter(Boolean)).toHaveLength(1);
     press("#elsewhere");
-    advance(TIP_SETTLE_MS * 4);
+    await settle(TIP_SETTLE_MS * 4);
     expect(first.controller.shown).toBeNull();
     expect(second.controller.shown).toBeNull();
     const third = await page();
-    advance(TIP_SETTLE_MS * 4);
+    await settle(TIP_SETTLE_MS * 4);
     expect(third.controller.shown).toBeNull();
   });
 
   test("its X closes it for good", async () => {
-    const host = memoryTipHost();
+    const host = launchHost;
     const { controller } = await page({ host, tips: [TIPS[0]!] });
-    advance(TIP_SETTLE_MS);
+    await settle(TIP_SETTLE_MS);
     controller.close();
     expect(controller.shown).toBeNull();
     expect(host.records["browser-tip"]).toBe("closed");
     relaunch();
     const next = await page({ host, tips: [TIPS[0]!] });
-    advance(TIP_SETTLE_MS * 4);
+    await settle(TIP_SETTLE_MS * 4);
     expect(next.controller.shown).toBeNull();
   });
 
   test("using the feature closes it for good, shown or not", async () => {
-    const host = memoryTipHost();
+    const host = launchHost;
     const { controller } = await page({ host });
     press("#inspector", "click");
     expect(host.records["inspector-tip"]).toBe("used");
-    advance(TIP_SETTLE_MS);
+    await settle(TIP_SETTLE_MS);
     expect(controller.shown?.tip.id).toBe("browser-tip");
     press("#browser");
     expect(controller.shown).not.toBeNull();
@@ -180,19 +187,54 @@ describe("feature tips", () => {
     expect(host.records["browser-tip"]).toBe("used");
     relaunch();
     const next = await page({ host });
-    advance(TIP_SETTLE_MS * 4);
+    await settle(TIP_SETTLE_MS * 4);
     expect(next.controller.shown).toBeNull();
   });
 
   test("the Settings toggle hides every tip", async () => {
     const off = await page({ enabled: false });
-    advance(TIP_SETTLE_MS * 4);
+    await settle(TIP_SETTLE_MS * 4);
     expect(off.controller.shown).toBeNull();
     off.controller.stop();
     const { controller } = await page();
-    advance(TIP_SETTLE_MS);
+    await settle(TIP_SETTLE_MS);
     expect(controller.shown).not.toBeNull();
     controller.update({ enabled: false, streaming: false });
+    expect(controller.shown).toBeNull();
+  });
+
+  test("two pages that claim at once: only the app's first claim shows", async () => {
+    const first = await page();
+    const second = await page();
+    advance(TIP_SETTLE_MS);
+    await settle(0);
+    expect([first.controller.shown, second.controller.shown].filter(Boolean)).toHaveLength(1);
+  });
+
+  test("a tip on its last launch still records a use, and still goes away on input", async () => {
+    launchHost.records["browser-tip"] = `shown:${TIP_MAX_LAUNCHES - 1}`;
+    const used = await page({ tips: [TIPS[0]!] });
+    await settle(TIP_SETTLE_MS);
+    expect(used.controller.shown).not.toBeNull();
+    press("#browser");
+    press("#browser", "click");
+    expect(launchHost.records["browser-tip"]).toBe("used");
+    used.controller.stop();
+    relaunch();
+    launchHost.records["browser-tip"] = `shown:${TIP_MAX_LAUNCHES - 1}`;
+    const typed = await page({ tips: [TIPS[0]!] });
+    await settle(TIP_SETTLE_MS);
+    expect(typed.controller.shown).not.toBeNull();
+    press("#elsewhere", "keydown");
+    expect(typed.controller.shown).toBeNull();
+  });
+
+  test("a control removed from the page puts its tip away", async () => {
+    const { controller } = await page({ tips: [TIPS[0]!] });
+    await settle(TIP_SETTLE_MS);
+    expect(controller.shown).not.toBeNull();
+    dom.window.document.querySelector("#browser")!.remove();
+    dom.window.dispatchEvent(new dom.window.Event("focus"));
     expect(controller.shown).toBeNull();
   });
 
@@ -200,30 +242,31 @@ describe("feature tips", () => {
     dom.window.document.querySelector("#browser")!.remove();
     dom.window.document.querySelector("#inspector")!.getBoundingClientRect = () => new dom.window.DOMRect(0, 0, 0, 0);
     const { controller } = await page();
-    advance(TIP_SETTLE_MS * 4);
+    await settle(TIP_SETTLE_MS * 4);
     expect(controller.shown).toBeNull();
   });
 
   test("an app that keeps no records shows none", async () => {
-    const host: TipHost = { read: () => Promise.reject(new Error("unsupported")), write: async () => undefined };
+    const refused = () => Promise.reject(new Error("unsupported"));
+    const host: TipHost = { read: refused, write: refused, claim: refused };
     const { controller } = await page({ host });
-    advance(TIP_SETTLE_MS * 4);
+    await settle(TIP_SETTLE_MS * 4);
     expect(controller.shown).toBeNull();
   });
 
   test(`a tip passed over on ${TIP_MAX_LAUNCHES} launches retires`, async () => {
-    const host = memoryTipHost();
+    const host = launchHost;
     for (let launch = 0; launch < TIP_MAX_LAUNCHES; launch++) {
       relaunch();
       const { controller } = await page({ host, tips: [TIPS[0]!] });
-      advance(TIP_SETTLE_MS);
+      await settle(TIP_SETTLE_MS);
       expect(controller.shown).not.toBeNull();
       controller.stop();
     }
     expect(host.records["browser-tip"]).toBe(`shown:${TIP_MAX_LAUNCHES}`);
     relaunch();
     const last = await page({ host, tips: [TIPS[0]!] });
-    advance(TIP_SETTLE_MS * 4);
+    await settle(TIP_SETTLE_MS * 4);
     expect(last.controller.shown).toBeNull();
     expect(timers).toHaveLength(0);
   });

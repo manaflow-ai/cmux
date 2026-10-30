@@ -3,7 +3,7 @@
 import { FeatureTipHost, type FeatureTipHostProps } from "../../ui/featureTips/FeatureTipHost";
 import type { TipAnchor } from "../../ui/featureTips/controller";
 import type { FeatureTipEntry, TipRecords } from "../../ui/featureTips/policy";
-import { storageLaunchStore, type LaunchStore, type TipHost } from "../../ui/featureTips/store";
+import type { TipHost } from "../../ui/featureTips/store";
 import catalog from "../../ui/featureTips/tips.generated.json";
 import { useFeatureTipsOn } from "./chatDisplay";
 import { useT } from "./i18n";
@@ -37,21 +37,16 @@ const records = (reply: unknown): TipRecords => {
   );
 };
 
-/** `tips.state {}` reads the records; `{id, state}` keeps one. An older app refuses both: no tips. */
+/** `tips.state {}` reads the records, `{id, state}` keeps one and `{claim}` takes this launch's one
+ *  tip (`claimed`). An older app refuses all three: no tips. */
 export const paneTipHost: TipHost = {
   read: () => call<unknown>("tips.state", {}).then(records),
   write: (id, state) => call<unknown>("tips.state", { id, state }).then(records),
+  claim: (id) =>
+    call<unknown>("tips.state", { claim: id }).then(
+      (reply) => (reply as { claimed?: unknown } | null)?.claimed === true,
+    ),
 };
-
-const launch = typeof window === "undefined" ? undefined : storageLaunchStore(safeStorage(), window);
-
-function safeStorage(): Storage | undefined {
-  try {
-    return window.localStorage;
-  } catch {
-    return undefined;
-  }
-}
 
 /** A draft in the composer counts as typing: the person is mid-thought. */
 export function composerHasDraft(doc: Document = document): boolean {
@@ -63,21 +58,19 @@ export function composerHasDraft(doc: Document = document): boolean {
 }
 
 /** The chat's tips: mounted once per chat page (App.tsx), drawn in a portal. The gallery passes its
- *  own records, launch store and schedule; the app uses the defaults. */
+ *  own records and schedule; the app uses the defaults. */
 export function PaneFeatureTips({
   streaming,
   host = paneTipHost,
-  launchStore = launch,
   schedule,
 }: {
   streaming: boolean;
   host?: TipHost;
-  launchStore?: LaunchStore;
   schedule?: FeatureTipHostProps["schedule"];
 }) {
   const enabled = useFeatureTipsOn();
   const t = useT();
-  if (!launchStore || PANE_TIPS.length === 0) return null;
+  if (PANE_TIPS.length === 0) return null;
   return (
     <FeatureTipHost
       tips={PANE_TIPS}
@@ -86,7 +79,6 @@ export function PaneFeatureTips({
       streaming={streaming}
       typing={composerHasDraft}
       host={host}
-      launch={launchStore}
       labels={{ new: t("featureTip.new"), close: t("featureTip.close") }}
       look="glass"
       schedule={schedule}

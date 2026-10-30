@@ -9,7 +9,7 @@ import {
   type TipControllerOptions,
 } from "./controller";
 import type { FeatureTipEntry } from "./policy";
-import type { LaunchStore, TipHost } from "./store";
+import type { TipHost } from "./store";
 
 export interface FeatureTipHostProps {
   tips: readonly FeatureTipEntry[];
@@ -20,7 +20,6 @@ export interface FeatureTipHostProps {
   streaming: boolean;
   typing(): boolean;
   host: TipHost;
-  launch: LaunchStore;
   labels: { new: string; close: string };
   look?: FeatureTipLook;
   /** The gallery's still: a page opened long ago, in a focused window. */
@@ -34,7 +33,6 @@ export function FeatureTipHost({
   streaming,
   typing,
   host,
-  launch,
   labels,
   look,
   schedule,
@@ -53,7 +51,6 @@ export function FeatureTipHost({
       tips,
       anchors,
       host,
-      launch,
       doc: document,
       typing: () => typingRef.current(),
       onChange: setShown,
@@ -66,7 +63,7 @@ export function FeatureTipHost({
       tipController.stop();
       controller.current = null;
     };
-  }, [tips, anchors, host, launch]);
+  }, [tips, anchors, host]);
 
   useEffect(() => controller.current?.update({ enabled, streaming }), [enabled, streaming]);
 
@@ -75,10 +72,11 @@ export function FeatureTipHost({
   if (shown && shown !== last) setLast(shown);
   // The callout stays placed at its last control while it fades out.
   const tip = shown ?? last;
-  if (!tip) return null;
+  // A control gone from the page takes its tip with it.
+  if (!tip || !tip.element.isConnected) return null;
   return (
     <FeatureTip
-      anchor={tip.element.isConnected ? tip.element : null}
+      anchor={tip.element}
       open={shown !== null}
       side={tip.side}
       title={tip.tip.title}

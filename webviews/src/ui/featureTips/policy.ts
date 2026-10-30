@@ -32,13 +32,6 @@ export interface FeatureTipEntry {
   body: string;
 }
 
-/** This launch's tip, shared by every page of the launch (store.ts). */
-export interface LaunchTip {
-  id: string;
-  /** The page showing it now; null once it is put away. */
-  page: string | null;
-}
-
 export interface TipMoment {
   /** The Settings toggle. */
   enabled: boolean;
@@ -50,7 +43,8 @@ export interface TipMoment {
   idleMs: number;
   overlayOpen: boolean;
   focused: boolean;
-  launch: LaunchTip | null;
+  /** This launch's one tip already went to a page (the app's claim, store.ts), or is being claimed. */
+  spent: boolean;
 }
 
 export type TipBlock =
@@ -86,7 +80,7 @@ export function shownRecord(record: string | undefined): TipRecord {
 export function momentBlock(moment: TipMoment): TipBlock | null {
   if (!moment.enabled) return "off";
   if (!moment.hostReady) return "no-host";
-  if (moment.launch) return "spent";
+  if (moment.spent) return "spent";
   if (moment.streaming) return "streaming";
   if (moment.typing) return "typing";
   if (moment.pageAgeMs < TIP_SETTLE_MS) return "settling";

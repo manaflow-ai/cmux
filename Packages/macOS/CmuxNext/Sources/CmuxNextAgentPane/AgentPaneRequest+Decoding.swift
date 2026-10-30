@@ -145,13 +145,9 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "tips.state":
-            // No params reads the records; `{id, state}` keeps one the page may keep.
-            let id = params?["id"] as? String
-            let state = params?["state"] as? String
-            if id == nil, state == nil {
-                self = .featureTips(id: nil, state: nil)
-            } else if let id, let state, AgentPaneFeatureTipRecords.accepts(id: id, state: state) {
-                self = .featureTips(id: id, state: state)
+            // `{}` reads the records, `{id, state}` keeps one, `{claim}` claims the launch's tip.
+            if let tips = AgentPaneFeatureTipRequest(params) {
+                self = .featureTips(tips)
             } else {
                 self = .unsupported(method)
             }
