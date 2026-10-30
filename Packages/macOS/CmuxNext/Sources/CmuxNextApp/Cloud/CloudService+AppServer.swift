@@ -45,8 +45,18 @@ extension CloudService {
         }
         let flow = appServerFlow(team: team, run: Self.pinnedRun(team: team, currentTeam: currentTeam, sent: sent, ops: appOps))
         // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
-        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, key: pinned.idempotencyKey,
+        let record: JSONValue
+        do {
+            record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, key: pinned.idempotencyKey,
+                                           approved: pinned.approvedRequest, onApproved: { [weak creation] in creation?.markApproved($0, key: pinned.idempotencyKey) },
+                                           answering: pinned.answeringRequest, onAnswering: { [weak creation] in creation?.markAnswering($0, key: pinned.idempotencyKey) },
                                            gate: pinned.wasSent ? .allowed : createGate, environment: environment)
+        } catch let failure as CloudAppOpFailure where Self.isDefinitiveRefusal(failure) {
+            // The key's stored answer is this refusal; only an uncertain outcome keeps the key. A cancelled
+            // attempt (a Retry already started, with this same key) leaves the key to that Retry.
+            if !Task.isCancelled { creation?.renewKey(replacing: pinned.idempotencyKey) }
+            throw failure
+        }
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "the create answered no machine") }
         return machine
     }
@@ -94,6 +104,19 @@ extension CloudService {
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             }
         )
+    }
+
+    /// The server refused the create before making anything (no plan, the plan's machine limit or
+    /// size, an approval denied or expired, which the contract asks again with a new key), an answer
+    /// a same-key Retry would only replay. A lost answer, a timeout or a relay that is down is
+    /// uncertain, so it keeps the key.
+    nonisolated static func isDefinitiveRefusal(_ failure: CloudAppOpFailure) -> Bool {
+        ["plan_required", "plan.required", "quota_exceeded", "quota.exceeded", "size_locked", "size.locked",
+         "approval_denied", "approval.denied", "approval_expired", "approval.expired",
+         // cloud.environment.boot: secrets the Vault can't serve yet, no usable snapshot, an environment
+         // or snapshot that is gone. Each is stored with the key; a Retry after the fix needs a new one.
+         "secrets_unavailable", "no_snapshot_configured", "not_found"]
+            .contains { failure.code.hasSuffix($0) }
     }
 
     /// The team an app-server create goes to: the install token's team `current`, or, once
@@ -180,5 +203,12 @@ private nonisolated final class CloudRefuseRedirects: NSObject, URLSessionTaskDe
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
         completionHandler(nil)
+    }
+}
+
+extension CloudService {
+    nonisolated static func listIsCurrent(loadedAt: ContinuousClock.Instant?, loadedFor: [String?]?, account: [String?], now: ContinuousClock.Instant, within age: Duration) -> Bool {
+        guard let loadedAt, loadedFor == account else { return false }
+        return loadedAt.duration(to: now) < age
     }
 }
