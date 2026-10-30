@@ -765,20 +765,37 @@ class GitHub:
         return self.request("GET", f"/actions/runs/{run_id}")
 
     def side_runs(self, since: dt.datetime, count: int) -> list[Mapping[str, Any]]:
-        """Queued/in-progress trusted side-lane runs, including runs with no marker artifact."""
-        found: list[Mapping[str, Any]] = []
-        paths = SIDE_WORKFLOW_PATHS
+        """Unmarked side runs across pages; partition only at GitHub's search cap."""
+        found: dict[int, Mapping[str, Any]] = {}
+        count = max(1, min(100, count))
+        created = urllib.parse.quote(">=" + since.isoformat(), safe="")
+
+        def scan(prefix: str, status: str) -> bool:
+            # Filtered run searches expose at most 1,000 results. Usually the
+            # repository listing is enough; per-workflow reads are a fallback
+            # only when unrelated runs fill that window.
+            for page in range(1, (1000 + count - 1) // count + 1):
+                data = self.request("GET", f"{prefix}?status={status}"
+                                    f"&created={created}&per_page={count}&page={page}") or {}
+                runs = data.get("workflow_runs") or []
+                for run in runs:
+                    if not isinstance(run, Mapping) or run.get("path") not in SIDE_WORKFLOW_PATHS:
+                        continue
+                    at = parse_time(run.get("created_at"))
+                    if at is None or at < since or not run.get("id"):
+                        continue
+                    if run.get("event") == "pull_request" or run.get("event") in TRUSTED_SIDE_EVENTS:
+                        found[int(run["id"])] = run
+                if len(runs) < count:
+                    return False
+            return True
+
         for status in ("queued", "in_progress"):
-            data = self.request("GET", f"/actions/runs?status={status}&per_page={count}") or {}
-            for run in data.get("workflow_runs") or []:
-                if not isinstance(run, Mapping) or run.get("path") not in paths:
-                    continue
-                created = parse_time(run.get("created_at"))
-                if created is None or created < since:
-                    continue
-                if run.get("event") in TRUSTED_SIDE_EVENTS:
-                    found.append(run)
-        return found
+            if scan("/actions/runs", status):
+                for workflow in sorted(SIDE_WORKFLOW_PATHS):
+                    name = workflow.rsplit("/", 1)[-1]
+                    scan(f"/actions/workflows/{name}/runs", status)
+        return list(found.values())
 
     def owned_reruns(self, count: int) -> list[tuple[int, int]]:
         """(run id, attempt) of unfinished CI and cmux-next re-runs whose owned jobs go back to the minis

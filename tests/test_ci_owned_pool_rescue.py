@@ -1977,6 +1977,30 @@ class Sweeper(unittest.TestCase):
         self.assertEqual(watched, [(1, 1, False), (2, 1, False)])
         self.assertEqual(len(attempts), 2)
 
+    def test_unmarked_side_discovery_pages_and_includes_pull_requests(self):
+        api = rescue.GitHub("test-token", "manaflow-ai/cmux")
+        workflow = ".github/workflows/relay-tls.yml"
+        first = [listed(1, path=workflow, created_at=stamp(0), event="push")]
+        second = [listed(2, path=workflow, created_at=stamp(0), event="pull_request")]
+        requests = []
+
+        def request(method, path):
+            requests.append(path)
+            if "status=queued" in path:
+                if "&page=1" in path:
+                    return {"workflow_runs": first}
+                if "&page=2" in path:
+                    return {"workflow_runs": second}
+            return {"workflow_runs": []}
+
+        with unittest.mock.patch.object(rescue, "SIDE_WORKFLOW_PATHS", {workflow}), \
+                unittest.mock.patch.object(api, "request", side_effect=request):
+            runs = api.side_runs(START, 1)
+        self.assertEqual([run["id"] for run in runs], [1, 2])
+        self.assertEqual(len(requests), 4)
+        self.assertTrue(all("/actions/runs?" in path for path in requests))
+        self.assertTrue(all("created=" in path for path in requests))
+
     def test_snapshot_download_failure_is_unavailable_health(self):
         api = rescue.GitHub("test-token", "manaflow-ai/cmux")
         with unittest.mock.patch.object(api._snapshot_client, "snapshot", side_effect=RuntimeError("artifact download failed (410)")):

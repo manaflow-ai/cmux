@@ -158,7 +158,7 @@ class Counts(unittest.TestCase):
     def test_gate_variable_is_read_when_artifact_is_unavailable(self):
         gates = {"version": 1, "labels": {GUI: {
             "as_of": "2026-10-19T21:59:00Z", "listening": 1, "queued": 0}}}
-        live, waiting, seen = cascade.read({"CI_FLEET_GATES": json.dumps(gates)},
+        live, waiting, seen = cascade.read(env(CI_FLEET_GATES=json.dumps(gates)),
                                            mock.Mock(), now=NOW, log=lambda _: None)
         self.assertIsNone(waiting)
         self.assertTrue(seen.owned_full_known[GUI])
