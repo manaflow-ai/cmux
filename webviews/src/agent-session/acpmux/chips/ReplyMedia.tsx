@@ -165,6 +165,20 @@ export function MediaPlayer({
   const close = useRef<HTMLButtonElement>(null);
   const media = useRef<HTMLSpanElement>(null);
   const inlineVideo = useRef<HTMLVideoElement | null>(null);
+  const expandedVideo = useRef<HTMLVideoElement | null>(null);
+  const expandedPlayed = useRef(false);
+  // Closing the expanded player hands its position back, so the inline copy (paused at the
+  // handoff) resumes where the expanded one stopped instead of rewinding.
+  const closeExpanded = () => {
+    const large = expandedVideo.current;
+    const inline = inlineVideo.current;
+    if (expandedPlayed.current && large && inline && large !== inline) {
+      const time = large.currentTime;
+      if (Number.isFinite(time) && time > 0) inline.currentTime = time;
+    }
+    expandedPlayed.current = false;
+    setExpanded(false);
+  };
   const [short, setShort] = useState(false);
   useLayoutEffect(() => {
     if (kind !== "video") return;
@@ -230,7 +244,7 @@ export function MediaPlayer({
         <Dialog
           open
           onOpenChange={(open) => {
-            if (!open) setExpanded(false);
+            if (!open) closeExpanded();
           }}
           label={name || t("media.player")}
           className="acpmux-image-viewer"
@@ -245,7 +259,7 @@ export function MediaPlayer({
                 className="acpmux-image-viewer-action"
                 ref={close}
                 {...keyedIconProps(t("image.close"), "escape")}
-                onClick={() => setExpanded(false)}
+                onClick={closeExpanded}
               >
                 <Close />
               </button>
@@ -256,7 +270,11 @@ export function MediaPlayer({
                 src={src}
                 name={name}
                 onError={onError}
+                videoRef={(element) => {
+                  expandedVideo.current = element;
+                }}
                 onPlay={(element) => {
+                  expandedPlayed.current = true;
                   const current = inlineVideo.current;
                   if (!current || current === element) return undefined;
                   const time = current.currentTime;
