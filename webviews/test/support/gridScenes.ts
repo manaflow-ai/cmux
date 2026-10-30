@@ -61,7 +61,7 @@ const centered = (glyph: string, control: string): GridLine[] => [
 ];
 const scene = (surface: string, entry: string, variant: string, root: string, lines: GridLine[]): GridScene => ({
   surface,
-  level: "warn",
+  level: surface.startsWith("composer.") ? "fail" : "warn",
   entry,
   variant,
   root,
@@ -72,7 +72,7 @@ const plus = ".acpmux-composer-plus .acpmux-picker-button";
 
 const placeholder = ".acpmux-md-placeholder";
 const composer = (variant: string, text = placeholder, entry = "agent-pane.composer-row") => {
-  const last = variant === "claude-auto" ? ".acpmux-mic" : ".acpmux-send:not(.acpmux-steer-now)";
+  const last = variant === "claude-auto" || variant === "running" ? ".acpmux-mic" : ".acpmux-send:not(.acpmux-steer-now)";
   return scene("composer.box", entry, variant, ".acpmux-composer-box", [
     left("edge: control inset", plus, "left", token("composer-inset")),
     left("lead", `${plus} svg`, "cx", token("composer-lead-center")),
@@ -87,7 +87,7 @@ const composer = (variant: string, text = placeholder, entry = "agent-pane.compo
     value("mid: trailing control", last, "cy", point(plus, "cy")),
   ]);
 };
-const running = composer("grid-running");
+const running = composer("running");
 running.textIncludes = { selector: placeholder, text: "↵ steer · ⌘↵ queue" };
 
 const stackToken: Record<string, string> = {
@@ -168,7 +168,7 @@ export const gridScenes: GridScene[] = [
   scene("composer.foot", "agent-pane.composer-row", "claude-auto", ".acpmux-composer-foot", [
     from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
     value("row height", ":scope", "height", token("composer-quiet-row-height")),
-    from("text", ".acpmux-mode-text", "text", point(".acpmux-composer-box", "left"), token("composer-quiet-row-text")),
+    from("first-chip: ink", ".acpmux-access-trigger svg", "left", point(".acpmux-composer-box", "left"), token("composer-quiet-row-text")),
     from(
       "lead",
       ".acpmux-access-trigger svg",
@@ -183,7 +183,27 @@ export const gridScenes: GridScene[] = [
       point(".acpmux-context-ring svg", "cx"),
       token("composer-trail-center"),
     ),
-    mid(".acpmux-mode-text", ":scope"),
+    mid(".acpmux-access-trigger svg", ":scope"),
+    mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
+    value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
+  ]),
+  scene("composer.foot", "agent-pane.composer-row", "running", ".acpmux-composer-foot", [
+    from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
+    value("row height", ":scope", "height", token("composer-quiet-row-height")),
+    from("first-chip: ink", ".acpmux-access-trigger svg", "left", point(".acpmux-composer-box", "left"), token("composer-quiet-row-text")),
+    from("lead", ".acpmux-access-trigger svg", "cx", point(".acpmux-composer-box", "left"), token("composer-lead-center")),
+    from("trail", ".acpmux-composer-box", "right", point(".acpmux-context-ring svg", "cx"), token("composer-trail-center")),
+    mid(".acpmux-access-trigger svg", ":scope"),
+    mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
+    value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
+  ]),
+  scene("composer.foot", "agent-pane.composer-look", "codex-chat", ".acpmux-composer-foot", [
+    from("edge: gap", ":scope", "top", point(".acpmux-composer-box", "bottom"), token("gap-foot")),
+    value("row height", ":scope", "height", token("composer-quiet-row-height")),
+    from("first-chip: ink", ".acpmux-access-trigger svg", "left", point(".acpmux-composer-box", "left"), token("composer-quiet-row-text")),
+    from("lead", ".acpmux-access-trigger svg", "cx", point(".acpmux-composer-box", "left"), token("composer-lead-center")),
+    from("trail", ".acpmux-composer-box", "right", point(".acpmux-context-ring svg", "cx"), token("composer-trail-center")),
+    mid(".acpmux-access-trigger svg", ":scope"),
     mid(".acpmux-model-detail:not(.acpmux-fit-label)", ":scope"),
     value("mid: ring", ".acpmux-context-ring svg", "cy", point(":scope", "cy")),
   ]),
