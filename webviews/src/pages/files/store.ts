@@ -155,11 +155,16 @@ export class FilesStore {
 
   /** Drops what `folder` no longer holds as a folder: its expansion, listing and anything under it. */
   private forgetGone(folder: string, entries: FileEntry[]): void {
-    const kept = new Set(entries.map((entry) => joinPath(folder, entry.name)));
-    // Include the selected path so a deleted file (which has no folder state) is reconciled too.
-    const known = new Set([...this.expanded, ...this.folders.keys(), ...(this.selected ? [this.selected] : [])]);
+    const present = new Set(entries.map((entry) => joinPath(folder, entry.name)));
+    const kept = new Set(
+      entries.filter((entry) => entry.kind === "directory").map((entry) => joinPath(folder, entry.name)),
+    );
+    const known = new Set([...this.expanded, ...this.folders.keys()]);
     const gone = [...known].filter((path) => path !== folder && parentPath(path) === folder && !kept.has(path));
-    if (gone.length === 0) return;
+    // A selected file has no folder state, so a deleted one is reconciled here as well.
+    const selectedGone =
+      this.selected !== undefined && parentPath(this.selected) === folder && !present.has(this.selected);
+    if (gone.length === 0 && !selectedGone) return;
     const inside = (path: string) => gone.some((top) => path === top || path.startsWith(`${top}/`));
     this.folders = new Map(this.folders);
     for (const path of [...known].filter(inside)) {
@@ -167,7 +172,7 @@ export class FilesStore {
       this.folders.delete(path);
       this.requests.delete(path);
     }
-    if (this.selected !== undefined && gone.some((top) => this.selected === top || this.selected!.startsWith(`${top}/`)))
+    if (this.selected !== undefined && (selectedGone || gone.some((top) => this.selected!.startsWith(`${top}/`))))
       this.selected = folder || undefined;
   }
 
