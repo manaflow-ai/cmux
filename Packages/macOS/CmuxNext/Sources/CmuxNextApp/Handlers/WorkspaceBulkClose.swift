@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWakeups
 
 /// The workspace closes that take several at once: Close Other Workspaces,
 /// Close Workspaces Above and Below, Close Others in Group, Close All Workspaces (one window) and
@@ -106,6 +107,11 @@ enum WorkspaceBulkClose {
         if members.isEmpty, let none = nothingToClose.first(where: { $0.0 == id })?.1 { throw ActionFailure.invalidTarget(none()) }
         let services = context.services
         let names = members.map { $0.0.name }
+        let groupsToPrune: Set<WorkspaceGroupID> = Set(members.compactMap { workspace, _ in
+            guard let qualified = WindowProfiles.qualified(workspace.id, machines: services.machines),
+                  services.machines.local.store.personal.isLoaded else { return nil }
+            return services.machines.local.store.personal.workspace(session: qualified.session, key: qualified.key)?.group
+        })
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         var groups: [(String?, [String])] = [(nil, names)]
         if id == "workspaceGroup.closeOthers" {
@@ -118,6 +124,16 @@ enum WorkspaceBulkClose {
             for group in others { sidebar.handle(.closeGroup(group.id)) }
         } else {
             WorkspaceClose.close(members)
+        }
+        if !groupsToPrune.isEmpty {
+            let life = PersonalGroupLife(machines: services.machines)
+            Task { @MainActor in
+                let empty: @MainActor @Sendable () -> Bool = {
+                    groupsToPrune.allSatisfy { life.isEmptyUnpinned($0) }
+                }
+                if !empty() { await ObservationDeadline(owner: "workspace-bulk-close-prune").until(empty, limit: .seconds(5)) }
+                for group in groupsToPrune { life.deleteIfEmpty(group, failed: {}) }
+            }
         }
         guard invocation.origin == .user, members.count > 1, let window else { return }
         WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services)
