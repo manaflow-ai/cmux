@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
+import { TABLE_MACHINE } from "../src/domains/cloud.ts"
 import { bindFile, cloudStub, DAEMON, post, signedInWithInstall, SIZE, vmKey, WG_KEY, worker } from "./cloud-bind-support.ts"
 import { settlePolicy } from "./integration-policy-settle.ts"
 import { fireAlarm } from "./setup/alarm.ts"
@@ -85,7 +86,28 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
 
     // Status: configured, the connection and its repositories.
     const res = await worker.fetch(`https://api.test/v1/integrations/github/status?team=${a.team}`, { headers: { authorization: `Bearer ${a.installToken}` } })
-    expect(await res.json()).toMatchObject({ configured: true, app_slug: "cmux-test", connection: { account: "acme", status: "active", repos: ["acme/api", "acme/web"], allow_workflows: false } })
+    expect(await res.json()).toMatchObject({ configured: true, app_slug: "cmux-test", allowed: true, connection: { account: "acme", status: "active", repos: ["acme/api", "acme/web"], allow_workflows: false } })
+
+    // A team policy without GitHub: the status says so, as the token route refuses it.
+    await policy(a.session, a.team, { allowed_providers: ["linear"] })
+    const denied = await worker.fetch(`https://api.test/v1/integrations/github/status?team=${a.team}`, { headers: { authorization: `Bearer ${a.installToken}` } })
+    expect(await denied.json()).toMatchObject({ allowed: false, connection: { status: "active" } })
+  })
+
+  it.each([
+    { classes: ["read"], readStatus: 200, writeStatus: 403 },
+    { classes: ["read", "mutate-own"], readStatus: 200, writeStatus: 200 },
+    { classes: ["mutate-own"], readStatus: 403, writeStatus: 403 }
+  ])("enforces a CLI grant $classes before minting GitHub permissions", async ({ classes, readStatus, writeStatus }) => {
+    const a = await signedInWithInstall(`gh-token-grant-${classes.join("-")}`, "cli", classes)
+    const { gh } = await linkGitHub(a.session, a.team)
+    const ask = (permissions: Record<string, string>) => token(a.installToken, { team: a.team, repo: "acme/web", permissions })
+    expect((await ask({ contents: "read" })).status).toBe(readStatus)
+    // A mixed ask must not let one read permission mask another permission's write.
+    const write = await ask({ contents: "read", issues: "write" })
+    expect(write.status).toBe(writeStatus)
+    if (writeStatus === 403) expect(write.body.error.code).toBe("auth.forbidden")
+    expect(gh.mints()).toHaveLength(Number(readStatus === 200) + Number(writeStatus === 200))
   })
 
   it("refuses repositories outside the connection or policy, other owners, unknown permissions and workflows without the policy flag", async () => {
@@ -157,12 +179,23 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     const signature = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
     const vm = (await post("/v1/auth/token", undefined, { user: install.user, install: install.id, nonce: ch.nonce, signature })).body.access_token as string
 
-    const mine = await token(vm, { repo: "acme/web", permissions: { contents: "read" } })
+    const mine = await token(vm, { repo: "acme/web", permissions: { contents: "write" } })
     expect(mine.body.token, JSON.stringify(mine.body)).toBe("ghs_secret_1")
-    expect((await token(vm, { team: "team_00000000000000000000", repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("auth.forbidden")
+    expect((await token(vm, { team: "team_00000000000000000000", repo: "acme/web", permissions: { contents: "write" } })).body.error.code).toBe("auth.forbidden")
+    // A live machine naming a different install refuses this VM, even with a cached token.
+    const bindInstall = (id: string) => inDO(cloudStub(a.team), async (instance) => {
+      const rows = instance.bind(a.team).rows
+      const current = rows.get(TABLE_MACHINE, machine)
+      rows.apply([{ table: TABLE_MACHINE, op: "upsert", key: machine, n: current.n, row: { ...current.row, vm_install: id } }])
+    })
+    await bindInstall("inst_00000000000000000009")
+    const other = await token(vm, { repo: "acme/web", permissions: { contents: "write" } })
+    expect([other.status, other.body.error?.code]).toEqual([403, "auth.forbidden"])
+    expect(gh.mints()).toHaveLength(1)
+    await bindInstall(install.id)
     // Deleting the machine ends the VM install, and with it the VM's tokens.
     expect((await op(a.session, "cloud.machine.delete", { machine })).body.ok).toBe(true)
-    expect((await token(vm, { repo: "acme/web", permissions: { contents: "read" } })).status).toBeGreaterThanOrEqual(401)
+    expect((await token(vm, { repo: "acme/web", permissions: { contents: "write" } })).status).toBeGreaterThanOrEqual(401)
     const user = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(a.user))
     for (let i = 0; i < 20 && !gh.deletes().some((c) => c.auth === `Bearer ${mine.body.token}`); i++) [await fireAlarm(cloudStub(a.team) as unknown), await fireAlarm(user)]
     expect(gh.deletes().map((c) => c.auth)).toContain(`Bearer ${mine.body.token}`)

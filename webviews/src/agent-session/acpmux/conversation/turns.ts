@@ -19,9 +19,10 @@ import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
-import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { awaitsPermission, isDraftCall, isRunning, messageGroupKey, toolGroups } from "./toolGroups";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
+import { agentMessage } from "./agentMessages";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -73,6 +74,10 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
 
 /// A turn summary for a turn that was stopped (Stop, Esc, or an interruption) and did not go on
 /// under a prompt sent now (`continued`).
+/// A turn that ended on an error (its card, TurnRows.tsx TurnFailure).
+export const isFailed = (row: AcpmuxRow) =>
+  row.kind === "turnSummary" && (row.status === "failed" || row.status === "error");
+
 export const isStopped = (row: AcpmuxRow) =>
   row.kind === "turnSummary" && (row.status === "cancelled" || row.status === "interrupted") && !row.continued;
 
@@ -621,11 +626,20 @@ function shapeTurn(
     if (turn[at]!.kind === "turnSummary") lastSummary = at - end - 1;
   const offers = retryable && !live;
   const resumable = offers && lastSummary < 0 && isStopped(summary);
+  // A failed last turn goes on with Continue when it did work (it keeps what the turn had done) or
+  // has no prompt to send again; one where nothing ran is sent again with Retry (errorRecovery.ts).
+  // A notice-started turn has no prompt to send again, so it goes on too; acpmux's own retry attempt
+  // (a hidden prompt row) where nothing ran stays Retry.
+  const noticeStarted = user.incoming?.kind === "notice";
+  const continuable =
+    offers && lastSummary < 0 && isFailed(summary) && (noticeStarted || body.some((row) => row.kind !== "user"));
   shaped.push({
     ...summary,
     folded,
     text: answer?.text ?? summary.text,
     ...(resumable && { resumable }),
+    ...(retryable && { retryable }),
+    ...(continuable && { continuable }),
     ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
     // notification is the harness's, not a prompt to send again (incomingMessage.ts).
@@ -636,7 +650,8 @@ function shapeTurn(
         retryRowId: user.id,
         retryAttachments: user.retryAttachments,
       }),
-    version: version * 4 + (retryable ? 1 : 0) + (resumable ? 2 : 0),
+    // A turn is either stopped or failed, so Continue's bit serves both.
+    version: version * 4 + (retryable ? 1 : 0) + (resumable || continuable ? 2 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
@@ -649,6 +664,11 @@ function shapeTurn(
   if (offers && lastSummary >= 0 && isStopped(tail[lastSummary]!)) {
     const stopped = tail[lastSummary]!;
     tail[lastSummary] = { ...stopped, resumable: true, version: stopped.version + VERSION_SPAN };
+  }
+  // A turn the agent started on its own that failed has no prompt of its own to send again: Continue.
+  if (offers && lastSummary >= 0 && isFailed(tail[lastSummary]!)) {
+    const failed = tail[lastSummary]!;
+    tail[lastSummary] = { ...failed, continuable: true, version: failed.version + VERSION_SPAN };
   }
   if (live && liveRuns && lineBelow && tail.some((row) => row.kind === "activity"))
     shaped.push(...liveTurn(summary, tail, clockOffset, liveRuns, sessionStatus, lineBelow));
@@ -1031,9 +1051,12 @@ function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "
   if (send) return send.state === "sending" ? { doingSendTo: send.target } : {};
   if (tool.kind === "execute" && tool.command) return {};
   const call = subsessionCall(tool);
-  if (call?.tool !== "send") return {};
-  const id = call.sessionId;
-  return { doingSendTo: id.length > 12 ? `${id.slice(0, 8)}…` : id, doingSendSession: id };
+  const short = (id: string) => (id.length > 12 ? `${id.slice(0, 8)}…` : id);
+  if (call?.tool === "send") return { doingSendTo: short(call.sessionId), doingSendSession: call.sessionId };
+  // A harness's own message tool (Claude's SendMessage), which a group of messages draws while it
+  // runs with the Codex-style runs off: with them on it leaves its run, so the line names it.
+  const to = !call && isRunning(tool) ? agentMessage(tool)?.to : undefined;
+  return to ? { doingSendTo: short(to) } : {};
 }
 
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
@@ -1090,6 +1113,9 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
     (group.type === "mcp" && group.items.length === 1)
   )
     return true;
+  // A message in a run of them shows under the group's line while it is open, which it starts
+  // while one goes out (MessageGroupRow.tsx).
+  if (group.type === "messages") return { key: messageGroupKey(group.items, row.id, at), open: true };
   const kind = group.type === "mcp" ? "mcp" : group.kind;
   const key = `group:${kind}:${group.items[0]!.tool!.id || `${row.id}:${at}`}`;
   return { key, open: kind !== "mcp" && kind !== "edits" };
