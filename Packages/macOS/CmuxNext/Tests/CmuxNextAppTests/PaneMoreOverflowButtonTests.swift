@@ -42,7 +42,6 @@ import Testing
         #expect(invoked == ["review"])
     }
 
-
     @Test func overflowValidationPreservesDisabledToolsAndAncestors() throws {
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 1, height: 30))
         let child = PaneTabRowMenuItem(id: "child", label: "Child")
@@ -123,6 +122,40 @@ import Testing
         #expect(!hidden.isEmpty)
         #expect(narrow.nativeOverflowItems().map(\.title) == hidden)
 
+    }
+
+    @Test func textToolGetsAWiderSlotAndIconOnlyToolsKeepTheirSlot() {
+        let icon = PaneTabRowTool(id: "icon", symbol: "checkmark", label: "Icon")
+        let text = PaneTabRowTool(id: "text", symbol: "checkmark", label: "Text", text: "#123 ✓3/5")
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 400, height: 30))
+        view.show(more: false, lit: false, nativeItems: [icon, text])
+        view.layoutSubtreeIfNeeded()
+        #expect(view.nativeButtons[0].frame.width == TitlebarBandButton.side)
+        #expect(view.nativeButtons[1].frame.width > view.nativeButtons[0].frame.width)
+        #expect(view.nativeOverflowItems().isEmpty)
+    }
+
+    @Test func menuURLOpensOnceAndStaleOwnerCannotInvokeIt() throws {
+        let url = "https://example.com/pull/123"
+        let item = PaneTabRowMenuItem(id: "open", label: "Open", url: url)
+        let tool = PaneTabRowTool(id: "review", symbol: "checkmark", label: "Review", menu: [item])
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 300, height: 30))
+        view.show(more: false, lit: false, nativeItems: [tool])
+        var opened: [URL] = []
+        var invoked: [(String, String?)] = []
+        view.openURL = { opened.append($0) }
+        view.onNativeTool = { invoked.append(($0, $1)) }
+        let menu = try #require(view.nativeButtons.first?.pressMenu?())
+        let row = try #require(menu.items.first)
+        #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
+        #expect(opened == [try #require(URL(string: url))])
+        #expect(invoked.map { [$0.0, $0.1 ?? ""] } == [["review", "open"]])
+
+        view.show(more: false, lit: false,
+                  nativeItems: [PaneTabRowTool(id: "other", symbol: "checkmark", label: "Other", menu: [item])])
+        #expect(NSApplication.shared.sendAction(try #require(row.action), to: row.target, from: row))
+        #expect(opened.count == 1)
+        #expect(invoked.count == 1)
     }
 
     @Test func aLitMenuDrawsInTheAccent() {
