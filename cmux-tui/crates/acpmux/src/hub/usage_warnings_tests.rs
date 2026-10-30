@@ -175,3 +175,22 @@ fn an_unknown_field_never_warns() {
     let none = row("claude", json!({"autocompact": "none", "autocompactCap": null}));
     assert_eq!(rules(&usage_warnings(&none, &UsageLimits::default())), ["noAutocompactCap"]);
 }
+
+/// A peer's row is renamed `<peer>/<name>`; its commands follow, so they reach the peer's session.
+#[test]
+fn a_peers_row_names_the_peers_session_in_its_commands() {
+    let mut summary = row("claude", json!({"autocompact": "none", "contextTokens": 412_000}));
+    let warnings = usage_warnings(&summary, &UsageLimits::default());
+    summary["usageWarnings"] = json!(warnings);
+    summary["name"] = json!("box/dep-1");
+    super::usage_warnings::for_name(&mut summary);
+    let w = summary["usageWarnings"].as_array().unwrap();
+    assert_eq!(w[0]["actions"][0]["command"], "lane-place rotate box/dep-1 --harness claude-sr2");
+    assert_eq!(w[1]["actions"][0]["command"], "acpmux send box/dep-1 /compact");
+    assert_eq!(
+        w[1]["text"],
+        "Context 412k tokens, above the 400k warning line. Compact it (acpmux send box/dep-1 /compact) \
+         or rotate to a fresh session (lane-place rotate box/dep-1, leo-workspace#1617)"
+    );
+    assert!(!w[1]["text"].as_str().unwrap().contains(" dep-1 "), "no bare name is left");
+}

@@ -404,8 +404,8 @@ when the summary is read (`hub/usage_warnings.rs`). `noAutocompactCap`: a Claude
 with no autocompact cap (`usageStats.autocompact` `none`); `contextTokens`: its last call's
 context is above the limit; `subagentsPerHour`: it started more subagents than the limit in the
 last hour. A number acpmux could not read is null, never zero, and an unknown cap (`unknown`: a
-chat it adopted or revived without seeing its launch) or count neither raises nor clears a
-warning. Each warning names the step that answers it (`actions`: `[{label, command, pending}]`, the one
+chat it adopted or revived without seeing its launch) or count never raises a warning. A peer's
+row names the peer's session (`<peer>/<name>`) in its commands. Each warning names the step that answers it (`actions`: `[{label, command, pending}]`, the one
 to try first first; nothing is done automatically): no cap, rotate onto a capped profile
 (`lane-place rotate NAME --harness claude-sr2`, a dry run until `--yes`, which rotates; `pending`
 names leo-workspace#1617 until it lands); a large context, compact it (`acpmux send NAME

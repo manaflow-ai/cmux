@@ -12,7 +12,10 @@
 //! must trigger an action, HQ#5123), each with the command that takes it and `pending` the change
 //! that adds that command while it has not landed, else null. Nothing is done automatically. Empty for a closed session or one with no
 //! `usageStats` yet. A number acpmux could not read is unknown (null or absent), never zero, and
-//! an unknown number neither raises nor clears a warning.
+//! an unknown number never raises a warning: a summary warns only on numbers it knows. acpmux keeps
+//! the last numbers it read (`usage_view.rs`), so a later read does not turn a known number
+//! unknown; one turns unknown only where acpmux can no longer vouch for it (a backlog it has not
+//! read), and then no warning stands on it.
 
 use crate::config::UsageLimits;
 use serde_json::{Value, json};
@@ -61,11 +64,15 @@ fn said(step: &Value) -> String {
     format!("{} ({command}{soon})", step["label"].as_str().unwrap_or_default())
 }
 
-/// `warning` with its steps, and the steps at the end of its text (`… or …`).
+/// `warning` with its steps for session `name`, and the steps at the end of its text (`… or …`).
+/// `finding` keeps the text before the steps, so a new name can be given (`for_name`).
 fn with_action(mut warning: Value, name: &str) -> Value {
+    let finding =
+        warning.get("finding").unwrap_or(&warning["text"]).as_str().unwrap_or_default().to_owned();
     let actions = actions(warning["rule"].as_str().unwrap_or_default(), name);
     let steps = actions.iter().map(said).collect::<Vec<_>>().join(" or ");
-    warning["text"] = json!(format!("{}. {steps}", warning["text"].as_str().unwrap_or_default()));
+    warning["text"] = json!(format!("{finding}. {steps}"));
+    warning["finding"] = json!(finding);
     warning["actions"] = Value::Array(actions);
     warning
 }
@@ -74,6 +81,19 @@ fn with_action(mut warning: Value, name: &str) -> Value {
 pub fn usage_warnings(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
     let name = summary["name"].as_str().unwrap_or_default().to_owned();
     rules_broken(summary, limits).into_iter().map(|w| with_action(w, &name)).collect()
+}
+
+/// `summary`'s warnings with their commands naming it as `summary.name` now says, after a
+/// daemon that lists a peer's sessions renamed it `<peer>/<name>` (`peers.rs`), so a command
+/// copied from that row reaches the peer's session, not one of the same name here.
+pub fn for_name(summary: &mut Value) {
+    let name = summary["name"].as_str().unwrap_or_default().to_owned();
+    let Some(warnings) = summary.get_mut("usageWarnings").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for warning in warnings.iter_mut() {
+        *warning = with_action(warning.take(), &name);
+    }
 }
 
 fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
