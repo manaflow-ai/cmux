@@ -377,3 +377,7 @@ fn next(e: &RpcError) -> Next {
         None => Next::Fail,
     }
 }
+
+#[cfg(test)]
+#[path = "outbox_failover_tests.rs"]
+mod failover_tests;

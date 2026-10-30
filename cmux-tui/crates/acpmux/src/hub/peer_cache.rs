@@ -133,6 +133,24 @@ impl Hub {
         (!peer.connected.load(std::sync::atomic::Ordering::SeqCst))
             .then(|| peer.unreachable_error())
     }
+
+    /// For tests outside the hub: peer `name` registered with a link that never runs, whose last
+    /// handshake listed `sessions` before it dropped.
+    #[cfg(test)]
+    pub(crate) fn seed_down_peer(
+        &self,
+        name: &str,
+        sessions: Vec<Value>,
+    ) -> Arc<crate::peer::Peer> {
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+        self.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
+        let notice = crate::peer::PeerNotice::Sessions(sessions);
+        self.apply_peer_notice(name, peer.generation, notice);
+        let notice = crate::peer::PeerNotice::Disconnected("connect timed out".into());
+        self.apply_peer_notice(name, peer.generation, notice);
+        peer
+    }
 }
 
 #[cfg(test)]
