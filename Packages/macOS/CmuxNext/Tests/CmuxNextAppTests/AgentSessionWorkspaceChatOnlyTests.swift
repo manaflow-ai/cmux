@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import Darwin
 import Foundation
 import Testing
 
@@ -61,6 +62,65 @@ struct AgentSessionWorkspaceChatOnlyTests {
         #expect(failure == nil, "refused: \(failure ?? "")")
         #expect(made.filter { $0.kind == .pty }.count == 0, "the workspace got a terminal")
         #expect(made.count == 1)
+        #expect(made.first?.kind == .conversation)
+    }
+
+    /// A busy daemon can commit the workspace's conversation tab after the app's short request
+    /// deadline. Agent-open has no provisional row to take back, so it must keep retrying the
+    /// keyed first-tab request until the commit is acknowledged instead of leaving an
+    /// about:blank-only workspace behind.
+    @Test func openSessionWorkspaceWaitsForALateConversationTab() async throws {
+        let binary = try #require(SameTreeDaemonBinary.url)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-chat-only-late-\(UUID().uuidString.prefix(8))")
+        let session = "cn-chat-only-late-\(UUID().uuidString.prefix(8).lowercased())"
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
+            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        services.daemon.start {
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+        }
+        let store = services.daemon.store
+        defer { try? FileManager.default.removeItem(at: root) }
+        let tabs = services.agentTabs
+        tabs.localHost = AgentSessionRef.host(installID: "chat-only-late-test")
+        tabs.holdsTabs = { _ in true }
+        let connectBy = ContinuousClock.now + .seconds(60)
+        while services.daemon.connection == nil || services.daemon.identity == nil, ContinuousClock.now < connectBy {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try #require(tabs.canHostChat, "this build has no agent page")
+        let pid = try #require(services.daemon.identity?.pid)
+        let key = WorkspaceKey.generate()
+        let work = try AgentSessionWorkspace.open(session: "s-chat-only-late", name: "late lane", key: key, cwd: "/tmp", services: services)
+
+        // Stop after the workspace is visible but before its first conversation tab can settle.
+        try await PasswordManagerRouteTests.until({
+            store.workspaces.contains { workspace in
+                workspace.key == key && workspace.screens.flatMap(\.panes).flatMap(\.tabs).isEmpty
+            }
+        }, within: .seconds(10))
+        #expect(kill(pid, SIGSTOP) == 0)
+        try await Task.sleep(for: .seconds(3))
+        #expect(kill(pid, SIGCONT) == 0)
+        let failure = await work.value?.message
+
+        try await PasswordManagerRouteTests.until({
+            store.workspaces.first(where: { $0.key == key })?.screens.flatMap(\.panes).flatMap(\.tabs).count == 1
+        }, within: .seconds(20))
+        let made = store.workspaces.first(where: { $0.key == key })?.screens.flatMap(\.panes).flatMap(\.tabs) ?? []
+        if let connection = services.daemon.connection, let identity = services.daemon.identity {
+            _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                              timeout: .seconds(10))
+        }
+        services.daemon.shutdownConnection()
+        for controller in services.windows.controllers { controller.window?.close() }
+
+        #expect(failure == nil, "refused: \(failure ?? "")")
+        #expect(made.count == 1, "the late first tab was not attached: \(made)")
         #expect(made.first?.kind == .conversation)
     }
 }
