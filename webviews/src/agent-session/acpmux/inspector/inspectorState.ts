@@ -196,6 +196,9 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
   };
 
   let pane: string | undefined;
+  /// The chat the pane is leaving for a new one (`startNewChat`) until it binds again: nothing is saved
+  /// under it meanwhile, so the new chat's closed state never lands on the chat it left.
+  let leaving: string | undefined;
   let state: State | undefined;
   /// The last saved state `shownFor` read for a chat the pane does not show yet, so the snapshot
   /// stays the same object while nothing changed.
@@ -212,7 +215,7 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
     return closedOf.to;
   };
   const update = (next: State, persist: boolean) => {
-    if (persist && pane) save(pane, next);
+    if (persist && pane && pane !== leaving) save(pane, next);
     const changed = next !== state;
     state = next;
     if (changed) for (const listener of listeners) listener();
@@ -242,6 +245,7 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
     /// a harness switch): nothing is saved until one comes, and the pane keeps what it shows.
     bind(sessionId: string | undefined) {
       if (sessionId === pane) return;
+      leaving = undefined;
       const left = pane !== undefined;
       pane = sessionId || undefined;
       if (!pane) return;
@@ -254,6 +258,7 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
     /// chat it hands the tab: App.tsx's handshake reset): the new chat shows closed from its first
     /// frame, and the chat the pane showed keeps its saved state. A harness switch keeps what it shows.
     startNewChat() {
+      leaving = pane;
       update(closed(), false);
     },
     setOpen(open: boolean) {
@@ -266,7 +271,7 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
       const next = clampWidth(width);
       if (persist) write(WIDTH_KEY, String(next));
       if (next !== current().width) update({ ...current(), width: next }, persist);
-      else if (persist && pane) save(pane, current());
+      else if (persist && pane && pane !== leaving) save(pane, current());
     },
     setSection(id: InspectorSectionId, open: boolean) {
       const sections = { ...current().sections, [id]: open };
@@ -284,6 +289,7 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
       state = undefined;
       peeked = undefined;
       closedOf = undefined;
+      leaving = undefined;
       update(defaults(), false);
     },
   };

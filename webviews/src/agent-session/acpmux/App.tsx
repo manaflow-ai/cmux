@@ -7618,8 +7618,9 @@ function AcpmuxPane() {
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
         ) {
-          // Another chat in this tab: Session Info does not carry over open from the last (#26692).
-          startNewInspectorChat();
+          // Another chat in this tab: Session Info does not carry over open from the last (#26692). A
+          // reconnect of a new chat with no session yet is the same chat: the viewer's open stays.
+          if (!reconnect || snapshotRef.current?.sessionId) startNewInspectorChat();
           // The chats list and peers stay (the New Tab page, the hero's projects and Recents draw from
           // them); the client's first frame replaces them.
           setSnapshot((previous) => ({ ...emptySnapshot(), sessions: previous.sessions, peers: previous.peers }));

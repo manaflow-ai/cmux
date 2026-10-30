@@ -120,6 +120,8 @@ test("a new chat never opens Session Info by itself, whatever another chat or an
   // The host hands the tab a new chat (its handshake reset: no session, then the new chat's): it
   // shows closed before its first prompt and is saved closed, while the chat it left keeps its open.
   store.startNewChat();
+  // A fold before the pane leaves the chat is not saved under it as closed.
+  store.setSection("environment", false);
   store.bind(undefined);
   expect(store.current().open).toBe(false);
   expect(store.shownFor("chat-handed").open).toBe(false);
