@@ -233,12 +233,12 @@ final class PageScriptPipeline {
         for drop in inFlight { drop.call() }
         inFlightGate?.open()
         inFlightGate = nil
-        let pending = queue[head...]
+        var pending: ArraySlice<Item>? = queue[head...]
         queue.removeAll()
         head = 0
         drain?.cancel()
         drain = nil
-        for item in pending {
+        for item in pending ?? [] {
             switch item {
             case .envelope(_, let drop): drop.call()
             case .gate(let gate): gate.open()
@@ -246,7 +246,7 @@ final class PageScriptPipeline {
             }
         }
         // The slice is the queue's storage now: its envelopes and drop actions end off main.
-        release(consume pending)
+        release(&pending)
     }
 
     private func enqueue(_ item: Item) {
@@ -335,35 +335,42 @@ final class PageScriptPipeline {
         return run
     }
 
-    /// Hands `value`, the pipeline's last reference to a run it sent or dropped, to ``releaseSink``,
-    /// which frees it off the main thread; without a sink (a pipeline no ``WebUIHost`` opened, as in
-    /// tests) it is freed here. A run ``drainInline()`` sends is not handed over: it fits
-    /// ``inlineBudget``, the size of the work the main actor may do on one run, and its free is
-    /// bounded by the same budget.
-    private func release<Value: Sendable>(_ value: consuming sending Value) {
-        guard let releaseSink else { return }
-        releaseSink.drop(value)
+    /// Moves `value`, the pipeline's last reference to a run it sent or dropped, to ``releaseSink``,
+    /// which frees it off the main thread, and leaves nil: the sink gets the only reference (a
+    /// temporary, no local copy). Without a sink (a pipeline no ``WebUIHost`` opened, as in tests)
+    /// `value` stays and the caller's scope frees it. A run ``drainInline()`` sends is not handed
+    /// over: it fits ``inlineBudget``, the size of the work the main actor may do on one run, and its
+    /// free is bounded by the same budget.
+    private func release<Value: Sendable>(_ value: inout Value?) {
+        guard let releaseSink, value != nil else { return }
+        releaseSink.drop(value.take())
     }
 
     private func run(generation: UInt64) async {
         while generation == self.generation, head < queue.count {
             let end = runEnd()
             if end > head {
-                let run = take(head..<end)
+                // Optionals that release(_:) empties: after it no local here holds the run or its
+                // script, so the sink's free is the last one. (A `consume` in a tuple literal crashes
+                // swift-frontend 6.3.3 in SILGen, ImplodeLoadableTupleValue: no ownership operators here.)
+                var run: Run? = take(head..<end)
                 head = end
-                inFlightDrops = run.drops
-                let delivery = await render(run.envelopes, form())
+                inFlightDrops = run?.drops ?? []
+                var delivery: PageDelivery? = await render(run?.envelopes ?? [], form())
                 if generation != self.generation {
                     // reset() reported them already; each drop is one-shot.
-                    for drop in run.drops { drop.call() }
-                    return release((consume run, consume delivery))
+                    for drop in run?.drops ?? [] { drop.call() }
+                    release(&run)
+                    release(&delivery)
+                    return
                 }
                 inFlightDrops = []
                 // MQ12 held queue: as above.
-                deliver(delivery)
+                if let delivery { deliver(delivery) }
                 // The run (its envelopes and the drop actions that hold the router's events) and its
                 // rendered script: the main thread never frees a large run.
-                release((consume run, consume delivery))
+                release(&run)
+                release(&delivery)
             } else if case .gate(let gate) = queue[head] {
                 head += 1
                 inFlightGate = gate
