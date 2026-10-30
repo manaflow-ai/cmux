@@ -1,7 +1,7 @@
 import type { Translate } from "./i18n";
 import type { AcpmuxUsageLimits } from "./model";
 
-type Window = AcpmuxUsageLimits["windows"][number];
+type LimitWindow = AcpmuxUsageLimits["windows"][number];
 
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
@@ -12,14 +12,14 @@ export function usageLimitsOf(value: unknown): AcpmuxUsageLimits | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const windows = (value as { windows?: unknown }).windows;
   if (!Array.isArray(windows)) return undefined;
-  const kept: Window[] = [];
+  const kept: LimitWindow[] = [];
   for (const entry of windows) {
     if (!entry || typeof entry !== "object") continue;
     const { id, usedPercent, resetsAt } = entry as Record<string, unknown>;
     if (typeof id !== "string" || !id.trim() || !finite(usedPercent)) continue;
-    const window: Window = { id, usedPercent: Math.min(100, Math.max(0, usedPercent)) };
-    if (finite(resetsAt) && resetsAt > 0) window.resetsAt = resetsAt;
-    kept.push(window);
+    const limit: LimitWindow = { id, usedPercent: Math.min(100, Math.max(0, usedPercent)) };
+    if (finite(resetsAt) && resetsAt > 0) limit.resetsAt = resetsAt;
+    kept.push(limit);
   }
   return kept.length ? { windows: kept } : undefined;
 }
@@ -71,11 +71,11 @@ export function usageLimitsLabel(value: unknown, t: Translate, locale?: string):
   const limits = usageLimitsOf(value);
   if (!limits) return undefined;
   return limits.windows
-    .map((window) => {
-      const values = { name: windowName(window.id, t), percent: percent(window.usedPercent, locale) };
-      return window.resetsAt === undefined
+    .map((limit) => {
+      const values = { name: windowName(limit.id, t), percent: percent(limit.usedPercent, locale) };
+      return limit.resetsAt === undefined
         ? t("status.usageLimit.used", values)
-        : t("status.usageLimit.usedResets", { ...values, time: resetTime(window.resetsAt, locale) });
+        : t("status.usageLimit.usedResets", { ...values, time: resetTime(limit.resetsAt, locale) });
     })
     .join(" · ");
 }
