@@ -57,8 +57,14 @@ fn closed_conversation_tabs_negotiate_independently_and_keep_plain_browsers() {
             let chat = &screens[0]["tabs"][0];
             assert_eq!(chat["kind"], if canonical { "conversation" } else { "browser" }, "{read}");
             assert_eq!(chat["agent_session"], json!({"session":"sess-closed","harness":"codex"}));
-            assert_eq!(screens[0]["tabs"][1]["kind"], if canonical { "conversation" } else { "browser" });
-            assert_eq!(screens[0]["tabs"][2]["kind"], if canonical { "conversation" } else { "browser" });
+            assert_eq!(
+                screens[0]["tabs"][1]["kind"],
+                if canonical { "conversation" } else { "browser" }
+            );
+            assert_eq!(
+                screens[0]["tabs"][2]["kind"],
+                if canonical { "conversation" } else { "browser" }
+            );
             assert_eq!(screens[0]["tabs"][3]["kind"], "browser");
         }
         assert_eq!(

@@ -583,13 +583,16 @@ fn downgrade_closed_group(value: &mut Value) -> bool {
 
 fn downgrade_closed_group_children(value: &mut Value) -> bool {
     match value {
-        Value::Array(items) => items.iter_mut().map(|item| {
-            if item.get("tabs").is_some() {
-                downgrade_closed_screens(item)
-            } else {
-                downgrade_closed_group(item)
-            }
-        }).any(|changed| changed),
+        Value::Array(items) => items
+            .iter_mut()
+            .map(|item| {
+                if item.get("tabs").is_some() {
+                    downgrade_closed_screens(item)
+                } else {
+                    downgrade_closed_group(item)
+                }
+            })
+            .any(|changed| changed),
         Value::Object(object) if object.contains_key("tabs") => downgrade_closed_screens(value),
         Value::Object(_) => downgrade_closed_group(value),
         _ => false,
