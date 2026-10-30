@@ -177,7 +177,9 @@ fn ago(now: u64, at: u64) -> String {
 fn table(rows: Vec<Vec<String>>) -> String {
     let columns = rows.first().map_or(0, Vec::len);
     let widths: Vec<usize> = (0..columns)
-        .map(|c| rows.iter().map(|r| r[c].chars().count()).max().unwrap_or(0))
+        .map(|c| {
+            rows.iter().filter_map(|r| r.get(c)).map(|cell| cell.chars().count()).max().unwrap_or(0)
+        })
         .collect();
     let mut out = String::new();
     for row in rows {
@@ -186,7 +188,7 @@ fn table(rows: Vec<Vec<String>>) -> String {
             if c + 1 == columns {
                 line.push_str(cell);
             } else {
-                line.push_str(&format!("{cell:<w$}  ", w = widths[c]));
+                line.push_str(&format!("{cell:<w$}  ", w = widths.get(c).copied().unwrap_or(0)));
             }
         }
         out.push_str(line.trim_end());
@@ -212,7 +214,9 @@ pub fn render(
         .filter(|row| match hidden(row) {
             Some(why) if !view.all && !filtered => {
                 let i = HIDDEN_ORDER.iter().position(|(h, _)| *h == why).unwrap_or(0);
-                hidden_counts[i] += 1;
+                if let Some(count) = hidden_counts.get_mut(i) {
+                    *count += 1;
+                }
                 false
             }
             _ => true,

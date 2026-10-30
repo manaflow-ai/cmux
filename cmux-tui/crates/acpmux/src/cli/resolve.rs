@@ -81,10 +81,20 @@ pub(crate) fn choice_commands(args: &[String], data: &Value) -> Vec<String> {
     let Some(key) = data["session"].as_str() else { return Vec::new() };
     // The session argument: the one argument that is the key, or, when an option's value is the
     // key too (`--from review review`), the one no option precedes.
-    let at: Vec<usize> = (1..args.len()).filter(|&i| args[i] == key).collect();
+    let at: Vec<usize> = args
+        .iter()
+        .enumerate()
+        .skip(1)
+        .filter(|(_, a)| a.as_str() == key)
+        .map(|(i, _)| i)
+        .collect();
     let at = match at.as_slice() {
         [one] => *one,
-        many => match many.iter().find(|&&i| !args[i - 1].starts_with('-')) {
+        many => match many.iter().find(|&&i| {
+            i.checked_sub(1)
+                .and_then(|before| args.get(before))
+                .is_some_and(|a| !a.starts_with('-'))
+        }) {
             Some(&i) => i,
             None => return Vec::new(),
         },
