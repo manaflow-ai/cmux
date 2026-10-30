@@ -317,6 +317,41 @@ async fn a_late_retry_decision_keeps_a_finished_turns_end() {
     assert_eq!(fake.take().last(), Some(&s(9, "failed", Some("It broke."))));
 }
 
+/// A restored-retry marker for another turn neither moves nor renews the held turn's deadline.
+#[tokio::test(start_paused = true)]
+async fn a_restored_retry_of_another_turn_keeps_the_held_turns_deadline() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(2, "running")]);
+    r.step(S, began(2)).await;
+    r.step(S, cut_off(2)).await;
+    r.step(S, Step::RetryScheduled).await;
+    let due = r.next_deadline().unwrap();
+    tokio::time::advance(RETRY_WAIT_MAX / 2).await;
+    r.step(S, Step::RetryRestored { turn: 1, why: "The connection was interrupted.".into() }).await;
+    assert!(r.holds(S, Some(2)));
+    assert_eq!(r.next_deadline(), Some(due));
+}
+
+/// An older turn's begin the store did not answer, then its end, never drops a newer turn's
+/// end waiting to be sent again.
+#[tokio::test(start_paused = true)]
+async fn an_older_turns_end_never_drops_a_newer_waiting_end() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(10, "running"), busy(), busy(), busy(), busy(), busy(), busy()]);
+    r.step(S, began(10)).await;
+    r.step(S, done(10, "Ten.")).await;
+    r.step(S, began(9)).await;
+    r.step(S, Step::Ended(failed("Old."), Some(9))).await;
+    assert!(
+        !fake.take().iter().any(|(turn, status, _)| *turn == 9 && status == "failed"),
+        "no end is sent for the older turn"
+    );
+    tokio::time::advance(LATER[0]).await;
+    fake.answer([ok(10, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(10, "done", Some("Ten."))]);
+}
+
 /// Each turn reports on the turn its prompt names, never one learned from an earlier answer.
 #[tokio::test]
 async fn each_turn_reports_on_the_turn_its_prompt_names() {
