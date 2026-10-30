@@ -7500,8 +7500,8 @@ function AcpmuxPane() {
       if (localCwd !== undefined && !quick) enabledCmuxActions.add("side");
     }
     if (continueAvailable) enabledCmuxActions.add("continue");
-    // A side session asks nothing aside: its composer answers in it.
-    if (opensSideSessions && snapshot.sessionId && !isSideSession) enabledCmuxActions.add("btw");
+    // Reserve /btw even with the kill switch off: it must never become a steer or queued prompt.
+    if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
       ...snapshot,
       commands: mergedCommands(snapshot.commands, enabledCmuxActions),

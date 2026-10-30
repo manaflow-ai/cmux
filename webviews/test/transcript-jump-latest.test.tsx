@@ -94,11 +94,6 @@ test("a stale queued latest frame reports the live parked state to its parent", 
   try {
     await act(async () => draw(rows));
     const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    const spacer = dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!;
-    Object.defineProperty(scroller, "scrollHeight", {
-      configurable: true,
-      get: () => parseFloat(spacer.style.height),
-    });
     const latest = scroller.scrollHeight - VIEWPORT;
     const parked = latest - VIEWPORT;
     changes.length = 0;
