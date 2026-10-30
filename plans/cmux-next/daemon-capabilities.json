@@ -42,6 +42,7 @@
     "column-move-v1",
     "conversation-draft-events-v1",
     "conversation-inbox-state-v1",
+    "conversation-run-answers-v1",
     "conversation-runs-v1",
     "conversation-search-v1",
     "conversation-tab-split-v1",

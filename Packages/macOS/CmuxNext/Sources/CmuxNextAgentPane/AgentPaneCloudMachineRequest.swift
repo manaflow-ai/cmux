@@ -10,15 +10,18 @@ import Foundation
 ///   `loaded` is false until the App holds a list the server answered for the account signed in.
 /// - `cloudMachine.open {id}` -> `{}`: Open Machine (its first workspace; a paused one resumes).
 /// - `cloudMachine.resume {id}` -> `{}`: Resume Machine, for a paused machine only.
+/// - `cloudMachine.pause {id}` -> `{}`: Pause Machine, for a running machine only (the chat menu
+///   of a chat on that machine, cmuxterm-hq#4755).
 ///
-/// Open and Resume start a machine: each takes the person's own click (one gesture).
+/// Open, Resume and Pause change a machine: each takes the person's own click (one gesture).
 public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
     case list
     case open(id: String)
     case resume(id: String)
+    case pause(id: String)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
-    public static let methods: Set<String> = ["cloudMachine.list", "cloudMachine.open", "cloudMachine.resume"]
+    public static let methods: Set<String> = ["cloudMachine.list", "cloudMachine.open", "cloudMachine.resume", "cloudMachine.pause"]
     /// Longest id the page may send back (the API's ids are far shorter).
     static let maximumIDLength = 128
     /// Most rows one list answers.
@@ -31,9 +34,13 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
         case "cloudMachine.list":
             guard params.isEmpty else { return nil }
             self = .list
-        case "cloudMachine.open", "cloudMachine.resume":
+        case "cloudMachine.open", "cloudMachine.resume", "cloudMachine.pause":
             guard Set(params.keys) == ["id"], let id = Self.machineID(params["id"]) else { return nil }
-            self = method == "cloudMachine.open" ? .open(id: id) : .resume(id: id)
+            switch method {
+            case "cloudMachine.open": self = .open(id: id)
+            case "cloudMachine.resume": self = .resume(id: id)
+            default: self = .pause(id: id)
+            }
         default:
             return nil
         }
@@ -52,6 +59,7 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
         case .list: "cloudMachine.list"
         case .open: "cloudMachine.open"
         case .resume: "cloudMachine.resume"
+        case .pause: "cloudMachine.pause"
         }
     }
 }
@@ -88,12 +96,14 @@ public final class AgentPaneCloudMachines {
     public var open: (@MainActor (String) -> Bool)?
     /// Runs Resume Machine on a paused machine of the loaded list; false otherwise.
     public var resume: (@MainActor (String) -> Bool)?
+    /// Runs Pause Machine on a running machine of the loaded list; false otherwise.
+    public var pause: (@MainActor (String) -> Bool)?
 
     init() {}
 }
 
 extension AgentPaneCloudMachineRequest {
-    /// The page's reply. Open and Resume consume one gesture, and only once the App can run them.
+    /// The page's reply. Open, Resume and Pause consume one gesture, and only once the App can run them.
     @MainActor
     func reply(_ machines: AgentPaneCloudMachines, gestures: AgentPaneUserGestures) async -> [String: Any] {
         switch self {
@@ -104,6 +114,7 @@ extension AgentPaneCloudMachineRequest {
             return AgentPaneReply.success(["signedIn": inventory.signedIn, "loaded": inventory.loaded, "machines": rows] as [String: Any])
         case .open(let id): return run(machines.open, on: id, gestures: gestures)
         case .resume(let id): return run(machines.resume, on: id, gestures: gestures)
+        case .pause(let id): return run(machines.pause, on: id, gestures: gestures)
         }
     }
 
