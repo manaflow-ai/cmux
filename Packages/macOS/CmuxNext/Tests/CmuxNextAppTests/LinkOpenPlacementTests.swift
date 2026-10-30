@@ -41,6 +41,16 @@ struct LinkOpenPlacementTests {
                 == .splitBelow(of: "diff"))
     }
 
+    /// Main pane layout: the strip column right of the docked chat is the chat's right side, so the
+    /// same lower split applies there (ux-owner 2026-10-30, on Leo's "anything we expect to open on
+    /// 'the right'"); unmeasured, the strip pane still gets the tab.
+    @Test func theMainPaneStripColumnGetsTheSameLowerSplit() {
+        let wide: (String) -> CGFloat? = { _ in 700 }
+        #expect(Rule.inColumn(right: "strip", column: ["strip"], sourceWidth: 1400, width: wide) == .splitBelow(of: "strip"))
+        #expect(Rule.inColumn(right: "strip", column: ["strip", "lower"], sourceWidth: 1400, width: wide) == .pane("lower"))
+        #expect(Rule.inColumn(right: "strip", column: [], sourceWidth: 1400, width: wide) == .pane("strip"))
+    }
+
     @Test func aNarrowRightColumnTakesTheTabInsteadOfSplitting() {
         let rule = Rule(setting: .splitRight)
         #expect(rule.target(source: "chat", takesTabs: true, right: "diff", column: ["diff"], sourceWidth: 1400, width: { _ in 419 })

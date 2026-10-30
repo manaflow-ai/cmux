@@ -49,16 +49,21 @@ struct LinkOpenPlacement<Pane: Equatable> {
     func target(source: Pane, takesTabs: Bool, right: Pane?, column: [Pane] = [], sourceWidth: CGFloat? = nil,
                 width: (Pane) -> CGFloat? = { _ in nil }) -> Target {
         if setting == .samePane, takesTabs { return .pane(source) }
-        if let right, right != source {
-            guard !column.isEmpty else { return .pane(right) }
-            switch RightColumnPlacement.decide(sourceWidth: sourceWidth, column: column, width: width) {
-            case .splitBelow(let pane): return .splitBelow(of: pane)
-            case .tab(let pane): return .pane(pane ?? right)
-            case .splitRight: return .pane(right)
-            }
-        }
+        if let right, right != source { return Self.inColumn(right: right, column: column, sourceWidth: sourceWidth, width: width) }
         if !takesTabs { return .besideDock(source) }
         return setting == .newColumn ? .newColumn(rightOf: source) : .splitRight(of: source)
+    }
+
+    /// An item opened beside pane `right`, already on the source's right: ``RightColumnPlacement``
+    /// over the measured `column` (a split below its one pane, else a tab in its lower pane), or a tab
+    /// in `right` when the column was not measured. Main pane layout's strip column uses it too.
+    static func inColumn(right: Pane, column: [Pane], sourceWidth: CGFloat?, width: (Pane) -> CGFloat?) -> Target {
+        guard !column.isEmpty else { return .pane(right) }
+        switch RightColumnPlacement.decide(sourceWidth: sourceWidth, column: column, width: width) {
+        case .splitBelow(let pane): return .splitBelow(of: pane)
+        case .tab(let pane): return .pane(pane ?? right)
+        case .splitRight: return .pane(right)
+        }
     }
 
     /// The pane right of `source` by layout order: `columns` are the screen's columns as the

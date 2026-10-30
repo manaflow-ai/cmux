@@ -79,11 +79,13 @@ extension AgentTabStore {
                 created: { [weak self] in created($0); self?.revealTurn(AgentSubagentPanes.reveal(agent), in: $0); if case .tab(.some) = decision, !focus { self?.selectInPane($0) } }, finished: finished) ?? false },
             column: { [weak self] in self?.rightColumn(self?.resolve($0) ?? $0) ?? .init() }, again: { [weak self] request in _ = self?.openSubagent(request.agent, of: session, focus: request.focus, beside: request.chat) })) }
     /// What chat tab `provisional` opens on its right, where `decision` (``RightColumnPlacement``) puts it: a split right
-    /// of the chat, a split below the right column's one pane, or a tab in a pane (nil: the chat's own). A chat that is
-    /// its screen's main pane keeps main pane layout's own rule (``openInMainPane``): a tab in the column on its right.
+    /// of the chat, a split below the right column's one pane, or a tab in a pane (nil: the chat's own). A chat that is its
+    /// screen's main pane with nothing on its right yet makes that column by main pane layout's rule (``openInMainPane``);
+    /// once its strip column is there, it is the chat's right side and the same lower split applies.
     @discardableResult
     func openOnRight(_ decision: RightColumnPlacement.Decision<String>, of provisional: String, origin: ActionOrigin = .user, open: (PaneID, DaemonService) throws -> AgentTabPending, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
-        if let placed = openInMainPane(resolve(provisional), origin == .user, open, created, finished) { return placed }
+        let rightIsEmpty = switch decision { case .splitRight, .tab(nil): true; case .splitBelow, .tab(.some): false }
+        if rightIsEmpty, let placed = openInMainPane(resolve(provisional), origin == .user, open, created, finished) { return placed }
         switch decision {
         case .splitRight: return openBeside(provisional, origin: origin, open: open, created: created, finished: finished)
         case .splitBelow(let pane): return openBeside(provisional, in: pane, direction: "down", origin: origin, open: open, created: created, finished: finished)
