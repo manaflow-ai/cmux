@@ -74,6 +74,22 @@ fn scan(main: &Path) -> Repo {
     inventory::scan(&common, &[]).unwrap()
 }
 
+/// Holds the host-wide merge-tree lock, as another scan on this machine does
+/// while it runs (a parallel test, or a daemon's cleanup pass), until dropped.
+fn hold_host_merge_tree_lock() -> std::fs::File {
+    let dir = Store::default_dir().expect("a home folder");
+    std::fs::create_dir_all(&dir).unwrap();
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(dir.join(".merge-tree.lock"))
+        .unwrap();
+    lock.lock().unwrap();
+    lock
+}
+
 fn facts_of<'a>(repo: &'a Repo, path: &Path) -> (&'a inventory::Worktree, &'a Facts) {
     let worktree = repo.worktrees.iter().find(|w| w.path == path).expect("listed");
     (worktree, worktree.facts.as_ref().expect("readable"))
@@ -255,6 +271,8 @@ fn care_a_squash_merged_branch_is_finished() {
     git(&main, &["commit", "-qam", "later"]);
     git(&main, &["push", "-q", "origin", "HEAD:main"]);
     git(&main, &["fetch", "-q", "origin"]);
+    // The answer is this repository's, whatever else on the host is merging.
+    let _busy = hold_host_merge_tree_lock();
     let repo = scan(&main);
     let (_, facts) = facts_of(&repo, &wt);
     assert_eq!(facts.unpushed, 2);
