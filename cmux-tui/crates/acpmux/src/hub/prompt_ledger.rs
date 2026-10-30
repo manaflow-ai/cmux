@@ -1,10 +1,21 @@
 //! Pending prompt identities remain owned by the session until they settle.
 
-use super::{ChildAgent, Hub, PromptOutcome, Session};
-use crate::rpc::RpcError;
+use super::{Hub, PromptOutcome, Session};
 use serde_json::{Value, json};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
+
+/// An adopted turn owns its prompt id until its real answer arrives. A resend then joins
+/// this pending outcome instead of interpreting the open journal turn as interrupted.
+pub(super) fn recover(session: &Session, prompt_id: &str) -> PromptOutcome {
+    let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, outcome)) = ledger.iter().find(|(id, _)| id == prompt_id) {
+        return outcome.clone();
+    }
+    let outcome = Arc::new(tokio::sync::watch::channel(None).0);
+    ledger.push_back((prompt_id.to_owned(), outcome.clone()));
+    outcome
+}
 
 /// Only completed outcomes count against the retry cache's bound. Pending senders
 /// must stay discoverable, including restored prompts whose completion looks them up.
@@ -28,60 +39,7 @@ pub(super) fn prune(ledger: &mut VecDeque<(String, PromptOutcome)>) {
     });
 }
 
-/// A turn adoption recovered from its agent host (`hosts.rs` `recover_work`): its prompt's first
-/// run, still going. Its prompt id waits in the ledger as a queued prompt's does after a restart
-/// (`queue.rs` `restore_queue`), so a resend of it (`acpmux send` reconnecting) waits for the
-/// turn's end in `turns.rs` `prompt_with`, instead of an answer from the log, which reads
-/// `interrupted` while the turn runs and cuts its reply at the restart.
-pub(super) struct Recovered {
-    outcome: PromptOutcome,
-    prompt_id: String,
-    turn_id: String,
-    turn_seq: u64,
-}
-
 impl Hub {
-    /// Puts a recovered turn's prompt id in the ledger (see [`Recovered`]).
-    pub(super) fn recovered_turn(
-        session: &Session,
-        prompt_id: &str,
-        turn_id: &str,
-        turn_seq: u64,
-    ) -> Recovered {
-        let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
-        let outcome = match ledger.iter().find(|(id, _)| id == prompt_id) {
-            Some((_, outcome)) => outcome.clone(),
-            None => {
-                let outcome: PromptOutcome = Arc::new(tokio::sync::watch::channel(None).0);
-                ledger.push_back((prompt_id.to_owned(), outcome.clone()));
-                outcome
-            }
-        };
-        let (prompt_id, turn_id) = (prompt_id.to_owned(), turn_id.to_owned());
-        Recovered { outcome, prompt_id, turn_id, turn_seq }
-    }
-
-    /// Settle a recovered turn (`finish_turn`), and answer the resends waiting on it as a turn
-    /// `run_prompt` ran answers: with its ids, so the sender reads that turn's reply.
-    pub(super) async fn finish_recovered(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        child: &Arc<ChildAgent>,
-        turn: &Recovered,
-        result: Result<Value, RpcError>,
-        next: Option<&super::carried_turn::NextTurn>,
-    ) {
-        let (prompt, id, seq) = (&turn.prompt_id, &turn.turn_id, turn.turn_seq);
-        let mut result =
-            self.finish_turn(session, child, result, prompt, id, seq, None, next).await;
-        if let Ok(v) = &mut result {
-            super::merge_mux_meta(v, json!({"promptId": prompt, "turnId": id, "turnSeq": seq}));
-        }
-        let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
-        turn.outcome.send_replace(Some(result));
-        prune(&mut ledger);
-    }
-
     /// Whether session `session`'s log records a turn that ran `prompt_id` (its `user_message`,
     /// alone or joined with other agent messages, `digest.rs`). Blocking: it reads the log.
     pub(crate) fn ran_prompt(&self, session: &str, prompt_id: &str) -> bool {
@@ -123,17 +81,48 @@ impl Hub {
             }));
         }
         let mut turn_id: Option<String> = None;
+        let mut stopped_turns = HashSet::new();
+        let mut started = false;
         let mut ended: Option<Value> = None;
         // The inbox digest that took it, once one did (`inbox_digest.rs`). Its turn is the
         // digest's only once the digest's turn starts: one that never did gave it back.
         let mut digest: Option<String> = None;
         let _ = self.store.scan(&session.id, 0, &mut |rec| {
             let field = |k: &str| rec.msg.get(k).and_then(Value::as_str);
-            match (rec.kind.as_str(), &turn_id) {
-                ("user_message" | "queued", None)
-                    if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) =>
+            // Admission installs the live turn before user_message is durable. Stop can
+            // therefore be journaled before we learn which turn owns this prompt.
+            if rec.kind == "turn_stop_requested"
+                && let Some(id) = rec.msg.get("turnId").and_then(Value::as_str)
+            {
+                stopped_turns.insert(id.to_owned());
+                // New Stop records name the accepted prompt even if the daemon died
+                // before writing any user_message. Older records still join by turn ID.
+                if rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id)
+                    && !started
+                    && ended.is_none()
                 {
+                    turn_id = Some(id.to_owned());
+                }
+            }
+            match (rec.kind.as_str(), &turn_id) {
+                ("user_message" | "queued", _)
+                    if !started
+                        && ended.is_none()
+                        && rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) =>
+                {
+                    // An earlier message may be an orphan from a crash before admission.
+                    // Follow this ID's later resend to the turn that actually ran it.
                     turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    // A steer is accepted into an already-running parent turn and
+                    // therefore has no turn_started of its own. Its user_message is
+                    // the durable execution record for duplicate suppression.
+                    started |= rec.msg.get("steer") == Some(&Value::Bool(true));
+                }
+                ("turn_started", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
+                        && rec.msg.get("promptId").and_then(Value::as_str) == Some(prompt_id) =>
+                {
+                    started = true;
                 }
                 // Read on: a failed turn of agent messages may put it back (`requeued` below).
                 ("turn_result", Some(id))
@@ -148,13 +137,26 @@ impl Hub {
                         && rec.msg.get("requeued") == Some(&Value::Bool(true)) =>
                 {
                     turn_id = rec.msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+                    started = false;
                     ended = None;
                     // Out of an inbox digest that failed too (`inbox_digest.rs`).
                     digest = None;
                 }
+                ("turn_stop_requested", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
+                {
+                    // Stop may precede turn_started while a retry waits for startup.
+                    // Its message is no longer an eligible orphan: cancellation consumed
+                    // the prompt even though the harness never received it. Keep scanning
+                    // so an eventual result can provide the final outcome.
+                    ended = Some(json!({"stopReason": "cancelled", "status": "cancelled"}));
+                }
                 ("queue_removed", Some(id))
                     if rec.msg.get("turnId").and_then(Value::as_str) == Some(id) =>
                 {
+                    // Withdrawal is a terminal outcome even when the prompt never
+                    // reached turn_started. A resend must return cancellation.
+                    started = true;
                     ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
                     return false;
                 }
@@ -164,6 +166,9 @@ impl Hub {
                         && rec.msg.get("joinedTurnId").is_some_and(Value::is_string) =>
                 {
                     turn_id = rec.msg["joinedTurnId"].as_str().map(str::to_owned);
+                    // Joined prompts run inside the existing turn and therefore do not
+                    // receive their own turn_started record.
+                    started = true;
                 }
                 // Taken into an inbox digest (`inbox_digest.rs`): its `dequeued` record names it,
                 // and so does the digest's own `queued` record, logged first.
@@ -195,6 +200,7 @@ impl Hub {
                     if digest.is_some() && field("promptId") == digest.as_deref() =>
                 {
                     turn_id = field("turnId").map(str::to_owned);
+                    started = true;
                     ended = None;
                 }
                 ("user_message", Some(_))
@@ -203,13 +209,22 @@ impl Hub {
                         && rec.msg.get("steer") == Some(&Value::Bool(true)) =>
                 {
                     turn_id = field("turnId").map(str::to_owned);
+                    started = true;
                     ended = None;
                 }
                 _ => {}
             }
+            if ended.is_none() && turn_id.as_ref().is_some_and(|id| stopped_turns.contains(id)) {
+                ended = Some(json!({"stopReason": "cancelled", "status": "cancelled"}));
+            }
             true
         });
         let turn_id = turn_id?;
+        // A user_message is written before turn_started. A crash in that interval leaves a
+        // prompt that has not run and must remain eligible for recovery/resend.
+        if !started && ended.is_none() {
+            return None;
+        }
         let status = ended
             .as_ref()
             .and_then(|e| e.get("status").cloned())
@@ -226,6 +241,186 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::sync::Arc;
+
+    #[tokio::test]
+    async fn durable_prompt_admission_and_terminal_records_suppress_only_consumed_prompts() {
+        // Records are in crash order. A plain user_message precedes admission, whereas
+        // steer and joined messages use an existing turn. Withdrawal consumes an ID
+        // without admission. These distinctions must survive an empty in-memory ledger.
+        for (point, expected_status) in [
+            ("message", None),
+            ("queued", None),
+            ("started", Some("interrupted")),
+            ("steer", Some("interrupted")),
+            ("joined", Some("interrupted")),
+            ("withdrawn", Some("withdrawn")),
+            ("stopped_before_start", Some("cancelled")),
+            ("stopped_before_message", Some("cancelled")),
+            ("stopped_without_message", Some("cancelled")),
+            ("orphan_stopped_without_message", Some("cancelled")),
+            ("unrelated_stop_before_message", None),
+            ("stopped_then_result", Some("failed")),
+            ("completed", Some("completed")),
+            ("orphan_resend", Some("completed")),
+            ("orphan_steer", Some("interrupted")),
+            ("requeued", None),
+        ] {
+            let mut cfg = crate::config::Config::default();
+            cfg.store.mode = crate::config::StoreMode::Memory;
+            let store =
+                crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+            store.save(&serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": "ledger", "name": "ledger",
+                "harness": "claude", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2
+            })).unwrap()).unwrap();
+            let hub = Hub::new(cfg, store);
+            let session = hub.resolve("ledger").unwrap();
+            if point == "stopped_before_message" {
+                hub.append(&session, "mux", "turn_stop_requested", json!({"turnId": "t"}));
+            }
+            // A later cancellation of another turn must neither replace nor create
+            // cancellation for the prompt we are looking up.
+            hub.append(&session, "mux", "turn_stop_requested", json!({"turnId": "unrelated"}));
+            let queued = ["queued", "joined", "withdrawn"].contains(&point);
+            if point == "orphan_stopped_without_message" {
+                hub.append(
+                    &session,
+                    "in",
+                    "user_message",
+                    json!({"turnId": "orphan", "promptId": "p"}),
+                );
+            }
+            if ["stopped_without_message", "orphan_stopped_without_message"].contains(&point) {
+                hub.append(
+                    &session,
+                    "mux",
+                    "turn_stop_requested",
+                    json!({"turnId": "t", "promptId": "p"}),
+                );
+            } else {
+                hub.append(
+                &session,
+                "in",
+                if queued { "queued" } else { "user_message" },
+                json!({"promptId": "p", "turnId": "t", "steer": point == "steer", "text": "hello"}),
+            );
+            }
+            if ["started", "completed", "requeued"].contains(&point) {
+                hub.append(
+                    &session,
+                    "mux",
+                    "turn_started",
+                    json!({"promptId": "p", "turnId": "t"}),
+                );
+            }
+            match point {
+                "stopped_before_start" | "stopped_then_result" => {
+                    hub.append(&session, "mux", "turn_stop_requested", json!({"turnId": "t"}));
+                    if point == "stopped_then_result" {
+                        hub.append(
+                            &session,
+                            "mux",
+                            "turn_result",
+                            json!({
+                                "turnId": "t", "status": "failed", "stopReason": "cancelled"
+                            }),
+                        );
+                    }
+                }
+                "joined" => {
+                    hub.append(
+                        &session,
+                        "mux",
+                        "dequeued",
+                        json!({"promptId": "p", "turnId": "t", "joinedTurnId": "head"}),
+                    );
+                    hub.append(
+                        &session,
+                        "mux",
+                        "turn_started",
+                        json!({"promptId": "digest-head", "turnId": "head"}),
+                    );
+                }
+                "withdrawn" => {
+                    hub.append(
+                        &session,
+                        "mux",
+                        "queue_removed",
+                        json!({"promptId": "p", "turnId": "t"}),
+                    );
+                }
+                "completed" => {
+                    hub.append(
+                        &session,
+                        "mux",
+                        "turn_result",
+                        json!({"turnId": "t", "status": "completed", "stopReason": "end_turn"}),
+                    );
+                }
+                "orphan_resend" | "orphan_steer" => {
+                    hub.append(
+                        &session,
+                        "in",
+                        "user_message",
+                        json!({
+                            "promptId": "p", "turnId": "actual", "steer": point == "orphan_steer"
+                        }),
+                    );
+                    if point == "orphan_resend" {
+                        hub.append(
+                            &session,
+                            "mux",
+                            "turn_started",
+                            json!({"promptId": "p", "turnId": "actual"}),
+                        );
+                        hub.append(
+                            &session,
+                            "mux",
+                            "turn_result",
+                            json!({"promptId": "p", "turnId": "actual", "status": "completed"}),
+                        );
+                    }
+                    // The result cannot come from lastTurn's shortcut or the live ledger.
+                    session.meta.lock().unwrap().last_turn = Some(json!({
+                        "promptId": "different", "turnId": "newer", "status": "completed"
+                    }));
+                }
+                "requeued" => {
+                    hub.append(
+                        &session,
+                        "mux",
+                        "turn_result",
+                        json!({"turnId": "t", "status": "failed"}),
+                    );
+                    hub.append(
+                        &session,
+                        "mux",
+                        "queued",
+                        json!({"promptId": "p", "turnId": "again", "requeued": true}),
+                    );
+                }
+                _ => {}
+            }
+            assert!(session.prompts.lock().unwrap().is_empty());
+            let logged = hub.logged_prompt(&session, "p");
+            assert_eq!(
+                logged
+                    .as_ref()
+                    .and_then(|v| v.pointer("/_meta/acpmux/status"))
+                    .and_then(Value::as_str),
+                expected_status,
+                "crash after {point}: {logged:?}"
+            );
+            assert_eq!(
+                hub.knows_prompt(&session, "p", true),
+                expected_status.is_some(),
+                "resend after {point}"
+            );
+            if ["orphan_resend", "orphan_steer"].contains(&point) {
+                assert_eq!(logged.unwrap()["_meta"]["acpmux"]["turnId"], "actual");
+            }
+        }
+    }
 
     #[test]
     fn prompt_ledger_keeps_pending_and_bounds_completed_outcomes_as_they_settle() {
