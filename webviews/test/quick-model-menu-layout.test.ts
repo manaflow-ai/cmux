@@ -273,9 +273,14 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
         .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("fill")));
       expect(fills.length).toBeGreaterThan(0);
       expect(fills.every((fill) => fill === "currentColor")).toBe(true);
-      const colors = await page.locator(".acpmux-quick-rail-tab:not(.acpmux-quick-rail-add)").evaluateAll((nodes) =>
-        nodes.map((node) => ({ on: node.getAttribute("aria-pressed") === "true", color: getComputedStyle(node).color })),
-      );
+      const colors = await page
+        .locator(".acpmux-quick-rail-tab:not(.acpmux-quick-rail-add)")
+        .evaluateAll((nodes) =>
+          nodes.map((node) => ({
+            on: node.getAttribute("aria-pressed") === "true",
+            color: getComputedStyle(node).color,
+          })),
+        );
       const lit = colors.find((tab) => tab.on)!;
       expect(colors.filter((tab) => !tab.on).every((tab) => tab.color !== lit.color)).toBe(true);
       // A star on the starred row (Opus 5.5).
@@ -291,7 +296,10 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     try {
       const keys = await chat.locator(".acpmux-quick-list .ui-menu-shortcut").allInnerTexts();
       expect(keys.length).toBeGreaterThan(0);
-      expect(keys.every((key) => /^⌘[1-9]$/.test(key.trim())), keys.join(",")).toBe(true);
+      expect(
+        keys.every((key) => /^⌘[1-9]$/.test(key.trim())),
+        keys.join(","),
+      ).toBe(true);
     } finally {
       await chat.close();
     }
@@ -475,7 +483,13 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
   });
 
   test("every harness placement leaves the model rows visible", async () => {
-    for (const variant of ["harness-symbols", "harness-symbols-many", "harness-left", "harness-top", "harness-compact"]) {
+    for (const variant of [
+      "harness-symbols",
+      "harness-symbols-many",
+      "harness-left",
+      "harness-top",
+      "harness-compact",
+    ]) {
       const page = await open(variant, 420, 560);
       try {
         const body = await bounds(page, ".acpmux-quick-body");
