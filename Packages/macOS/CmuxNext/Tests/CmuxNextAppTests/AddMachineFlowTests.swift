@@ -236,7 +236,8 @@ import Testing
         #expect(model.checklist.failing?.step == .daemon)
         #expect(model.checklist.failing?.fix == "Log in on the host once so launchd can start it.")
         #expect(host.connected.isEmpty, "a failed add does not connect")
-        #expect(model.buttons == [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .tryAgain, key: .return)])
+        #expect(model.buttons == [AddMachineButton(action: .copyDetails, key: nil), AddMachineButton(action: .changeHost, key: nil),
+                                  AddMachineButton(action: .tryAgain, key: .return)])
         #expect(!model.perform(.copyDetails))
         #expect(host.copied.first?.contains("daemon: fail - daemon status timed out (fix: Log in on the host once so launchd can start it.)") == true)
         host.scripts = [[Self.report("hb", "hb", ok: true, Self.okSteps)]]
