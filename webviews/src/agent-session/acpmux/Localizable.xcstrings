@@ -38435,13 +38435,13 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "نموذج واحد"
+                  "value": "{n} نموذج"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "نموذجان"
+                  "value": "{n} نموذجان"
                 }
               },
               "few": {
