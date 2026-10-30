@@ -313,9 +313,12 @@ export class SubagentFold {
       }
       if (!agent) return false;
       const state = update.state;
-      const failed = state === "failed" || (Number.isInteger(update.exitCode) && update.exitCode !== 0);
-      if (state === "completed" || state === "failed" || state === "stopped")
-        this.endRun(agent, failed ? "failed" : state === "stopped" ? "cancelled" : "completed", event.at);
+      // Every terminal state ends it (a timed-out run failed, a stopped one was cancelled): none
+      // leaves its card running.
+      const timedOut = String(state).startsWith("time");
+      const failed = state === "failed" || timedOut || (Number.isInteger(update.exitCode) && update.exitCode !== 0);
+      const cancelled = state === "stopped" || state === "cancelled";
+      if (isTerminal(state)) this.endRun(agent, failed ? "failed" : cancelled ? "cancelled" : "completed", event.at);
       return true;
     }
     if (kind !== "tool_call" && kind !== "tool_call_update") return false;
