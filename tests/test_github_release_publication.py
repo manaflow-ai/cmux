@@ -961,7 +961,7 @@ class AdoptTests(unittest.TestCase):
         client = self.client()
         before = {key: dict(value) for key, value in client.table.items()}
         argv = ["finalize-release.py", "adopt", "--repo", "o/r", "--tag", "v1.2.3",
-                "--release-id", "1", "--expect-count", "2", "--dry-run"]
+                "--release-id", "1", "--expect-count", "2", "--make-latest", "false", "--dry-run"]
         output = io.StringIO()
         with patch.object(sys, "argv", argv), patch.object(sys, "stdout", output), \
                 patch.object(finalize.publisher, "client_from_env", return_value=client) as client_from_env:
@@ -970,6 +970,19 @@ class AdoptTests(unittest.TestCase):
         self.assertIn("Adopting draft 1", output.getvalue())
         self.assertEqual(client.table, before)
         self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+
+    def test_adopt_command_line_requires_an_explicit_make_latest(self):
+        # An omitted make_latest lets GitHub make the adopted release latest,
+        # which would point releases/latest at an older repaired tag.
+        argv = ["finalize-release.py", "adopt", "--repo", "o/r", "--tag", "v1.2.3",
+                "--release-id", "1", "--expect-count", "2", "--dry-run"]
+        with patch.object(sys, "argv", argv), patch.object(sys, "stderr", io.StringIO()) as err, \
+                patch.object(finalize.publisher, "client_from_env") as client_from_env:
+            with self.assertRaises(SystemExit):
+                finalize.main()
+        self.assertIn("--make-latest", err.getvalue())
+        client_from_env.assert_not_called()
+
 
 
 if __name__ == "__main__":

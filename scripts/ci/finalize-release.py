@@ -302,6 +302,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.command in ("publish", "adopt") and not args.expect_asset and args.expect_count is None:
         parser.error(f"{args.command} needs --expect-asset or --expect-count")
+    # Publishing without make_latest lets GitHub make the release latest, so a
+    # repair of an older tag would move releases/latest back onto it.
+    if args.command == "adopt" and args.make_latest is None:
+        parser.error("adopt needs --make-latest true or false")
     # GH_APP_TOKEN first when the step passes one, GH_TOKEN as its fallback.
     client = publisher.client_from_env(args.repo)
     {"publish": publish, "download": download, "adopt": adopt}[args.command](client, args)
