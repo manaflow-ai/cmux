@@ -450,9 +450,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// workspace switch hiding an ancestor: Chromium orders the page window out inside AppKit's hide
     /// walk, before this page's own `viewDidHide` conceals it, and a grant there showed the window
     /// again; the cmux window took the keys back, the focus applier asked again, and the main
-    /// thread never left that turn (NIGHTLY 1.0.0-nightly.4093446036501).
+    /// thread never left that turn (NIGHTLY 1.0.0-nightly.4093446036501). The ancestors' own
+    /// `isHidden` is read, not `isHiddenOrHasHiddenAncestor`: AppKit updates that flag view by view
+    /// during the same walk, so a view the walk has not reached yet still reads as not hidden.
     private var isShown: Bool {
-        host.visibleTab === self && !isOccluded && container.window != nil && !container.isHiddenOrHasHiddenAncestor
+        guard host.visibleTab === self, !isOccluded, container.window != nil else { return false }
+        return !sequence(first: container as NSView, next: \.superview).contains { $0.isHidden }
     }
 
     /// Grants focus asked for while this page could not take it, once it shows: its view entered a
