@@ -1259,8 +1259,11 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-image img").length === 3);
-        const chips = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachment-image")];
+        // The strip's chips: the text keeps each one's place in a hidden atom of its own.
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll(".acpmux-attachments .acpmux-attachment-image img").length === 3,
+        );
+        const chips = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachments .acpmux-attachment-image")];
         const from = chips[0]!.getBoundingClientRect();
         const to = chips[1]!.getBoundingClientRect();
         const at = (x: number) => ({
