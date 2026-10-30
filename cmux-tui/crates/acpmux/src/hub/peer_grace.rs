@@ -32,8 +32,9 @@ impl Hub {
         // belongs to the main daemon, including before its waiter registers.
         let mut stop = self.peer_notices_stop.subscribe();
         // One outage per peer instance: its row deadline while pending, `None` once
-        // its rows went unreachable. Retries never extend or re-arm it. A
-        // list/ready/restart notice ends it; removal/replacement invalidates its generation.
+        // its rows went unreachable. Failed retries never extend or re-arm it. A row,
+        // list, ready or restart notice ends it; removal/replacement invalidates its
+        // generation.
         let mut drops: HashMap<(String, u64), Option<Instant>> = HashMap::new();
         loop {
             if *stop.borrow() {
@@ -89,11 +90,10 @@ impl Hub {
                     }
                 }
                 notice => {
-                    // A planned restart never enters the grace path either.
-                    if matches!(
-                        notice,
-                        PeerNotice::Connected | PeerNotice::Sessions(_) | PeerNotice::Restarting
-                    ) {
+                    // A link that brought rows (or a planned restart, which never
+                    // enters the grace path) ends the outage: its next drop starts
+                    // a new one, even after this one's rows went unreachable.
+                    if !matches!(notice, PeerNotice::Notification { .. }) {
                         drops.remove(&key);
                     }
                     self.apply_peer_notice(&peer, generation, notice);
