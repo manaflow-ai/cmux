@@ -291,6 +291,46 @@ struct AgentPaneUnsentPromptTests {
         pane.transport.gestures.record()
         #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 3, promptId: "p-6")]) == nil)
         #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 1 }, "the Retry did not go once the journal could be written")
+        let sent = Self.prompts(daemon, peer: 0)
+        #expect(sent.first.flatMap { Self.mux($0)?["resend"] } == nil, "a prompt that never went is not a resend")
+    }
+
+    /// The pane's Retry of a prompt the daemon got but never acknowledged, while the journal cannot
+    /// be written: the Retry does not go, and the first send's record stays, so a crash after the
+    /// disk recovers still sends that prompt again.
+    @Test func aRetryWhoseRecordIsNotWrittenKeepsTheEarlierRecord() async throws {
+        let url = Self.journalURL()
+        let folder = url.deletingLastPathComponent()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+            try? FileManager.default.removeItem(at: folder)
+        }
+        let daemon = AcpmuxStandInServer()
+        try await daemon.start()
+        defer { daemon.stop() }
+        daemon.hold("session/prompt")
+        let journal = AgentPanePromptJournal(url: url)
+        let pane = try await Self.pane(daemon, journal: journal)
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "p-7")]) == nil)
+        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 1 })
+
+        // The folder can no longer be written; the Retry is refused and does not go.
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+        pane.transport.gestures.record()
+        let retry = await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 2, promptId: "p-7")])
+        try #require(retry?.rawValue == "transport.prompt_not_kept", "a Retry that is not on disk went")
+        await Self.barrier(pane, id: 3)
+        #expect(Self.prompts(daemon, peer: 0).count == 1)
+
+        // The disk recovers and another prompt is written: the first send's record is still there.
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        pane.transport.gestures.record()
+        #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 4, promptId: "p-8")]) == nil)
+        #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 2 })
+        let kept = AgentPanePromptJournal(url: url).entries().map(\.promptId)
+        #expect(kept.contains("p-7"), "the Retry's failed write dropped the first send's record: \(kept)")
+        #expect(kept.contains("p-8"))
     }
 
     /// The page cannot send `resend` itself: only the host sends a prompt again, and only one it

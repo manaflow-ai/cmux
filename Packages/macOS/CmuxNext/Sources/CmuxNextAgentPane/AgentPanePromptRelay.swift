@@ -37,7 +37,8 @@ nonisolated struct AgentPanePromptRelay: Sendable {
     /// marked `resend` (which the page may not send), so acpmux also finds a first copy in the
     /// chat's log, which outlives a daemon restart, and runs it at most once. Returns its
     /// promptId, or nil when it is not kept. Throws ``AgentPaneTransportError/promptNotKept`` when
-    /// its record could not be written: it is forgotten again, and the frame must not go.
+    /// its record could not be written: the journal takes the record back, and the frame must not
+    /// go (a first send's Retry is a first send again).
     @concurrent func record(_ box: AgentPaneTransport.FrameBox, ids: AcpmuxRequestIds,
                             relayID: Int?) async throws(AgentPaneTransportError) -> String? {
         guard let text = box.encoded(id: nil),
@@ -49,7 +50,8 @@ nonisolated struct AgentPanePromptRelay: Sendable {
         let promptId = named.isEmpty ? UUID().uuidString.lowercased() : named
         var rewrite = named.isEmpty
         acpmux["promptId"] = promptId
-        if journal.sendsAgain(daemon: daemon, promptId: promptId) {
+        let again = journal.sendsAgain(daemon: daemon, promptId: promptId)
+        if again {
             acpmux["resend"] = true
             rewrite = true
         }
@@ -67,7 +69,7 @@ nonisolated struct AgentPanePromptRelay: Sendable {
                                       owner: owner)
         } catch {
             Self.logger.error("agent pane prompt not sent: its journal record was not written")
-            forget(promptId)
+            if !again { journal.didNotSend(daemon: daemon, promptId: promptId) }
             throw .promptNotKept
         }
         guard kept else { return nil }

@@ -97,40 +97,83 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
 
     private static func key(_ daemon: String, _ promptId: String) -> String { daemon + "\u{0}" + promptId }
 
-    /// The record of a prompt did not reach the disk (an unwritable folder, a full disk): the
-    /// prompt is still in memory, so the caller forgets it and does not send it.
+    /// The record of a prompt did not reach the disk (an unwritable folder, a full disk): it is
+    /// taken back, and the caller does not send the prompt.
     struct NotWritten: Error {}
 
     /// Records a prompt the page sent on connection `owner`, on disk before it returns. Call off
-    /// the main thread. False when it is not kept (too large, or the connection ended); throws when
-    /// it could not be written.
+    /// the main thread. False when it is not kept (too large, or the connection ended). Throws when
+    /// it could not be written: the journal keeps what it had, an earlier record of the same
+    /// prompt (the pane's Retry) included.
     func record(_ entry: Entry, owner: UUID) throws(NotWritten) -> Bool {
         guard entry.params.utf8.count <= Self.maximumParamsBytes else {
             Self.logger.info("agent pane prompt not journaled: too large")
             return false
         }
         var kept = false
+        var replaced: (entry: Entry, holder: Holder?)?
+        var dropped: [(entry: Entry, holder: Holder?)] = []
         let onDisk = change { state in
             guard !state.ended.contains(owner) else { return false }
             let key = Self.key(entry.daemon, entry.promptId)
+            if let earlier = state.entries.first(where: { Self.key($0.daemon, $0.promptId) == key }) {
+                replaced = (earlier, state.holders[key])
+            }
             state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
             state.entries.append(entry)
             state.holders[key] = .page(owner)
             while state.entries.count > Self.maximumEntries {
-                let dropped = state.entries.removeFirst()
-                state.holders[Self.key(dropped.daemon, dropped.promptId)] = nil
+                let out = state.entries.removeFirst()
+                let outKey = Self.key(out.daemon, out.promptId)
+                dropped.append((out, state.holders[outKey]))
+                state.holders[outKey] = nil
             }
             kept = true
             return true
         }
-        guard onDisk else { throw NotWritten() }
+        guard onDisk else {
+            takeBack(entry, owner: owner, replaced: replaced, dropped: dropped)
+            throw NotWritten()
+        }
         return kept
+    }
+
+    /// Undoes a record whose write failed, while it is still that record's: the entry it replaced
+    /// and those it pushed out are kept again, and the result is written (best effort), so a
+    /// later write never drops them or keeps the prompt that did not go.
+    private func takeBack(_ entry: Entry, owner: UUID, replaced: (entry: Entry, holder: Holder?)?,
+                          dropped: [(entry: Entry, holder: Holder?)]) {
+        change { state in
+            let key = Self.key(entry.daemon, entry.promptId)
+            guard state.holders[key] == .page(owner),
+                  let index = state.entries.lastIndex(where: { $0 == entry }) else { return false }
+            if let replaced {
+                state.entries[index] = replaced.entry
+                state.holders[key] = replaced.holder
+            } else {
+                state.entries.remove(at: index)
+                state.holders[key] = nil
+            }
+            for out in dropped.reversed() {
+                let outKey = Self.key(out.entry.daemon, out.entry.promptId)
+                guard !state.entries.contains(where: { Self.key($0.daemon, $0.promptId) == outKey }) else { continue }
+                state.entries.insert(out.entry, at: 0)
+                state.holders[outKey] = out.holder
+            }
+            return true
+        }
     }
 
     /// Notes that the relay sends prompt `promptId` to `daemon`. True when it sent that id there
     /// before in this run: the pane's Retry, which goes as a resend.
     func sendsAgain(daemon: String, promptId: String) -> Bool {
         state.withLock { !$0.sent.insert(Self.key(daemon, promptId)).inserted }
+    }
+
+    /// A first send ``sendsAgain(daemon:promptId:)`` noted did not go: its next send is a first
+    /// one again, not a resend.
+    func didNotSend(daemon: String, promptId: String) {
+        state.withLock { _ = $0.sent.remove(Self.key(daemon, promptId)) }
     }
 
     /// acpmux acknowledged or answered the prompt, or it never went: it is not sent again. On disk
