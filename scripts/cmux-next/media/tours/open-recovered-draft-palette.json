@@ -1,0 +1,10 @@
+{
+  "title": "Open Recovered Draft… in the palette's Commands scope",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Open the Commands scope with the whole query (only catalog actions: no workspace, tab or draft rows, and no partial query)",
+     "cmux": ["action", "run", "palette.open", "--arg", "scope=commands", "--arg", "query=Open Recovered Draft", "--focus"], "wait": 1.5, "shot": false},
+    {"title": "Palette: Open Recovered Draft… is the selected command", "wait": 0.5},
+    {"title": "Close the palette", "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "palette"}}, "wait": 1, "shot": false}
+  ]
+}
