@@ -1,13 +1,17 @@
-// cmux-web-test-timeout: 600
+// cmux-web-test-timeout: 900
 // l10n-allow-file: test labels, not shipped UI.
-// The chat's bottom stack shares one left and one right edge (Leo, 2026-10-30: "the stupid fucking
-// gap at the bottom plus the stupid right indent misalignemnt"). Every card over the composer (the
-// chat's pull requests, the running tray, whether open or folded to its "Running in background"
-// header) takes the composer card's left and right x to 1px, the cards stand one stack gap
-// (--acpmux-stack-gap) apart, and the last of them stands that same gap above the composer card,
-// never more. The chat's pull requests keep a one-line "N PRs" row with a disclosure (Leo: "you guys
-// fucking removed the # prs thing entirely instead of just simply fucking doing it"); it opens on
-// the click, with no fade-in, to chips at the card's full width.
+// The chat's bottom stack (Leo, 2026-10-30: "the stupid fucking gap at the bottom plus the stupid
+// right indent misalignemnt"; "you guys fucking removed the # prs thing entirely instead of just
+// simply fucking doing it"; "BUT IF IT'S ONLY N PRS DON'T FUCKIGN TAKE THE ENTIRE ROW AND FUCKING
+// BLANK IT OUT"):
+// - every card over the composer (the running tray, open or folded to its "Running in background"
+//   header, and the opened pull requests) takes the composer card's left and right x to 1px, and the
+//   cards stand one stack gap (--acpmux-stack-gap) apart, the last of them on the composer card;
+// - the folded "N PRs" count adds no row: the stack is as tall with it as with no pull requests,
+//   with or without the tray, and the count is a content-sized control whose highlight is its own;
+// - the stacked rows' trailing chevrons (the tray's header and each of its lines) share one x;
+// - the count opens on the click, with no fade-in, to chips at the card's full width; a chip's ×
+//   shows only on its row's hover or focus, Tab reaches it, and Delete on a focused row dismisses.
 //
 // Real gallery frames (agent-pane.bottom-stack-styles) at a wide, a normal and a narrow pane.
 // With FAST_CHECKS_OUT (cmux-ci) or CMUX_BOTTOM_STACK_CAPTURE set, the measurements are written as
@@ -23,25 +27,45 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 
 type Card = { name: string; left: number; right: number; top: number; bottom: number };
 type Geometry = {
-  pane: { left: number; right: number; bottom: number };
+  dock: number;
   cards: Card[];
   gaps: number[];
   token: number | null;
   chips: { left: number; right: number }[];
-  prRow: { lines: number; text: string; expanded: string | null } | null;
+  count: { where: string; width: number; content: number; text: string } | null;
   foot: number | null;
-  trail: Record<string, number | null>;
   chevrons: { name: string; x: number }[];
 };
 
 await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
-  setDefaultTimeout(540_000);
+  setDefaultTimeout(840_000);
   const ENTRY = "agent-pane.bottom-stack-styles";
   const out = process.env.CMUX_BOTTOM_STACK_CAPTURE ?? process.env.FAST_CHECKS_OUT;
   const WIDTHS = [1100, 760, 420];
-  /** The variants every pane must keep on one edge; `legacy-bars` (the bars before cmux#26082,
-   *  a gallery comparison only) and the style comparisons are measured for the record. */
-  const CHECKED = ["collapsed", "expanded", "prs-open"];
+  /** The selected look's states, held to every rule; the comparisons are measured for the record
+   *  and held to the no-row rule where they claim it. */
+  const CHECKED = ["collapsed", "no-tray", "expanded", "prs-open", "no-prs"];
+  /** Each state with the count, and the same state without pull requests: the count adds no row. */
+  const SAME_HEIGHT: [string, string][] = [
+    ["collapsed", "no-prs"],
+    ["no-tray", "no-tray-no-prs"],
+    ["in-tray", "no-prs"],
+    ["in-tray-no-tray", "no-tray-no-prs"],
+  ];
+  const VARIANTS = [
+    "collapsed",
+    "no-tray",
+    "expanded",
+    "prs-open",
+    "no-prs",
+    "no-tray-no-prs",
+    "in-tray",
+    "in-tray-no-tray",
+    "above",
+    "above-no-tray",
+    "cards",
+    "legacy-bars",
+  ];
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -74,10 +98,7 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
     })}`;
 
   async function open(variant: string, width: number, theme?: string, scale = 1): Promise<Page> {
-    const page = await browser!.newPage({
-      viewport: { width, height: 620 },
-      deviceScaleFactor: scale,
-    });
+    const page = await browser!.newPage({ viewport: { width, height: 620 }, deviceScaleFactor: scale });
     await page.goto(url(variant, width, theme));
     await page.locator(".acpmux-composer-box").first().waitFor({ timeout: 90_000 });
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
@@ -86,11 +107,12 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
     return page;
   }
 
-  /** Runs in the page: every painted card of the stack, top to bottom, and the gaps between them. */
+  /** Runs in the page: the stack's painted cards top to bottom, the gaps between them, the count and
+   *  the stacked chevrons. */
   function measure(): Geometry {
     const box = (el: Element) => el.getBoundingClientRect();
-    const main = document.querySelector(".acpmux-main")!.getBoundingClientRect();
-    const dock = document.querySelector(".acpmux-dock");
+    const main = box(document.querySelector(".acpmux-main")!);
+    const dock = document.querySelector(".acpmux-dock")!;
     const cards: Card[] = [];
     const add = (name: string, el: Element | null | undefined) => {
       if (!el) return;
@@ -98,68 +120,54 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
       if (r.width <= 0 || r.height <= 0) return;
       cards.push({ name, left: r.left, right: r.right, top: r.top, bottom: r.bottom });
     };
-    // The restored pull request row (or, in the legacy comparison, each bar), the tray, the card.
     add("prs", document.querySelector(".acpmux-dock > .acpmux-pr-stack"));
     for (const chip of document.querySelectorAll(".acpmux-dock .acpmux-pr-comparison__chip")) add("pr bar", chip);
     add("tray", document.querySelector(".acpmux-dock > .acpmux-running-tray"));
     add("composer", document.querySelector(".acpmux-composer-box"));
     cards.sort((a, b) => a.top - b.top);
     const gaps = cards.slice(1).map((card, index) => card.top - cards[index]!.bottom);
-    const raw = dock ? getComputedStyle(dock).getPropertyValue("--acpmux-stack-gap").trim() : "";
     let token: number | null = null;
-    if (raw && dock) {
+    if (getComputedStyle(dock).getPropertyValue("--acpmux-stack-gap").trim()) {
       const probe = document.createElement("div");
       probe.style.cssText = "position:absolute;visibility:hidden;height:var(--acpmux-stack-gap)";
       dock.append(probe);
       token = probe.getBoundingClientRect().height;
       probe.remove();
     }
-    const row = document.querySelector(".acpmux-pr-stack__row");
-    const lineHeight = row ? parseFloat(getComputedStyle(row).lineHeight) || 18 : 0;
+    const count = document.querySelector<HTMLElement>(".acpmux-pr-count");
+    let content = 0;
+    if (count) for (const child of count.children) content += box(child).width;
+    const countStyle = count ? getComputedStyle(count) : undefined;
     const chips = [...document.querySelectorAll(".acpmux-pr-stack__list .acpmux-pr-stack__chip")].map((chip) => {
       const r = box(chip);
       return { left: r.left, right: r.right };
     });
     const foot = document.querySelector(".acpmux-composer-foot") ?? document.querySelector(".acpmux-composer-box");
     return {
-      pane: { left: main.left, right: main.right, bottom: main.bottom },
+      // The stack's height: from its first painted part to the pane's bottom edge.
+      dock: Math.round((main.bottom - Math.min(...[...dock.children].map((part) => box(part).top))) * 10) / 10,
       cards,
       gaps,
       token,
       chips,
-      prRow: row
-        ? {
-            lines: Math.round(
-              (row.querySelector(".acpmux-pr-stack__count") ?? row).getBoundingClientRect().height / lineHeight,
-            ),
-            text: (row.textContent ?? "").trim(),
-            expanded: document.querySelector(".acpmux-pr-stack__disclosure")?.getAttribute("aria-expanded") ?? null,
-          }
-        : null,
-      foot: foot ? main.bottom - foot.getBoundingClientRect().bottom : null,
-      // Where each part's last trailing mark centers, from the composer card's right edge (for the
-      // record: the tray header's chevron column is cmux#27930's).
-      trail: (() => {
-        const right = document.querySelector(".acpmux-composer-box")?.getBoundingClientRect().right ?? 0;
-        const center = (selector: string) => {
-          const icon = document.querySelector(selector);
-          if (!icon) return null;
-          const r = icon.getBoundingClientRect();
-          return Math.round((right - (r.left + r.right) / 2) * 10) / 10;
-        };
-        return {
-          prs: center(".acpmux-pr-stack__disclosure svg"),
-          tray: center(".acpmux-running-tray__head .acpmux-running-tray__status svg"),
-          composer: center(".acpmux-composer-box button:last-of-type svg"),
-        };
-      })(),
-      // Every stacked row's trailing chevron, by the center x of its glyph: the "N PRs" row's
-      // disclosure, the tray's header and each tray line (Leo: "the stupid right indent
-      // misalignemnt"; two stacked rows' chevrons 25px apart read as one).
+      count:
+        count && countStyle
+          ? {
+              where: count.closest(".acpmux-composer-foot")
+                ? "quiet row"
+                : (count.closest(".acpmux-pr-count-host")?.getAttribute("data-placement") ?? "?"),
+              width: box(count).width,
+              content:
+                content +
+                parseFloat(countStyle.paddingLeft) +
+                parseFloat(countStyle.paddingRight) +
+                parseFloat(countStyle.columnGap || "0") * Math.max(0, count.children.length - 1),
+              text: (count.textContent ?? "").trim(),
+            }
+          : null,
+      foot: foot ? main.bottom - box(foot).bottom : null,
+      // Every stacked row's trailing chevron by its glyph's center x: the tray's header and lines.
       chevrons: [
-        ...[...document.querySelectorAll(".acpmux-dock > .acpmux-pr-stack .acpmux-pr-stack__disclosure svg")].map(
-          (svg) => ({ name: "N PRs", svg }),
-        ),
         ...[
           ...document.querySelectorAll(".acpmux-dock .acpmux-running-tray__head .acpmux-running-tray__status svg"),
         ].map((svg) => ({ name: "tray header", svg })),
@@ -173,21 +181,11 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
     };
   }
 
-  const VARIANTS = ["collapsed", "expanded", "prs-open", "cards", "strip", "legacy-bars"];
-
-  test("every bottom card shares the composer card's left and right edge, one stack gap apart, and every stacked row's chevron one x", async () => {
+  test("every bottom card shares the composer card's edges one stack gap apart, the count adds no row, and the stacked chevrons share one x", async () => {
     const offenders: string[] = [];
-    for (const width of WIDTHS)
+    for (const width of WIDTHS) {
       for (const variant of VARIANTS) {
-        let page: Page;
-        try {
-          page = await open(variant, width);
-        } catch (error) {
-          // A variant this tree's gallery does not have (a comparison added with the fix).
-          if (CHECKED.includes(variant))
-            offenders.push(`${variant} @${width}: did not load (${String(error).split("\n")[0]})`);
-          continue;
-        }
+        const page = await open(variant, width);
         const geometry = await page.evaluate(measure);
         await page.close();
         const label = `${variant} @${width}`;
@@ -198,8 +196,8 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
           offenders.push(`${label}: no composer card`);
           continue;
         }
-        if (!geometry.cards.some((c) => c.name === "prs")) offenders.push(`${label}: no "N PRs" row in the stack`);
-        if (!geometry.cards.some((c) => c.name === "tray")) offenders.push(`${label}: no running tray`);
+        if (variant !== "no-tray" && !geometry.cards.some((c) => c.name === "tray"))
+          offenders.push(`${label}: no running tray`);
         for (const c of geometry.cards) {
           if (c.name === "composer") continue;
           const left = c.left - card.left;
@@ -217,16 +215,21 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
                 `${label}: ${geometry.cards[index]!.name} to ${geometry.cards[index + 1]!.name} gap ${gap.toFixed(1)}px, not ${geometry.token}px`,
               );
           });
-        const first = geometry.chevrons[0];
-        if (geometry.chevrons.length < 2)
-          offenders.push(`${label}: ${geometry.chevrons.length} stacked chevrons found`);
-        for (const chevron of geometry.chevrons.slice(1))
-          if (first && Math.abs(chevron.x - first.x) > 1)
-            offenders.push(
-              `${label}: ${chevron.name}'s chevron at x ${chevron.x.toFixed(1)}, ${first.name}'s at ${first.x.toFixed(1)}`,
-            );
-        if (geometry.prRow && geometry.prRow.lines !== 1)
-          offenders.push(`${label}: the PR row takes ${geometry.prRow.lines} lines`);
+        if (variant !== "no-prs") {
+          // The folded count: in the quiet row, content-sized, never a row of its own.
+          const count = geometry.count;
+          if (!count) offenders.push(`${label}: no "N PRs" count`);
+          else {
+            if (count.where !== "quiet row") offenders.push(`${label}: the count sits in ${count.where}`);
+            if (count.text !== "2 PRs") offenders.push(`${label}: the count reads "${count.text}"`);
+            if (Math.abs(count.width - count.content) > 1)
+              offenders.push(
+                `${label}: the count is ${count.width.toFixed(1)}px wide for ${count.content.toFixed(1)}px of content`,
+              );
+          }
+          if (variant !== "prs-open" && geometry.cards.some((c) => c.name === "prs"))
+            offenders.push(`${label}: a pull request row stands in the stack while folded`);
+        }
         if (variant === "prs-open") {
           if (geometry.chips.length !== 2) offenders.push(`${label}: ${geometry.chips.length} chips shown, not 2`);
           for (const chip of geometry.chips)
@@ -235,45 +238,96 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
                 `${label}: a chip spans ${chip.left.toFixed(1)}..${chip.right.toFixed(1)}, not the card's width`,
               );
         }
+        const first = geometry.chevrons[0];
+        for (const chevron of geometry.chevrons.slice(1))
+          if (first && Math.abs(chevron.x - first.x) > 1)
+            offenders.push(
+              `${label}: ${chevron.name}'s chevron at x ${chevron.x.toFixed(1)}, ${first.name}'s at ${first.x.toFixed(1)}`,
+            );
       }
+      for (const [withCount, without] of SAME_HEIGHT) {
+        const a = record[`${withCount} @${width}`]!;
+        const b = record[`${without} @${width}`]!;
+        if (Math.abs(a.dock - b.dock) > 0.5)
+          offenders.push(
+            `${withCount} @${width}: the stack is ${a.dock}px tall, ${without} ${b.dock}px: the count adds a row`,
+          );
+      }
+    }
     expect(offenders).toEqual([]);
   });
 
-  test('the "N PRs" disclosure opens on the click, with no fade-in', async () => {
+  test('the "N PRs" count opens on the click, with no fade-in; its highlight is its own', async () => {
     const page = await open("collapsed", 760);
     try {
-      const row = page.locator(".acpmux-pr-stack__row");
-      expect(await row.count()).toBe(1);
-      expect((await row.textContent())?.trim()).toBe("2 PRs");
-      const disclosure = page.locator(".acpmux-pr-stack__disclosure");
-      expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
-      await disclosure.click();
+      const count = page.locator(".acpmux-composer-foot .acpmux-pr-count");
+      expect(await count.count()).toBe(1);
+      expect((await count.textContent())?.trim()).toBe("2 PRs");
+      expect(await count.getAttribute("aria-expanded")).toBe("false");
+      // Over the count, only the count lights: the quiet row around it keeps no fill.
+      await count.hover();
+      const lit = await count.evaluate((node) => ({
+        own: getComputedStyle(node).backgroundColor,
+        row: getComputedStyle(node.closest(".acpmux-composer-foot")!).backgroundColor,
+      }));
+      expect(lit.own).not.toBe("rgba(0, 0, 0, 0)");
+      expect(lit.row).toBe("rgba(0, 0, 0, 0)");
+      await count.click();
       // The same task as the click: the list is there, whole and opaque, with nothing running on it.
       const shown = await page.evaluate(() => {
         const list = document.querySelector(".acpmux-pr-stack__list");
         if (!list) return null;
-        const animations = list.getAnimations({ subtree: true }).filter((a) => a.playState === "running");
+        let animations = 0;
         let opacity = 1;
-        for (let node: Element | null = list; node; node = node.parentElement)
+        for (let node: Element | null = list; node; node = node.parentElement) {
           opacity *= parseFloat(getComputedStyle(node).opacity);
-        return {
-          animations: animations.length,
-          opacity,
-          height: list.getBoundingClientRect().height,
-        };
+          animations += node.getAnimations().filter((a) => a.playState === "running").length;
+        }
+        return { animations, opacity, height: list.getBoundingClientRect().height };
       });
       expect(shown).not.toBeNull();
       expect(shown!.animations).toBe(0);
       expect(shown!.opacity).toBe(1);
       expect(shown!.height).toBeGreaterThan(0);
-      expect(await disclosure.getAttribute("aria-expanded")).toBe("true");
+      expect(await count.getAttribute("aria-expanded")).toBe("true");
       const links = page.locator(".acpmux-pr-stack__list a");
       expect(await links.count()).toBe(2);
       expect(await links.first().getAttribute("href")).toBe("https://github.com/acme/atlas-web/pull/129");
-      // A chip's × hides only that shortcut: the count still names both (Session Info's Changes).
-      await page.locator(".acpmux-pr-stack__dismiss").first().click();
+      // At rest no × is drawn; over a row exactly that row's ×, at once; Tab still reaches it.
+      const shownDismiss = () =>
+        page.evaluate(
+          () =>
+            [...document.querySelectorAll(".acpmux-pr-stack__dismiss")].filter((button) => {
+              const style = getComputedStyle(button);
+              return style.visibility !== "hidden" && style.display !== "none" && parseFloat(style.opacity) > 0;
+            }).length,
+        );
+      await page.mouse.move(5, 5);
+      expect(await shownDismiss()).toBe(0);
+      await links.first().hover();
+      expect(await shownDismiss()).toBe(1);
+      expect(
+        await page.evaluate(() => {
+          const button = document.querySelector(".acpmux-pr-stack__dismiss")!;
+          return button.getAnimations().length + parseFloat(getComputedStyle(button).transitionDuration);
+        }),
+      ).toBe(0);
+      await page.mouse.move(5, 5);
+      await links.first().focus();
+      await page.keyboard.press("Tab");
+      expect(await page.evaluate(() => document.activeElement?.matches(".acpmux-pr-stack__dismiss") ?? false)).toBe(
+        true,
+      );
+      expect(await shownDismiss()).toBe(1);
+      // Delete on a focused row dismisses it, as its × does; the count still names both.
+      await links.nth(1).focus();
+      await page.keyboard.press("Delete");
       expect(await links.count()).toBe(1);
-      expect((await row.textContent())?.trim()).toBe("2 PRs");
+      expect((await count.textContent())?.trim()).toBe("2 PRs");
+      await links.first().hover();
+      await page.locator(".acpmux-pr-stack__dismiss").first().click();
+      expect(await page.locator(".acpmux-pr-stack__list a").count()).toBe(0);
+      expect((await count.textContent())?.trim()).toBe("2 PRs");
       // The per-message pills (cmux#26082) stay where they are.
       expect(await page.locator(".acpmux-scroll .acpmux-pr-dock").count()).toBeGreaterThan(0);
     } finally {
@@ -288,12 +342,7 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
         ["Apple System Colors", "dark"],
         ["Apple System Colors Light", "light"],
       ] as const) {
-        let page: Page;
-        try {
-          page = await open(variant, 760, theme, 2);
-        } catch {
-          continue;
-        }
+        const page = await open(variant, 760, theme, 2);
         await page.screenshot({ path: path.join(out, "stills", `${variant}-${name}.png`) });
         await page.close();
       }
