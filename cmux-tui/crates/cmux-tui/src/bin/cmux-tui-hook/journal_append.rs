@@ -1,8 +1,23 @@
 //! One journal append over the session socket: connect, write the request
 //! line, read the receipt, and retry a transient failure until the hook
 //! child's `SOCKET_TIMEOUT`.
+//!
+//! Retries follow the clients' one policy, `RetryBudget` (full-jitter
+//! exponential backoff that honours the daemon's `retry_after_ms`, inside the
+//! total bound). A daemon at its connection limit answers with its busy line
+//! (`type: "refused"`, `server.busy`); that is a retry, never a lost event.
+
+use cmux_tui_core::backoff::RetryBudget;
 
 use super::*;
+
+/// The most the first retry waits, beyond the daemon's `retry_after_ms`. A
+/// hook connection holds its slot for one request (milliseconds), so slots
+/// free up within this; the draw spreads hooks refused together over it.
+const RETRY_INITIAL: Duration = Duration::from_millis(100);
+/// The most one retry waits, beyond the daemon's `retry_after_ms`, so the
+/// `SOCKET_TIMEOUT` bound still holds several tries.
+const RETRY_MAX: Duration = Duration::from_secs(1);
 
 /// Sends the request and waits for the journal receipt, retrying until
 /// `SOCKET_TIMEOUT`. `on_sent` runs each time the full request has been
@@ -15,6 +30,7 @@ pub(super) fn append_with_receipt(
 ) -> anyhow::Result<()> {
     // A daemon from before `live_prompt` refuses unknown parameters: the event goes once more
     // without the prompt, so a version skew never loses a turn start (the prompt is optional).
+    // That resend is not a load retry, so it goes at once, inside the same try.
     let mut current = std::borrow::Cow::Borrowed(encoded);
     retry_until(SOCKET_TIMEOUT, |deadline| {
         match append_once(socket, &current, request_id, deadline, on_sent) {
@@ -24,7 +40,7 @@ pub(super) fn append_with_receipt(
                 match without_live_prompt(&current) {
                     Some(stripped) => {
                         current = std::borrow::Cow::Owned(stripped);
-                        Err(AppendAttemptError::Retryable(error))
+                        append_once(socket, &current, request_id, deadline, on_sent)
                     }
                     None => Err(AppendAttemptError::Fatal(error)),
                 }
@@ -53,33 +69,58 @@ pub(super) fn without_live_prompt(encoded: &[u8]) -> Option<Vec<u8>> {
 
 #[derive(Debug)]
 pub(super) enum AppendAttemptError {
+    /// The request may go again; a [`Busy`] inside carries the daemon's
+    /// `retry_after_ms`.
     Retryable(anyhow::Error),
     Fatal(anyhow::Error),
 }
+
+/// The daemon refused the request before it read it (its busy line, or a
+/// retryable error answer), and said when to try again.
+#[derive(Debug)]
+pub(super) struct Busy {
+    message: String,
+    retry_after: Option<Duration>,
+}
+
+impl Busy {
+    /// A refusal with its `message` and the daemon's `retry_after_ms`, if any.
+    fn from_reply(message: &str, retry_after_ms: Option<&Value>) -> Self {
+        Self {
+            message: message.to_owned(),
+            retry_after: retry_after_ms.and_then(Value::as_u64).map(Duration::from_millis),
+        }
+    }
+}
+
+impl std::fmt::Display for Busy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Busy {}
 
 pub(super) fn retry_until<T>(
     timeout: Duration,
     mut attempt: impl FnMut(Instant) -> Result<T, AppendAttemptError>,
 ) -> anyhow::Result<T> {
-    let deadline = Instant::now() + timeout;
-    let mut last_error = None;
+    // `timeout` is a liveness bound of the detached child (the provider's
+    // tool call stopped waiting at the handoff), not a correctness timer.
+    let mut retries = RetryBudget::until(RETRY_INITIAL, RETRY_MAX, Instant::now() + timeout);
+    let deadline = retries.deadline();
     loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            let error = last_error.unwrap_or_else(|| anyhow!("journal append timed out"));
-            return Err(error).context(format!(
-                "journal append was not acknowledged within {} ms",
-                timeout.as_millis()
-            ));
-        }
         match attempt(deadline) {
             Ok(value) => return Ok(value),
             Err(AppendAttemptError::Fatal(error)) => return Err(error),
             Err(AppendAttemptError::Retryable(error)) => {
-                last_error = Some(error);
-                // Admission reopens as short-lived clients finish. Yielding lets
-                // the server make progress without adding a timer to hook paths.
-                std::thread::yield_now();
+                let retry_after = error.downcast_ref::<Busy>().and_then(|busy| busy.retry_after);
+                if !retries.sleep(retry_after) {
+                    return Err(error).context(format!(
+                        "journal append was not acknowledged within {} ms",
+                        timeout.as_millis()
+                    ));
+                }
             }
         }
     }
@@ -99,11 +140,16 @@ pub(super) fn append_once(
     stream
         .set_read_timeout(Some(remaining_before(deadline)?))
         .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
-    write_before(&mut *stream, encoded, deadline)?;
+    if let Err(error) = write_before(&mut *stream, encoded, deadline) {
+        return Err(busy_line_after_failed_write(stream, deadline, &error).unwrap_or(error));
+    }
     on_sent();
     let response = read_before(stream, deadline)?;
     let response: Value = serde_json::from_slice(&response)
         .map_err(|error| AppendAttemptError::Fatal(error.into()))?;
+    if let Some(busy) = busy_line(&response) {
+        return Err(AppendAttemptError::Retryable(busy.into()));
+    }
     if response.get("protocol").and_then(Value::as_str) != Some("cmux.protocol/2")
         || response.get("type").and_then(Value::as_str) != Some("response")
     {
@@ -122,7 +168,7 @@ pub(super) fn append_once(
             .and_then(|error| error.get("message"))
             .and_then(Value::as_str)
             .unwrap_or("journal append failed");
-        let error = anyhow!(error.to_owned());
+        let details = response.get("error").and_then(|error| error.get("details"));
         return Err(
             if response
                 .get("error")
@@ -130,13 +176,48 @@ pub(super) fn append_once(
                 .and_then(Value::as_bool)
                 == Some(true)
             {
-                AppendAttemptError::Retryable(error)
+                let retry_after_ms = details.and_then(|details| details.get("retry_after_ms"));
+                AppendAttemptError::Retryable(Busy::from_reply(error, retry_after_ms).into())
             } else {
-                AppendAttemptError::Fatal(error)
+                AppendAttemptError::Fatal(anyhow!(error.to_owned()))
             },
         );
     }
     Ok(())
+}
+
+/// The daemon's busy line (`server/listen.rs` `REFUSED_BUSY_LINE`): it is at
+/// its connection limit, read nothing, and closed.
+fn busy_line(reply: &Value) -> Option<Busy> {
+    (reply.get("protocol").and_then(Value::as_str) == Some("cmux.protocol/2")
+        && reply.get("type").and_then(Value::as_str) == Some("refused"))
+    .then(|| {
+        let message = reply.get("message").and_then(Value::as_str).unwrap_or("the session is busy");
+        Busy::from_reply(message, reply.get("retry_after_ms"))
+    })
+}
+
+/// A daemon at its limit writes the busy line and closes at once, so the
+/// request's write may fail with a broken pipe while the busy line, and its
+/// `retry_after_ms`, still waits to be read. Only a closed peer is read here:
+/// the read then cannot block.
+fn busy_line_after_failed_write(
+    stream: Box<dyn transport::Stream>,
+    deadline: Instant,
+    error: &AppendAttemptError,
+) -> Option<AppendAttemptError> {
+    let AppendAttemptError::Retryable(error) = error else {
+        return None;
+    };
+    let closed = error.downcast_ref::<io::Error>().is_some_and(|error| {
+        matches!(error.kind(), io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset)
+    });
+    if !closed {
+        return None;
+    }
+    let line = read_before(stream, deadline).ok()?;
+    let busy = busy_line(&serde_json::from_slice(&line).ok()?)?;
+    Some(AppendAttemptError::Retryable(busy.into()))
 }
 
 pub(super) fn remaining_before(deadline: Instant) -> Result<Duration, AppendAttemptError> {

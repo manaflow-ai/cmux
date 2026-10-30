@@ -895,7 +895,9 @@ mod tests {
     #[test]
     fn retries_transient_admission_loss_within_one_bounded_receipt_window() {
         let mut attempts = 0;
-        retry_until(Duration::from_millis(100), |_| {
+        // The child's own bound: the tries are now spaced by a backoff, which a
+        // shorter bound than the hook's would cut off.
+        retry_until(SOCKET_TIMEOUT, |_| {
             attempts += 1;
             if attempts < 3 {
                 Err(AppendAttemptError::Retryable(anyhow!("connection dropped")))
