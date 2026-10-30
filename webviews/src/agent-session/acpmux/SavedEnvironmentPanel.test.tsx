@@ -175,7 +175,7 @@ test("back from Add Project cannot apply its deferred browse to the environment"
     expect(item).toBeTruthy();
     await act(async () => item!.click());
   };
-  await pick("New project");
+  await pick("Add project");
   await pick("This Mac");
   await pick("Local folder");
   expect(document.querySelector('[data-add-project-step="source"]')).toBeTruthy();
