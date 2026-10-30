@@ -32,10 +32,7 @@ test("the standard inline-summary floor follows the effective page scale", () =>
 });
 
 test("summary room measurement reruns when the effective page scale changes", () => {
-  const source = readFileSync(
-    path.join(import.meta.dir, "../src/agent-session/acpmux/summary/cardState.ts"),
-    "utf8",
-  );
+  const source = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/summary/cardState.ts"), "utf8");
   expect(source).toContain("const { width: chatWidth, scale } = useChatSizing();");
   expect(source).toContain("[shell, blocked, chatWidth, scale]");
   expect(source).toContain("inlineChatFloor(chatWidth, scale)");

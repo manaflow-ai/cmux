@@ -2880,7 +2880,7 @@ export function VirtualTranscript({
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, registry, sessionId, width, chatWidth, chatLook, scaledRowWidth]);
+  }, [rows, registry, sessionId, chatLook, scaledRowWidth]);
   const {
     rowId: prRow,
     report: reportPullRequestHost,
@@ -2974,7 +2974,7 @@ export function VirtualTranscript({
       held: last?.held ?? [],
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, registry, rows, sessionId, width, chatLook, scaledRowWidth]);
+  }, [estimated, drawn, registry, rows, sessionId, chatLook, scaledRowWidth]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
