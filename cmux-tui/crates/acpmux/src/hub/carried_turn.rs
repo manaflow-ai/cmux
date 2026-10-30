@@ -32,11 +32,14 @@ pub(super) struct SteerSent {
 }
 
 /// What a cut carried turn's continuation needs, as a prompt's own turn has it (`turns.rs`
-/// `CutTurn`): the family sender its first steer spoke for, and its trust gate.
+/// `CutTurn`): the family sender its first steer spoke for, and its trust gate. And whether it
+/// runs on lane reports only, as a prompt's turn may (`lane_reports.rs`): then it reports nothing.
 #[derive(Debug, Clone, Default)]
 pub(super) struct Continues {
     pub(super) from: Option<String>,
     pub(super) trust_gate: bool,
+    /// A steer's: it is a lane report. A carried turn's: every steer it carried is one.
+    pub(super) reports: bool,
 }
 
 /// An answer that ended its turn while the agent runs on with steers it read after.
@@ -109,6 +112,7 @@ impl NextTurn {
             "client": t.client,
             "control": control.as_str(),
             "trustGate": self.continues.trust_gate,
+            "reportsOnly": self.continues.reports,
             "seq": self.carried.seq,
             "promptIds": self.carried.prompt_ids,
         })
@@ -129,8 +133,10 @@ impl NextTurn {
             (text("client").unwrap_or_default(), text("prompt").unwrap_or_default());
         let next =
             TurnInfo::prompted(&client, &prompt, &text("turnId")?, &text("promptId")?, control);
-        let trust_gate = record.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
-        Some(Self { carried, next, continues: Continues { from: None, trust_gate } })
+        let flag = |k: &str| record.get(k).and_then(Value::as_bool).unwrap_or(false);
+        let continues =
+            Continues { from: None, trust_gate: flag("trustGate"), reports: flag("reportsOnly") };
+        Some(Self { carried, next, continues })
     }
 }
 
@@ -169,6 +175,12 @@ impl Hub {
                 .prompt_ids
                 .iter()
                 .any(|p| now.sent.get(p).is_some_and(|s| s.control == Control::Web));
+        // On lane reports only when every steer it carried is one.
+        let reports = !carried.prompt_ids.is_empty()
+            && carried
+                .prompt_ids
+                .iter()
+                .all(|p| now.sent.get(p).is_some_and(|s| s.continues.reports));
         now.carries.push_back((carried.seq, turn_id.clone()));
         while now.carries.len() > CARRIES_KEPT {
             now.carries.pop_front();
@@ -198,6 +210,7 @@ impl Hub {
                 Continues::default(),
             ),
         };
+        let continues = Continues { reports, ..continues };
         let prompt_id = first.cloned().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         (TurnInfo::prompted(&client, &text, &turn_id, &prompt_id, control), continues)
     }
@@ -217,10 +230,7 @@ impl Hub {
         let Some(mut turn) = session.turn().filter(|t| t.turn_id == next.next.turn_id) else {
             return;
         };
-        turn.turn_seq =
-            self.begin_carried(session, from, &turn, &next.carried, next.continues.trust_gate);
-        // Its own turn, so its own cap (`turn_cap.rs`): the turn before's timer ends with it.
-        self.arm_turn_cap(session, &turn.turn_id);
+        turn.turn_seq = self.begin_carried(session, from, &turn, &next.carried, &next.continues);
         // The daemon stops: the next one runs it on from the log (`recover_carried`).
         if self.shutting_down() {
             return;
@@ -243,7 +253,7 @@ impl Hub {
         child: &Arc<ChildAgent>,
         mut turn: TurnInfo,
         begin: Option<(String, Carried)>,
-        trust_gate: bool,
+        continues: Continues,
     ) {
         {
             let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
@@ -258,7 +268,10 @@ impl Hub {
             now.carries.push_back((carried.seq, turn.turn_id.clone()));
             now.successors.push_back((from.clone(), turn.turn_id.clone()));
             drop(now);
-            turn.turn_seq = self.begin_carried(session, from, &turn, carried, trust_gate);
+            turn.turn_seq = self.begin_carried(session, from, &turn, carried, &continues);
+        } else {
+            // Started before the restart: its cap counts from its start (`turn_cap.rs`).
+            self.arm_turn_cap(session, &turn.turn_id);
         }
         self.recovered_floor(session, turn.control);
         self.set_status(session, SessionStatus::Running);
@@ -281,20 +294,23 @@ impl Hub {
         }
     }
 
-    /// The carried turn's start: counted, and logged as `turn_started` after `from`'s end.
+    /// The carried turn's start: counted, logged as `turn_started` after `from`'s end, and its
+    /// own turn cap armed (`turn_cap.rs`): the turn before's timer ends with it.
     fn begin_carried(
-        &self,
-        session: &Session,
+        self: &Arc<Self>,
+        session: &Arc<Session>,
         from: &str,
         turn: &TurnInfo,
         c: &Carried,
-        trust_gate: bool,
+        continues: &Continues,
     ) -> u64 {
         {
             let mut m = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             m.turn_count += 1;
             m.preview = Some(String::new());
         }
+        // A turn on lane reports only reports nothing (`lane_reports.rs`).
+        self.lane_turn_on(session, continues.reports);
         if turn.control == Control::Web {
             session.floor.last_turn_web.store(true, Ordering::SeqCst);
         }
@@ -304,14 +320,17 @@ impl Hub {
             "promptId": turn.prompt_id,
             "turnId": turn.turn_id,
             "control": turn.control.as_str(),
-            "trustGate": trust_gate,
+            "trustGate": continues.trust_gate,
             "carried": {"fromTurnId": from, "promptIds": c.prompt_ids},
         });
         let seq = self.append(session, "mux", "turn_started", msg).seq;
-        let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(t) = running.as_mut().filter(|t| t.turn_id == turn.turn_id) {
-            t.turn_seq = seq;
+        {
+            let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(t) = running.as_mut().filter(|t| t.turn_id == turn.turn_id) {
+                t.turn_seq = seq;
+            }
         }
+        self.arm_turn_cap(session, &turn.turn_id);
         seq
     }
 
@@ -353,7 +372,7 @@ impl Hub {
                     let on_sent = || self.watch_stalled_turn(&session, None);
                     let id = &turn.turn_id;
                     super::steer_end::agent_prompt_hook(
-                        &session, &child, params, id, false, false, None, false, on_sent,
+                        &session, &child, params, id, false, false, None, false, None, on_sent,
                     )
                     .await
                 }
@@ -400,14 +419,14 @@ impl Hub {
             self.respawn_stopped_agent(&session, turn_id, stops).await;
             let Some(next) = next else { break };
             let NextTurn { carried, next: next_turn, continues: next_continues } = *next;
-            let gate = next_continues.trust_gate;
-            continues = Some(next_continues);
             // As it is now (`start_carried`).
             let Some(mut next_turn) = session.turn().filter(|t| t.turn_id == next_turn.turn_id)
             else {
                 break;
             };
-            next_turn.turn_seq = self.begin_carried(&session, turn_id, &next_turn, &carried, gate);
+            next_turn.turn_seq =
+                self.begin_carried(&session, turn_id, &next_turn, &carried, &next_continues);
+            continues = Some(next_continues);
             turn = next_turn;
             // The daemon stops: the next one runs this turn on from the log (`recover_carried`).
             if self.shutting_down() {
@@ -568,6 +587,39 @@ mod tests {
         hub.take_turn(&s, "t-1", Some(two.clone()));
         hub.schedule_auto_resume(&s, "t-1", None);
         assert!(hub.stopped_for_test(&s, &two.turn_id), "the Stop did not hold for the next turn");
+    }
+
+    /// A carried turn whose steers were all lane reports runs on reports only: it reports
+    /// nothing upward (`lane_reports.rs`), as a prompt's turn on reports does. One with any
+    /// other steer, or with none named, does.
+    #[tokio::test]
+    async fn a_carried_turn_on_lane_reports_only_reports_nothing_upward() {
+        let (hub, s) = chat().await;
+        let sent = |reports| SteerSent {
+            client: "test".into(),
+            text: "steer".into(),
+            control: Control::Local,
+            continues: Continues { reports, ..Continues::default() },
+        };
+        {
+            let mut now = s.steer_now.lock().unwrap();
+            now.sent.insert("p-r1".into(), sent(true));
+            now.sent.insert("p-r2".into(), sent(true));
+            now.sent.insert("p-task".into(), sent(false));
+        }
+        let mut from = TurnInfo::prompted("test", "work", "t-0", "p-0", Control::Local);
+        let cases: [(&[&str], bool); 3] =
+            [(&["p-r1", "p-r2"], true), (&["p-r1", "p-task"], false), (&[], false)];
+        for (seq, (ids, want)) in cases.into_iter().enumerate() {
+            let prompt_ids = ids.iter().map(|p| p.to_string()).collect();
+            let carried = Carried { seq: seq as u64, prompt_ids };
+            let (next, continues) = hub.carried_turn(&s, Some(&from), &carried);
+            *s.turn.lock().unwrap() = Some(next.clone());
+            hub.begin_carried(&s, &from.turn_id, &next, &carried, &continues);
+            let turn = s.meta().turn_count;
+            assert_eq!(hub.lane_turn_reports_only(&s.id, turn), want, "{ids:?}");
+            from = next;
+        }
     }
 
     #[test]
