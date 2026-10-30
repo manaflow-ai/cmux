@@ -70,6 +70,37 @@ public actor AcpmuxConnection {
         }
     }
 
+    /// The whole `sessions` of a list call with no `limit` (`_acpmux/watch`, `_acpmux/sessions`).
+    /// acpmux answers a list past its largest reply with the first rows and a string `nextCursor`;
+    /// the rest comes from `_acpmux/sessions` with the same params (no `enabled`) and that cursor,
+    /// until a page has none (acpmux `Client::whole_list`). A list that fits is one reply with no
+    /// cursor, so an older daemon is read as before. A cursor sent twice throws instead of looping,
+    /// and never hands back a list cut short: a caller reads a missing session as a gone one.
+    public func wholeList(_ method: String, _ params: [String: JSONValue]) async throws -> [JSONValue] {
+        var reply = try await request(method, .object(params))
+        var rows = reply["sessions"]?.arrayValue ?? []
+        var rest = params
+        rest["enabled"] = nil
+        var seen: Set<String> = []
+        while let cursor = Self.nextCursor(reply) {
+            guard seen.insert(cursor).inserted else {
+                throw RPCError(code: 0, message: "acpmux sent a session list cursor again", reason: "sessions.cursor_repeated")
+            }
+            rest["cursor"] = .string(cursor)
+            reply = try await request("_acpmux/sessions", .object(rest))
+            rows += reply["sessions"]?.arrayValue ?? []
+        }
+        return rows
+    }
+
+    /// A list page's `nextCursor`, or nil when it ends the list: no cursor, or a page with no
+    /// rows (the next page would start from the same place).
+    nonisolated static func nextCursor(_ reply: JSONValue) -> String? {
+        guard let cursor = reply["nextCursor"]?.stringValue, !cursor.isEmpty,
+              !(reply["sessions"]?.arrayValue ?? []).isEmpty else { return nil }
+        return cursor
+    }
+
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
     public func notify(_ method: String, _ params: JSONValue) async throws {
         start()

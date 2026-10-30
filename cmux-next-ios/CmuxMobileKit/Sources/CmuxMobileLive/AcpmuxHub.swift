@@ -114,9 +114,9 @@ public final class AcpmuxHub {
             ]))
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
-            let watched = try await connection.request("_acpmux/watch", .object(["enabled": .bool(true)]))
+            let watched = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)])
             var next: [String: AcpmuxSession] = [:]
-            for value in watched["sessions"]?.arrayValue ?? [] {
+            for value in watched {
                 if let session = AcpmuxSession(value) { next[session.id] = session }
             }
             sessions = next
@@ -200,6 +200,12 @@ public final class AcpmuxHub {
     public func request(_ method: String, _ params: JSONValue, timeout: Duration) async throws -> JSONValue {
         guard let connection else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
         return try await connection.request(method, params, timeout: timeout)
+    }
+
+    /// ``AcpmuxConnection/wholeList(_:_:)`` on the current connection.
+    public func wholeList(_ method: String, _ params: [String: JSONValue]) async throws -> [JSONValue] {
+        guard let connection else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
+        return try await connection.wholeList(method, params)
     }
 
     public func notify(_ method: String, _ params: JSONValue) async throws {

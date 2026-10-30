@@ -157,8 +157,7 @@ public final class LiveFeed: FeedActions {
     public func refresh() async throws {
         await terminal?.refresh()
         guard let hub else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected to your Mac", reason: nil) }
-        let watched = try await hub.request("_acpmux/watch", .object(["enabled": .bool(true)]))
-        let sessions = (watched["sessions"]?.arrayValue ?? []).compactMap(AcpmuxSession.init)
+        let sessions = try await hub.wholeList("_acpmux/watch", ["enabled": .bool(true)]).compactMap(AcpmuxSession.init)
         hydrate(sessions)
         let byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         for (sessionID, asks) in openAsks where (byID[sessionID]?.pendingPermissions ?? 0) == 0 {
