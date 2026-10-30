@@ -718,9 +718,6 @@ impl Hub {
                 return Err(e);
             }
         };
-        // The parent's `subsession` "started" record was appended at the acceptance, on the
-        // child's turn task: the answer waits for it too (`request_writes.rs`).
-        super::request_writes::note_session(parent);
         // The row get_session reads, not the session summary: a summary's
         // `shown` says whether a client has the chat open right now, which a
         // parent read as "the user cannot see it" (it is under the parent's
@@ -835,14 +832,7 @@ impl Hub {
             hub.prompt_with(&to2, blocks, "acpmux-subsession", steer, opts).await
         });
         match rx.await {
-            Ok(v) => {
-                // Its records up to the acceptance were appended on the turn's task, which the
-                // request's write scope does not see: the answer waits for them, and keeps its
-                // Ok, since a retry would send the prompt twice (`request_writes.rs`).
-                super::request_writes::note_session(to);
-                super::request_writes::note_kept();
-                Ok(v)
-            }
+            Ok(v) => Ok(v),
             // Dropped before acceptance: the prompt was refused.
             Err(_) => match turn.await {
                 Ok(Err(e)) => Err(e),

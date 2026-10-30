@@ -52,8 +52,6 @@ impl Hub {
     pub fn mark_unread(&self, session: &Session) {
         // Changed and logged in one step: a restart rebuilds the mark from this record
         // (`meta_replay.rs`). The status is read from `m`: the meta lock is held here.
-        // The person's change: `_acpmux/markUnread` answers once this record is on disk
-        // (`request_writes.rs`: the append notes it).
         let logged = self.change_logged(session, "status", |m| {
             (!std::mem::replace(&mut m.unread, true))
                 .then(|| json!({"status": m.status.to_string(), "read": false}))
@@ -72,13 +70,9 @@ impl Hub {
         {
             return;
         }
-        // It tells the clients, and the chat switch does not wait for it: a lost read mark
-        // only shows the dot again (`request_writes.rs`: unnoted).
-        let logged = request_writes::unnoted(|| {
-            self.change_logged(session, "status", |m| {
-                std::mem::replace(&mut m.unread, false)
-                    .then(|| json!({"status": m.status.to_string(), "read": true}))
-            })
+        let logged = self.change_logged(session, "status", |m| {
+            std::mem::replace(&mut m.unread, false)
+                .then(|| json!({"status": m.status.to_string(), "read": true}))
         });
         if logged.is_some() {
             self.save_meta(session);
