@@ -108,6 +108,33 @@ struct CloudMachineChangeStateTests {
         #expect(await resolver.attempts == 2, "repeated running lists do not retry a settled failure")
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func runningBeforeResumeAcknowledgementConnectsWhenPendingClears() async throws {
+        let services = MachineIconTests.services()
+        let cloud = services.cloud
+        let resolver = StartingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "early-running", status: .paused),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "early-running"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        services.machines.add(session)
+        defer { cloud.changes.stop(); session.disconnect() }
+        let running = CloudMachine(id: session.machineID, status: .running)
+        try await cloud.changes.run(.starting, machineID: session.machineID, of: { session }) {
+            cloud.apply(running, to: session, read: cloud.beginRecordRead(machineID: session.machineID))
+            #expect(session.machine.status == .running)
+            #expect(session.machine.pendingChange == .starting)
+            #expect(await resolver.attempts == 0, "the request is still in flight")
+        }
+        cloud.apply(running, to: session, read: cloud.beginRecordRead(machineID: session.machineID))
+        #expect(session.machine.pendingChange == nil)
+        await resolver.waitForAttempts(1)
+        for await ended in ObservationStream({ session.linkEnded != nil }) where ended { break }
+        #expect(await resolver.attempts == 1, "settling resume connects even across running -> running")
+        cloud.apply(running, to: session, read: cloud.beginRecordRead(machineID: session.machineID))
+        await Task.yield()
+        #expect(await resolver.attempts == 1, "later identical records do not restart the connection")
+    }
+
     @Test func transitionsRejectUserConnectAttachAndActionCallers() async throws {
         let services = MachineIconTests.services()
         let resolver = StartingLinkResolver()
