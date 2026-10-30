@@ -29,15 +29,19 @@ export function useNativeRowTools(
 ): boolean {
   const enabled = host?.enabled === true;
   const callNative = host?.callNative;
+  const baseBindings = nativeRowToolBindings(quick, host?.panel).map((binding) => {
+    const context = menus?.customize?.get(binding.tool.id);
+    return context
+      ? { ...binding, tool: { ...binding.tool, contextMenu: context.items }, runMenu: context.invoke }
+      : binding;
+  });
+  const extraBindings = (menus?.extra ?? []).slice(0, 16);
+  // Reserve room for host-owned controls such as the chat menu so the 16-tool protocol cap
+  // cannot silently discard the extra that supplies the native overflow button.
   const bindings: RowToolBinding[] = [
-    ...nativeRowToolBindings(quick, host?.panel).map((binding) => {
-      const context = menus?.customize?.get(binding.tool.id);
-      return context
-        ? { ...binding, tool: { ...binding.tool, contextMenu: context.items }, runMenu: context.invoke }
-        : binding;
-    }),
-    ...(menus?.extra ?? []),
-  ].slice(0, 16);
+    ...baseBindings.slice(0, Math.max(0, 16 - extraBindings.length)),
+    ...extraBindings,
+  ];
   const current = useRef(bindings);
   current.current = bindings;
   const payload = JSON.stringify({ tools: bindings.map(({ tool }) => tool) });
