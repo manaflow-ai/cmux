@@ -73,6 +73,11 @@ export class NativePopupEventFence {
       !(event.type === "change" && row?.kind === "textField")
     )
       return false;
+    // An edit at or below the sequence the descriptor already acknowledges is stale: newer text won.
+    if (event.editSequence !== undefined) {
+      const acknowledged = event.type === "search" ? search?.editSequence : row?.editSequence;
+      if (acknowledged !== undefined && event.editSequence <= acknowledged) return false;
+    }
     switch (event.type) {
       case "search":
         return search !== undefined && search.id === event.id && event.value !== undefined;

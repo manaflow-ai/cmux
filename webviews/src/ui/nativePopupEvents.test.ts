@@ -38,4 +38,20 @@ describe("native popup event fence", () => {
     fence.update(model(3, true, "high"));
     expect(fence.accepts({ type: "change", popupId: "popup", revision: 2, id: "effort", value: "low" })).toBe(true);
   });
+
+  test("an edit at or below the acknowledged sequence is stale", () => {
+    const fence = new NativePopupEventFence();
+    const base = model(1, false, "low");
+    fence.update({
+      ...base,
+      rows: [{ id: "name", kind: "textField", label: "Name", value: "newer", editSequence: 8 }],
+      search: { id: "query", value: "", placeholder: "Search", editSequence: 4 },
+    });
+    const change = { type: "change", popupId: "popup", revision: 1, id: "name", value: "older" } as const;
+    expect(fence.accepts({ ...change, editSequence: 7 })).toBe(false);
+    expect(fence.accepts({ ...change, editSequence: 9 })).toBe(true);
+    const search = { type: "search", popupId: "popup", revision: 1, id: "query", value: "q" } as const;
+    expect(fence.accepts({ ...search, editSequence: 4 })).toBe(false);
+    expect(fence.accepts({ ...search, editSequence: 5 })).toBe(true);
+  });
 });
