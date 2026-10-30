@@ -11,8 +11,9 @@ struct SidebarSnapshotRecorder {
     /// incognito set on its way out.
     private var everIncognito = false
     /// The last snapshot saved: the names and looks of the rows the window showed, which a kept Cloud
-    /// workspace's row keeps while no machine lists it (P-AUSTIN B7).
-    private(set) var lastSnapshot: SidebarSnapshot?
+    /// workspace's row keeps while no machine lists it (P-AUSTIN B7). The capture scenes set it as a
+    /// previous run would have saved it.
+    var lastSnapshot: SidebarSnapshot?
 
     /// Saves what `model` shows (placeholders and live-only detail left
     /// out) once the launch is over, only for an open registered window

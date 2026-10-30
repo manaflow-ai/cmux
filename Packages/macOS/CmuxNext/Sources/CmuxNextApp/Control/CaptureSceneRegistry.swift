@@ -494,6 +494,11 @@ extension CaptureSceneRegistry {
                                  services: services)
         windows.cloudList = { _ in CloudService.ListFacts(isSignedIn: false, isRestoring: false, hasLoadedMachines: false, hasLoadedCurrentMachines: false) }
         windows.seenMachine[id] = "vm-capture"
+        // The names the sidebar saved while the person was signed in: "api-server" on the machine "build-box".
+        let saved = SidebarSnapshot.Workspace(id: id, machineID: "vm-capture", title: "api-server", kind: "terminal", kindBrand: nil, icon: nil, iconTint: nil)
+        controller.sidebar.snapshotRecorder.lastSnapshot = SidebarSnapshot(sections: [SidebarSnapshot.Section(
+            machineID: "vm-capture", machineName: "build-box", machineKind: "cloud", isCollapsed: false,
+            nodes: [SidebarSnapshot.Node(workspace: saved, group: nil)])], profiles: [], activeProfileID: nil)
         _ = windows.transition { $0.move([id], to: windowID) }
         windows.select(id, in: controller.state)
         controller.showWorkspace(requested: id)

@@ -40,7 +40,7 @@ final class SidebarBridge {
     /// The saved space bar, shown until the local daemon reports its spaces.
     private var seededProfiles: (profiles: [SidebarProfile], active: SidebarProfileKey?)?
     /// Saves what the sidebar shows (`SidebarSnapshotStore`).
-    private(set) var snapshotRecorder = SidebarSnapshotRecorder()
+    var snapshotRecorder = SidebarSnapshotRecorder()
     /// Organization intents waiting for the home session's personal state.
     let organizationQueue = SidebarOrganizationQueue()
     /// Group name editors waiting for their group, and groups made empty (cx-rcby).
