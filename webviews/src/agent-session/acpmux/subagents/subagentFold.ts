@@ -131,6 +131,10 @@ type ViewRevisions = { activity: symbol; command: symbol; summary: object };
 /// own updates, their spawn and state events, and the tool calls that started them draw no row.
 export class SubagentFold {
   private readonly agents = new Map<string, Subagent>();
+  /// Native session ids that are the owning chat, rather than subagents. Codex collaboration
+  /// metadata names the issuing thread; keeping this identity across replay prevents an echoed
+  /// root update from becoming a child of the thread that happened to report it.
+  private readonly rootThreads = new Set<string>();
   private readonly groupOf = new Map<string, Group>();
   private readonly spawnCalls = new Set<string>();
   /// The subagent each spawning call started, by call id.
@@ -184,6 +188,47 @@ export class SubagentFold {
   private readonly recorded = new Set<string>();
 
   constructor(private readonly stops: SubagentStops = subagentStops()) {}
+
+  /// Seeds the native root before a persisted event window is replayed. A malformed historical
+  /// record can mention the root as a subagent, so this must happen before the first `apply`.
+  setRoot(id: string | undefined): void {
+    if (typeof id !== "string" || id.length === 0 || this.rootThreads.has(id)) return;
+    this.rootThreads.add(id);
+    // A live update can arrive before the session summary. Remove that late phantom and promote
+    // anything it had already acquired so a later root seed repairs the in-memory tree too.
+    const phantom = this.agents.get(id);
+    if (!phantom) return;
+    const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
+    this.agents.delete(id);
+    const phantomGroup = this.groupOf.get(id);
+    this.groupOf.delete(id);
+    this.own.delete(id);
+    this.drawn.delete(id);
+    this.versions.delete(id);
+    for (const group of groups) {
+      if (!group.ids.includes(id)) continue;
+      group.ids = group.ids.filter((child) => child !== id);
+      this.changed.add(group);
+    }
+    if (phantomGroup) this.changed.add(phantomGroup);
+    for (const [parent, entries] of this.own) {
+      const kept = entries.filter((entry) => entry.spawned !== id);
+      if (kept.length !== entries.length) {
+        this.own.set(parent, kept);
+        this.bump(parent);
+      }
+    }
+    const promoted = [...this.agents.values()].filter((agent) => agent.parent === id);
+    if (promoted.length === 0) return;
+    const group = this.open ?? { id: `${SUBAGENTS}-root-${id}`, at: phantom.startedAt, version: 0, ids: [] };
+    this.open = group;
+    for (const agent of promoted) {
+      agent.parent = null;
+      if (!group.ids.includes(agent.id)) group.ids.push(agent.id);
+      this.groupOf.set(agent.id, group);
+    }
+    this.changed.add(group);
+  }
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
   /// report that trails it (Claude's last task_progress) does not run one again.
   private readonly ended = new Set<string>();
@@ -203,11 +248,28 @@ export class SubagentFold {
   reduce(event: Event, update: any): boolean {
     const mux = event.msg?.params?._meta?.acpmux;
     const events: any[] = Array.isArray(mux?.subagents) ? mux.subagents : [];
+    // Codex puts its collaboration item on the session update itself. Keep the event-level
+    // fallback for older persisted records that lifted `_meta` beside `update`.
+    const collaboration = update?._meta?.codex?.collaboration ?? event.msg?.params?._meta?.codex?.collaboration;
+    const sender = typeof collaboration?.senderThreadId === "string" ? collaboration.senderThreadId : undefined;
     const tag = typeof mux?.subagent === "string" ? mux.subagent : undefined;
     if (tag !== undefined) this.named.add(tag);
     // Met first through its progress, its spawn is older than what this fold read: not this turn's.
     const spawn = update?.sessionUpdate !== "subagent_progress";
-    for (const change of events) this.apply(change, event, spawn);
+    for (const change of events) {
+      if (typeof change?.id !== "string" || this.rootThreads.has(change.id)) continue;
+      const rootRepair =
+        typeof change.parent === "string" &&
+        this.rootThreads.has(change.parent) &&
+        (sender === undefined || this.rootThreads.has(sender));
+      const normalized =
+        sender === undefined
+          ? rootRepair
+            ? { ...change, parent: null, __rootRepair: true }
+            : change
+          : { ...change, parent: this.parentFor(sender), ...(rootRepair ? { __rootRepair: true } : {}) };
+      this.apply(normalized, event, spawn);
+    }
     // An update acpmux tagged with the chat's own session is the chat's (``isChat``).
     const owner = tag !== undefined && !this.isChat(tag) ? this.agents.get(tag) : undefined;
     if (owner) {
@@ -519,6 +581,10 @@ export class SubagentFold {
     if (agent.state !== "running") this.forgetOutput(agent.id);
   }
 
+  private parentFor(sender: string): string | null {
+    return this.rootThreads.has(sender) || !this.agents.has(sender) ? null : sender;
+  }
+
   /// A turn starts: its stop ends the subagents spawned from here on.
   startTurn(): void {
     this.turn = new Set();
@@ -739,6 +805,23 @@ export class SubagentFold {
         this.groupOf.set(agent.id, this.open);
       } else this.record(parent, { event, spawned: agent.id });
     } else {
+      if (change.__rootRepair && agent.parent !== null) {
+        const oldParent = agent.parent;
+        const repaired = agent;
+        repaired.parent = null;
+        const entries = this.own.get(oldParent);
+        if (entries) {
+          const kept = entries.filter((entry) => entry.spawned !== repaired.id);
+          if (kept.length !== entries.length) {
+            this.own.set(oldParent, kept);
+            this.bump(oldParent);
+          }
+        }
+        this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
+        if (!this.open.ids.includes(repaired.id)) this.open.ids.push(repaired.id);
+        this.groupOf.set(repaired.id, this.open);
+        this.changed.add(this.open);
+      }
       agent.name = text(change.name) ?? agent.name;
       agent.task = text(change.task) ?? agent.task;
       agent.kind = text(change.kind) ?? agent.kind;
