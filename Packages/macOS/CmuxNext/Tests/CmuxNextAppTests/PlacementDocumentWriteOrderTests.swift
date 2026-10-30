@@ -127,7 +127,7 @@ struct PlacementDocumentWriteOrderTests {
         // confirmed document item; otherwise this would test personal order.
         let script = PlacementStaleRowsGalleryTests.daemonScript.replacingOccurrences(
             of: "'key': key, 'name': names[key]", with: "'key': key, 'resource_id': key, 'name': names[key]")
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script, "0"])
+        let bridge = DaemonBridge.fakePython(["-c", script, "0"])
         let connection = DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-placement-document-\(UUID().uuidString).sock", bridge: bridge),
                                           configuration: .init(requiredCapabilities: [], terminalEnvironment: nil))
         do {
@@ -189,6 +189,15 @@ struct PlacementDocumentWriteOrderTests {
                     committed: try #require(reloaded.rows(SidebarViewRequest(live: Self.live))).compactMap(\.ref?.workspaceID),
                     expected: Self.expected, original: Self.original, operations: remote.calls.map(\.ops))
             }
+            // Regression: the document can go inactive while the bridge still has its last
+            // document drag cached. Resync must leave normal personal-order drop targeting active;
+            // using `model.docDrag == nil` here misses the disconnect and keeps document mode.
+            controller.sidebar.model.docDrag = SidebarDocDrag(
+                item: { _ in nil }, section: { _ in nil }, begin: { _ in [:] }, drop: { _, _ in })
+            SidebarDocStore.current = nil
+            controller.sidebar.resync()
+            #expect(controller.sidebar.model.ungroupedFirst,
+                    "inactive document resync must restore legacy ungrouped-first targeting even with cached docDrag")
             await connection.close()
         } catch {
             await connection.close()
