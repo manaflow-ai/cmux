@@ -2,7 +2,7 @@ import { act } from "react";
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { createStrings } from "../shared/i18n";
-import { pageError } from "../shared/pageClient";
+import { BridgePageClient, pageError } from "../shared/pageClient";
 import { CloudPage } from "./CloudPage";
 import table from "./generated/strings.json";
 import { MockCloudProvider } from "./mockProvider";
@@ -70,14 +70,18 @@ async function renderFailure(provider: RetryFailureProvider) {
 
 for (const [name, failure] of [
   ["upstream", { code: "cmux.cloud.upstream_error", message: "Cloud did not answer", retryable: true }],
-  ["exhausted", { code: "cmux.protocol.transport", message: "Transport retries exhausted", retryable: false }],
+  ["malformed", { code: "cmux.protocol.invalid_result", message: "Malformed auth reply", retryable: false }],
   ["terminal", { code: "cmux.cloud.auth_required", message: "Sign in to cmux Cloud", retryable: false }],
 ] as const) {
   test(`renders ${name} auth failure with its error and Retry, then recovers`, async () => {
     const provider = new RetryFailureProvider(failure);
     const { root, rootElement, store } = await renderFailure(provider);
     try {
-      expect(store.getSnapshot()).toMatchObject({ connection: "failed", loading: false, error: failure.message });
+      expect(store.getSnapshot()).toMatchObject({
+        connection: "failed",
+        loading: false,
+        error: failure.message,
+      });
       expect(rootElement.querySelector(".cloud-loading")).toBeNull();
       expect(rootElement.querySelector(".cloud-failed")?.textContent).toContain(failure.message);
       const retry = rootElement.querySelector<HTMLButtonElement>(".cloud-failed .cloud-retry-button");
@@ -87,6 +91,55 @@ for (const [name, failure] of [
         await settle();
       });
       expect(store.getSnapshot()).toMatchObject({ connection: "connected", loading: false });
+      expect(rootElement.querySelector(".cloud-failed")).toBeNull();
+      expect(rootElement.querySelector(".cloud-loading")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      rootElement.remove();
+      jest.useRealTimers();
+    }
+  });
+}
+
+for (const code of [
+  "cmux.protocol.closed",
+  "cmux.protocol.transport",
+  "cmux.protocol.timeout",
+  "cmux.protocol.unavailable",
+]) {
+  test(`a real bridge ${code} recovers without showing the failed page or clicking Retry`, async () => {
+    jest.useFakeTimers();
+    let reads = 0;
+    const client = new BridgePageClient(
+      {
+        async postMessage(body) {
+          const { id } = body as { id: number };
+          reads += 1;
+          if (reads === 1) return { t: "err", id, code, message: "bridge unavailable" };
+          return { t: "ok", id, value: { signedIn: false } };
+        },
+      },
+      {},
+    );
+    const store = new CloudStore(client);
+    const rootElement = document.createElement("div");
+    document.body.append(rootElement);
+    const root = createRoot(rootElement);
+    try {
+      await act(async () => {
+        root.render(<CloudPage store={store} strings={strings} />);
+        await settle();
+      });
+      expect(store.getSnapshot().connection).toBe("disconnected");
+      expect(rootElement.querySelector(".cloud-failed")).toBeNull();
+      expect(rootElement.querySelector(".cloud-loading")).toBeNull();
+      await act(async () => {
+        jest.advanceTimersByTime(CLOUD_RESTART_MIN_MS);
+        await settle();
+      });
+      expect(reads).toBe(2);
+      expect(store.getSnapshot()).toMatchObject({ connection: "connected", loading: false });
+      expect(store.getSnapshot().error).toBeUndefined();
       expect(rootElement.querySelector(".cloud-failed")).toBeNull();
       expect(rootElement.querySelector(".cloud-loading")).toBeNull();
     } finally {
