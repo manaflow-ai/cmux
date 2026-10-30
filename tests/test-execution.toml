@@ -347,7 +347,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_owned_mini_caches.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Pins cmux-tui.yml's owned-mini setup-go cache and rust-cache save-if conditions (#27840); run python3 tests/test_cmux_tui_owned_mini_caches.py yourself after changing that job (under 1 s, no build)."
 
 [[test]]
 path = "tests/test_ci_acpmux_job_home.py"
@@ -619,6 +620,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_tour.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_visual_gate.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1166,6 +1171,10 @@ path = "tests/test_guards_new_reds.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_webviews_test_history.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_web_lint_prepush.py"
 lane = "linux-guard"
 
@@ -1430,6 +1439,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_ghostty_helper_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_chief_cache_repair.py"
 lane = "linux-guard"
 
 [[test]]

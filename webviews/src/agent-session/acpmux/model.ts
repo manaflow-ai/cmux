@@ -218,6 +218,9 @@ export type AcpmuxRow = {
   kind: string;
   /// The acpmux event a turn summary came from, where a fork through that turn ends.
   seq?: number;
+  /// The daemon's stable identity for a turn. Turn results can be replayed with a new seq, so
+  /// transcript rows that belong to one turn use this identity when it is available.
+  turnId?: string;
   text?: string;
   streaming?: boolean;
   pending?: boolean;
@@ -750,6 +753,9 @@ export type AcpmuxSnapshot = {
   chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
+  /// How many of the shown chat's turns this client saw end: it only grows, so an end is seen even
+  /// when React draws a turn's start and end as one render (App.tsx `pane.tabState`).
+  turnsEnded?: number;
   /// The running turn's output tokens so far, its model calls' generated tokens added up,
   /// subagents' included (direct.ts `turnTokens`); unset when the harness does not report each
   /// call or the client missed the turn's start.
