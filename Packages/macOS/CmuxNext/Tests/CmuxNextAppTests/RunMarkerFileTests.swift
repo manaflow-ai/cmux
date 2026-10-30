@@ -9,8 +9,9 @@ import Testing
 /// process read stalled the main thread 1,261 ms), so the marker's bytes, and the footprint in them, are made on
 /// the marker's writer queue.
 @Suite(.timeLimit(.minutes(1))) struct RunMarkerFileTests {
-    /// Records where each encode ran.
-    final class Encodes: Sendable {
+    /// Records where each encode ran. Nonisolated: the encode calls it on the marker's writer queue, as the product
+    /// runs it (this target is main-actor by default); the Mutex makes it safe from any thread.
+    nonisolated final class Encodes: Sendable {
         // concurrency-allow: test recorder; the encode appends from the writer queue, the test reads after the write.
         private let state = Mutex<[Bool]>([])
 
