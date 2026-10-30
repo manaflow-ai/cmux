@@ -2,6 +2,7 @@ import { initializeAgentPath } from "./path-environment";
 import type {
   Adapter,
   AgentEvent,
+  AgentQuestionAnswers,
   CommandEntry,
   CommandTrigger,
   ChangedFile,
@@ -2399,6 +2400,18 @@ export async function sendCommandCatalogResponse(
   }
 }
 
+/** `null` declines; otherwise one string answer per question id. */
+export function parseQuestionAnswers(raw: unknown): AgentQuestionAnswers | null | undefined {
+  if (raw === null) return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const answers: AgentQuestionAnswers = {};
+  for (const [id, value] of Object.entries(raw)) {
+    if (typeof value !== "string") return undefined;
+    answers[id] = value;
+  }
+  return answers;
+}
+
 export function handleSessionMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
   switch (msg.op) {
     case "start": {
@@ -2526,6 +2539,20 @@ export function handleSessionMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) 
       }
       const sess = sessions.get(String(msg.sessionId));
       sess?.adapter.stop(sess);
+      break;
+    }
+    case "answer-question": {
+      const sess = sessions.get(String(msg.sessionId));
+      const questionId = typeof msg.questionId === "string" ? msg.questionId : "";
+      const answers = parseQuestionAnswers(msg.answers);
+      if (!sess || !questionId || answers === undefined) return;
+      try {
+        if (!sess.adapter.answerQuestion) throw new Error(`${sess.provider} does not take answers`);
+        sess.adapter.answerQuestion(sess, questionId, answers);
+      } catch (err) {
+        // The adapter's own message names the question; it carries no input.
+        sess.emit({ kind: "error", message: `Couldn't answer: ${err instanceof Error ? err.message : String(err)}` });
+      }
       break;
     }
     case "set-option": {

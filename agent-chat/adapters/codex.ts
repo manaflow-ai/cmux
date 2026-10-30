@@ -1,4 +1,4 @@
-import type { Adapter, AgentEvent, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
+import type { Adapter, AgentEvent, AgentQuestionAnswers, AgentQuestionItem, AgentQuestionOutcome, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
 import { agentModelCatalog } from "../catalog";
@@ -183,6 +183,8 @@ export const codexAdapter: Adapter = {
     }
   },
   stop(sess) {
+    // A blocking question holds the turn; decline it so the interrupt lands.
+    settleQuestions(sess, "declined");
     const st = codexState(sess);
     const threadId = sess.internal.threadId as string | undefined;
     const srv = shared;
@@ -222,6 +224,7 @@ export const codexAdapter: Adapter = {
     st.pendingStop = pending;
   },
   dispose(sess) {
+    settleQuestions(sess, "declined");
     const st = sess.internal.codex as CodexState | undefined;
     if (st) resolveTurnWaiters(st, null);
     const threadId = sess.internal.threadId as string | undefined;
@@ -229,6 +232,9 @@ export const codexAdapter: Adapter = {
   },
   async setOption(sess, id, value) {
     await setCodexOption(sess, id, value);
+  },
+  answerQuestion(sess, questionId, answers) {
+    answerCodexQuestion(sess, questionId, answers);
   },
   async refreshOptions(sess) {
     await ensureCodexState(sess, true);
@@ -342,6 +348,7 @@ async function startServer(): Promise<AppServer> {
     for (const p of pending.values()) p.reject(new Error("codex app-server exited"));
     pending.clear();
     for (const sess of srv.sessionsByThread.values()) {
+      settleQuestions(sess, "expired", false);
       const st = codexState(sess);
       if (st.turnActive) {
         const generation = st.activeGeneration;
@@ -390,8 +397,9 @@ async function startServer(): Promise<AppServer> {
 // (item/*/requestApproval, keyed by threadId, answered with
 // "accept"/"decline"). Shapes verified against
 // `codex app-server generate-json-schema`. Anything else (permission
-// profiles, tool user input) is declined with a JSON-RPC error so the server
-// falls back instead of hanging on a malformed result.
+// profiles) is declined with a JSON-RPC error so the server falls back instead
+// of hanging on a malformed result. Tool user input is a question for the
+// person (askCodexQuestion), never answered by the approvals policy.
 function approvalResponse(method: string, approve: boolean): { result: unknown } | { error: unknown } {
   switch (method) {
     case "execCommandApproval":
@@ -405,11 +413,138 @@ function approvalResponse(method: string, approve: boolean): { result: unknown }
   }
 }
 
+// item/tool/requestUserInput: Codex asks the person questions mid-turn
+// (`codex app-server generate-json-schema`: ToolRequestUserInputParams). Each
+// becomes a `question` event the chat answers with answerQuestion; the reply
+// is `{answers: {<question id>: {answers: [text]}}}`, and `{answers: {}}`
+// declines. The request stays open until answered, declined, settled by Codex
+// (`serverRequest/resolved`, e.g. a non-blocking ask that timed out), or its
+// turn or app-server ends; every path emits `question-resolved` once.
+interface PendingQuestion {
+  requestId: string | number;
+  items: AgentQuestionItem[];
+  write(msg: unknown): void;
+}
+
+function codexQuestions(sess: SessionCtx): Map<string, PendingQuestion> {
+  let questions = sess.internal.codexQuestions as Map<string, PendingQuestion> | undefined;
+  if (!questions) {
+    questions = new Map();
+    sess.internal.codexQuestions = questions;
+  }
+  return questions;
+}
+
+export function codexQuestionItems(raw: unknown): AgentQuestionItem[] {
+  if (!Array.isArray(raw)) return [];
+  const items: AgentQuestionItem[] = [];
+  for (const q of raw) {
+    if (!q || typeof q.id !== "string" || !q.id || typeof q.question !== "string") continue;
+    const options = (Array.isArray(q.options) ? q.options : [])
+      .filter((o: any) => o && typeof o.label === "string" && o.label)
+      .map((o: any) => (typeof o.description === "string" && o.description
+        ? { label: o.label, description: o.description }
+        : { label: o.label }));
+    items.push({
+      id: q.id,
+      ...(typeof q.header === "string" && q.header ? { header: q.header } : {}),
+      question: q.question,
+      options,
+      allowsOther: q.isOther === true || options.length === 0,
+      secret: q.isSecret === true,
+    });
+  }
+  return items;
+}
+
+function askCodexQuestion(srv: AppServerRouting, sess: SessionCtx | undefined, requestId: string | number, p: any) {
+  const items = codexQuestionItems(p.questions);
+  if (!sess || !items.length) {
+    // No chat to ask (an unknown thread) or nothing answerable: decline so
+    // the turn goes on instead of waiting on a card nobody can see.
+    srv.write({ jsonrpc: "2.0", id: requestId, result: { answers: {} } });
+    if (sess) sess.emit({ kind: "status", text: "declined a Codex question with no answerable items" });
+    return;
+  }
+  const questionId = `codex-${typeof p.itemId === "string" && p.itemId ? p.itemId : String(requestId)}`;
+  codexQuestions(sess).set(questionId, { requestId, items, write: srv.write });
+  sess.emit({ kind: "question", questionId, items });
+}
+
+function questionForRequest(sess: SessionCtx, requestId: unknown): string | undefined {
+  for (const [questionId, pending] of codexQuestions(sess)) {
+    if (pending.requestId === requestId) return questionId;
+  }
+  return undefined;
+}
+
+/** Checks a person's answers against the items: one non-empty answer per
+ * question, and an option label unless the question takes typed text. */
+export function codexQuestionReply(items: AgentQuestionItem[], answers: AgentQuestionAnswers): { answers: Record<string, { answers: string[] }> } {
+  const out: Record<string, { answers: string[] }> = {};
+  for (const item of items) {
+    const answer = answers[item.id];
+    const name = item.header ?? item.question;
+    if (typeof answer !== "string" || !answer.trim()) throw new Error(`${name} needs an answer`);
+    if (!item.allowsOther && !item.options.some((o) => o.label === answer)) {
+      throw new Error(`${name} takes only its options: ${item.options.map((o) => o.label).join(", ")}`);
+    }
+    out[item.id] = { answers: [answer] };
+  }
+  for (const id of Object.keys(answers)) {
+    if (!items.some((item) => item.id === id)) throw new Error(`no question ${id}`);
+  }
+  return { answers: out };
+}
+
+function answerCodexQuestion(sess: SessionCtx, questionId: string, answers: AgentQuestionAnswers | null) {
+  const pending = codexQuestions(sess).get(questionId);
+  if (!pending) throw new Error("this question is no longer waiting for an answer");
+  if (answers === null) {
+    settleQuestion(sess, questionId, "declined");
+    return;
+  }
+  const result = codexQuestionReply(pending.items, answers);
+  codexQuestions(sess).delete(questionId);
+  pending.write({ jsonrpc: "2.0", id: pending.requestId, result });
+  sess.emit({ kind: "question-resolved", questionId, outcome: "answered" });
+  const summary = pending.items
+    .map((item) => `${item.header ?? item.question}: ${item.secret ? "(hidden)" : answers[item.id]}`)
+    .join(" · ");
+  sess.emit({ kind: "status", text: `answered: ${truncate(summary, 200)}` });
+}
+
+/** Ends a pending question; `reply` declines it to Codex first (when Codex
+ * has not already settled it itself). */
+function settleQuestion(sess: SessionCtx, questionId: string | undefined, outcome: AgentQuestionOutcome, reply = true) {
+  if (!questionId) return;
+  const questions = codexQuestions(sess);
+  const pending = questions.get(questionId);
+  if (!pending) return;
+  questions.delete(questionId);
+  if (reply) {
+    try {
+      pending.write({ jsonrpc: "2.0", id: pending.requestId, result: { answers: {} } });
+    } catch {
+      // The app-server already exited; its exit settles the turn.
+    }
+  }
+  sess.emit({ kind: "question-resolved", questionId, outcome });
+}
+
+function settleQuestions(sess: SessionCtx, outcome: AgentQuestionOutcome, reply = true) {
+  for (const questionId of [...codexQuestions(sess).keys()]) settleQuestion(sess, questionId, outcome, reply);
+}
+
 function handleServerMessage(srv: AppServerRouting, msg: any) {
   const p = msg.params ?? {};
   const threadKey = p.threadId ?? p.conversationId;
   const sess = threadKey ? srv.sessionsByThread.get(threadKey) : undefined;
 
+  if (msg.id != null && msg.method === "item/tool/requestUserInput") {
+    askCodexQuestion(srv, sess, msg.id, p);
+    return;
+  }
   // Server -> client request (approvals such as command execution / patches).
   if (msg.id != null && msg.method) {
     const approve = sess ? codexState(sess).approvals === "never" : false;
@@ -426,6 +561,9 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
   const st = codexState(sess);
 
   switch (msg.method) {
+    case "serverRequest/resolved":
+      settleQuestion(sess, questionForRequest(sess, p.requestId), "resolved", false);
+      break;
     case "turn/started":
       st.turnActive = true;
       st.currentTurnId = p.turn?.id;
@@ -459,6 +597,7 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
       sess.internal.lastUsage = p.tokenUsage?.total;
       break;
     case "turn/completed": {
+      settleQuestions(sess, "expired", false);
       st.turnActive = false;
       st.currentTurnId = undefined;
       const generation = st.activeGeneration;
@@ -475,6 +614,7 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
       break;
     }
     case "turn/failed": {
+      settleQuestions(sess, "expired", false);
       st.turnActive = false;
       st.currentTurnId = undefined;
       const generation = st.activeGeneration;
@@ -497,7 +637,16 @@ function handleServerMessage(srv: AppServerRouting, msg: any) {
  * parity tests from growing a second notification mapper.
  */
 export function codexEventsForTest(messages: readonly unknown[]): AgentEvent[] {
+  const harness = codexSessionForTest();
+  harness.feed(messages);
+  return harness.events;
+}
+
+/** The same fixture seam with the session and what cmux wrote back to the
+ * app-server, for server requests the chat answers (`answerQuestion`). */
+export function codexSessionForTest(): { sess: SessionCtx; events: AgentEvent[]; writes: unknown[]; feed(messages: readonly unknown[]): void } {
   const events: AgentEvent[] = [];
+  const writes: unknown[] = [];
   const sess: SessionCtx = {
     id: "parity",
     provider: "codex",
@@ -517,10 +666,18 @@ export function codexEventsForTest(messages: readonly unknown[]): AgentEvent[] {
   };
   const server: AppServerRouting = {
     sessionsByThread: new Map([["thread-parity", sess]]),
-    write() {},
+    write(msg) {
+      writes.push(msg);
+    },
   };
-  for (const message of messages) handleServerMessage(server, message);
-  return events;
+  return {
+    sess,
+    events,
+    writes,
+    feed(messages) {
+      for (const message of messages) handleServerMessage(server, message);
+    },
+  };
 }
 
 function itemStarted(sess: SessionCtx, item: any) {
