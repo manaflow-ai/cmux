@@ -52,6 +52,8 @@ public actor DaemonConnection {
     /// The open `session.events` stream id (`DaemonConnection+SessionEvents`).
     var sessionStream: String?
     private var reconnectTask: Task<Void, Never>?
+    /// The initial endpoint/handshake attempt, retained so teardown can join it too.
+    private var connectTask: Task<DaemonIdentity, any Error>?
     private var pacer: RetryPacer
     private let wake: RetryWake
     private let healthy: DemandTimer
@@ -101,13 +103,26 @@ public actor DaemonConnection {
             if let identity { return identity }
             throw DaemonError.notConnected
         }
-        return try await connectOnce()
+        let task = Task { [weak self] in
+            guard let self else { throw DaemonError.connectionClosed(reason: "connection deallocated") }
+            return try await self.connectOnce()
+        }
+        connectTask = task
+        do {
+            let identity = try await task.value
+            connectTask = nil
+            return identity
+        } catch {
+            connectTask = nil
+            throw error
+        }
     }
 
     /// Stops reconnecting, closes the socket, and finishes `events`.
     public func close() {
         healthy.cancel()
         heartbeat.stop()
+        connectTask?.cancel()
         reconnectTask?.cancel()
         reconnectTask = nil
         if case .ready(let ready) = phase { ready.transport.close() }
@@ -118,8 +133,10 @@ public actor DaemonConnection {
 
     /// Also waits for an in-flight endpoint/reconnect attempt to finish before its owner is reaped.
     public func closeAndWait() async {
+        let connect = connectTask
         let reconnect = reconnectTask
         close()
+        _ = try? await connect?.value
         await reconnect?.value
     }
 
