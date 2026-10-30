@@ -6438,19 +6438,8 @@ function AcpmuxPane() {
   // the pill's list and the transcript's subagent rows share. A streamed chunk makes a new list of
   // the same agents: the last one stays while nothing the pill shows changed, so a snapshot that
   // streams text redraws neither the pill nor a subagent row.
-  const agentsKey = freshAgents
-    .map((agent) =>
-      [
-        agent.id,
-        agent.name,
-        agent.state,
-        agent.action ?? "",
-        agent.endedAt ?? "",
-      ].join("\u0000"),
-    )
-    .join("\u0001");
-  // Keep the latest agent objects so usage-only progress updates reach the matching row. AgentLine
-  // is memoized by its own props, so unchanged rows do not rerender when one agent reports usage.
+  // Keep the latest agent records; AgentLine compares its own visual props so a usage-only update
+  // redraws only the row whose progress changed.
   const chatAgents = freshAgents;
   // A subagent draws no tool row (subagents/subagentFold.ts swallows the call that started it), so
   // a running foreground subagent holds Ctrl-B by itself.

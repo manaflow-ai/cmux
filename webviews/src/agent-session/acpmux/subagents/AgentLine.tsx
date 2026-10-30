@@ -170,4 +170,27 @@ export const AgentLine = memo(function AgentLine({
       {trayColumns ? <span className="acpmux-agent-line__stop-slot">{after}</span> : after}
     </div>
   );
-})
+}, (a, b) =>
+  a.name === b.name &&
+  a.detail === b.detail &&
+  a.progress === b.progress &&
+  a.status === b.status &&
+  a.state === b.state &&
+  a.time === b.time &&
+  a.icon === b.icon &&
+  a.mark === b.mark &&
+  a.tone === b.tone &&
+  a.iconSize === b.iconSize &&
+  a.depth === b.depth &&
+  a.current === b.current &&
+  a.title === b.title &&
+  a.label === b.label &&
+  a.kind === b.kind &&
+  a.chevron === b.chevron &&
+  a.card === b.card &&
+  a.wave === b.wave &&
+  a.working === b.working &&
+  a.expanded === b.expanded &&
+  a.trayColumns === b.trayColumns &&
+  Boolean(a.after) === Boolean(b.after),
+);
