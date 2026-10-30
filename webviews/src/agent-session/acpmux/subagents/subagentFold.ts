@@ -205,21 +205,19 @@ export class SubagentFold {
     // Children can name the root as parent without the root ever getting a row of its own.
     const promoted = [...this.agents.values()].filter((agent) => agent.parent === id);
     if (promoted.length === 0) return;
-    const at = phantom?.startedAt ?? Math.min(...promoted.map((agent) => agent.startedAt));
-    const group = this.open ?? { id: `${SUBAGENTS}-root-${id}`, at, version: 0, ids: [] };
-    this.open = group;
+    // Each promoted child draws where it started, never in whatever batch happens to be open now.
     for (const agent of promoted) {
       const previous = this.groupOf.get(agent.id);
-      if (previous && previous !== group) {
+      if (previous) {
         previous.ids = previous.ids.filter((child) => child !== agent.id);
         this.changed.add(previous);
       }
+      const group: Group = { id: `${SUBAGENTS}-root-${agent.id}`, at: agent.startedAt, version: 0, ids: [agent.id] };
       agent.parent = null;
-      if (!group.ids.includes(agent.id)) group.ids.push(agent.id);
       this.groupOf.set(agent.id, group);
       this.bump(agent.id);
+      this.changed.add(group);
     }
-    this.changed.add(group);
   }
   /// Removes a root thread that was folded as a subagent before its identity was known.
   private dropPhantom(id: string): void {
