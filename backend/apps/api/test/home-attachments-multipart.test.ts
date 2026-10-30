@@ -890,3 +890,31 @@ describe("Home attachments: a part row left without its slot's hash never blocks
     expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
   })
 })
+
+describe("Home attachments: a completion retry that fails never undoes another that succeeds", { timeout: 120_000 }, () => {
+  it("completion A waits in R2; retry B fails transiently and reopens the slot; A then completes and commits the file", async () => {
+    const alice = await signIn("att-complete-race")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32_000_017).map((_, i) => (i * 29) % 239)
+    const m = await multipart(alice, id, body)
+    expect((await m.putPart(1)).status).toBe(200)
+    let entered!: () => void
+    const inR2 = new Promise<void>((r) => (entered = r))
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    const a = m.complete(completingWith(async (upload, parts) => {
+      entered()
+      await gate
+      return upload.complete(parts)
+    }))
+    await inR2
+    const b = await m.complete(completingWith(async () => {
+      throw new Error("Network connection lost.")
+    }, async () => Promise.reject(new Error("Network connection lost."))))
+    expect([b.status, b.json.error?.code]).toEqual([503, "attachment.complete_unavailable"])
+    release()
+    const done = await a
+    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+})
