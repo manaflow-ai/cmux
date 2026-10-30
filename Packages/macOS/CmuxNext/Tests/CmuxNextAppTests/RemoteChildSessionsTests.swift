@@ -81,6 +81,22 @@ import Testing
         for _ in 0..<50 where links.parent(of: "inst-child", host: "registry:other-mac-store") == nil { await Task.yield() }
         #expect(links.parent(of: "inst-child", host: "install:other-mac") == "inst-chat")
         #expect(links.parent(of: "inst-child", host: "registry:other-mac-store") == "inst-chat")
+        #expect(links.hostAliases["install:other-mac"]?.contains("registry:other-mac-store") == true)
+        #expect(links.hostAliases["registry:other-mac-store"]?.contains("install:other-mac") == true)
+        wire.cancel(code: 1000, reason: "done")
+    }
+
+    /// A daemon that lists no children still gets its own (empty) map from a host-qualified wire,
+    /// so a reused session id there never reads another daemon's hostless link.
+    @Test func aHostQualifiedWireWithNoChildrenGivesItsHostAnEmptyMap() async throws {
+        let host = "registry:no-lineage-store"
+        let wire = RemoteAcpmuxWire(client: FakeClient(parent: "nl-chat", children: []), session: "nl-chat", host: host)
+        _ = try await Self.watch(wire)
+        let links = RemoteAgentSessionLinks.shared
+        for _ in 0..<50 where links.parentsByHost[host] == nil { await Task.yield() }
+        #expect(links.parentsByHost[host] == [:])
+        links.note([["sessionId": "nl-child", "startedBy": "nl-chat"]])
+        #expect(links.parent(of: "nl-child", host: host) == nil)
         wire.cancel(code: 1000, reason: "done")
     }
 

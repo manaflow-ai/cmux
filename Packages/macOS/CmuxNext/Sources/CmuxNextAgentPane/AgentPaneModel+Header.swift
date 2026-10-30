@@ -219,8 +219,10 @@ enum AgentPaneSideChat {
     /// True when the pane of chat `chat` may open `session` beside it.
     static func holds(_ session: String, chat: String, in model: AgentPaneModel) -> Bool {
         if model.transport.sessions.contains(session) { return true }
-        guard model.remoteChat, let host = model.transport.remoteHostID else { return false }
-        return RemoteAgentSessionLinks.shared.descends(session, from: chat, host: host)
+        // A route with no host (an older or test route) noted its daemon's links in the hostless map,
+        // which a nil host reads.
+        guard model.remoteChat else { return false }
+        return RemoteAgentSessionLinks.shared.descends(session, from: chat, host: model.transport.remoteHostID)
     }
 
     static func open(_ fork: String, in model: AgentPaneModel) async -> [String: Any] {

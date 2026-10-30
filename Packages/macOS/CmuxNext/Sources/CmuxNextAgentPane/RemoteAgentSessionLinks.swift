@@ -14,8 +14,12 @@ public final class RemoteAgentSessionLinks {
 
     /// Child session -> the session that started it for legacy callers that have one daemon.
     public private(set) var parents: [String: String] = [:]
-    /// Child session -> parent, scoped by the owning remote daemon host.
+    /// Child session -> parent, scoped by the owning remote daemon host. A host that reported (even an
+    /// empty list) has a map here and never reads ``parents``.
     public private(set) var parentsByHost: [String: [String: String]] = [:]
+    /// The other host keys of the same daemon (a tab's `install:<id>` and the daemon's store
+    /// `registry:<id>`), both ways, so a lookup keyed by one finds a tab keyed by the other.
+    public private(set) var hostAliases: [String: Set<String>] = [:]
 
     /// The most children remembered (the list starts again past it).
     static let limit = 4096
@@ -39,6 +43,13 @@ public final class RemoteAgentSessionLinks {
         } else if parents != self.parents {
             self.parents = parents
         }
+    }
+
+    /// Notes `a` and `b` as host keys of one daemon.
+    public func noteAliases(_ a: String, _ b: String) {
+        guard a != b, !a.isEmpty, !b.isEmpty, hostAliases[a]?.contains(b) != true else { return }
+        hostAliases[a, default: []].insert(b)
+        hostAliases[b, default: []].insert(a)
     }
 
     /// The parent recorded by one daemon. A host-qualified query reads that host's map; it falls back

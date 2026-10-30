@@ -293,16 +293,23 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     }
 
     /// The parents of the children the daemon listed or changed, for the sidebar's session tree
-    /// and the Subagents rows' open (``RemoteAgentSessionLinks``).
+    /// and the Subagents rows' open (``RemoteAgentSessionLinks``). A wire with a host notes even an
+    /// empty list: that daemon then has a map of its own (none of its sessions has a parent) and its
+    /// lookups never read the hostless map another daemon's links may sit in. The tab's host and the
+    /// daemon's store host are noted as aliases of one daemon, so the sidebar finds a parent tab under either.
     private func noteLinks(_ summaries: [[String: Any]]) {
-        guard !summaries.isEmpty, JSONSerialization.isValidJSONObject(summaries),
+        guard host != nil || !summaries.isEmpty, JSONSerialization.isValidJSONObject(summaries),
               let data = try? JSONSerialization.data(withJSONObject: summaries) else { return }
         // task-owner: one main-actor note of what the daemon answered; nothing waits on it
         let remoteHost = host, alias = linksAlias.flatMap { $0 != host ? $0 : nil }
         Task { @MainActor in
             let copy = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
-            RemoteAgentSessionLinks.shared.note(copy, host: remoteHost)
-            if let alias { RemoteAgentSessionLinks.shared.note(copy, host: alias) }
+            let links = RemoteAgentSessionLinks.shared
+            links.note(copy, host: remoteHost)
+            if let alias {
+                links.note(copy, host: alias)
+                if let remoteHost { links.noteAliases(remoteHost, alias) }
+            }
         }
     }
 

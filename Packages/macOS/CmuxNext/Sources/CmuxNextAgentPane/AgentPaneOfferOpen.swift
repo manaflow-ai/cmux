@@ -17,12 +17,9 @@ enum AgentPaneOfferOpen {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.offer.open")
         }
         // Not "unsupported": the page must not fall back to opening it in this tab instead.
-        let remoteParent: Bool
-        if model.remoteChat, let host = model.transport.remoteHostID {
-            remoteParent = RemoteAgentSessionLinks.shared.parent(of: chat, host: host) == session
-        } else {
-            remoteParent = false
-        }
+        // A hostless route reads the hostless map its wire noted the daemon's links in.
+        let remoteParent = model.remoteChat
+            && RemoteAgentSessionLinks.shared.parent(of: chat, host: model.transport.remoteHostID) == session
         guard session != chat, sender || AgentPaneSideChat.holds(session, chat: chat, in: model) || remoteParent || header.isFamily(session, chat) else {
             return AgentPaneReply.failure(code: "chat.offer.refused", message: "chat.offer.refused")
         }

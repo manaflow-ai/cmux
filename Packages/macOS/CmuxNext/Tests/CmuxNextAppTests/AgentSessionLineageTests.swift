@@ -198,6 +198,62 @@ import Testing
         #expect(qualified.state.parents[child] == nil, "a host with its own map never reads the hostless links")
     }
 
+    /// A daemon that reported no lineage at all (an empty list) still gets a map of its own, so it
+    /// never inherits another daemon's hostless link for a reused session id.
+    @Test func aHostThatReportedNoLinksNeverReadsTheHostlessLinks() {
+        let links = RemoteAgentSessionLinks()
+        links.note([["sessionId": "same-child", "startedBy": "same-parent"]])
+        links.note([], host: "registry:b")
+        #expect(links.parentsByHost["registry:b"] == [:])
+        #expect(links.parent(of: "same-child", host: "registry:b") == nil)
+        #expect(!links.descends("same-child", from: "same-parent", host: "registry:b"))
+        #expect(links.parent(of: "same-child") == "same-parent", "the hostless route keeps its own links")
+
+        let parent = WorkspaceID("ws-b-parent"), child = WorkspaceID("ws-b-child")
+        let chats: [(WorkspaceID, [AgentSessionRef])] = [
+            (parent, [AgentSessionRef(host: "registry:b", session: "same-parent")]),
+            (child, [AgentSessionRef(host: "registry:b", session: "same-child")]),
+        ]
+        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParents: links.parents,
+                                               remoteParentsByHost: links.parentsByHost,
+                                               localHost: Self.localHost, pullRequests: [:])
+        #expect(pass.state.parents.isEmpty)
+    }
+
+    /// A remote parent tab keyed by its machine's `install:<id>` and a child tab keyed by the
+    /// daemon's store `registry:<id>`: the two are aliases of one daemon, so the child nests under the
+    /// parent whichever key each tab has, from the daemon's links and from a recorded parent.
+    @Test func aChildNestsUnderAParentTabKeyedByAnotherAliasOfItsDaemon() {
+        let links = RemoteAgentSessionLinks()
+        links.note([["sessionId": "alias-child", "startedBy": "alias-parent"]], host: "install:other-mac")
+        links.note([["sessionId": "alias-child", "startedBy": "alias-parent"]], host: "registry:other-store")
+        links.noteAliases("install:other-mac", "registry:other-store")
+        #expect(links.hostAliases["install:other-mac"] == ["registry:other-store"])
+        #expect(links.hostAliases["registry:other-store"] == ["install:other-mac"])
+
+        let parent = WorkspaceID("ws-alias-parent"), child = WorkspaceID("ws-alias-child")
+        let chats: [(WorkspaceID, [AgentSessionRef])] = [
+            (parent, [AgentSessionRef(host: "install:other-mac", session: "alias-parent")]),
+            (child, [AgentSessionRef(host: "registry:other-store", session: "alias-child")]),
+        ]
+        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParentsByHost: links.parentsByHost,
+                                               hostAliases: links.hostAliases,
+                                               localHost: Self.localHost, pullRequests: [:])
+        #expect(pass.state.parents == [child: parent])
+        let unaliased = SidebarSessionTreeFeed.pass(chats, lanes: [:], remoteParentsByHost: links.parentsByHost,
+                                                    localHost: Self.localHost, pullRequests: [:])
+        #expect(unaliased.state.parents.isEmpty, "without the alias the parent's key is never tried")
+
+        // A daemon that lists no lineage: the recorded parent (keyed by the child's tab host) nests too.
+        let recorded = [AgentSessionParents.identity(host: "registry:other-store", session: "alias-child"):
+                        AgentSessionParents.identity(host: "registry:other-store", session: "alias-parent")]
+        let fromRecord = SidebarSessionTreeFeed.pass(chats, lanes: [:],
+                                                     remoteParentsByHost: ["install:other-mac": [:], "registry:other-store": [:]],
+                                                     hostAliases: links.hostAliases, recordedParents: recorded,
+                                                     localHost: Self.localHost, pullRequests: [:])
+        #expect(fromRecord.state.parents == [child: parent])
+    }
+
     @Test func duplicateTabsShareAnIdentityOnlyWhenTheirHostMatches() {
         let sameHost = [AgentSessionRef(host: "registry:a", session: "same"),
                         AgentSessionRef(host: "registry:a", session: "same")]
