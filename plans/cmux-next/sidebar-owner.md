@@ -606,6 +606,11 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
   deep-folded parent's descendants stay out of the drawn rows, as they already did for a section's loose rows) carries
   no `Sidebar-Look:` trailer. No look change beyond the nesting above, which the group's rows now follow; reviewed
   and logged here. Test: `SidebarLineageNestingTests.groupMembersNestAtDepth`.
+- The selection reveal opens folds above the selected row only when the selection changes, when its own ancestor
+  chain changes (a reparent or a move to another list), or when lineage first arrives. An agent started or closed
+  elsewhere changes `parents` but leaves a fold the person made alone (router review on #28103). Tests:
+  `SidebarLineageNestingTests.anUnrelatedSpawnOrCloseKeepsAFoldAboveTheSelection`,
+  `reparentingTheSelectionUnderAFoldRevealsIt`, `theFirstLineageRevealsTheSelection`.
 
 ## Scrolled rows hide under the traffic lights (2026-10-29)
 

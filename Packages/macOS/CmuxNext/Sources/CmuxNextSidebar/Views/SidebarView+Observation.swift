@@ -84,9 +84,12 @@ extension SidebarViewComponents {
             groupLineJoinsBar = SidebarGroupLine.joinsBar
         }
     }
-    /// Whether a render opens the folds above the selection: a new selection, or new lineage (`parents`).
+    /// Whether a render opens the folds above the selection whatever its ancestry did: a new selection, or the
+    /// lineage arriving (no parents before, some now: the feed starts after restored windows). Any other change of
+    /// `parents` (an agent started or closed elsewhere) forces nothing: `SidebarSelectionTreeReveal` still reveals
+    /// when the selected row's own ancestors change, and a fold the person made stays closed.
     static func revealsSelection(selectionChanged: Bool, from old: SidebarSessionTreeState?, to new: SidebarSessionTreeState?) -> Bool {
-        selectionChanged || old?.parents != new?.parents
+        selectionChanged || ((old?.parents.isEmpty ?? true) && !(new?.parents.isEmpty ?? true))
     }
 
     func observe() {
@@ -192,10 +195,13 @@ struct SidebarSelectionTreeReveal {
     private var ancestors: [WorkspaceID: Set<[WorkspaceID]>] = [:]
 
     mutating func update(selection: Set<WorkspaceID>, model: SidebarModel, tree: SidebarSessionTree, force: Bool) {
+        // No lineage, nothing nests: no fold hides the selection, and `listsHolding` would rebuild the model's row
+        // index (O(rows)) after every structural change for nothing. Remembering nothing reveals once lineage arrives.
+        guard let state = tree.state, !state.parents.isEmpty else { ancestors = [:]; return }
         var next: [WorkspaceID: Set<[WorkspaceID]>] = [:]
         for id in selection {
             let lists = model.listsHolding(id)
-            let paths = Set(lists.map { tree.state?.drawnAncestors(of: id, inList: $0) ?? [] })
+            let paths = Set(lists.map { state.drawnAncestors(of: id, inList: $0) })
             next[id] = paths
             if force || ancestors[id] != paths { tree.reveal(id, lists: lists) }
         }

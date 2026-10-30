@@ -393,7 +393,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     let fold = SidebarDoneFoldID(section: section.id, group: group.id)
                     let memberWorkspace: (Int) -> SidebarWorkspace? = { if case let .workspace(ws) = members[$0] { ws } else { nil } }
                     let memberTree = Self.treeRows(Self.workspaceIDs(members), workspace: memberWorkspace, tree: o.sessionTree, filtering: filtering)
-                    let memberTreeRow = Dictionary(memberTree.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+                    // Only parents carry a chevron or a roll-up, so only they are looked up: a 10k-member group with
+                    // no lineage hashes nothing here (SidebarHugeGroupTests.oneGroup10k's open).
+                    let memberTreeRow = Dictionary(memberTree.lazy.filter { $0.fold != nil }.map { ($0.index, $0) },
+                                                   uniquingKeysWith: { first, _ in first })
                     // `treeRows` already applies the session-tree fold predicate. Reusing its
                     // filtered order keeps descendants of collapsed/deep-folded parents out of
                     // the drawn rows while retaining their roll-up metadata.
