@@ -602,12 +602,38 @@ fn caller_sends_no_files(
     }
 }
 
+/// Swap the bare session key of `m`'s params (`sessionId` or `session`; a send's
+/// `request.sessionId`) for the route [`Hub::key_route`] finds. A method that names no session
+/// or answers itself for a peer's session (`peer_forward.rs`) keeps its params as they are, and
+/// so does `keep`, whose `sessionId` is an exact id this connection owns (`ephemeral.rs`).
+fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), RpcError> {
+    let slot = if m == method::MUX_SEND_QUEUE {
+        params.pointer_mut("/request/sessionId")
+    } else if m != method::MUX_KEEP && super::peer_forward::names_a_session(m) {
+        let field = ["sessionId", "session"].into_iter().find(|f| params[*f].is_string());
+        field.and_then(|f| params.get_mut(f))
+    } else {
+        None
+    };
+    let Some(slot) = slot else { return Ok(()) };
+    let Some(key) = slot.as_str() else { return Ok(()) };
+    if let Some(route) = hub.key_route(key)? {
+        *slot = Value::String(route);
+    }
+    Ok(())
+}
+
 pub(super) async fn handle_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
     mut params: Value,
 ) -> Result<Value, RpcError> {
+    // A bare name or prefix on this machine's socket names the one live session here or on a
+    // peer; every check below reads the route it found (`hub/key_route.rs`).
+    if conn.origin == Origin::Local {
+        route_bare_key(hub, m, &mut params)?;
+    }
     // The pane's fork through a turn is a session/fork, checked as one from
     // here on (`fork_through.rs`).
     let m = super::fork_through::as_session_fork(hub, m, &mut params).await?;

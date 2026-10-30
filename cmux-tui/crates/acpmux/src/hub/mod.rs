@@ -137,6 +137,7 @@ pub use spawn::expand_env_value;
 pub mod approvers;
 pub mod mac_approvers;
 mod own_host;
+pub(crate) mod key_route;
 mod peer_cache;
 #[cfg(all(test, target_os = "linux"))]
 mod peer_flap_soak;
