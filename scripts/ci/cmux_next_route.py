@@ -316,6 +316,8 @@ def tree_input_paths(root: Path) -> list[str]:
 import re  # noqa: E402 - the Cargo and Xcode project readers below
 
 CMUX_TUI = "cmux-tui/"
+# The routing replay (cmux_next_route_replay.py) accepts dropped native and scheme tiers with this reason.
+NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
 APP_FFI_CRATE = "cmux-tui/crates/cmux-app-ffi"
 APP_PROJECT = "cmux.xcodeproj/project.pbxproj"
 CARGO_PATH = re.compile(r'path\s*=\s*"([^"]+)"')
@@ -510,7 +512,9 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
             elif "dev-build" in labels or any(matches(path, prefix) for prefix in scheme_phase_rust_inputs(root)):
                 # A dev-build PR's dogfood app is the scheme compile's, with this tree bundled.
                 result.scheme = True
-                result.reasons.append(f"{path} is bundled by the app scheme's build phases")
+                result.reasons.append(f"{path} is bundled by the app scheme's build phases {NO_SWIFT_COMPILE_REASON}")
+            else:
+                result.reasons.append(f"{path} is Rust the daemon tier builds {NO_SWIFT_COMPILE_REASON}")
         elif not path.startswith("Packages/"):
             # App host, Xcode project, CLI, resources and build scripts: only
             # the app scheme compiles them.
