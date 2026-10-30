@@ -273,6 +273,13 @@ extension CaptureSceneRegistry {
             window.setFrame(NSRect(x: window.frame.minX, y: visible.minY, width: window.frame.width, height: visible.height), display: true)
         }
         let added = addAgentCloudMachines()
+        // The window that took them (the most recent one), else the scene's.
+        let registry = services.windows.registry.value
+        let windowID = Self.agentMachineIDs.lazy.compactMap { registry.owner(of: "ws-\($0)") }.first ?? windowID
+        guard let controller = services.windows.controller(for: windowID) else {
+            removeAgentCloudMachines()
+            return .object(["error": .string("the window that took the machines has no controller"), "scene": .string(definition.name)])
+        }
         let sidebar = controller.sidebar.container.sidebarView
         let shown = await CloudMove.holds(within: .seconds(10)) { [self] in
             sidebar.renderNow()
