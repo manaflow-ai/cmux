@@ -27,13 +27,17 @@ public final class AcpmuxChatWindows {
         public var exclude: [String]
         /// Exactly these chats, in this order (a pinned list); nil: the newest chats.
         public var keys: [String]?
+        /// Text acpmux searches for in each chat's title and folder; nil or empty: every chat.
+        public var query: String?
 
-        public init(window: String, limit: Int, topLevel: Bool = true, exclude: [String] = [], keys: [String]? = nil) {
+        public init(window: String, limit: Int, topLevel: Bool = true, exclude: [String] = [], keys: [String]? = nil,
+                    query: String? = nil) {
             self.window = window
             self.limit = limit
             self.topLevel = topLevel
             self.exclude = exclude
             self.keys = keys
+            self.query = query
         }
 
         /// The request's params for generation `generation` of the window's spec.
@@ -41,6 +45,7 @@ public final class AcpmuxChatWindows {
             var params: [String: any Sendable] = ["window": window, "gen": generation, "limit": max(1, limit), "topLevel": topLevel]
             if !exclude.isEmpty { params["exclude"] = exclude }
             if let keys { params["keys"] = keys }
+            if let query, !query.isEmpty { params["query"] = query }
             return params
         }
     }
@@ -51,9 +56,23 @@ public final class AcpmuxChatWindows {
         public private(set) var rows: [AcpmuxChat] = []
         /// The revision of the last message applied; 0 before the first.
         @ObservationIgnored public fileprivate(set) var revision: UInt64 = 0
+        /// Called with the rows after each message of this window acpmux sends for its current spec
+        /// (its first rows, then each diff), for a reader that is not a view (the New Tab page's
+        /// cards, the palette's chats page): only this window's messages call it.
+        @ObservationIgnored private var followers: [(owner: () -> AnyObject?, changed: @MainActor ([AcpmuxChat]) -> Void)] = []
+
+        /// Calls `changed` with the rows after each message of this window, while `owner` lives.
+        public func follow(_ owner: AnyObject, _ changed: @escaping @MainActor ([AcpmuxChat]) -> Void) {
+            followers.append(({ [weak owner] in owner }, changed))
+        }
 
         fileprivate func set(rows: [AcpmuxChat]) {
             if self.rows != rows { self.rows = rows }
+        }
+
+        fileprivate func answered() {
+            followers.removeAll { $0.owner() == nil }
+            for follower in followers { follower.changed(rows) }
         }
     }
 
@@ -92,6 +111,8 @@ public final class AcpmuxChatWindows {
     /// Each window's generation: one more per spec the client opens or closes.
     private var generations: [String: UInt64] = [:]
     private var models: [String: Window] = [:]
+    /// The generation whose rows each window holds (the last message applied).
+    private var answeredGeneration: [String: UInt64] = [:]
     /// Windows asked for again: their diffs are ignored until the full message comes.
     private var awaitingFull: Set<String> = []
     /// Windows whose last request acpmux refused (busy): asked again at the next ``retryFailed()``.
@@ -193,6 +214,14 @@ public final class AcpmuxChatWindows {
         model.revision = update.revision
         lastTouchedRows = update.rows.count
         model.set(rows: rows)
+        answeredGeneration[update.window] = generations[update.window]
+        model.answered()
+    }
+
+    /// Whether `spec` is its window's current spec and acpmux answered it (the rows are `spec`'s).
+    public func isAnswered(_ spec: Spec) -> Bool {
+        specs[spec.window] == spec && answeredGeneration[spec.window] != nil
+            && answeredGeneration[spec.window] == generations[spec.window]
     }
 
     /// Asks for `spec`'s whole window, once until it comes.

@@ -22,7 +22,8 @@
 //!   for its window instead of mirroring the whole index.
 //! - `_acpmux/chat_projects`: `{ready, enabled, projects: [{harness, path, lastUsedMs}]}`, each
 //!   harness's project folders grouped by acpmux (the app relays them to the cmux daemon).
-//! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`):
+//! - `_acpmux/chat_open {key, cwd?}`: how the chat opens again (`chats/open.rs`), with the chat's
+//!   value as `chat`:
 //!   `adopt` with ready `session/new` params, `terminal` with argv/env/cwd,
 //!   or `readOnly`; `needsFolder` when the person must pick the folder.
 //! - `_acpmux/chat_transcript {key}`: the chat's past turns, read now from its
@@ -201,8 +202,12 @@ pub(super) async fn route(
                     RpcError::not_found(format!("no chat {}", crate::chats::key_text(&key)))
                 })?;
                 let home = dirs::home_dir().unwrap_or_default();
-                crate::chats::plan_open(&chat, &profiles, cwd.as_deref(), &home)
-                    .map_err(RpcError::invalid_params)
+                let mut plan = crate::chats::plan_open(&chat, &profiles, cwd.as_deref(), &home)
+                    .map_err(RpcError::invalid_params)?;
+                // The chat itself (title, folder, harness), so a client that opens it holds no
+                // copy of the index to name it.
+                plan.set("chat", crate::chats::chat_value(&chat));
+                Ok(plan)
             })
             .await
         }

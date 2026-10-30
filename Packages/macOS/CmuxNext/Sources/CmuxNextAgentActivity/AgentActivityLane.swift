@@ -63,11 +63,14 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// What a read or snooze mark on the lane holds for beside its state, when `since` cannot say
     /// it: another machine's chat tab's notice (``AgentPriorityMarks``). Nil: its `since`.
     public let markKey: String?
+    /// The session's latest reply, one line (the summary's `preview`): the cookie consent panel
+    /// names it beside the agent chat that asked.
+    public let preview: String?
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
                 spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil,
-                updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil) {
+                updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil, preview: String? = nil) {
         self.id = id
         self.name = name
         self.title = title
@@ -88,6 +91,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.updatedAt = updatedAt
         self.createdAt = createdAt
         self.markKey = markKey
+        self.preview = preview
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -120,7 +124,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  pullRequests: (summary["pullRequests"] as? [Any] ?? []).compactMap { nonEmpty($0) },
                                  chat: chatKey(family: nonEmpty(summary["family"]), agentSession: nonEmpty(summary["agentSessionId"])),
                                  updatedAt: date(summary["updatedMs"] ?? summary["updatedAt"]),
-                                 createdAt: date(summary["createdMs"] ?? summary["createdAt"]))
+                                 createdAt: date(summary["createdMs"] ?? summary["createdAt"]),
+                                 preview: nonEmpty(summary["preview"]))
     }
 
     /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.

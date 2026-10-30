@@ -84,6 +84,14 @@ extension AcpmuxStatusClient {
     }
 }
 
+extension AgentPaneChatsPage {
+    /// One page of the device-wide chat index of the daemon at `socketPath` (`_acpmux/chats`):
+    /// acpmux sorts, filters and searches; the socket exchange and the decode run off the caller's actor.
+    @concurrent public static func read(socketPath: String, query: AgentPaneChatsQuery) async throws -> AgentPaneChatsPage {
+        try await AcpmuxStatusClient.chatsPage(socketPath: socketPath, query: query)
+    }
+}
+
 extension AcpmuxEnvironment {
     /// One page of this daemon's device-wide chat index (`chats.page`, cx-n0i9).
     public nonisolated func chatsPage(_ query: AgentPaneChatsQuery) async throws -> AgentPaneChatsPage {
