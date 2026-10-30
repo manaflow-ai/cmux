@@ -843,6 +843,15 @@ async fn only_the_sender_changes_a_waiting_prompt() {
         );
         let value = c.reply("_acpmux/queue_remove", remove).await;
         assert_eq!(reason(&value), "queue.not_author", "{id} remove by {author:?}: {value}");
+        // Asked for agents' messages only (`session queue clear --from-agents`): still refused,
+        // never a "kept" that tells them whose prompt it is.
+        let agents_only = by(
+            json!({"sessionId": session, "promptId": id, "fromAgentsOnly": true,
+                   "_meta": {"acpmux": {}}}),
+            author.as_ref(),
+        );
+        let value = c.reply("_acpmux/queue_remove", agents_only).await;
+        assert_eq!(reason(&value), "queue.not_author", "{id} agents-only by {author:?}: {value}");
     }
     // `resume` changes no one prompt.
     c.call("_acpmux/queue_edit", edit("p-ana", "resume", Some(&bo()))).await;
