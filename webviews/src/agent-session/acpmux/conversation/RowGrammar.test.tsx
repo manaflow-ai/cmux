@@ -65,7 +65,7 @@ const sendMessage: Tool = {
   title: "SendMessage",
   kind: "other",
   status: "completed",
-  rawInput: { to: "Organize the sidebar", message: "Leo, verbatim: the sessions you set up should nest." },
+  inputSummary: JSON.stringify({ to: "Organize the sidebar", message: "The sessions you set up should nest." }),
   output: JSON.stringify({ queued: true }),
 };
 const shellSend: Tool = {
