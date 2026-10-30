@@ -53,8 +53,10 @@ export function harnessRows(
     .map((entry): HarnessRow => {
       const harness = entry.acpmuxHarness ?? entry.id;
       const checked = health[harness];
+      // Health carries the account-home-qualified command; catalog auth.login
+      // is the unqualified fallback while health has not answered.
       const login =
-        acpmux.find((candidate) => candidate.id === harness)?.auth?.login || checked?.login?.trim() || undefined;
+        checked?.login?.trim() || acpmux.find((candidate) => candidate.id === harness)?.auth?.login || undefined;
       const status: HarnessStatus = !entry.installed
         ? checking
           ? "checking"

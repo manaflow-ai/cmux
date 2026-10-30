@@ -25,7 +25,7 @@ const STATUS: Record<HarnessStatus, StringKey> = {
 /// says so if acpmux still cannot run the harness), or a sign-in in a terminal tab the page waits for.
 type Progress =
   | { kind: "installing"; line?: string }
-  | { kind: "failed"; reason: string }
+  | { kind: "failed"; reason: string; retrySignIn?: boolean; login?: string }
   | { kind: "done" }
   | { kind: "waiting" };
 
@@ -98,6 +98,21 @@ export function HarnessesScreen({
     if (live.current) setHealth((current) => ({ ...current, [harness]: row }));
     return row;
   };
+  useEffect(() => {
+    // A failed terminal launch can race with a health refresh that reports the harness ready.
+    // Reconcile that completed state so the stale failure cannot keep the row stuck on Sign In.
+    setProgress((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [harness, state] of Object.entries(current)) {
+        if (state?.kind === "failed" && state.retrySignIn && health[harness]?.auth === "signedIn") {
+          next[harness] = undefined;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [health, progress]);
   const installed = useMemo(
     () =>
       catalog.harnesses
@@ -218,14 +233,24 @@ export function HarnessesScreen({
     if (row.docsUrl) return { label: t("harnesses.setupGuide"), run: () => openDocs(row) };
     return { label: t("harnesses.checkAgain"), run: () => checkAgain(row) };
   };
+  const retrySignIn = (row: HarnessRow, login: string) => {
+    // Keep the original login command. A health refresh can make the row ready before this button
+    // is clicked; routing through act(row) then starts a chat instead of retrying the login.
+    mark(row.harness, { kind: "waiting" });
+    void callNative("tab.open", { kind: "terminal", text: login, ...inFolder, run: true, keep: true }).catch((error) =>
+      mark(row.harness, {
+        kind: "failed",
+        reason: error instanceof Error ? error.message : String(error),
+        retrySignIn: true,
+        login,
+      }),
+    );
+  };
   const act = (row: HarnessRow) => {
     if (row.status === "signIn" && row.login) {
       // `keep`: the page stays beside the new tab and checks again on return (a page with no chat
       // yet would otherwise be replaced by it).
-      void callNative("tab.open", { kind: "terminal", text: row.login, ...inFolder, run: true, keep: true }).catch(
-        () => undefined,
-      );
-      mark(row.harness, { kind: "waiting" });
+      retrySignIn(row, row.login);
     } else if (row.status === "notInstalled" && row.install) {
       runInPlace(row, row.install);
     } else if (row.status === "notInstalled" && row.docsUrl) {
@@ -276,14 +301,17 @@ export function HarnessesScreen({
             : finished?.kind === "done"
               ? undefined
               : finished;
-          // A failed command offers its setup page, or another look.
+          // A failed login launch retries the login; failed installs offer setup or another look.
           const failedFix =
             doing?.kind === "failed"
-              ? row.docsUrl
-                ? { label: t("harnesses.setupGuide"), run: () => openDocs(row) }
-                : { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }
+              ? doing.retrySignIn && doing.login
+                ? { label: t("harnesses.signIn"), run: () => retrySignIn(row, doing.login!) }
+                : row.docsUrl
+                  ? { label: t("harnesses.setupGuide"), run: () => openDocs(row) }
+                  : { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }
               : undefined;
-          const label = doing?.kind === "installing" ? undefined : (failedFix?.label ?? action(row));
+          const label =
+            doing?.kind === "installing" || doing?.kind === "waiting" ? undefined : (failedFix?.label ?? action(row));
           // acpmux's reason can run to several lines: the row shows the first, the tooltip all.
           const status =
             doing?.kind === "installing"
