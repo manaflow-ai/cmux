@@ -136,11 +136,23 @@ actor AppTestDaemonOwner {
                      grace: Duration = .seconds(10),
                      shutdown: @Sendable () async throws -> Bool) async -> Bool {
         guard let pid = endpoint.pid, pid > 1 else { return false }
-        if (try? await shutdown()) == true,
-           await ProcessExit.exitEvent(pid: pid, within: .seconds(60), clock: ContinuousClock()) { return true }
+        if (try? await shutdown()) == true {
+            guard let process, process.pid == pid else {
+                // Without a recorded kernel identity, a PID-only wait can observe a replacement.
+                // Preserve ownership until a later teardown can verify this daemon's exit.
+                return false
+            }
+            // Register the exit source before checking identity. A changed or missing identity
+            // proves the recorded daemon is gone; the same identity leaves completion to the
+            // kernel exit event, so PID reuse cannot be mistaken for a clean reap.
+            return await AgentPaneProcessExit(pid: pid).event(within: .seconds(60)) {
+                guard let current = AcpmuxUnresponsiveWatch.kernelProcess(pid: pid) else { return true }
+                return current == process ? nil : true
+            }
+        }
         guard let process, process.pid == pid else {
             // An unverified live pid is evidence to preserve, never permission to signal it.
-            return await ProcessExit.exitEvent(pid: pid, within: .seconds(1), clock: ContinuousClock())
+            return false
         }
         let watch = AcpmuxUnresponsiveWatch(clock: ContinuousClock(), process: { pid in
             // Unreadable identity is not proof of exit. The retained audit token still lets
