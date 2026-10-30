@@ -16,11 +16,13 @@ public final class LiveFeed: FeedActions {
         public var workspaceID: String
         public var tabID: String
         public var workspaceTitle: String
+        public var tabTitle: String
 
-        public init(workspaceID: String, tabID: String, workspaceTitle: String) {
+        public init(workspaceID: String, tabID: String, workspaceTitle: String, tabTitle: String = "") {
             self.workspaceID = workspaceID
             self.tabID = tabID
             self.workspaceTitle = workspaceTitle
+            self.tabTitle = tabTitle
         }
     }
 
@@ -143,6 +145,7 @@ public final class LiveFeed: FeedActions {
             markdown: markdown, quote: quote, createdAt: now()
         )
         item.macID = macID
+        item.tabTitle = place?.tabTitle ?? ""
         return item
     }
 
