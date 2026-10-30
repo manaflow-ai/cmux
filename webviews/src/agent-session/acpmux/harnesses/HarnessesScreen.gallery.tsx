@@ -9,6 +9,8 @@ import { HarnessesScreen } from "./HarnessesScreen";
 type Props = {
   acpmux: AcpmuxSnapshot["catalog"];
   signedOut: string[];
+  /// Harnesses whose sign-in acpmux found expired.
+  expired?: string[];
   /// acpmux has not listed its harnesses yet.
   checking?: boolean;
   /// An install command run in place keeps running, or fails.
@@ -19,7 +21,7 @@ type Props = {
 
 /// The page in a pane, with a host that answers `harness.health` and `shell.*` and records what the
 /// page asks.
-function GalleryHarnesses({ acpmux, signedOut, checking, install, update }: Props) {
+function GalleryHarnesses({ acpmux, signedOut, expired, checking, install, update }: Props) {
   const [asked, setAsked] = useState<string>();
   const [closed, setClosed] = useState(false);
   const reads = useRef(0);
@@ -30,7 +32,11 @@ function GalleryHarnesses({ acpmux, signedOut, checking, install, update }: Prop
           return Promise.resolve({
             health: {
               id: params.id,
-              auth: signedOut.includes(String(params.id)) ? "signedOut" : "signedIn",
+              auth: signedOut.includes(String(params.id))
+                ? "signedOut"
+                : expired?.includes(String(params.id))
+                  ? "expired"
+                  : "signedIn",
               ...(update ? { update: { command: update, elevated: false } } : {}),
             },
           });
@@ -49,7 +55,7 @@ function GalleryHarnesses({ acpmux, signedOut, checking, install, update }: Prop
         setAsked(`${method} ${JSON.stringify(params)}`);
         return Promise.resolve({});
       },
-    [signedOut, install, update],
+    [signedOut, expired, install, update],
   );
   return (
     <div
@@ -125,6 +131,10 @@ export default componentEntry<Props>({
       note: "Claude Code and Grok ready, Codex signed out, the catalog's other harnesses not installed.",
       props: { acpmux: thisMac, signedOut: ["codex"] },
       play: signIn,
+    },
+    "sign-in-expired": {
+      note: "Claude Code's sign-in expired: Sign In, never Ready. Codex signed out, Grok ready.",
+      props: { acpmux: thisMac, signedOut: ["codex"], expired: ["claude"] },
     },
     hover: {
       note: "Harness action hover states without an automatic play.",
