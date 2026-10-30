@@ -380,10 +380,12 @@ impl TurnInfo {
 }
 
 impl Hub {
-    /// Mark an outgoing session before its durable store is staged. Retry tasks hold the same
-    /// per-instance lock around their replacement check and terminal journal effects.
+    /// Mark an outgoing session before its durable store is staged. The admission lock order is
+    /// `auto_resume -> append_lock -> turn` for completion and replacement; attestation takes
+    /// `append_lock -> turn` and never `auto_resume`. Keeping this fence on `append_lock` means
+    /// replacement cannot flip `replaced` between attestation's final check and its signature.
     pub(super) fn seal_retry_replacement(&self, session: &Session) {
-        let _retry = session.auto_resume.lock();
+        let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
         session.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 

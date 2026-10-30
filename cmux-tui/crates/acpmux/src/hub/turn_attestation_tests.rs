@@ -193,10 +193,20 @@ thread_local! {
     static BEFORE_ADMISSION: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const {
         std::cell::RefCell::new(None)
     };
+    static AFTER_LIVE_CHECK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const {
+        std::cell::RefCell::new(None)
+    };
 }
 
 pub(super) fn before_admission() {
     let hook = BEFORE_ADMISSION.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+pub(super) fn after_live_check() {
+    let hook = AFTER_LIVE_CHECK.with(|slot| slot.borrow_mut().take());
     if let Some(hook) = hook {
         hook();
     }
@@ -289,16 +299,29 @@ fn turn_attestation_rechecks_transfer_fence_after_journal_validation() {
     let (hub, session) = fixture();
     let changed = session.clone();
     let transfer_hub = hub.clone();
-    BEFORE_ADMISSION.with(|slot| {
+    let (before_tx, before_rx) = std::sync::mpsc::channel();
+    let (hook_done_tx, hook_done_rx) = std::sync::mpsc::channel();
+    let (seal_done_tx, seal_done_rx) = std::sync::mpsc::channel();
+    AFTER_LIVE_CHECK.with(|slot| {
         *slot.borrow_mut() = Some(Box::new(move || {
-            // The actual transfer-in seal may run before it waits on append_lock.
-            transfer_hub.seal_retry_replacement(&changed);
+            // The seal races the final live check. On the fixed path it blocks on
+            // append_lock until signing is complete; on b3db459 it flips replaced here.
+            let seal = std::thread::spawn(move || {
+                transfer_hub.seal_retry_replacement(&changed);
+                let _ = seal_done_tx.send(());
+            });
+            let sealed_before_sign =
+                seal_done_rx.recv_timeout(std::time::Duration::from_millis(100)).is_ok();
+            before_tx.send(sealed_before_sign).unwrap();
+            let _ = hook_done_tx.send(seal);
         }));
     });
-    match hub.issue_turn_attestation(&session.id, &enrolled, 60_000) {
-        Ok(_) => panic!("transfer-fenced turn must not receive an attestation"),
-        Err(error) => assert_eq!(error, refused("turn_attestation.not_live")),
-    }
+    let result = hub.issue_turn_attestation(&session.id, &enrolled, 60_000);
+    assert!(!before_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap());
+    let seal = hook_done_rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+    seal.join().unwrap();
+    assert!(result.is_ok(), "the serialized attestation admission must succeed");
+    assert!(session.replaced.load(Ordering::SeqCst));
 }
 
 #[test]

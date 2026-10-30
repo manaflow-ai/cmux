@@ -74,6 +74,8 @@ impl Hub {
         {
             return Err(refused("turn_attestation.not_live"));
         }
+        #[cfg(test)]
+        tests::after_live_check();
         let proof = TurnAttestation::issue(identity, id, seq, now_ms(), ttl)?;
         let encoded = serde_json::to_value(proof).map_err(|_| refused("turn_attestation.encoding"));
         drop(live);
