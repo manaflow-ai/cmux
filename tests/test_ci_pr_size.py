@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""The PR size check counts the right lines and fails an oversized PR that does not say why.
+"""The PR size check counts the right lines and warns on an oversized PR that does not say why.
 
   - every glob in scripts/ci/pr_size_exclusions.json still matches a tracked
     file, so a stale entry cannot quietly drop authored lines from the count;
-  - over the limit it errors with a split hint and exits 3, a `Size:` line with a
+  - over the limit it warns with a split hint and exits 3, a `Size:` line with a
     reason overrides it (exit 0), and allowlisted generated files never push a
     pull request over;
-  - its job (`size` in .github/workflows/pr-checks.yml) fails on exit 3 only (an
-    API error or a script crash warns and passes), carries no "(advisory)" in its
+  - its job (`size` in .github/workflows/pr-checks.yml) never fails: an oversized
+    pull request, an API error and a script crash all warn and pass (Leo,
+    2026-10-28: "you don't need to make it, like, a hard gate"), carries no "(advisory)" in its
     name (next-autoland ignores such checks), and stays pull_request only (never
     pull_request_target), a read-only token, no secrets or environment, Linux,
     not a ruleset required check, draft-skipping and CI_QUOTA_HOLD-gated.
@@ -145,13 +146,15 @@ class MeasureTests(unittest.TestCase):
                         pr_size.os.environ[key] = value
             return code, stdout.getvalue() + summary.read_text(encoding="utf-8")
 
-    def test_over_the_limit_without_a_reason_fails_with_a_split_hint(self) -> None:
+    def test_over_the_limit_without_a_reason_warns_with_a_split_hint(self) -> None:
         code, out = self.run_main(jsonl((700, 200, "src/a.swift")), "A change")
         self.assertEqual(code, pr_size.OVER)
         self.assertEqual(pr_size.OVER, 3)
-        self.assertIn("::error title=PR size over 800 lines::", out)
+        self.assertIn("::warning title=PR size over 800 lines::", out)
+        self.assertNotIn("::error", out)
         self.assertIn("How to split", out)
         self.assertIn("tests", out)
+        self.assertIn("over about 800 lines should say in its body why it isn't split", out)
 
     def test_size_line_overrides_and_prints_the_reason(self) -> None:
         code, out = self.run_main(jsonl((700, 200, "src/a.swift")), "Intro\n\nSize: one atomic rename across the tree\n")
@@ -186,7 +189,7 @@ class MeasureTests(unittest.TestCase):
             with self.subTest(body=body):
                 code, out = self.run_main(jsonl((801, 0, "src/a.swift")), body)
                 self.assertEqual(code, pr_size.OVER)
-                self.assertIn("::error", out)
+                self.assertIn("::warning title=PR size over", out)
 
     def test_within_the_limit_passes_without_a_reason(self) -> None:
         code, out = self.run_main(jsonl((400, 400, "src/a.swift")), None)
@@ -232,7 +235,7 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertNotIn("self-hosted", str(job["runs-on"]).lower())
         self.assertNotIn("secrets.", self.text)
 
-    def test_blocking_not_ruleset_required_gated_and_draft_skipping(self) -> None:
+    def test_not_ruleset_required_gated_and_draft_skipping(self) -> None:
         job = self.job
         self.assertEqual(job["name"], "PR size")
         self.assertNotIn("advisory", job["name"].lower())
@@ -258,6 +261,10 @@ class WorkflowShapeTests(unittest.TestCase):
 
     def run_step(self, script_exit: int | None, gh_exit: int = 0, checkout: str = "success",
                  live_body: str | None = None, event_body: str = "", lines: int = 10) -> int:
+        return self.run_step_output(script_exit, gh_exit, checkout, live_body, event_body, lines)[0]
+
+    def run_step_output(self, script_exit: int | None, gh_exit: int = 0, checkout: str = "success",
+                        live_body: str | None = None, event_body: str = "", lines: int = 10) -> tuple[int, str]:
         """The job's own count step with gh stubbed, and the script stubbed (SCRIPT_EXIT) or the real one (None)."""
         run = self.job["steps"][-1]["run"]
         with tempfile.TemporaryDirectory() as temporary:
@@ -285,20 +292,32 @@ class WorkflowShapeTests(unittest.TestCase):
             (bin_dir / "gh").chmod(0o755)
             env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUNNER_TEMP": str(directory),
                    "GITHUB_EVENT_PATH": str(event), "REPOSITORY": "o/r", "PR": "1", "CHECKOUT": checkout}
-            return subprocess.run(["bash", "-c", run], cwd=directory, env=env, capture_output=True).returncode
+            done = subprocess.run(["bash", "-c", run], cwd=directory, env=env, capture_output=True, text=True)
+            return done.returncode, done.stdout
 
     def test_the_current_body_decides_not_the_events_copy(self) -> None:
         # A re-run of an older run whose event still had the `Size:` line the body has since dropped.
-        self.assertEqual(self.run_step(None, lines=900, live_body="Why.", event_body="Size: atomic rename"), 1)
-        self.assertEqual(self.run_step(None, lines=900, live_body="Size: atomic rename", event_body="Why."), 0)
+        warned = "::warning title=PR size over"
+        code, out = self.run_step_output(None, lines=900, live_body="Why.", event_body="Size: atomic rename")
+        self.assertEqual(code, 0)
+        self.assertIn(warned, out)
+        code, out = self.run_step_output(None, lines=900, live_body="Size: atomic rename", event_body="Why.")
+        self.assertEqual(code, 0)
+        self.assertNotIn(warned, out)
         # The body unread: the event's copy answers.
-        self.assertEqual(self.run_step(None, lines=900, live_body=None, event_body="Size: atomic rename"), 0)
-        self.assertEqual(self.run_step(None, lines=900, live_body=None, event_body="Why."), 1)
-        self.assertEqual(self.run_step(None, lines=10, live_body="Why."), 0)
+        code, out = self.run_step_output(None, lines=900, live_body=None, event_body="Size: atomic rename")
+        self.assertEqual(code, 0)
+        self.assertNotIn(warned, out)
+        code, out = self.run_step_output(None, lines=900, live_body=None, event_body="Why.")
+        self.assertEqual(code, 0)
+        self.assertIn(warned, out)
+        code, out = self.run_step_output(None, lines=10, live_body="Why.")
+        self.assertEqual(code, 0)
+        self.assertNotIn(warned, out)
 
-    def test_the_step_fails_only_on_a_measured_size(self) -> None:
+    def test_the_step_never_fails(self) -> None:
         self.assertEqual(self.run_step(0), 0)
-        self.assertEqual(self.run_step(3), 1)
+        self.assertEqual(self.run_step(3), 0, "an oversized pull request warns and passes")
         self.assertEqual(self.run_step(1), 0, "a script crash warns and passes")
         self.assertEqual(self.run_step(2), 0, "a script crash warns and passes")
         self.assertEqual(self.run_step(3, gh_exit=1), 0, "an unread file list warns and passes")

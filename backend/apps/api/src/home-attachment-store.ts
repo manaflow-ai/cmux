@@ -40,6 +40,9 @@ export interface UploadSlot {
   /** A multipart slot's R2 upload (made with the slot) and its SHA-256 state after the parts so far (direct: after the bytes hashed back so far, null until the join). */
   readonly multipart_upload_id?: string | null
   readonly multipart_hash?: string | null
+  /** The request uploading the next part now (`<part>:<random>`) and when it claimed it (claimMultipartPart). */
+  readonly part_claim?: string | null
+  readonly part_claim_at?: number | null
   /** The declared poster (video) or preview (image): uploaded once through the Worker (`open` -> `uploading` -> `stored`) before the attachment commits. */
   readonly derived?: Image
   readonly derived_state?: "open" | "uploading" | "stored"
@@ -78,6 +81,8 @@ const LATER_COLUMNS: ReadonlyArray<[string, string]> = [
   [SLOTS, "poster_etag TEXT"],
   [SLOTS, "multipart_upload_id TEXT"],
   [SLOTS, "multipart_hash TEXT"],
+  [SLOTS, "part_claim TEXT"],
+  [SLOTS, "part_claim_at INTEGER"],
   // 1 from a batch until its markSwept: a release in between (during the R2 delete) queues another pass.
   [SWEEP, "running INTEGER NOT NULL DEFAULT 0"],
   // After conversation storage deletion: when to delete the prefix again (a URL the deletion dropped may still finish a PUT).
@@ -201,15 +206,83 @@ export const takeSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], consume
 }
 
 /**
- * Records part `part` of open multipart slot `id` only if no other part was recorded since its PUT
- * read `before` (the hash state it resumed), so parts land once and in order. Each part renews the
+ * How long a part claim holds without word from its request (a Worker evicted mid-part, a stalled
+ * body). A live request renews it every PART_RENEW_MS while bytes arrive (renewMultipartPart), so
+ * a slow part keeps its claim however long it streams. It is well under the idle lease a claim or a
+ * renewal gives the slot (uploadTtlMs), so a lapsed claim always leaves the slot open for the retry.
+ */
+export const PART_CLAIM_MS = 5 * 60_000
+/** How often a streaming part renews its claim: well inside PART_CLAIM_MS, at most a few dozen renewals for the slowest part. */
+export const PART_RENEW_MS = 2 * 60_000
+
+/**
+ * Claims the next part of open multipart slot `id` for one request before any byte goes to R2:
+ * only if no part was recorded since the request read `before` (so `part` is the next one) and no
+ * other request holds a live claim. R2 keeps one upload per part number, so a second request
+ * streaming the same part could replace the bytes after the first one's etag is recorded. The
+ * claim renews the idle lease. `busy`: another request is uploading it now (retry later).
+ */
+export const claimMultipartPart = (sql: Sql, id: string, part: number, before: string | null): { ok: true; claim: string } | { ok: false; busy: boolean } => {
+  const slot = slotIn(sql, id, "open")
+  const now = Date.now()
+  if (!slot || slot.mode !== "multipart" || (slot.multipart_hash ?? null) !== before || slot.expires_at <= now) return { ok: false, busy: false }
+  if (slot.part_claim && Number(slot.part_claim_at) + PART_CLAIM_MS > now) return { ok: false, busy: true }
+  const claim = `${part}:${randomId()}`
+  sql.exec(`UPDATE ${SLOTS} SET part_claim = ?, part_claim_at = ?, expires_at = ? WHERE id = ?`, claim, now, now + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
+  return { ok: true, claim }
+}
+
+/**
+ * The request holding `claim` is still streaming its part: the claim's clock restarts and the
+ * slot's idle lease reaches at least uploadTtlMs ahead. False when the claim is no longer this
+ * request's (it lapsed and another request took the part, or the slot ended): the request must
+ * stop before its bytes reach R2, since they would replace the part the new holder records.
+ */
+export const renewMultipartPart = (sql: Sql, id: string, claim: string): boolean => {
+  const slot = slotIn(sql, id, "open")
+  if (!slot || slot.part_claim !== claim) return false
+  const now = Date.now()
+  sql.exec(`UPDATE ${SLOTS} SET part_claim_at = ?, expires_at = MAX(expires_at, ?) WHERE id = ?`, now, now + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
+  return true
+}
+
+/** Ends claim `claim` without recording its part (its upload failed), so the part may be sent again at once. */
+export const releaseMultipartPart = (sql: Sql, id: string, claim: string): void => {
+  if (has(sql, SLOTS)) sql.exec(`UPDATE ${SLOTS} SET part_claim = NULL, part_claim_at = NULL WHERE id = ? AND part_claim = ?`, id, claim)
+}
+
+/**
+ * The `uploading` slot `id` of `mode` and `actor` whose completion started and may not have
+ * committed (its owner commit failed, or the request that began it is gone), while its key is
+ * still kept (before the expiry grace). Never consumes: the completion that commits settles it.
+ */
+export const completingSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], actor: string): UploadSlot | null => {
+  const s = slotIn(sql, id, "uploading")
+  return s && s.mode === mode && s.actor === actor && s.expires_at + UPLOADING_GRACE_MS > Date.now() ? s : null
+}
+
+/**
+ * Records part `part` of open multipart slot `id` under the claim its request took
+ * (claimMultipartPart) and ends the claim; only if no other part was recorded since its PUT read
+ * `before` (the hash state it resumed), so parts land once and in order. Each part renews the
  * idle lease: total upload time has no fixed ceiling.
  */
-export const recordMultipartPart = (sql: Sql, id: string, part: number, etag: string, before: string | null, after: string): boolean => {
+export const recordMultipartPart = (sql: Sql, id: string, part: number, etag: string, before: string | null, after: string, claim: string): boolean => {
   const slot = slotIn(sql, id, "open")
-  if (!slot || slot.mode !== "multipart" || (slot.multipart_hash ?? null) !== before || slot.expires_at + UPLOADING_GRACE_MS <= Date.now()) return false
+  if (!slot || slot.mode !== "multipart" || slot.part_claim !== claim || !claim.startsWith(`${part}:`) || (slot.multipart_hash ?? null) !== before || slot.expires_at + UPLOADING_GRACE_MS <= Date.now()) return false
   sql.exec(`INSERT INTO ${PARTS} (slot, part, etag) VALUES (?, ?, ?)`, id, part, etag)
-  sql.exec(`UPDATE ${SLOTS} SET multipart_hash = ?, expires_at = ? WHERE id = ?`, after, Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
+  sql.exec(`UPDATE ${SLOTS} SET multipart_hash = ?, expires_at = ?, part_claim = NULL, part_claim_at = NULL WHERE id = ?`, after, Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
+  return true
+}
+
+/**
+ * Gives an `uploading` multipart slot back to its client after a completion that may not have
+ * happened (a transient R2 failure): open again with a fresh idle lease, so completing again works.
+ */
+export const reopenMultipart = (sql: Sql, id: string): boolean => {
+  const slot = slotIn(sql, id, "uploading")
+  if (!slot || slot.mode !== "multipart") return false
+  sql.exec(`UPDATE ${SLOTS} SET state = 'open', expires_at = ? WHERE id = ?`, Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
   return true
 }
 

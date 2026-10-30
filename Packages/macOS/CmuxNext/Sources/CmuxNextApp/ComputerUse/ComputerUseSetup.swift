@@ -53,6 +53,9 @@ final class ComputerUseSetup {
         var helper: ComputerUseHelperDaemon.State
         /// The driver chosen: this model reads the legacy helper only.
         var driver: ComputerUseDriver = .legacy
+        /// The legacy helper refused this app as its consent host
+        /// (`ComputerUseHelperDaemon.consentHostUnverified`).
+        var consentHostUnverified = false
     }
 
     /// One `permissions_status` read.
@@ -73,6 +76,9 @@ final class ComputerUseSetup {
     /// The driver chosen (`computerUse.driver`): the phase and grants are
     /// the legacy helper's, so a reader under the helper v2 knows they say nothing.
     private(set) var driver: ComputerUseDriver = .legacy
+    /// Legacy Computer Use is on but its helper cannot verify this app build
+    /// (not team-signed), so it refuses every call that needs consent.
+    private(set) var hostUnverified = false
 
     @ObservationIgnored private let inputs: @MainActor () -> Inputs
     @ObservationIgnored private let configuration: @MainActor () -> AgentActivitySocketSource.Configuration?
@@ -270,6 +276,7 @@ final class ComputerUseSetup {
 
     private func apply(_ inputs: Inputs) {
         driver = inputs.driver
+        hostUnverified = inputs.consentHostUnverified && inputs.driver == .legacy && inputs.enabled && !inputs.disabledByPolicy
         generation &+= 1
         reading?.cancel()
         reading = nil
@@ -392,7 +399,8 @@ extension ComputerUseSetup {
                 Inputs(disabledByPolicy: services?.registry.disabledFeatures.contains(.computerUse) ?? true,
                        enabled: services?.settings?.snapshot.computerUse.enabled ?? false,
                        helper: helper.state,
-                       driver: services?.settings?.snapshot.computerUse.driver ?? .legacy)
+                       driver: services?.settings?.snapshot.computerUse.driver ?? .legacy,
+                       consentHostUnverified: helper.consentHostUnverified != nil)
             },
             configuration: { helper.configuration },
             restartHelper: { await helper.restartLegacy() },
@@ -444,6 +452,8 @@ extension ComputerUseSetup {
             "screen_recording": known ? .bool(permissions.screenRecording) : .null,
             "helper": helperAppURL.map { .string($0.deletingPathExtension().lastPathComponent) } ?? .null,
             "driver": .string(driver.rawValue),
+            // The status line says legacy Computer Use is off in this build (not team-signed).
+            "host_unverified": .bool(hostUnverified),
         ]
     }
 }

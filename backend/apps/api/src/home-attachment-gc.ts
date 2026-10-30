@@ -2,6 +2,7 @@ import type { SqlStore } from "@cmux/ownership"
 import { conversation } from "@cmux/home-core"
 import type { Env } from "./env.ts"
 import * as store from "./home-attachment-store.ts"
+import { completionFailure } from "./home-attachment-stream.ts"
 
 /** The uploader's UserDO calls the attachment storage paths make. */
 export type AttachmentUsers = { releaseAttachmentStorage(e: string, key: string): Promise<void>; refundAttachmentQuota(e: string, slot: string): Promise<void> }
@@ -123,12 +124,18 @@ const drainDrops = async (deps: AttachmentGcDeps, now: number): Promise<void> =>
  * does not exist yet; the conversation takes no new uploads by then (archived).
  */
 export const deleteAttachmentStorage = async (deps: AttachmentGcDeps, entity: string): Promise<number> => {
-  if (!deps.env.HOME_ATTACHMENTS) return 0
-  // Refunds first (idempotent by slot id): a failure throws before anything is forgotten, so a retry refunds again.
-  for (const slot of store.allSlots(deps.sql)) if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
+  const bucket = deps.env.HOME_ATTACHMENTS
+  if (!bucket) return 0
+  // Refunds and multipart aborts first (both idempotent): a failure throws before anything is forgotten, so a retry does them again.
+  const before = store.allSlots(deps.sql)
+  for (const slot of before) if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
+  await abortUploads(bucket, before)
   const { records, slots } = store.forgetAll(deps.sql)
   // Also the slots forgetAll returns: one opened during the awaits above is refunded too (refunds are idempotent).
   for (const slot of slots) if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
+  // And its upload aborted; it is forgotten now, so a failure is logged (R2's lifecycle rule, or the self-hosted prefix abort below, ends it).
+  const aborted = new Set(before.map((s) => s.multipart_upload_id))
+  await abortUploads(bucket, slots.filter((s) => !aborted.has(s.multipart_upload_id))).catch((e: unknown) => console.error(JSON.stringify({ msg: "attachment multipart abort failed", entity, error: String(e).slice(0, 200) })))
   if (slots.length) {
     store.schedulePurge(deps.sql, Math.max(...slots.map((s) => s.expires_at)) + store.UPLOADING_GRACE_MS)
     deps.scheduleAlarm()
@@ -140,10 +147,36 @@ export const deleteAttachmentStorage = async (deps: AttachmentGcDeps, entity: st
   return records.length + (await deletePrefix(deps.env, entity)).filter((k) => !known.has(k)).length
 }
 
-/** Deletes every object under `home/v1/<conversation>/`; answers the keys it deleted. */
+/**
+ * Aborts the open R2 multipart upload of each multipart slot, so its stored parts go with the
+ * conversation. An upload R2 already closed (completed or aborted: NoSuchUpload) is done; any
+ * other failure throws, after every other abort was tried.
+ */
+const abortUploads = async (bucket: R2Bucket, slots: ReadonlyArray<store.UploadSlot>): Promise<void> => {
+  let failure: unknown
+  for (const slot of slots) {
+    if (!slot.multipart_upload_id) continue
+    try {
+      await bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id).abort()
+    } catch (e) {
+      if (completionFailure(e) !== "closed") failure ??= e
+    }
+  }
+  if (failure !== undefined) throw failure
+}
+
+/** A bucket that can enumerate its open uploads (the self-hosted FsBucket); R2's binding cannot, its lifecycle rule ends them. */
+type PrefixAborting = { abortMultipartUploads(prefix: string): Promise<number> }
+const abortsByPrefix = (bucket: R2Bucket): bucket is R2Bucket & PrefixAborting => typeof (bucket as Partial<PrefixAborting>).abortMultipartUploads === "function"
+
+/**
+ * Deletes every object under `home/v1/<conversation>/`, and, where the bucket can enumerate them,
+ * every open multipart upload under it (also one no slot names any more); answers the keys it deleted.
+ */
 const deletePrefix = async (env: Env, entity: string): Promise<Array<string>> => {
   const bucket = env.HOME_ATTACHMENTS
   if (!bucket) return []
+  if (abortsByPrefix(bucket)) await bucket.abortMultipartUploads(conversation.attachmentPrefix(entity))
   const deleted: Array<string> = []
   let cursor: string | undefined
   do {

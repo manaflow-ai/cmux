@@ -6,8 +6,8 @@ import { authenticate } from "./auth.ts"
 import { principalForOwner } from "./team-select.ts"
 import type { AttachmentAccess, DownloadAccess } from "./conversation-do.ts"
 import type { Env } from "./env.ts"
-import { derivedReady, randomId, slotKeys, type UploadSlot } from "./home-attachment-store.ts"
-import { hashInto, ResumableSha256, streamInto, streamPartInto } from "./home-attachment-stream.ts"
+import { derivedReady, PART_RENEW_MS, randomId, slotKeys, type UploadSlot } from "./home-attachment-store.ts"
+import { completionFailure, hashInto, ResumableSha256, streamInto, streamPartInto } from "./home-attachment-stream.ts"
 import { ssoGate } from "./policy-gate.ts"
 import { presignUrl, type Presigner } from "./r2-presign.ts"
 
@@ -60,15 +60,20 @@ interface ConversationAttachments {
   attachmentAccess(entity: string, actor: string, hash: string): Promise<AttachmentAccess>
   createUploadSlot(entity: string, actor: string, quotaUser: string, meta: { hash: string; byte_count: number; mime_type: string; derived?: Image }, mode: UploadSlot["mode"], id: string): Promise<UploadSlot | null>
   uploadSlot(entity: string, id: string, mode: UploadSlot["mode"], consume: boolean, actor?: string): Promise<UploadSlot | null>
+  completingSlot(entity: string, id: string, mode: UploadSlot["mode"], actor: string): Promise<UploadSlot | null>
   derivedSlot(entity: string, id: string): Promise<UploadSlot | null>
   settleDerived(entity: string, id: string, etag: string | null): Promise<void>
   settleSlot(entity: string, id: string): Promise<void>
   setMultipartUpload(entity: string, id: string, uploadId: string): Promise<boolean>
-  recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string): Promise<boolean>
+  claimMultipartPart(entity: string, id: string, part: number, before: string | null): Promise<{ ok: true; claim: string } | { ok: false; busy: boolean }>
+  releaseMultipartPart(entity: string, id: string, claim: string): Promise<void>
+  renewMultipartPart(entity: string, id: string, claim: string): Promise<boolean>
+  recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string, claim: string): Promise<boolean>
   multipartEtags(entity: string, id: string): Promise<Array<string>>
   leaseDirect(entity: string, id: string): Promise<UploadSlot | null>
   advanceDirect(entity: string, id: string, before: string | null, after: string): Promise<boolean>
-  commitAttachment(entity: string, slotId: string, etag?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: Image } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
+  reopenMultipart(entity: string, id: string): Promise<boolean>
+  commitAttachment(entity: string, slotId: string, etag?: string, objectId?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: Image } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
   downloadAccess(entity: string, actor: string, by: { hash: string } | { object_id: string }, at?: { message_id: string; part_index: number }): Promise<DownloadAccess | "forbidden">
 }
 interface UserAttachments {
@@ -216,7 +221,8 @@ const readJson = async <T>(request: Request): Promise<T | null> => (await reques
  */
 const finish = async (env: Env, conversation: string, slot: UploadSlot, etag: string | undefined): Promise<Response> => {
   const bucket = env.HOME_ATTACHMENTS!
-  const committed = await conversationOf(env, conversation).commitAttachment(conversation, slot.id, etag)
+  // The object id makes the commit idempotent: a retry after a commit whose answer was lost finds this slot's record.
+  const committed = await conversationOf(env, conversation).commitAttachment(conversation, slot.id, etag, slot.object_id)
   if (!committed.ok) {
     await bucket.delete(slotKeys(slot))
     if (committed.code === "archived") return failure({ status: 409, code: "archived", message: "this conversation takes no new messages" })
@@ -309,7 +315,8 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
   }
   if (mode === "multipart" || mode === "direct") {
     // The R2 upload is made with the slot and kept on it, so expiry aborts it whatever the client does.
-    const upload = await env.HOME_ATTACHMENTS!.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type } })
+    // The object R2 completes carries the declared hash, so a completion whose answer was lost is recognised (completedObject).
+    const upload = await env.HOME_ATTACHMENTS!.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type }, customMetadata: { sha256: slot.hash } })
     if (!(await conversationOf(env, conversation).setMultipartUpload(conversation, slot.id, upload.uploadId))) {
       await upload.abort()
       return failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
@@ -400,20 +407,45 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
   const next = sha.bytes / plan.partBytes + 1
   if (part !== next) return failure({ status: 409, code: "attachment.part_order", message: Number.isInteger(next) ? `send part ${next} next` : "every part is stored; complete the upload" })
   const length = Math.min(plan.partBytes, slot.byte_count - sha.bytes)
-  const upload = env.HOME_ATTACHMENTS!.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
-  const uploaded = await streamPartInto(upload, part, request, length, sha)
-  if (!uploaded) return failure({ status: 400, code: "attachment.size_mismatch", message: `part ${part} must be exactly ${length} bytes` })
-  const after = part < plan.parts ? sha.state() : `${sha.digest()}:${sha.bytes}`
-  if (part === plan.parts && after !== `${slot.hash}:${slot.byte_count}`) {
-    // The parts so far are hashed: no retry can fix the file, so the slot ends here.
-    const used = await conv.uploadSlot(conversation, id, "multipart", true)
-    await upload.abort().catch(() => undefined)
-    if (used) await conv.settleSlot(conversation, id)
-    return failure({ status: 400, code: "attachment.hash_mismatch", message: "the bytes do not match the declared sha256" })
+  // The part is this request's before any byte reaches R2: a concurrent PUT of it is refused here,
+  // so it can never replace the R2 part after this one's etag is recorded.
+  const claimed = await conv.claimMultipartPart(conversation, id, part, slot.multipart_hash ?? null)
+  if (!claimed.ok) {
+    return claimed.busy
+      ? failure({ status: 409, code: "attachment.part_busy", message: `part ${part} is being uploaded by another request; send it again if that one fails`, extra: { retryable: true } })
+      : failure({ status: 409, code: "attachment.part_order", message: "that part was already stored, or the slot ended" })
   }
-  // Another PUT of this part (or the expiry) came first: its etag is the one recorded.
-  if (!(await conv.recordMultipartPart(conversation, id, part, uploaded.etag, slot.multipart_hash ?? null, after))) return failure({ status: 409, code: "attachment.part_order", message: "that part was already stored, or the slot ended" })
-  return success({ part_number: part, byte_count: length, etag: uploaded.etag })
+  let recorded = false
+  // While bytes arrive the claim is renewed; once another request has taken it, this one stops before R2 keeps its bytes.
+  let lost = false
+  const renew = {
+    everyMs: PART_RENEW_MS,
+    run: async () => {
+      lost = !(await conv.renewMultipartPart(conversation, id, claimed.claim).catch(() => false))
+      return !lost
+    }
+  }
+  try {
+    const upload = env.HOME_ATTACHMENTS!.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
+    const uploaded = await streamPartInto(upload, part, request, length, sha, renew)
+    if (!uploaded && lost) return failure({ status: 409, code: "attachment.part_order", message: `part ${part} lost its claim (a later request took it, or it could not be renewed); nothing of this one was kept, send it again if no other request stored it` })
+    if (!uploaded) return failure({ status: 400, code: "attachment.size_mismatch", message: `part ${part} must be exactly ${length} bytes` })
+    const after = part < plan.parts ? sha.state() : `${sha.digest()}:${sha.bytes}`
+    if (part === plan.parts && after !== `${slot.hash}:${slot.byte_count}`) {
+      // The parts so far are hashed: no retry can fix the file, so the slot ends here.
+      const used = await conv.uploadSlot(conversation, id, "multipart", true)
+      await upload.abort().catch(() => undefined)
+      if (used) await conv.settleSlot(conversation, id)
+      return failure({ status: 400, code: "attachment.hash_mismatch", message: "the bytes do not match the declared sha256" })
+    }
+    // The claim ended (the slot expired or ended): nothing was recorded.
+    recorded = await conv.recordMultipartPart(conversation, id, part, uploaded.etag, slot.multipart_hash ?? null, after, claimed.claim)
+    if (!recorded) return failure({ status: 409, code: "attachment.part_order", message: "that part was already stored, or the slot ended" })
+    return success({ part_number: part, byte_count: length, etag: uploaded.etag })
+  } finally {
+    // A part that was not recorded frees its claim at once, so the client sends it again.
+    if (!recorded) await conv.releaseMultipartPart(conversation, id, claimed.claim).catch(() => undefined)
+  }
 }
 
 /**
@@ -431,7 +463,11 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
   const conversation = body.conversation
   const conv = conversationOf(env, conversation)
   const invalid = failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
-  const peek = (await conv.uploadSlot(conversation, body.slot, "multipart", false, caller.actor)) ?? (await conv.uploadSlot(conversation, body.slot, "direct", false, caller.actor))
+  const open = (await conv.uploadSlot(conversation, body.slot, "multipart", false, caller.actor)) ?? (await conv.uploadSlot(conversation, body.slot, "direct", false, caller.actor))
+  // A completion of this caller's slot that already started (R2 may have joined the parts while the owner commit
+  // failed) is completed again: the join below finds the object by its size and sha256 and the commit is idempotent.
+  const resumed = open ? null : await conv.completingSlot(conversation, body.slot, "multipart", caller.actor)
+  const peek = open ?? resumed
   if (!peek?.multipart_upload_id) return invalid
   const missing = derivedMissing(peek)
   if (missing) return missing
@@ -442,20 +478,34 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
   const etags = await conv.multipartEtags(conversation, peek.id)
   if (etags.length !== parts || peek.multipart_hash !== `${peek.hash}:${peek.byte_count}`) return failure({ status: 409, code: "attachment.part_missing", message: "one or more upload parts are missing" })
   if (listed?.some((p: { etag: string }, i: number) => p.etag !== etags[i])) return failure({ status: 409, code: "attachment.part_missing", message: "the parts do not match the stored parts" })
-  const slot = await conv.uploadSlot(conversation, peek.id, "multipart", true, caller.actor)
+  const slot = resumed ?? (await conv.uploadSlot(conversation, peek.id, "multipart", true, caller.actor))
   if (!slot?.multipart_upload_id) return invalid
   const bucket = env.HOME_ATTACHMENTS!
   const upload = bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
-  let etag: string
-  try {
-    const object = await upload.complete(etags.map((tag, i) => ({ partNumber: i + 1, etag: tag })))
-    if (object.size !== slot.byte_count) throw new Error("size")
-    etag = object.etag
-  } catch {
+  // Only bytes that cannot form the declared file end the slot; no retry can fix them.
+  const refuse = async () => {
     await upload.abort().catch(() => undefined)
     await bucket.delete(slotKeys(slot))
     await conv.settleSlot(conversation, slot.id)
     return failure({ status: 400, code: "attachment.size_mismatch", message: "the stored parts do not form the declared file" })
+  }
+  let etag: string
+  try {
+    const object = await upload.complete(etags.map((tag, i) => ({ partNumber: i + 1, etag: tag })))
+    if (object.size !== slot.byte_count) return refuse()
+    etag = object.etag
+  } catch (error) {
+    const kind = completionFailure(error)
+    if (kind === "integrity") return refuse()
+    // A transient failure, or an upload already closed: R2 may have completed it before its answer was lost.
+    const found = await completedObject(bucket, slot)
+    if (found) etag = found.etag
+    else if (kind === "closed" && found === null) return refuse()
+    else {
+      // Not known to have happened: the parts stay and the slot is open again, so the client completes again.
+      await conv.reopenMultipart(conversation, slot.id)
+      return failure({ status: 503, code: "attachment.complete_unavailable", message: "the upload could not be completed right now; complete it again", extra: { retryable: true } })
+    }
   }
   return finish(env, conversation, slot, etag)
 }
@@ -562,6 +612,17 @@ const completeDirect = async (env: Env, conversation: string, slot: UploadSlot, 
     return failure({ status: 400, code: "attachment.hash_mismatch", message: "the bytes do not match the declared sha256" })
   }
   return finish(env, conversation, used, object.etag)
+}
+
+/**
+ * The slot's object when an earlier completion already made it: the declared size and the
+ * declared SHA-256 its upload was created with. Null when it is not there; undefined when R2
+ * could not be asked (the caller keeps the slot for a retry).
+ */
+const completedObject = async (bucket: R2Bucket, slot: UploadSlot): Promise<R2Object | null | undefined> => {
+  const head = await bucket.head(slot.object_key).catch(() => undefined)
+  if (head === undefined) return undefined
+  return head && head.size === slot.byte_count && head.customMetadata?.sha256 === slot.hash ? head : null
 }
 
 /**

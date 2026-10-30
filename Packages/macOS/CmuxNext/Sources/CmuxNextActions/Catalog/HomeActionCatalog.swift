@@ -348,6 +348,23 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home pin-unpin",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
+            // A chat's own bubble and text colours (user 2026-10-28): the row's Chat Colors… and the
+            // palette open the picker; `cmux chat colors --conversation <id> --sent "#34C759"` sets one
+            // (`default` clears a role, `--reset` clears them all). Looks only, kept on this Mac.
+            ActionDescriptor(
+                id: "home.chatColors", title: t("action.home.chatColors", "Chat Colors…"),
+                keywords: ["home", "chat", "colors", "colours", "bubble", "text", "background", "theme", "imessage", "conversation"],
+                category: .window, symbol: "paintpalette", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            Self.color("sent", t("argument.home.chatColors.sent", "My Bubble Color")),
+                            Self.color("sentText", t("argument.home.chatColors.sentText", "My Text Color")),
+                            Self.color("received", t("argument.home.chatColors.received", "Their Bubble Color")),
+                            Self.color("receivedText", t("argument.home.chatColors.receivedText", "Their Text Color")),
+                            ActionArgument(name: "reset", title: t("argument.home.chatColors.reset", "Reset to Default"), kind: .bool,
+                                           isRequired: false)],
+                cliName: "chat colors",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             // `cmux home send --conversation <id> --text "…"`: a message as me, in a DM or group.
             ActionDescriptor(
                 id: "home.sendMessage", title: t("action.home.sendMessage", "Send Message…"),
@@ -387,6 +404,11 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                                            ActionEnumCase(value: "mentions", title: t("argument.home.replies.mentions", "Only When @Mentioned")),
                                            ActionEnumCase(value: "all", title: t("argument.home.replies.all", "To Every Message"))]),
                        isRequired: isRequired)
+    }
+
+    /// One bubble colour of `home.chatColors`: `#RRGGBB`, or `default` for the default for every chat.
+    private static func color(_ name: String, _ title: String) -> ActionArgument {
+        ActionArgument(name: name, title: title, kind: .string, isRequired: false)
     }
 
     /// The conversation a group action acts on (an id); without it, the one Home shows.

@@ -22,10 +22,10 @@ enum DebugNativeInput {
         for event in events { NSApp.sendEvent(event) }
     }
 
-    /// The agent panes' gesture monitors in `window`, on `event` (each pane decides by its own
-    /// focus and bounds at this moment, as for a real event).
+    /// The agent panes' gesture monitors for `window`, including a Chromium child window's
+    /// owning panes. Each pane still judges the event's source, focus and bounds as for real input.
     static func runPaneMonitors(_ event: NSEvent, in window: NSWindow, services: AppServices) {
-        for view in services.agentTabs.views.values where view.window === window {
+        for view in services.agentTabs.views.values where view.window === window || view.window === window.parent {
             view.debugRunGestureMonitor(event)
         }
     }

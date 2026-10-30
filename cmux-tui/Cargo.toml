@@ -40,6 +40,7 @@ members = [
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
+    "crates/cmux-json",
     "crates/cmux-kitty-media",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
@@ -113,6 +114,7 @@ default-members = [
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
+    "crates/cmux-json",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
@@ -210,6 +212,7 @@ cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
+cmux-json = { path = "crates/cmux-json" }
 cmux-kitty-media = { path = "crates/cmux-kitty-media" }
 cmux-api-compat = { path = "crates/cmux-api-compat" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }

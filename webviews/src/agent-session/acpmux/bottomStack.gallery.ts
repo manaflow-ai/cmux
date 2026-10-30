@@ -119,6 +119,14 @@ const checkPrQueue: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-queue"));
   geometry(ctx);
   await ctx.click({ selector: ".acpmux-queued" });
+  // Expanding a wrapped prompt animates the queue's height. Inspect the staged end state,
+  // after its ResizeObserver has reserved that height above the floating stack.
+  await ctx.waitFor(() =>
+    ctx
+      .find({ selector: ".acpmux-composer-queue" })
+      .getAnimations()
+      .every((animation) => animation.playState !== "running"),
+  );
   geometry(ctx);
   // A started chat has no folder/host strip (#20869, locationRow.ts): the queue is the composer's
   // top strip, and no hidden slot for the strip may hold space above it.
@@ -198,10 +206,12 @@ const shortPane =
   async (ctx) => {
     await checkTrust(ctx);
     const field = ".acpmux-composer-box .ProseMirror";
-    for (let line = 0; line < lines; line++) {
-      if (line) await ctx.press("Shift+Enter");
-      await ctx.type(`draft line ${line + 1}`, line ? undefined : { selector: field });
-    }
+    // Keep the draft as one trusted input action: each extra play step waits for a settled frame,
+    // which made this fixture spend ~3.7 s typing twelve lines on every health retry. The newline
+    // characters preserve the same multiline ProseMirror draft without weakening any geometry check.
+    await ctx.type(Array.from({ length: lines }, (_, line) => "draft line " + (line + 1)).join("\n"), {
+      selector: field,
+    });
     const main = ctx.document.querySelector(".acpmux-main")!.getBoundingClientRect();
     const foot = ctx.document.querySelector(".acpmux-composer-foot")?.getBoundingClientRect();
     if (foot && foot.bottom > main.bottom + 0.5)
@@ -216,7 +226,11 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-composer-bar" }],
   covers: ["agent-session/acpmux/PermissionCard.tsx", "agent-session/acpmux/TrustAsk.tsx"],
   variants: {
-    "pr-queue": { snapshot: prQueue, native: { "acp.trust.get": { cwd: CWD, level: "trusted" } }, play: checkPrQueue },
+    "pr-queue": {
+      snapshot: prQueue,
+      native: { "acp.trust.get": { cwd: CWD, level: "trusted" } },
+      play: checkPrQueue,
+    },
     "trust-permission-queue": { snapshot: grouped, native, play: checkTrust },
     "trust-individual-queue": { snapshot: individual, native, play: checkTrust },
     "trust-then-permission": { snapshot: grouped, native, play: trustThenPermission },

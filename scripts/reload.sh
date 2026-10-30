@@ -11,6 +11,8 @@ source "$SCRIPT_DIR/lib/dev-secrets.sh"
 source "$SCRIPT_DIR/lib/stop-app-instances.sh"
 # shellcheck source=lib/cmux-dev-shim-install
 source "$SCRIPT_DIR/lib/cmux-dev-shim-install"
+# shellcheck source=scripts/lib/dev-sign-identity.sh
+source "$SCRIPT_DIR/lib/dev-sign-identity.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
@@ -1240,7 +1242,8 @@ done
 
 # Release's product is cmux.app, which the tag step stages as the tagged app. It
 # bundles the pinned cmux-tui by default; dogfood the checkout's own instead. Its
-# entitlements need a signing team, and the tagged app is signed ad hoc.
+# entitlements need a signing team, and the tagged app is signed ad hoc (or with
+# CMUX_DEV_SIGN_IDENTITY, still without entitlements).
 if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   PRODUCT_APP_NAME="cmux"
   export CMUX_NEXT_TUI_MODE=tree
@@ -2125,11 +2128,15 @@ esac
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
-if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
-  if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" ]]; then
+# Ad hoc unless CMUX_DEV_SIGN_IDENTITY names an identity (scripts/lib/dev-sign-identity.sh).
+# A set identity this host lacks, or one codesign fails with, fails here; it never falls
+# back to ad hoc or unsigned. No --deep: nested helpers keep their own signatures.
+cmux_dev_sign_identity_ready || exit 1
+if ! /usr/bin/codesign --force --sign "${CMUX_DEV_SIGN_IDENTITY:--}" --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
+  if [[ "${CMUX_ALLOW_UNSIGNED_DEV_APP:-}" == "1" && "${CMUX_DEV_SIGN_IDENTITY:--}" == "-" ]]; then
     echo "warning: codesign failed for $APP_PATH; continuing because CMUX_ALLOW_UNSIGNED_DEV_APP=1" >&2
   else
-    echo "error: codesign failed for $APP_PATH" >&2
+    echo "error: codesign failed for $APP_PATH${CMUX_DEV_SIGN_IDENTITY:+ with CMUX_DEV_SIGN_IDENTITY '$CMUX_DEV_SIGN_IDENTITY'}" >&2
     exit 1
   fi
 fi
