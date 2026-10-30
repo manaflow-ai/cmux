@@ -24,7 +24,14 @@ const turn = (n: number): Step[] => [
   ["mux", "turn_result", { stopReason: "end_turn", status: "completed", turnId: `t-${n}` }],
 ];
 const records = (steps: Step[]): Rec[] =>
-  steps.map(([dir, kind, msg], index) => ({ sessionId: CHAT, seq: index + 1, at: START + index * 1000, dir, kind, msg }));
+  steps.map(([dir, kind, msg], index) => ({
+    sessionId: CHAT,
+    seq: index + 1,
+    at: START + index * 1000,
+    dir,
+    kind,
+    msg,
+  }));
 
 function daemon(history: Rec[]) {
   const lastSeq = history.length;
@@ -90,7 +97,9 @@ const settle = async () => {
 
 test("paging older history keeps the running turn's prompt", async () => {
   // Five finished turns, then turn 6 still running.
-  const history = records([1, 2, 3, 4, 5].flatMap(turn).concat([...ask(6), ["in", "agent_message_chunk", say("Working")]]));
+  const history = records(
+    [1, 2, 3, 4, 5].flatMap(turn).concat([...ask(6), ["in", "agent_message_chunk", say("Working")]]),
+  );
   type Shown = { isWorking: boolean; turnPrompt?: string; canLoadOlder: boolean };
   let shown: Shown = { isWorking: false, canLoadOlder: false };
   const client = await AcpmuxDirectClient.connect(
