@@ -58,3 +58,19 @@ test("Codex app-server failures stay visible as error then done", () => {
     { kind: "done" },
   ]);
 });
+
+test("Codex request_user_input reaches the person as a question instead of being declined", () => {
+  const events = codexEventsForTest([{
+    id: 7,
+    method: "item/tool/requestUserInput",
+    params: {
+      threadId,
+      turnId,
+      itemId: "item-1",
+      isBlocking: true,
+      questions: [{ id: "region", header: "Region", question: "Which region?", options: [{ label: "us", description: "" }] }],
+    },
+  }]);
+
+  expect(events.map((evt) => evt.kind)).toEqual(["question"]);
+});
