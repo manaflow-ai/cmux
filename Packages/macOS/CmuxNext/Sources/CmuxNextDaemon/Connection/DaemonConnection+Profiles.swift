@@ -21,10 +21,12 @@ extension DaemonConnection {
     @discardableResult
     public func createProfile(name: String, id: ProfileID = .generate(), color: String? = nil, icon: String? = nil,
                               theme: String? = nil, index: Int? = nil, browserProfileID: BrowserProfileKey? = nil,
-                              defaults: ProfileDefaults? = nil) async throws -> ProfileSnapshot {
+                              defaults: ProfileDefaults? = nil, defaultSessionID: String? = nil,
+                              follows: [String]? = nil) async throws -> ProfileSnapshot {
         try requireProfiles()
         return try await request(CreateProfileRequest(name: name, profile: id, color: color, icon: icon, theme: theme, index: index,
-                                                      browserProfileID: browserProfileID, defaults: defaults)).profile
+                                                      browserProfileID: browserProfileID, defaults: defaults,
+                                                      defaultSessionID: defaultSessionID, follows: follows)).profile
     }
 
     @discardableResult

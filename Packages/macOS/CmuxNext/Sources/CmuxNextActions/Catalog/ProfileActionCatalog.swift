@@ -29,6 +29,16 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .menu, .contextMenu], arguments: [CatalogArgument.nameString.optional],
                 cliName: "space new-incognito", mainMenu: .window
             ),
+            // Cloud space: a space that is one Cloud machine (its target, else the one New Cloud Workspace uses, else a
+            // new one). It follows the machine's session and creates there, so switching to it shows the machine's
+            // own workspaces, terminals and browser tabs (RoomHandlers.bindCloudSpace).
+            ActionDescriptor(
+                id: "space.newCloud",
+                title: String(localized: "action.space.newCloud", defaultValue: "New Cloud Space", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "space", "cloud", "vm", "remote", "machine"], category: .workspace, symbol: "cloud",
+                surfaces: [.palette, .keyboard, .menu, .contextMenu], arguments: [CatalogArgument.nameString.optional],
+                targets: [.machine], cliName: "space new-cloud", mainMenu: .window
+            ),
             // Open Space in New Window (spaces-overhaul-DESIGN.md rule 4): a new window shows the space and the
             // window it came from keeps it. The space's right-click menu, a dot dragged out of the switcher,
             // the palette, the CLI and MCP run it.

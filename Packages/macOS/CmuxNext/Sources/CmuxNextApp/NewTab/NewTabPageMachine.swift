@@ -17,8 +17,9 @@ struct NewTabPageMachine {
 
     /// `pane`: the pane the page opens in. With no selected tab (an empty pane) its machine
     /// decides: a pane of another machine uses its workspace's folder there, never this Mac's.
-    @MainActor init(_ services: AppServices, selected: TabModel?, pane: PaneController? = nil) {
-        guard let daemon = selected.map(services.machines.daemon(forTab:)) ?? pane?.daemon, !daemon.isLocal else {
+    /// `machine`: with neither, the machine of a new workspace whose tab is not mirrored yet.
+    @MainActor init(_ services: AppServices, selected: TabModel?, pane: PaneController? = nil, machine: DaemonService? = nil) {
+        guard let daemon = selected.map(services.machines.daemon(forTab:)) ?? pane?.daemon ?? machine, !daemon.isLocal else {
             // Beside an agent chat, the chat's exact folder (it has no daemon folder).
             (cwd, home, remoteFolders) = (NewTerminalStart.inherited(besides: selected, in: pane?.pane ?? selected.flatMap { services.locateTab(model: $0)?.1 }, services: services) ?? selected?.cwd,
                                        NSHomeDirectory(), nil)

@@ -181,11 +181,12 @@ enum NewTabPage {
     /// `window` is where the page shows (the active one when nil; a panel counts as the window
     /// that owns it): its dots' last pick comes first, then the saved `tabs.newTabTemplate` (cx-l1jv).
     static func page(_ services: AppServices, selected: TabModel?, window: NSWindow? = nil,
-                     pane: PaneController? = nil, paletteActions: Bool = true) -> AgentPaneNewTab {
+                     pane: PaneController? = nil, machine: DaemonService? = nil,
+                     paletteActions: Bool = true) -> AgentPaneNewTab {
         let selectedID = selected?.id
         let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
         // An SSH or Cloud tab's page shows that machine's folder, never this Mac's home (cx-gaq9).
-        let machine = NewTabPageMachine(services, selected: selected, pane: pane)
+        let machine = NewTabPageMachine(services, selected: selected, pane: pane, machine: machine)
         var bar = omnibar(services, excluding: selectedID, paletteActions: paletteActions)
         // A page on another machine offers that machine's folders only (cx-k21v).
         if let remote = machine.remoteFolders { (bar.folders, bar.projects) = (remote, remote) }
