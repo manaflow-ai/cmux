@@ -2644,9 +2644,14 @@ export class AcpmuxDirectClient {
 
   /// A Stop acpmux refused (`_acpmux/cancel_refused`: a chat on another machine that only its owner
   /// can stop, a mode a paired device cannot stop): the turn runs on, so it no longer reads as
-  /// stopping, and the chat says why instead of looking as if Stop did nothing.
+  /// stopping, and the chat says why instead of looking as if Stop did nothing. Only the answer to the
+  /// Stop still waiting counts: none waits, or the refusal names another turn than the one stopped
+  /// (`turnId`), and it is a late answer to an earlier Stop.
   private stopRefused(params: any): void {
     if (typeof params?.sessionId !== "string" || params.sessionId !== this.actingSessionId) return;
+    if (this.stoppingAfterSeq === undefined) return;
+    if (typeof params.turnId === "string" && this.stoppedTurnId !== undefined && params.turnId !== this.stoppedTurnId)
+      return;
     this.stopAfterSeq = undefined;
     this.stoppingEnded();
     const reason =
