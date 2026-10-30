@@ -79,6 +79,7 @@ extension SidebarListViewComponents {
         )
         drag.grabOffsetX = press.point.x - rowFrame.minX
         drag.standingWorkspace = standing
+        drag.refusedAtBegin = displayed.hostHeadersShowing
         drag.lastY = press.point.y
         drag.restFrame = rowFrame
         // A grouped row lifts at the list's inset; its indent comes back only for a drop into a group (morphLift).
@@ -105,6 +106,11 @@ extension SidebarListViewComponents {
         let started = CACurrentMediaTime()
         defer { lastDragWorkMs = (CACurrentMediaTime() - started) * 1000 }
         if SidebarListPinDrop.holds(self, drag, at: windowPoint) || offerHandoff(drag, windowPoint: windowPoint) || holdsDragOut(drag, windowPoint: windowPoint) { return }
+        if drag.refusedAtBegin {
+            drag.target = nil; drag.docTarget = nil; drag.blockTarget = nil
+            drag.lift.setRefused(true)
+            return
+        }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
         // The lifted row follows the pointer vertically; x stays locked. A tile has neighbours beside it: it follows both ways.
@@ -133,8 +139,9 @@ extension SidebarListViewComponents {
     func finishDrag(at windowPoint: NSPoint? = nil) {
         guard let drag else { return }
         autoscroll.stop()
-        if SidebarListPinDrop.finish(self, drag) { return }
         if let windowPoint, finishDragOut(drag, at: windowPoint) { return } // the release decides; none: a programmatic end
+        if drag.refusedAtBegin { return cancelDrag() }
+        if SidebarListPinDrop.finish(self, drag) { return }
         // A group dropped where it came from, or where nothing takes it, moves nothing: it goes back as for a cancel.
         if let group = drag.group, group.slot == group.plan.origin || group.drops[group.slot] == nil { return cancelDrag() }
         if let items = drag.docItems, let doc = model.docDrag {
@@ -187,7 +194,7 @@ extension SidebarListViewComponents {
     /// pass after the first), then the list shows the drop as before.
     private func updateDocDrag(_ drag: Drag, point: NSPoint) {
         guard let doc = model.docDrag else { return }
-        guard !displayed.hostHeadersShowing else {
+        guard !drag.refusedAtBegin else {
             drag.docTarget = nil
             drag.target = nil
             drag.blockTarget = nil

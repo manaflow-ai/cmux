@@ -124,10 +124,13 @@ import Testing
     }
 
     @Test func missingLocalIdentityNeverTreatsLocalChatsAsFleet() {
-        let chats = [(Self.parent, [AgentSessionRef(host: "install:unknown", hostName: "This Mac", session: "local")])]
-        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], localHost: nil, pullRequests: [:])
+        let chats = [(Self.parent, [AgentSessionRef(host: "install:unknown", hostName: "This Mac", session: "local")]),
+                     (Self.child, [AgentSessionRef(host: "install:unknown", hostName: "This Mac", session: "worker")])]
+        let recorded = [AgentSessionParents.identity(host: "install:unknown", session: "worker"):
+                        AgentSessionParents.identity(host: "install:unknown", session: "local")]
+        let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], recordedParents: recorded, localHost: nil, pullRequests: [:])
         #expect(pass.state.hosts.isEmpty)
-        #expect(pass.state.parents.isEmpty)
+        #expect(pass.state.parents[Self.child] == Self.parent)
     }
 
     @Test func lineageNestingRemainsInPinnedSectionWhenFleetHostsExist() {

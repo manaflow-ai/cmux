@@ -49,9 +49,13 @@ extension SidebarListViewComponents {
             setHovered(nil)
         }
         if displayed.hostHeadersShowing {
-            external.proposal = nil
-            reload(animated: true)
-            return nil
+            switch external.proposal {
+            case .intoWorkspace?, .beforeTab?: break
+            default:
+                external.proposal = nil
+                reload(animated: true)
+                return nil
+            }
         }
         autoscroll.update(windowPoint: windowPoint)
         if let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) {
@@ -99,7 +103,7 @@ extension SidebarListViewComponents {
     /// Ends an external drag and returns what it would do. The App commits
     /// the proposal (one daemon command) and updates the model.
     func externalDragEnded() -> SidebarTabDrop? {
-        let proposal = displayed.hostHeadersShowing ? nil : external?.proposal
+        let proposal = external?.proposal
         endExternalDrag(dropping: proposal)
         return proposal
     }
