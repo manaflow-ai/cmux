@@ -411,6 +411,7 @@ import Testing
             let h = KindHarness(width: 260)
             defer { h.window.close() }
             h.model.workspacePin = (isPinned: { $0 == Self.busy }, toggle: { _ in })
+            h.model.expanded = true // rows read the model's density flag, which this harness sets by hand
             h.list.reload(animated: false)
             h.sidebar.layoutSubtreeIfNeeded()
             @MainActor func pinShows(_ id: WorkspaceID) throws -> Bool {
@@ -420,6 +421,8 @@ import Testing
                 defer { row.isHovered = false; row.layoutSubtreeIfNeeded() }
                 return !row.pinButton.isHidden && row.pinButton.alphaValue > 0
             }
+            let shown = try #require(h.list.rowViews[.workspace(Self.unread)] as? WorkspaceRowView)
+            try #require(shown.isExpanded, "the row is not expanded, so the check proves nothing")
             let unpinned = try pinShows(Self.unread), pinned = try pinShows(Self.busy)
             #expect(!unpinned, "an unpinned row shows a pin on hover")
             #expect(pinned, "a pinned row lost its hover Unpin")
