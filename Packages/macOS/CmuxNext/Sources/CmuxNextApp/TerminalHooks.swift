@@ -15,7 +15,7 @@ struct TerminalHooks {
         // arrived (a timeout) does not, so it never reaches the program twice.
         TerminalKeyEquivalent.sendToProgram = { [weak services] session, chord, fallback in
             guard let services, let key = services.cache.tabKey(for: session),
-                  let (tab, pane) = services.locateTab(key), tab.kind == .pty else { return false }
+                  let (tab, pane) = services.locateTabOnAnyMachine(key), tab.kind == .pty else { return false }
             let surface = tab.surface
             services.daemon(for: pane).send("send-key", onFailure: { failure in if !failure.mayHaveApplied { fallback() } }) { try await $0.sendKeys(surface, [chord]) }
             return true
