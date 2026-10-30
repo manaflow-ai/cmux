@@ -152,6 +152,12 @@ pub(crate) fn watch(
     for dir in &dirs {
         let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.clone());
         if let Err(e) = watcher.watch(&dir, notify::RecursiveMode::NonRecursive) {
+            // A folder gone before its watch began (the home removed during the startup) is
+            // the loss itself, not a watch that could not be set up.
+            if let Some(why) = owned.lost() {
+                crate::config::mark_home_lost();
+                return Box::pin(std::future::ready(why));
+            }
             tracing::warn!("home watch off: watch {}: {e}", dir.display());
             return Box::pin(std::future::pending());
         }
