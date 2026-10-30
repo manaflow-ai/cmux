@@ -544,7 +544,7 @@ final class CloudService {
                        request: CloudMachineRequest = CloudMachineRequest(), proceed: () throws -> Void = {}) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
-        let name = name ?? request.name
+        var name = name ?? request.name
         // The app server's create takes none of them yet, and its machines have no `/api/vm` file
         // or exec route for a bootstrap: refuse rather than make a machine without what was asked.
         if configuration.linkSource == .appServer, !request.isDefault {
@@ -553,6 +553,16 @@ final class CloudService {
         // Environments live in the cmux-next backend's CloudDO: the classic `/api/vm` path has none.
         if configuration.linkSource != .appServer, request.environment != nil {
             throw ActionFailure(message: CloudEnvironmentStrings().unavailable)
+        }
+        // The cmux-next backend stores no name and no slug for an unnamed machine, so it would be titled by
+        // its raw id: give it a readable one, unique among this account's machines and creations in flight.
+        // The classic `/api/vm` create names it itself (its slug).
+        if name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true, configuration.linkSource == .appServer {
+            let picked = creation?.defaultMachineName ?? CloudMachine.defaultName(
+                taken: machines.cloud.map(\.machine.title) + creations.all.compactMap(\.defaultMachineName),
+                base: CloudStrings.defaultMachineName, numbered: CloudStrings.defaultMachineName(numbered:))
+            creation?.defaultMachineName = picked
+            name = picked
         }
         creating += 1
         defer { creating -= 1 }
