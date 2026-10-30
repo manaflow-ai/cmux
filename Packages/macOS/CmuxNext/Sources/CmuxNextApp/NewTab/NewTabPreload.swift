@@ -13,7 +13,8 @@ import CmuxNextWakeups
 /// (chrome/browser/ui/webui/top_chrome/webui_contents_preload_manager.h). This adapter decides only
 /// where and when; the slot loads the page visible, parks it and hands it over in the key's turn.
 /// With feature `newTabParksHidden` the page parks hidden and the slot's cover shows in the key's
-/// frame; without it the page parks rendering, as the New Tab spare always did.
+/// frame; without it the page keeps its own frame for the move into the pane and then sleeps (its
+/// page view hidden) until the claim, as the New Tab spare did (#26975).
 ///
 /// - Where: the parking sits in the key main window (or the last key one) at the size of the pane
 ///   content Cmd-T fills there, so the adoption changes no size (hqacp-v2: a page parked at the
@@ -370,7 +371,7 @@ final class NewTabPreload {
         warmTimer.schedule(after: launch ? Self.launchDelay : Self.idleInput) { [weak self] in self?.warmNow() }
     }
 
-    /// `view` as the slot holds it: hidden while parked with `newTabParksHidden`, else rendering.
+    /// `view` as the slot holds it: hidden with the slot's cover with `newTabParksHidden`, else asleep after its own frame.
     private func preloadPage(_ view: AgentPaneView) -> any PreloadablePage { AgentPanePreloadPage(pane: view, parksHidden: parksHidden) }
 
     /// Hands the slot the recycled page, else a new one.

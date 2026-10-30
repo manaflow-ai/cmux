@@ -305,6 +305,20 @@ struct NewTabPreloadTests {
             view.redraw.givesNewTabFrame = false
             #expect(!pageView.isHidden, "a late capture hid the claimed page")
 
+            // A claim while the parked frame is still being taken: its completion must not hide the
+            // adopted page (trunk's "adoption during another capture").
+            var release: CheckedContinuation<Void, Never>?
+            view.redraw.snapshotOverride = { await withCheckedContinuation { release = $0 }; return nil }
+            let again = AgentPanePreloadPage(pane: view, parksHidden: false)
+            again.preloadCaptureCover { _ in }
+            try await PasswordManagerRouteTests.until({ release != nil })
+            again.preloadSetVisible(true)
+            release?.resume()
+            try await PasswordManagerRouteTests.until({ view.redraw.snapshotOverride != nil })
+            for _ in 0..<10 { await Task.yield() }
+            #expect(!pageView.isHidden, "a capture that ended after the claim hid the adopted page")
+            view.redraw.snapshotOverride = { nil }
+
             let hidden = AgentPanePreloadPage(pane: view, parksHidden: true)
             #expect(!hidden.preloadFreeze(), "a freeze no engine performs")
             hidden.preloadSetVisible(false)

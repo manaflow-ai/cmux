@@ -1691,12 +1691,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// The preloaded New Tab page waits hidden in the app's preload slot (its document reports hidden), and Cmd-T shows the picture it parked with until its first live frame in the pane. Off: it waits rendering, as before, and its move into the pane is covered by its own last frame.
+    /// The preloaded New Tab page waits hidden in the preload slot, and Cmd-T shows its parked picture until its first live frame. Off: it keeps its own last frame for the move into the pane, then sleeps hidden until Cmd-T.
     public static let newTabParksHidden = Feature(
         index: 97,
         name: "newTabParksHidden",
         owner: "PL-webui",
-        description: "The preloaded New Tab page waits hidden in the app's preload slot (its document reports hidden), and Cmd-T shows the picture it parked with until its first live frame in the pane. Off: it waits rendering, as before, and its move into the pane is covered by its own last frame.",
+        description: "The preloaded New Tab page waits hidden in the preload slot, and Cmd-T shows its parked picture until its first live frame. Off: it keeps its own last frame for the move into the pane, then sleeps hidden until Cmd-T.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
