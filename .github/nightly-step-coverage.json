@@ -200,7 +200,7 @@
         "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
       "signer-build": {"Set up Rust": {"plumbing": true},
         "Build the signer": {"nightly_only": "builds the pinned release signer; the build script's pins are tested by tests/test_release_signer_scripts.py"}},
-      "signer-app": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Prepare the app": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, 
+      "signer-app": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"}, "Prepare the app": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"},
         "Sign the app, the Computer Use helper notarized first": {"nightly_only": "signs with the release environment's Developer ID; the signer's rules are tested by its script tests"},
         "Pack the signed app": {"plumbing": true}},
       "signer-app-notary": {"Install the signer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the release signer scripts"},
