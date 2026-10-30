@@ -15,6 +15,8 @@ final class SidebarPriorityRowView: NSView {
     /// Where the press went down (window points), and whether it has moved far enough to drag.
     private var pressStart: NSPoint?
     private var dragging = false
+    /// The panel cancelled this press's drag (`cancelPress`): its release does nothing.
+    private var pressCancelled = false
 
     private let title = ChromeLabel(labelWithString: "")
     private let placeLabel = ChromeLabel(labelWithString: "")
@@ -213,6 +215,15 @@ final class SidebarPriorityRowView: NSView {
     override func mouseDown(with event: NSEvent) {
         pressStart = event.locationInWindow
         dragging = false
+        pressCancelled = false
+    }
+
+    /// The panel ended this press's drag without a drop (Escape, the panel left its window): the press
+    /// is over, and its release neither drops nor opens the chat.
+    func cancelPress() {
+        pressCancelled = pressStart != nil
+        pressStart = nil
+        dragging = false
     }
 
     /// Past the threshold (a click's jitter never drags, as in the main list) the press drags the row.
@@ -234,6 +245,10 @@ final class SidebarPriorityRowView: NSView {
         let start = pressStart, dragged = dragging
         pressStart = nil
         dragging = false
+        if pressCancelled {
+            pressCancelled = false
+            return
+        }
         if dragged, let start {
             onDrag?(self, start, event.locationInWindow, true)
             return

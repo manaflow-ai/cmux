@@ -40,6 +40,11 @@ final class SidebarPriorityPanelView: NSView {
         var windowPoint: NSPoint
     }
     private var rowDrag: RowDrag?
+    /// Whether a row drag is in progress.
+    var isDraggingRow: Bool { rowDrag != nil }
+    /// Escape while a row is dragged cancels the drag: an app-local key monitor, installed when the drag
+    /// starts and removed when it ends (`endRowDrag`), whichever way it ends.
+    private var escapeMonitor: Any?
     /// Edge autoscroll while a row is dragged: frames from the window's FrameScheduler only while the
     /// pointer is in the list's top or bottom edge zone (`SidebarStyle.autoscrollZone`, as the main list).
     /// It stops when the pointer leaves the zone, the list reaches its end, the drag ends (drop) or the
@@ -84,6 +89,9 @@ final class SidebarPriorityPanelView: NSView {
     }
 
     func show(_ panel: SidebarPriorityPanel) {
+        // Folded, the panel shows no rows: a drag in progress ends there (its rows go back to their slots
+        // before the new feed places them).
+        if panel.collapsed { endRowDrag(cancelled: true) }
         let old = self.panel
         self.panel = panel
         header.configure(title: Strings.priorityTitle, collapsed: panel.collapsed)
@@ -118,7 +126,7 @@ final class SidebarPriorityPanelView: NSView {
             runTop = top
             row.onAction = nil
             row.onDrag = nil
-            if rowDrag?.row === row { endRowDrag() }
+            if rowDrag?.row === row { endRowDrag(cancelled: true) }
             opensUntil[ObjectIdentifier(row)] = nil
             leaving.append((row, NSRect(x: frame.minX, y: top, width: frame.width, height: 0)))
         }
@@ -207,10 +215,12 @@ final class SidebarPriorityPanelView: NSView {
     /// (through the clip view's scrolled bounds), so a list scrolled during the drag drops where the
     /// row shows; held at the list's top or bottom edge, the list scrolls (`autoscroll`).
     private func drag(_ row: SidebarPriorityRowView, start: NSPoint, point: NSPoint, ended: Bool) {
-        guard let from = panel.entries.firstIndex(where: { $0.id == row.entry.id }) else { return endRowDrag() }
+        guard let from = panel.entries.firstIndex(where: { $0.id == row.entry.id }) else { return endRowDrag(cancelled: true) }
         // A new press starts a new drag; its grab is read before anything scrolls.
         if rowDrag?.row !== row || rowDrag?.start != start {
+            if rowDrag != nil { endRowDrag(cancelled: true) }
             rowDrag = RowDrag(row: row, start: start, grab: document.convert(start, from: nil).y - slotTop(from), windowPoint: point)
+            observeEscape()
         }
         rowDrag?.windowPoint = point
         guard ended else {
@@ -218,9 +228,12 @@ final class SidebarPriorityPanelView: NSView {
             if autoscrollVelocity(windowPoint: point) != 0 { autoscroll.activate() } else { autoscroll.deactivate() }
             return
         }
+        // Released beside the panel (left or right of it), the drag is cancelled; above or below it, the
+        // row drops at the end it was pulled to.
+        let local = convert(point, from: nil)
+        guard local.x >= bounds.minX, local.x <= bounds.maxX else { return endRowDrag(cancelled: true) }
         let slot = dropSlot(from: from)
-        endRowDrag()
-        row.layer?.zPosition = 0
+        endRowDrag(cancelled: false)
         var order = panel.entries
         let entry = order.remove(at: from)
         order.insert(entry, at: slot)
@@ -266,16 +279,39 @@ final class SidebarPriorityPanelView: NSView {
     /// pointer's last point, as the next pointer move would put it.
     private func holdDraggedRow() {
         guard let drag = rowDrag else { return }
-        guard let from = panel.entries.firstIndex(where: { $0.id == drag.row.entry.id }) else { return endRowDrag() }
+        guard let from = panel.entries.firstIndex(where: { $0.id == drag.row.entry.id }) else { return endRowDrag(cancelled: true) }
         moveDraggedRow(from: from)
     }
 
-    /// Ends the drag (a drop, or its chat left the feed): the row drops back to its layer and the
-    /// autoscroll stops.
-    private func endRowDrag() {
-        rowDrag?.row.layer?.zPosition = 0
-        rowDrag = nil
+    /// The one way a row drag ends, however it ends: a drop (`cancelled` false; the caller places the
+    /// rows in their new order), or a cancel (Escape, a release beside the panel, the dragged chat leaving
+    /// the feed, the panel folding, hiding or leaving its window). Either way the autoscroll and the Escape
+    /// monitor stop, the row forgets its press (a cancelled press's release opens nothing), drops back to
+    /// its layer, and the hover is read again from the pointer. A cancel puts every row at its ranked slot.
+    private func endRowDrag(cancelled: Bool) {
         autoscroll.deactivate()
+        if let escapeMonitor {
+            NSEvent.removeMonitor(escapeMonitor)
+            self.escapeMonitor = nil
+        }
+        guard let drag = rowDrag else { return }
+        rowDrag = nil
+        drag.row.cancelPress()
+        drag.row.layer?.zPosition = 0
+        // A row that left the feed is already closing its slot (`placeRows` removed it).
+        if cancelled, rows[drag.row.entry.id] === drag.row {
+            placeRows(animated: window != nil && !isHiddenOrHasHiddenAncestor)
+        }
+        PointerHover.refresh(in: window)
+    }
+
+    private func observeEscape() {
+        guard escapeMonitor == nil else { return }
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53, let self, self.rowDrag != nil else { return event } // 53: Escape
+            self.endRowDrag(cancelled: true)
+            return nil
+        }
     }
 
     /// Scroll speed for the pointer at `windowPoint` (points per second, negative up): zero outside the
@@ -307,7 +343,12 @@ final class SidebarPriorityPanelView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { autoscroll.deactivate() }
+        if window == nil { endRowDrag(cancelled: true) }
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        endRowDrag(cancelled: true)
     }
 
     /// A chip says minutes: one redraw a minute while a row works, none otherwise.

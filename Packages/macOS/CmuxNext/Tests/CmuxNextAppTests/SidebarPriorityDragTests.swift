@@ -168,4 +168,38 @@ struct SidebarPriorityDragTests {
         #expect(harness.actions.isEmpty, "the release of a chat that left asked for \(harness.actions)")
         #expect(!panel.autoscroll.isActive)
     }
+
+    /// The panel leaves its window mid-drag (autoscroll running) and comes back: the drag is over. No row is
+    /// left lifted or displaced, the autoscroll is off, and the press's late release opens and moves nothing.
+    @Test func leavingTheWindowMidDragEndsTheDrag() throws {
+        let entries = (0..<30).map { SidebarPriorityEntry(id: "r\($0)", title: "r\($0)", state: .idle) }
+        let harness = Harness(entries: entries, height: 200)
+        let panel = harness.panel
+        let ranked = panel.rows.mapValues(\.frame)
+        let row = try #require(panel.rows["r0"])
+        let clip = try #require(row.enclosingScrollView?.contentView)
+        let start = row.convert(NSPoint(x: 10, y: row.bounds.midY), to: nil)
+        let edge = clip.convert(NSPoint(x: 10, y: clip.bounds.maxY - 2), to: nil)
+        row.mouseDown(with: try harness.event(.leftMouseDown, at: start))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, at: NSPoint(x: start.x, y: start.y - 12)))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, at: edge))
+        try #require(panel.isDraggingRow && panel.autoscroll.isActive, "the drag or its autoscroll did not start")
+        try #require(row.frame != ranked["r0"], "the dragged row did not move")
+
+        harness.window.contentView = NSView()
+        #expect(!panel.isDraggingRow, "the drag outlived the window")
+        #expect(!panel.autoscroll.isActive, "autoscroll kept running out of the window")
+        harness.window.contentView = panel
+        panel.layoutSubtreeIfNeeded()
+        #expect(!panel.isDraggingRow)
+        #expect(!panel.autoscroll.isActive)
+        #expect(row.layer?.zPosition ?? 0 == 0, "the row stayed lifted")
+        for (id, frame) in ranked {
+            #expect(panel.rows[id]?.frame == frame, "\(id) is displaced: \(String(describing: panel.rows[id]?.frame)) for \(frame)")
+        }
+
+        row.mouseUp(with: try harness.event(.leftMouseUp, at: edge))
+        #expect(harness.actions.isEmpty, "the late release asked for \(harness.actions)")
+        #expect(panel.panel.entries.map(\.id) == entries.map(\.id))
+    }
 }
