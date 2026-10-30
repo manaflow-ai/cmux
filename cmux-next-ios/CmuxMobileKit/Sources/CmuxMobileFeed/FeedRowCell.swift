@@ -54,6 +54,8 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     private let name = UILabel()
     private let source = UILabel()
     private let time = UILabel()
+    /// The last time VoiceOver reads, formatted once per date (a reused cell keeps it).
+    private var spokenDate: (date: Date, text: String)?
     private let menuButton = UIButton(type: .custom)
     // Parts a row may not show are made when a row first needs them, so a new cell (the list makes
     // one when it needs more mid-scroll) costs its avatar, header, body and footer, not every part.
@@ -411,20 +413,27 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         let font = styles.font(.subheadline)
         let semibold = styles.font(.subheadline, weight: .semibold)
         let stamp = Self.relativeTime(item.createdAt, now: Date())
+        // VoiceOver reads when, not "3m": "Today at 2:05 PM". At accessibility sizes the time is
+        // hidden and the source line carries it.
+        if spokenDate?.date != item.createdAt { spokenDate = (item.createdAt, Self.fullDate.string(from: item.createdAt)) }
+        let date = spokenDate?.text ?? ""
+        time.accessibilityLabel = date
         let frame = layout.header
         if styles.isAccessibilitySize {
             // At accessibility sizes the source wraps under the name instead of truncating.
             name.attributedText = NSAttributedString(string: item.agentName, attributes: [.font: semibold, .foregroundColor: UIColor.label])
-            source.attributedText = NSAttributedString(string: "\(item.workspaceTitle) · \(stamp)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
+            source.attributedText = NSAttributedString(string: "\(item.place) · \(stamp)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
             time.isHidden = true
+            source.accessibilityLabel = item.place.isEmpty ? date : "in \(item.place), \(date)"
             let line = ceil(font.lineHeight)
             name.frame = CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: line)
             source.frame = CGRect(x: frame.minX, y: frame.minY + line + 2, width: frame.width, height: line)
             return
         }
         time.isHidden = false
+        source.accessibilityLabel = item.place.isEmpty ? nil : "in \(item.place)"
         name.attributedText = NSAttributedString(string: item.agentName, attributes: [.font: semibold, .foregroundColor: UIColor.label])
-        source.attributedText = NSAttributedString(string: "· \(item.workspaceTitle)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
+        source.attributedText = NSAttributedString(string: "· \(item.place)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
         time.attributedText = NSAttributedString(string: "· \(stamp)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
         // HStack(spacing: 4): the time never truncates, then the name, then the source.
         let timeWidth = ceil(time.intrinsicContentSize.width)
@@ -898,6 +907,14 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         default: "sparkle"
         }
     }
+
+    private static let fullDate: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return formatter
+    }()
 
     static func relativeTime(_ date: Date, now: Date) -> String {
         let seconds = Int(now.timeIntervalSince(date))
