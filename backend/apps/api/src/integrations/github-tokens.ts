@@ -273,11 +273,14 @@ const stillLive = (sql: SqlStorage, tokenId: string) => sql.exec(`SELECT 1 FROM 
 const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation: number }, p: Principal, pk: string, cacheKey: string, ask: TokenAsk, now: number): Promise<TokenReply> => {
   const generation = h.revokes.get(pk) ?? 0
   expireRows(h.sql, now)
-  const live = h.sql.exec<Row>(`SELECT * FROM github_tokens WHERE cache_key = ? AND principal = ? AND revoking = 0 AND expires_at > ? ORDER BY expires_at DESC LIMIT 1`, cacheKey, pk, now + REUSE_MARGIN_MS).toArray()[0]
+  // A short-lived ask (a machine token of a few minutes) is reused while half its life remains; the
+  // fixed margin alone would exceed its whole life and mint on every ask until the bucket refuses.
+  const margin = ask.ttlSec === undefined ? REUSE_MARGIN_MS : Math.min(REUSE_MARGIN_MS, ask.ttlSec * 500)
+  const live = h.sql.exec<Row>(`SELECT * FROM github_tokens WHERE cache_key = ? AND principal = ? AND revoking = 0 AND expires_at > ? ORDER BY expires_at DESC LIMIT 1`, cacheKey, pk, now + margin).toArray()[0]
   if (live) {
     const token = await openRow(h.env, live).catch(() => null)
     const again = authorize(h.state(), p, ask)
-    if (token && Number(live.expires_at) > Date.now() + REUSE_MARGIN_MS && stillLive(h.sql, live.token_id) && (h.revokes.get(pk) ?? 0) === generation && !("ok" in again) && again.c.id === picked.c.id) {
+    if (token && Number(live.expires_at) > Date.now() + margin && stillLive(h.sql, live.token_id) && (h.revokes.get(pk) ?? 0) === generation && !("ok" in again) && again.c.id === picked.c.id) {
       return { ok: true, value: { token, expires_at: new Date(Number(live.expires_at)).toISOString(), repo: ask.repo, permissions: JSON.parse(live.permissions) as Record<string, string>, token_id: live.token_id } }
     }
     if ("ok" in again) return again
