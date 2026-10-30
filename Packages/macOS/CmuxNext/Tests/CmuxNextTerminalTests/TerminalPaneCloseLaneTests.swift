@@ -2,7 +2,8 @@ import AppKit
 import CmuxNextCompat
 @testable import CmuxNextTerminal
 @testable import CmuxNextWakeups
-import CmuxSafeConcurrency
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import Foundation
 import GhosttyNextKit
 import Testing
