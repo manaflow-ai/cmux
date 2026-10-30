@@ -5,6 +5,26 @@ import Darwin
 import Foundation
 import Testing
 
+private actor AgentSessionWorkspaceTestLatch {
+    private var opened = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func open() {
+        guard !opened else { return }
+        opened = true
+        let waiters = waiters
+        self.waiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+}
+
 /// `agent.openSessionWorkspace` (`cmux agent open`, the Chief's subagents, Start Agent's Return) on the
 /// real daemon: the new workspace's only tab is the session's chat. It used to get a terminal running
 /// `acpmux attach` first, a bare "~" shell whenever that start missed its deadline (Leo, 2026-10-28:
@@ -106,9 +126,19 @@ struct AgentSessionWorkspaceChatOnlyTests {
         let pid = try #require(services.daemon.identity?.pid)
         daemonPID = pid
         let key = WorkspaceKey.generate()
-        let work = try AgentSessionWorkspace.open(session: "s-chat-only-late", name: "late lane", key: key, cwd: "/tmp", services: services)
+        let workspaceCreated = AgentSessionWorkspaceTestLatch()
+        let releaseFirstTab = AgentSessionWorkspaceTestLatch()
+        let work = try AgentSessionWorkspace.open(session: "s-chat-only-late", name: "late lane", key: key, cwd: "/tmp",
+                                                  services: services, beforeFirstTab: {
+                                                      // Hold the keyed first-tab request until the test has stopped the daemon.
+                                                      // The daemon has committed the workspace, but no tab request has been sent yet.
+                                                      await workspaceCreated.open()
+                                                      await releaseFirstTab.wait()
+                                                  })
+        defer { Task { await releaseFirstTab.open() } }
 
-        // Stop after the workspace is visible but before its first conversation tab can settle.
+        // Stop after the workspace is visible but before its first conversation tab request starts.
+        await workspaceCreated.wait()
         try await PasswordManagerRouteTests.until({
             store.workspaces.contains { workspace in
                 workspace.key == key && workspace.screens.flatMap(\.panes).flatMap(\.tabs).isEmpty
@@ -118,6 +148,7 @@ struct AgentSessionWorkspaceChatOnlyTests {
         // The old ten-second keyed-tab budget must expire while the daemon is stopped.
         try await Task.sleep(for: .seconds(12))
         #expect(kill(pid, SIGCONT) == 0)
+        await releaseFirstTab.open()
         let failure = await work.value?.message
 
         try await PasswordManagerRouteTests.until({

@@ -77,7 +77,8 @@ enum AgentSessionWorkspace {
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
                      group: String? = nil, focus: Bool = false, parent: AgentSessionParents.Identity? = nil,
-                     services: AppServices) throws -> ActionWork {
+                     services: AppServices,
+                     beforeFirstTab: (@MainActor @Sendable () async -> Void)? = nil) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
@@ -118,6 +119,7 @@ enum AgentSessionWorkspace {
                 // whenever its start missed the deadline (Leo, 2026-10-21 and 2026-10-28).
                 let tab = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair,
                                                                           giveUp: giveUp) { created in
+                    await beforeFirstTab?()
                     try await WorkspaceCreation.sessionTab(session, in: created, host: host, linked: true,
                                                            until: giveUp, on: daemon, tabs: services.agentTabs)
                 }
