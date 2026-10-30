@@ -212,8 +212,32 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       expect(await githubRepos({ ...h, state: () => ({ ...state, connections: {} }) }, p, {})).toMatchObject({ ok: false, status: 404, code: "integration.not_found" })
       // The fresh token is cached; when GitHub refuses that one and the next, the connection needs a relink.
       gh.routes["https://api.github.com/installation/repositories"] = () => new Response(null, { status: 401 })
-      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })
+      const needsReauth = vi.fn()
+      expect(await githubRepos({ ...h, needsReauth }, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })
       expect(gh.mints().length).toBe(mints + 2)
+      // Recorded on the connection, so /status shows the relink.
+      expect(needsReauth).toHaveBeenCalledWith(expect.objectContaining({ id: original.id }), expect.any(String))
+    })
+  })
+
+  it.each([401, 404])("answers needs_reauth and records it when GitHub refuses the installation token mint with HTTP %i", async (code) => {
+    const a = await signedInWithInstall(`gh-token-repo-mint-${code}`, "cli")
+    const { gh } = await linkGitHub(a.session, a.team)
+    await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
+      const needsReauth = vi.fn()
+      const h: LedgerHost = { ...instance.ledgerHost(a.team), state: () => instance.boundEngine.currentState, needsReauth }
+      const p: Principal = { identity: `user:${a.user}`, kind: "session", user: a.user, team: a.team }
+      // Empty the per-isolate installation token cache: a listing GitHub refuses twice drops both tokens.
+      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ token: `ghs_mint_${crypto.randomUUID()}`, expires_at: new Date(Date.now() + 3600_000).toISOString(), permissions: { metadata: "read" } }, 201)
+      gh.routes["https://api.github.com/installation/repositories"] = () => new Response(null, { status: 401 })
+      await githubRepos({ ...h, needsReauth: vi.fn() }, p, {})
+      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "refused" }, code)
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 409, code: "needs_reauth" })
+      expect(needsReauth).toHaveBeenCalledTimes(1)
+      // A mint GitHub fails for another reason is retryable and records nothing.
+      gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "boom" }, 500)
+      expect(await githubRepos(h, p, {})).toMatchObject({ ok: false, status: 503, code: "integration.unavailable" })
+      expect(needsReauth).toHaveBeenCalledTimes(1)
     })
   })
 
