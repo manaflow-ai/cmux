@@ -264,6 +264,7 @@ describe("feature tips", () => {
     const card = dom.window.document.createElement("div");
     card.className = "ui-tooltip ui-card ui-glass";
     card.setAttribute("role", "dialog");
+    card.getBoundingClientRect = () => new dom.window.DOMRect(10, 40, 240, 80);
     dom.window.document.body.append(card);
     await settle(TIP_SETTLE_MS * 4);
     expect(controller.shown).toBeNull();
@@ -276,6 +277,18 @@ describe("feature tips", () => {
     expect(controller.shown).toBeNull();
     await settle(1);
     expect(controller.shown?.tip.id).toBe("browser-tip");
+  });
+
+  test("the pages' hidden title tooltip never holds the tip back (a fresh install sees it)", async () => {
+    const { installTooltips } = await import("../titleTooltips");
+    const uninstall = installTooltips(dom.window.document);
+    try {
+      const { controller } = await page({ tips: [TIPS[0]!], overlays: true });
+      await settle(TIP_SETTLE_MS);
+      expect(controller.shown?.tip.id).toBe("browser-tip");
+    } finally {
+      uninstall();
+    }
   });
 
   test("the overlay check sees every open surface, and never the tip itself", () => {
@@ -294,6 +307,7 @@ describe("feature tips", () => {
     ];
     for (const [tag, attribute] of kinds) {
       doc.body.insertAdjacentHTML("beforeend", `<${tag} id="overlay" ${attribute}></${tag}>`);
+      doc.getElementById("overlay")!.getBoundingClientRect = () => new dom.window.DOMRect(10, 40, 240, 80);
       expect(`${tag} ${attribute}: ${pageOverlayOpen(doc)}`).toBe(`${tag} ${attribute}: true`);
       doc.getElementById("overlay")!.remove();
     }

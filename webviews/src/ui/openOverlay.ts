@@ -16,12 +16,26 @@ export const OPEN_OVERLAY_SELECTOR = [
   ".acpmux-menu",
 ].join(", ");
 
-/** Whether an overlay is open in `doc`, leaving out any inside an element `ignore` matches. */
+/** Whether `element` is drawn where the person can see it: not hidden (`hidden`, `inert` or
+    `aria-hidden` on it or an ancestor, `display: none`, `visibility: hidden`) and with a box. A
+    surface kept in the page while closed (the pages' one title tooltip, ui/titleTooltips.ts, stays
+    in the body with `hidden`) is not open. */
+export function isRendered(element: Element): boolean {
+  if (element.closest("[hidden], [inert], [aria-hidden='true']")) return false;
+  const view = element.ownerDocument.defaultView;
+  const style = view?.getComputedStyle(element);
+  if (style && (style.display === "none" || style.visibility === "hidden")) return false;
+  const box = element.getBoundingClientRect();
+  return box.width > 0 && box.height > 0;
+}
+
+/** Whether an overlay is open in `doc`: one drawn on screen (``isRendered``), leaving out one that is
+    closing and any inside an element `ignore` matches. */
 export function openOverlay(doc: Document, ignore?: string): boolean {
   for (const element of doc.querySelectorAll(OPEN_OVERLAY_SELECTOR)) {
     if (element.closest("[data-ending-style]")) continue;
     if (ignore && element.closest(ignore)) continue;
-    return true;
+    if (isRendered(element)) return true;
   }
   return false;
 }
