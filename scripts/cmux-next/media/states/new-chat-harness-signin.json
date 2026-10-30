@@ -1,8 +1,8 @@
 {
-  "title": "New Agent Chat shows harness recovery before its first prompt (requires a fresh home with no harness credentials or injected routes)",
+  "title": "New Agent Chat before send \u2014 synthetic signed-out Claude health",
   "steps": [
     {
-      "title": "Open New Agent Chat on a fresh home without sending",
+      "title": "Open New Agent Chat with synthetic signed-out Claude health, without sending",
       "cmux": [
         "agent",
         "new-chat"
@@ -108,5 +108,35 @@
       "record": "file",
       "wait": 1
     }
-  ]
+  ],
+  "harnessFixture": {
+    "harnesses": {
+      "claude": {
+        "kind": "claude-stdio",
+        "argv": [
+          "claude"
+        ],
+        "family": "claude",
+        "description": "Synthetic capture harness",
+        "models": [
+          {
+            "id": "opus",
+            "name": "Opus"
+          }
+        ]
+      }
+    },
+    "health": [
+      {
+        "id": "claude",
+        "program": "claude",
+        "channel": "native",
+        "outdated": false,
+        "auth": "signedOut",
+        "authDetail": "Synthetic signed-out Claude health for capture",
+        "login": "claude auth login",
+        "checkedAt": 1
+      }
+    ]
+  }
 }
