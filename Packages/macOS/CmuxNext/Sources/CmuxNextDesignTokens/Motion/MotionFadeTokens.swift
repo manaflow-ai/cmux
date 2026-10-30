@@ -92,7 +92,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
     /// under the saver (``MotionPolicy/animatesBlinks``).
     public var isAmbient: Bool {
         switch self {
-        case .spinner, .pulse, .sweep, .breath: true
+        // The drag panel's arrow bob loops by itself while it shows (trunk #26065): ambient too.
+        case .spinner, .pulse, .sweep, .breath, .nudge: true
         case .flash, .wiggle: false
         }
     }
