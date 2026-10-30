@@ -42,7 +42,7 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
 
     private struct Entry: Sendable {
         var record: Record
-        var connection: AnyHashable
+        var connection: SessionRegistrationConnection
         var state: State
         var pacer: RetryPacer
         /// The send in flight or last answered; an answer with another token is stale.
@@ -60,14 +60,15 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
     }
 
     /// Whether `record` must be sent for `session` on `connection` now; when true it counts as in flight.
-    public mutating func shouldSend(session: String, record: Record, connection: AnyHashable) -> Bool {
+    public mutating func shouldSend(session: String, record: Record, connection: some Hashable & Sendable) -> Bool {
         begin(session: session, record: record, connection: connection) != nil
     }
 
     /// ``shouldSend(session:record:connection:)`` that returns the send's token, or nil when nothing is
     /// sent. `connection` identifies the home connection (the owner's generation counter): a new one
     /// sends every record again.
-    public mutating func begin(session: String, record: Record, connection: AnyHashable) -> UInt64? {
+    public mutating func begin(session: String, record: Record, connection id: some Hashable & Sendable) -> UInt64? {
+        let connection = SessionRegistrationConnection(id)
         nextToken &+= 1
         if var entry = entries[session], entry.record == record, entry.connection == connection {
             switch entry.state {
@@ -167,4 +168,22 @@ public struct SessionRegistrationLedger<Record: Hashable & Sendable>: Sendable {
 extension RetryPolicy {
     /// A `put-session` with no answer: 250 ms growing to 30 s, 8 timed attempts, then an event.
     public static let sessionRegistration = RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 8)
+}
+
+/// The home connection a record went to: the owner's generation counter (a `UInt64`), compared by
+/// value, so a new connection after a daemon restart is never mistaken for the old one.
+public struct SessionRegistrationConnection: Hashable, Sendable {
+    private let id: any Hashable & Sendable
+
+    public init(_ id: some Hashable & Sendable) {
+        self.id = id
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        AnyHashable(lhs.id) == AnyHashable(rhs.id)
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        AnyHashable(id).hash(into: &hasher)
+    }
 }
