@@ -775,6 +775,69 @@ for (const turnId of ["turn-grace", undefined])
     }
   });
 
+// Review at f3f7ad83 (P2): turn_error is the legacy pair of turn_result, as turn_end is; it answers
+// an unidentified Stop the same way.
+test("a legacy turn_error answers an unidentified Stop, so the next turn's Stop is sent", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "legacy prompt" }],
+      ["mux", "turn_started", {}],
+    ]),
+  );
+  const { client } = await connect(daemon);
+  const cancels = () => daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel").length;
+  try {
+    await client.cancel();
+    daemon.push(record([["mux", "turn_error", { error: "stream disconnected" }]], 3));
+    daemon.push(
+      record(
+        [
+          ["mux", "user_message", { text: "next legacy prompt" }],
+          ["mux", "turn_started", {}],
+        ],
+        4,
+      ),
+    );
+    await client.cancel();
+    expect(cancels()).toBe(2);
+  } finally {
+    client.close();
+  }
+});
+
+// Review at f3f7ad83 (P2): the stopped turn's own late turn_end, arriving while a newer turn runs,
+// still answers its Stop, so a later turn with no identity is not taken for the stopped one.
+test("a stopped turn's late turn_end answers its Stop while a newer turn runs", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "first", turnId: "turn-a" }],
+      ["mux", "turn_started", { turnId: "turn-a" }],
+    ]),
+  );
+  const { client } = await connect(daemon);
+  const cancels = () => daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel").length;
+  try {
+    await client.cancel();
+    daemon.push(
+      record(
+        [
+          ["mux", "user_message", { text: "second", turnId: "turn-b" }],
+          ["mux", "turn_started", { turnId: "turn-b" }],
+          ["mux", "turn_end", { turnId: "turn-a" }],
+          ["mux", "turn_result", { turnId: "turn-b", status: "completed" }],
+          ["mux", "user_message", { text: "legacy third" }],
+          ["mux", "turn_started", {}],
+        ],
+        3,
+      ),
+    );
+    await client.cancel();
+    expect(cancels()).toBe(2);
+  } finally {
+    client.close();
+  }
+});
+
 // Review at d99da5ca (P2): a daemon that ends the fenced turn with turn_end naming that turn must
 // still end it; only an end that names no turn, or another one, is ambiguous behind the fence.
 test("a fenced live turn ends on a turn_end that names it", async () => {
