@@ -249,3 +249,33 @@ async fn remove_reports_unknown_ids() {
     assert_eq!(v["removed"], 1, "{out}");
     assert!(queued_ids(&mut rpc, &id).await.is_empty());
 }
+
+/// `clear --from-agents` checks that a prompt is still another agent's message as it leaves,
+/// under the queue's lock (`_acpmux/queue_remove` `fromAgentsOnly`), not only by the list it
+/// read first: an agent message the person edits becomes theirs, and a removal asked for
+/// agents' messages only keeps it.
+#[tokio::test]
+async fn an_agents_only_removal_keeps_a_prompt_the_person_edited() {
+    let daemon = Daemon::start("qed").await;
+    let (mut rpc, id) =
+        busy_with_queue(&daemon, &[("p-me", None, "mine"), ("p-a", Some("lane-a"), "hi")]).await;
+    let agents_only =
+        |prompt_id: &str| json!({"sessionId": id, "promptId": prompt_id, "fromAgentsOnly": true});
+    // The person's own prompt is kept, and the daemon says why.
+    let v = rpc.call("_acpmux/queue_remove", agents_only("p-me")).await;
+    assert_eq!(v["removed"], false, "{v}");
+    assert_eq!(v["notFromAgent"], true, "{v}");
+    assert_eq!(v["fromAgentsOnly"], true, "{v}");
+    // The person edits the agent's message: it is theirs now, and kept too.
+    let edit = json!({"sessionId": id, "promptId": "p-a", "op": "update", "text": "my words"});
+    rpc.call("_acpmux/queue_edit", edit).await;
+    let v = rpc.call("_acpmux/queue_remove", agents_only("p-a")).await;
+    assert_eq!(v["removed"], false, "{v}");
+    assert_eq!(v["notFromAgent"], true, "{v}");
+    assert_eq!(queued_ids(&mut rpc, &id).await, ["p-me", "p-a"]);
+    // And clear has nothing of an agent's left to take.
+    let (ok, v, out) = daemon.queue(&["clear", &id, "--from-agents"]).await;
+    assert!(ok, "{out}");
+    assert_eq!(v["removed"], 0, "{out}");
+    assert_eq!(queued_ids(&mut rpc, &id).await, ["p-me", "p-a"]);
+}

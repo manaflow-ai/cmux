@@ -55,10 +55,27 @@ pub async fn run(client: &Client, cmd: QueueCmd, json_out: bool) -> Result<()> {
             let id = crate::cli::resolve::control_id(client, &session).await?;
             let mut queue = queue(client, &id).await?;
             if json_out {
+                let mut unread = 0;
                 for item in &mut queue {
-                    with_full_text(client, &id, item).await;
+                    if !with_full_text(client, &id, item).await {
+                        unread += 1;
+                    }
                 }
                 print_json(&json!({"sessionId": id, "queue": queue}));
+                // The rows it read stay printed; the command still fails, so a script never
+                // takes a missing text for the whole queue.
+                if unread > 0 {
+                    return Err(AppError::new(
+                        Code::Runtime,
+                        "queue.text_unread",
+                        format!(
+                            "the whole text of {unread} of {} queued prompt(s) could not be read \
+                             (each row's textError says why)",
+                            queue.len()
+                        ),
+                    )
+                    .into());
+                }
             } else {
                 for line in list_lines(&queue) {
                     println!("{line}");
@@ -70,7 +87,7 @@ pub async fn run(client: &Client, cmd: QueueCmd, json_out: bool) -> Result<()> {
             let id = crate::cli::resolve::control_id(client, &session).await?;
             let mut results = Vec::with_capacity(prompt_ids.len());
             for prompt_id in &prompt_ids {
-                results.push(remove_one(client, &id, prompt_id).await);
+                results.push(remove_one(client, &id, prompt_id, false).await);
             }
             report(&id, &results, json_out, false)
         }
@@ -99,9 +116,25 @@ pub async fn run(client: &Client, cmd: QueueCmd, json_out: bool) -> Result<()> {
             let mut results = Vec::with_capacity(targets.len());
             for item in &targets {
                 let prompt_id = item["promptId"].as_str().unwrap_or_default();
-                results.push(remove_one(client, &id, prompt_id).await);
+                let result = remove_one(client, &id, prompt_id, true).await;
+                // A daemon that does not check `fromAgentsOnly` as the prompt leaves (an older
+                // acpmux, or a peer on one) removed it by the list read before: stop there.
+                let unchecked = result["status"] == "removed" && result["checked"] != true;
+                results.push(result);
+                if unchecked {
+                    report(&id, &results, json_out, true)?;
+                    return Err(AppError::new(
+                        Code::Runtime,
+                        "queue.agents_only_unsupported",
+                        "this session's daemon does not check that a prompt is still another \
+                         agent's message as it removes it (an older acpmux); clear stopped after \
+                         one. Update that daemon, or remove PROMPT_ID... by hand",
+                    )
+                    .into());
+                }
             }
-            // One that left the queue meanwhile (it ran or its sender took it back) is no failure.
+            // One that left the queue meanwhile (it ran or its sender took it back), or that an
+            // edit made the person's (kept), is no failure.
             report(&id, &results, json_out, true)
         }
     }
@@ -114,19 +147,37 @@ async fn queue(client: &Client, id: &str) -> Result<Vec<Value>> {
 }
 
 /// `item` with its whole text (`text`, from `_acpmux/queue_text`) beside the summary's
-/// 200-character `prompt` preview. One that left the queue meanwhile, or a daemon too old to
-/// answer, leaves `text` null and says why in `textError`.
-async fn with_full_text(client: &Client, id: &str, item: &mut Value) {
+/// 200-character `prompt` preview. One that left the queue since the list was read
+/// (`queue.not_found`) is marked `left: true`, which is no failure. Any other error (the link,
+/// a refusal, a daemon too old to answer) leaves `text` null, says why in `textError` and
+/// answers false.
+async fn with_full_text(client: &Client, id: &str, item: &mut Value) -> bool {
     let prompt_id = item["promptId"].as_str().unwrap_or_default().to_owned();
     let params = json!({"sessionId": id, "promptId": prompt_id});
-    let (text, error) = match client.request(method::MUX_QUEUE_TEXT, params).await {
-        Ok(v) => (v["text"].clone(), Value::Null),
-        Err(e) => (Value::Null, json!(e.to_string())),
-    };
-    item["text"] = text;
-    if !error.is_null() {
-        item["textError"] = error;
+    match client.request(method::MUX_QUEUE_TEXT, params).await {
+        Ok(v) => {
+            item["text"] = v["text"].clone();
+            true
+        }
+        Err(e) if left_queue(&e) => {
+            item["text"] = Value::Null;
+            item["left"] = json!(true);
+            true
+        }
+        Err(e) => {
+            item["text"] = Value::Null;
+            item["textError"] = json!(e.to_string());
+            false
+        }
     }
+}
+
+/// `_acpmux/queue_text`'s answer for a prompt no longer queued (`hub/queue_text.rs`).
+fn left_queue(e: &anyhow::Error) -> bool {
+    e.downcast_ref::<crate::client::DaemonError>().is_some_and(|e| {
+        e.0.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str)
+            == Some("queue.not_found")
+    })
 }
 
 /// Another agent's message: `fromAgent` names its sender. The person's own prompt, and a
@@ -175,25 +226,47 @@ fn list_lines(queue: &[Value]) -> Vec<String> {
 }
 
 /// One prompt's outcome: `removed`, `not_found` (not waiting: it started, ended or was already
-/// taken out), or `refused` with the daemon's reason.
-async fn remove_one(client: &Client, id: &str, prompt_id: &str) -> Value {
-    let params = json!({"sessionId": id, "promptId": prompt_id});
+/// taken out), `kept` (asked `from_agents_only`, and it is no longer another agent's message:
+/// the person edited it), or `refused` with the daemon's reason. With `from_agents_only`, a
+/// removed one says `checked` when the daemon checked that as it left (`fromAgentsOnly`).
+async fn remove_one(client: &Client, id: &str, prompt_id: &str, from_agents_only: bool) -> Value {
+    let mut params = json!({"sessionId": id, "promptId": prompt_id});
+    if from_agents_only {
+        params["fromAgentsOnly"] = json!(true);
+    }
     match client.request(method::MUX_QUEUE_REMOVE, params).await {
-        Ok(v) if v["removed"] == true => json!({"promptId": prompt_id, "status": "removed"}),
-        Ok(_) => json!({"promptId": prompt_id, "status": "not_found"}),
+        Ok(v) => outcome(prompt_id, &v, from_agents_only),
         Err(e) => json!({"promptId": prompt_id, "status": "refused", "error": e.to_string()}),
     }
+}
+
+/// `remove_one`'s outcome for the daemon's reply `v`.
+fn outcome(prompt_id: &str, v: &Value, from_agents_only: bool) -> Value {
+    let checked = v["fromAgentsOnly"] == true;
+    let mut r = match () {
+        _ if v["removed"] == true => json!({"promptId": prompt_id, "status": "removed"}),
+        _ if checked && v["notFromAgent"] == true => {
+            json!({"promptId": prompt_id, "status": "kept"})
+        }
+        _ => json!({"promptId": prompt_id, "status": "not_found"}),
+    };
+    if from_agents_only {
+        r["checked"] = json!(checked);
+    }
+    r
 }
 
 /// Prints each outcome; an error when any prompt was refused, or (unless `gone_ok`) not found.
 fn report(id: &str, results: &[Value], json_out: bool, gone_ok: bool) -> Result<()> {
     let count = |status: &str| results.iter().filter(|r| r["status"] == status).count();
     let (removed, not_found, refused) = (count("removed"), count("not_found"), count("refused"));
+    let kept = count("kept");
     if json_out {
         print_json(&json!({
             "sessionId": id,
             "removed": removed,
             "notFound": not_found,
+            "kept": kept,
             "refused": refused,
             "results": results,
         }));
@@ -203,10 +276,11 @@ fn report(id: &str, results: &[Value], json_out: bool, gone_ok: bool) -> Result<
             match r["status"].as_str() {
                 Some("removed") => println!("removed    {prompt_id}"),
                 Some("not_found") => println!("not found  {prompt_id} (not in the queue)"),
+                Some("kept") => println!("kept       {prompt_id} (now the person's prompt)"),
                 _ => println!("refused    {prompt_id}: {}", r["error"].as_str().unwrap_or("")),
             }
         }
-        println!("{removed} removed, {not_found} not found, {refused} refused");
+        println!("{removed} removed, {not_found} not found, {kept} kept, {refused} refused");
     }
     if refused > 0 || (!gone_ok && not_found > 0) {
         let failed = if gone_ok { refused } else { refused + not_found };
@@ -268,5 +342,37 @@ mod tests {
         assert!(report("s", &results, true, true).is_ok());
         let refused = [json!({"promptId": "a", "status": "refused", "error": "moving"})];
         assert!(report("s", &refused, true, true).is_err());
+        assert!(report("s", &[json!({"promptId": "a", "status": "kept"})], true, true).is_ok());
+    }
+
+    /// Only `queue.not_found` (the prompt left the queue after the list) is no failure of the
+    /// full-text read; any other error is.
+    #[test]
+    fn only_a_prompt_that_left_the_queue_is_no_text_failure() {
+        let daemon = |e: crate::rpc::RpcError| anyhow::Error::from(crate::client::DaemonError(e));
+        let gone = crate::rpc::RpcError::not_found("no prompt q waits")
+            .with_data(json!({"reason": "queue.not_found", "promptId": "q"}));
+        assert!(left_queue(&daemon(gone)));
+        assert!(!left_queue(&daemon(crate::rpc::RpcError::not_found("no session"))));
+        assert!(!left_queue(&anyhow::anyhow!("the daemon closed the connection")));
+    }
+
+    /// Only a daemon that echoes `fromAgentsOnly` checked it; one that does not (an older
+    /// acpmux) is `checked: false`, and an edited prompt it kept reads `kept`.
+    #[test]
+    fn an_agents_only_removal_says_whether_the_daemon_checked_it() {
+        let new = json!({"removed": true, "fromAgentsOnly": true, "notFromAgent": false});
+        assert_eq!(
+            outcome("a", &new, true),
+            json!({"promptId": "a", "status": "removed", "checked": true})
+        );
+        let old = json!({"removed": true});
+        assert_eq!(outcome("a", &old, true)["checked"], false);
+        let kept = json!({"removed": false, "fromAgentsOnly": true, "notFromAgent": true});
+        assert_eq!(outcome("a", &kept, true)["status"], "kept");
+        assert_eq!(
+            outcome("a", &json!({"removed": false}), false),
+            json!({"promptId": "a", "status": "not_found"})
+        );
     }
 }
