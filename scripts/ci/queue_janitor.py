@@ -336,6 +336,9 @@ LOST_RERUN_MAX = 10
 LOST_SETTLE_READS = 12
 LOST_SETTLE_INTERVAL_S = 10
 LOST_SETTLE_BUDGET_S = 90.0
+# The last LOST_RECOVERY_RESERVE_S of it are kept for the reads and re-runs after the wait, so a cancel that
+# never settles does not use up the time the settled ones need.
+LOST_RECOVERY_RESERVE_S = 30.0
 LOST_FAILOVER_CUTOFF_S = 9 * 60.0
 # Unclaimed legs (find_unclaimed()): a leg on an owned label still queued with
 # no runner this long after it could first run, or the pool's p90 wait when
@@ -2025,6 +2028,7 @@ def plan_lost_reruns(
     branch_heads: Mapping[str, str] | None = None,
     app_token: bool = True,
     cmux_bot: bool = False,
+    rerun_cap: int | None = None,
 ) -> list[LostRerun]:
     """Which pending category-e and category-f cancels to re-run now.
 
@@ -2044,8 +2048,11 @@ def plan_lost_reruns(
     is kept too. An entry that needs an App's re-run (`app_actor`, a
     Blacksmith leg) is kept while this sweep has none (`app_token`), and one
     cancelled at an open pull request's head (`open_head`, open_head_lost())
-    while this sweep's token is not cmux-bot's (`cmux_bot`).
+    while this sweep's token is not cmux-bot's (`cmux_bot`). At most `rerun_cap`
+    (LOST_RERUN_MAX by default) are re-run; main() shares that one allowance
+    between rerun_open_head() and the pending entries.
     """
+    cap = LOST_RERUN_MAX if rerun_cap is None else max(0, rerun_cap)
     decisions: list[LostRerun] = []
     reruns = 0
     for entry in pending:
@@ -2103,8 +2110,8 @@ def plan_lost_reruns(
         if entry.get("open_head") and not (cmux_bot and app_token):
             decisions.append(LostRerun(entry, "keep", "needs cmux-bot's re-run; this sweep has no cmux-bot token", run))
             continue
-        if reruns >= LOST_RERUN_MAX:
-            decisions.append(LostRerun(entry, "keep", f"re-run cap of {LOST_RERUN_MAX} reached", run))
+        if reruns >= cap:
+            decisions.append(LostRerun(entry, "keep", f"re-run cap of {LOST_RERUN_MAX} a sweep reached", run))
             continue
         reruns += 1
         decisions.append(LostRerun(entry, "rerun", why, run))
@@ -2147,6 +2154,8 @@ def rerun_open_head(
     reads: int = LOST_SETTLE_READS,
     interval_s: float = LOST_SETTLE_INTERVAL_S,
     budget_s: float = LOST_SETTLE_BUDGET_S,
+    reserve_s: float = LOST_RECOVERY_RESERVE_S,
+    rerun_cap: int = LOST_RERUN_MAX,
 ) -> tuple[list[LostRerun], list[dict[str, Any]], dict[int, str], int]:
     """Re-run, in the sweep that cancelled them, the lost jobs category e cancelled at an open PR's head.
 
@@ -2162,13 +2171,15 @@ def rerun_open_head(
 
     All of it, requests, their retries and their socket timeouts included, ends within `budget_s` of the
     first read (GitHub.deadline): the job's timeout skips the snapshot upload that carries an entry to the
-    next sweep. Returns (decisions, entries still pending, results, failures): an entry whose cancel did not
+    next sweep. The wait itself stops `reserve_s` before that, so the cancels that did settle still get
+    their reads and re-runs when another never settles. At most `rerun_cap` are re-run. Returns (decisions, entries still pending, results, failures): an entry whose cancel did not
     settle in time, whose run or pull request could not be read, or whose re-run GitHub refused stays
     pending, and the next sweep's plan_lost_reruns() re-runs it (run 40398277457 stayed cancelled because
     its re-run waited on a later sweep with no state to find it; here the state is written before the first
     read).
     """
     deadline = time.monotonic() + budget_s
+    wait_until = deadline - min(reserve_s, budget_s)
     waiting = {int(entry["run_id"]): entry for entry in entries}
     seen: dict[int, Mapping[str, Any]] = {}
     previous = github.deadline
@@ -2176,7 +2187,7 @@ def rerun_open_head(
     try:
         for read in range(max(1, reads)):
             for run_id in list(waiting):
-                if time.monotonic() >= deadline:
+                if time.monotonic() >= wait_until:
                     break
                 try:
                     run = github.run(run_id)
@@ -2186,7 +2197,7 @@ def rerun_open_head(
                 seen[run_id] = run
                 if run.get("status") == "completed":
                     del waiting[run_id]
-            pause = min(interval_s, deadline - time.monotonic())
+            pause = min(interval_s, wait_until - time.monotonic())
             if not waiting or read == reads - 1 or pause <= 0:
                 break
             time.sleep(pause)
@@ -2209,7 +2220,7 @@ def rerun_open_head(
                       file=sys.stderr)
         judged = {id(decision.entry): decision for decision in plan_lost_reruns(
             [entry for entry in entries if int(entry["run_id"]) in settled], settled, prs_now, now=now,
-            head_runs=head_runs, app_token=github.app_token, cmux_bot=True)}
+            head_runs=head_runs, app_token=github.app_token, cmux_bot=True, rerun_cap=rerun_cap)}
         decisions: list[LostRerun] = []
         for entry in entries:
             run_id = int(entry["run_id"])
@@ -3971,7 +3982,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if open_head:
             if cmux_bot() and time.monotonic() - sweep_started < LOST_FAILOVER_CUTOFF_S:
                 open_head_decisions, open_head_pending, open_head_results, open_head_failures = rerun_open_head(
-                    github, open_head, now=now, inventory=runs)
+                    github, open_head, now=now, inventory=runs, rerun_cap=LOST_RERUN_MAX)
             else:
                 # Refused since the plan (app_token), or the sweep is too far into its timeout to wait: leave
                 # every one to the next sweep, which re-runs it once it holds cmux-bot's token.
@@ -4007,9 +4018,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                    if run.get("status") == "completed" and run.get("conclusion") == "cancelled"]
         read_heads(branch_head_lookups(settled, {run.get("id") for run in settled}, prs_by_branch=prs_by_branch,
                                        known=branch_heads, cap=PENDING_HEAD_LOOKUPS))
+        # One LOST_RERUN_MAX a sweep: what the open-head failover re-ran comes out of the pending entries' share.
+        open_head_reruns = sum(1 for decision in open_head_decisions if decision.action == "rerun")
         rerun_decisions = plan_lost_reruns(pending, runs_now, prs_by_branch, now=now, head_runs=head_runs,
                                            branch_heads=branch_heads, app_token=github.app_token,
-                                           cmux_bot=cmux_bot())
+                                           cmux_bot=cmux_bot(), rerun_cap=LOST_RERUN_MAX - open_head_reruns)
         if args.dry_run:
             # Nothing acted on, so only an expired entry goes.
             still_pending = [dict(decision.entry) for decision in rerun_decisions
