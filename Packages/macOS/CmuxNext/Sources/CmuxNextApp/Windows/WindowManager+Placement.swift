@@ -57,7 +57,8 @@ extension WindowManager {
             // Waits for a current row a cold layout omits; one pinned since the press shows in the band, not the list.
             if pending.byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home) == true,
                let current = pending.byDefault?.current, services.machines.workspace(id: current) != nil,
-               !NewWorkspacePlacements.shownInBand(current, layout: bridge.model.layout, machines: services.machines) {
+               !NewWorkspacePlacements.shownInBand(current, layout: bridge.model.layout, room: bridge.model.activeProfileID?.rawValue,
+                                                   machines: services.machines) {
                 pendingPlacements[id] = pending
                 continue
             }

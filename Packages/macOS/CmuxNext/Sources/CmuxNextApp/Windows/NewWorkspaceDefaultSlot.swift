@@ -140,18 +140,18 @@ enum NewWorkspacePlacements {
         let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback
         let window = windowID ?? windows.registry.value.mostRecentOpen()
         let current = window.flatMap { windows.states[$0]?.workspaceID }
-        let layout = window.flatMap { windows.controller(for: $0)?.sidebar.model.layout }
+        let model = window.flatMap { windows.controller(for: $0)?.sidebar.model }
         let currentMachine = current.flatMap { id in
-            layout.map { shownInBand(id, layout: $0, machines: windows.services.machines) } == true
+            model.map { shownInBand(id, layout: $0.layout, room: $0.activeProfileID?.rawValue, machines: windows.services.machines) } == true
                 ? nil : windows.services.machines.daemon(forWorkspace: id)?.machineID
         }
         return NewWorkspaceDefaultSlot(placement: placement, current: current, currentMachine: currentMachine)
     }
 
     /// Whether workspace `id` shows outside the window's workspace list: an item of a section of
-    /// `layout` (pinned, the top region, a custom section), or a legacy pin (`workspace-pin-v1`, the
-    /// Pinned list section while the sidebar layout is unavailable).
-    static func shownInBand(_ id: String, layout: SidebarLayoutDocument, machines: MachineRegistry) -> Bool {
+    /// `layout` that shows in the window's space `room` (pinned, the top region, a custom section), or a
+    /// legacy pin (`workspace-pin-v1`, the Pinned list section while the sidebar layout is unavailable).
+    static func shownInBand(_ id: String, layout: SidebarLayoutDocument, room: String?, machines: MachineRegistry) -> Bool {
         if machines.workspace(id: id)?.0.pinned == true { return true }
         guard let ref = WorkspaceLayoutRefs(machines: machines).ref(forWorkspace: id) else { return false }
         return layout.sections.contains { $0.items.contains { $0.ref == ref } }
