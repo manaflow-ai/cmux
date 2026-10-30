@@ -240,7 +240,7 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "history-narrow", description: "Narrow history destination fixture."),
         CaptureSceneDefinition(name: "cloud-start-session-ask", description: "An agent's cmux cloud start-session ask card in its chat."),
         CaptureSceneDefinition(name: "cloud-agent-machines",
-                               description: "Two running Cloud machines an agent or a lane-pool tool made, never opened here, each with its image's own workspace; their headers must draw."),
+                               description: "Two running Cloud machines an agent or a lane-pool tool made, never opened here, each with its image's own workspace; their headers must draw and their workspaces list nowhere (the after of #27884)."),
         CaptureSceneDefinition(name: "cloud-agent-machines-leaked",
                                description: "cloud-agent-machines that also fails unless each machine's workspace draws a row (the before of #27884)."),
         CaptureSceneDefinition(name: "hints-cmd-held", description: "Command modifier hint destination."),
@@ -266,8 +266,8 @@ extension CaptureSceneRegistry {
 
     /// Adds the machines to the settled showcase window with a header per computer, so each machine
     /// draws its header whether or not a window took its workspace, scrolls them into view, and
-    /// snapshots the window once both headers are drawn (and, with `expectsRows`, each machine's
-    /// workspace row too). Anything less fails, and the error names what each machine got to:
+    /// snapshots the window once both headers are drawn and each machine's workspace row is drawn
+    /// (`expectsRows`, the before) or listed nowhere (the after). Anything else fails, and the error names what each machine got to:
     /// a still that missed it would prove nothing. Cleanup runs on every exit.
     func renderAgentCloudMachines(_ params: [String: CmuxNextSettings.JSONValue], definition: CaptureSceneDefinition,
                                   windowID: String, expectsRows: Bool) async -> CmuxNextSettings.JSONValue {
@@ -286,7 +286,7 @@ extension CaptureSceneRegistry {
         let done = { [self] in
             Self.agentMachineIDs.allSatisfy { id in
                 agentMachineRow(.section(.machine(MachineID(id))), windowID: windowID) != nil
-                    && (!expectsRows || agentMachineRow(.workspace(WorkspaceID("ws-\(id)")), windowID: windowID) != nil)
+                    && (agentMachineRow(.workspace(WorkspaceID("ws-\(id)")), windowID: windowID) != nil) == expectsRows
             }
         }
         frames.start()
@@ -298,15 +298,18 @@ extension CaptureSceneRegistry {
         if listed != nil {
             settled = await frames.settled(until: { [self] in
                 Self.agentMachineIDs.allSatisfy { id in
-                    agentMachineRowShown(.section(.machine(MachineID(id))), windowID: windowID)
-                        && (!expectsRows || agentMachineRowShown(.workspace(WorkspaceID("ws-\(id)")), windowID: windowID))
+                    let row = SidebarRowKey.workspace(WorkspaceID("ws-\(id)"))
+                    return agentMachineRowShown(.section(.machine(MachineID(id))), windowID: windowID)
+                        && (expectsRows ? agentMachineRowShown(row, windowID: windowID)
+                            : agentMachineRow(row, windowID: windowID) == nil && services.windows.registry.value.owner(of: "ws-\(id)") == nil)
                 }
             }, start: ContinuousClock.now, window: 300, deadline: 3_000)
         }
         let frameStats = frames.stop()
         let report = agentMachinesReport(windowID: windowID)
         guard settled != nil else {
-            return .object(["error": .string("cloud-agent-machines: \(listed == nil ? "never listed" : "never drew in view") [\(Self.summary(report))]"),
+            let want = expectsRows ? "headers and rows" : "headers without rows"
+            return .object(["error": .string("\(definition.name): \(want) \(listed == nil ? "never listed" : "never drew in view") [\(Self.summary(report))]"),
                             "scene": .string(definition.name), "scene_action": report, "frames": frameStats])
         }
         var snapshotParams = params
