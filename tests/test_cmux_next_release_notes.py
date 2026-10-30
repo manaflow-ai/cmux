@@ -34,6 +34,7 @@ class ReleaseNotesTests(unittest.TestCase):
                     f"## Changelog\n\nFixed: Tabs stay put{punctuation} Another sentence. A third sentence."),
                     f"Tabs stay put{punctuation}")
         self.assertEqual(notes.pr_description("", "Tabs stay put. Extra detail."), "Tabs stay put.")
+        self.assertEqual(notes.pr_description("## Summary\n\nTabs stay put.\" More detail."), "Tabs stay put.")
 
     def test_pr_body_timeout_returns_media_style_empty_fallback(self):
         import importlib.util
@@ -45,6 +46,8 @@ class ReleaseNotesTests(unittest.TestCase):
             body = notes.pr_body(123, None)
         self.assertEqual(body, "")
         self.assertEqual(notes.pr_description(body, "Tabs stay put"), "Tabs stay put.")
+        with mock.patch.object(notes.subprocess, "run", side_effect=FileNotFoundError("gh")):
+            self.assertEqual(notes.pr_body(123, None), "")
 
     def test_backend_descriptions_are_internal_and_summary_digest_uses_description(self):
         import importlib.util

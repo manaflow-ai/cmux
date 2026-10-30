@@ -187,7 +187,7 @@ def _plain_line(text):
         return ""
     # A PR body can contain several prose sentences. Keep the first complete sentence so the
     # generated description is always one line and one sentence, before applying the length cap.
-    match = re.search(r".*?[.!?。！？](?=\s|$)", text)
+    match = re.search(r".*?[.!?。！？](?=\s|$|[\"'”’»)\]}])", text)
     if match:
         text = match.group(0).strip()
     if len(text) >= DESCRIPTION_LIMIT:
@@ -389,7 +389,7 @@ def pr_body(pr, fixture):
     try:
         result = subprocess.run(["gh", "api", f"repos/manaflow-ai/cmux/pulls/{pr}", "--jq", ".body // \"\""],
                                 capture_output=True, text=True, timeout=PR_MEDIA_TIMEOUT)
-    except subprocess.TimeoutExpired:
+    except (subprocess.TimeoutExpired, OSError):
         return ""
     return result.stdout if result.returncode == 0 else ""
 
