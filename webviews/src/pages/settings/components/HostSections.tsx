@@ -4,7 +4,7 @@
 import { useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
-import type { BrowserProfile, DevicesHostState, HostListRow, HostLists } from "../ops";
+import type { BrowserProfile, DevicesHostState, HostListRow, HostLists, WireError } from "../ops";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { graphemePrefix } from "../../../ui/initials";
@@ -502,16 +502,16 @@ function ClearBrowsingData({ target }: { target: string }) {
     cache: true,
   });
   const [cleared, setCleared] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<WireError | null>(null);
   const title = t("action.browserProfile.clearBrowsingData").replace(/…$/, "");
-  const refusalReason = error === "cmux.app.action.run failed" ? "The browser profile is in use." : error;
+  const refusalReason = error?.code === "cmux.browser.clear_refused" ? "The browser profile is in use." : null;
   // "Cleared" once the app took the run; a refused run shows the owner's error.
   const clear = async () => {
     setCleared(false);
     setError(null);
     const reply = await store.runAction("browserProfile.clearBrowsingData", { range, ...kinds }, target);
     if (!reply.ok) {
-      setError(reply.error.message);
+      setError(reply.error);
       return;
     }
     setCleared(true);

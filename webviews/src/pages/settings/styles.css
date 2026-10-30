@@ -858,6 +858,7 @@ mark {
 
 .clear-browsing-data-error {
   flex-basis: 100%;
+  min-width: 0;
 }
 
 .host-toggle {
@@ -911,6 +912,7 @@ mark {
 
 .host-field {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
