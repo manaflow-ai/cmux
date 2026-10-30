@@ -66,8 +66,8 @@ impl Keyboard {
     /// the Kitty protocol reports with Shift held.
     pub fn handle(&mut self, event: &KeyEvent, shifted: Option<char>) -> KeyAction {
         let press = matches!(event.kind, KeyEventKind::Press | KeyEventKind::Repeat);
-        if self.awaiting_command {
-            if !press || modifier(event.code).is_some() {
+        if self.awaiting_command && press {
+            if modifier(event.code).is_some() {
                 return KeyAction::None;
             }
             self.awaiting_command = false;

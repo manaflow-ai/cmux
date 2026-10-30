@@ -78,8 +78,11 @@ impl Framebuffer {
         Ok(())
     }
 
-    /// Fails unless `rect` lies inside the framebuffer.
+    /// Fails unless `rect` is nonempty and lies inside the framebuffer.
     pub fn check(&self, rect: &Rect) -> Result<()> {
+        if rect.is_empty() {
+            return Err(VncError::protocol("empty pixel rectangle"));
+        }
         let fits = u32::from(rect.x) + u32::from(rect.width) <= u32::from(self.width)
             && u32::from(rect.y) + u32::from(rect.height) <= u32::from(self.height);
         if fits {
@@ -130,7 +133,7 @@ impl Framebuffer {
 }
 
 fn check_size(width: u16, height: u16) -> Result<()> {
-    if width > MAX_SIDE || height > MAX_SIDE {
+    if width == 0 || height == 0 || width > MAX_SIDE || height > MAX_SIDE {
         return Err(VncError::protocol(format!("framebuffer of {width}x{height}")));
     }
     Ok(())

@@ -264,13 +264,13 @@ fn vnc_ctrl_bracket_runs_viewer_commands() {
             keyboard.handle(&press(KeyCode::Char(']'), KeyModifiers::CONTROL), None),
             KeyAction::AwaitCommand
         );
-        // A modifier or a release while waiting is ignored.
+        // The prefix release sends nothing and leaves the command pending.
         assert_eq!(
             keyboard.handle(
                 &key(KeyCode::Char(']'), KeyModifiers::CONTROL, KeyEventKind::Release),
                 None
             ),
-            KeyAction::None
+            KeyAction::Send(vec![])
         );
         assert_eq!(
             keyboard.handle(&press(KeyCode::Char('q'), KeyModifiers::NONE), None),
