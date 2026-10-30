@@ -233,10 +233,13 @@ RUST_CHAR = re.compile(r"'(?:\\(?:x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f_]{1,6}\}|.)|[^\\
 
 
 class RustBraces:
-    """Brace depth over Rust lines fed in order, skipping braces in strings, chars and comments."""
+    """Brace depth over Rust lines fed in order, skipping braces in strings, chars and comments,
+    with the depth of open parentheses and brackets beside it."""
 
     def __init__(self) -> None:
         self.depth = 0
+        self.low = 0  # the lowest brace depth the last line fed reached
+        self.nest = 0  # open ( and [
         self.comments = 0  # nested /* */ depth
         self.string = False  # inside an ordinary string, where a backslash escapes
         self.raw: str | None = None  # inside a raw string: the '"' plus hashes that end it
@@ -247,6 +250,7 @@ class RustBraces:
     def feed(self, line: str, floor: int | None = None) -> bool:
         """Read one line. True when a closing brace on it brings the depth to `floor` or below."""
         closed = False
+        self.low = self.depth
         i = 0
         while i < len(line):
             if self.comments:
@@ -283,7 +287,12 @@ class RustBraces:
                     self.depth += 1
                 elif line[i] == "}":
                     self.depth -= 1
+                    self.low = min(self.low, self.depth)
                     closed |= floor is not None and self.depth <= floor
+                elif line[i] in "([":
+                    self.nest += 1
+                elif line[i] in ")]":
+                    self.nest -= 1
                 i += 1
         return closed
 
@@ -308,13 +317,16 @@ def rust_test_lines(lines: list[str], edges: set[int] | None = None) -> set[int]
     """Of a Rust file's lines from its first line on, the indexes of those inside a
     `#[cfg(test)] mod name { ... }`. The lines that open and close the module are not inside: code
     can sit before or after the module on them, and their indexes go to `edges` when given, with
-    the attribute lines above that made the module a test module."""
+    the attribute lines above that made the module a test module. A test module counts only where
+    an item can stand: outside any parenthesis or bracket, and inside no brace but module bodies. In
+    a macro's tokens (`emit! { #[cfg(test)] mod m { ... } }`) the attribute may never apply."""
     braces, inside = RustBraces(), set()
+    module_braces: set[int] = set()  # the brace depths, from 1, that open a plain `mod name {` body
     test_attribute = False
     attribute_lines: list[int] = []  # lines of the attributes read so far for the next item
     module_depth: int | None = None  # the depth outside the open test module
     for index, text in enumerate(lines):
-        opened = False
+        opened, module_brace = False, None
         if module_depth is None and not braces.in_code():
             # A line that starts inside a comment is read from where the comment ends; one that starts
             # inside a string ends the search.
@@ -334,14 +346,21 @@ def rust_test_lines(lines: list[str], edges: set[int] | None = None) -> set[int]
                     rest = skip_block_comment(rest)
                 else:
                     break
-            if test_attribute and RUST_MOD.match(rest):
-                module_depth, opened = braces.depth, True
-                if edges is not None:
-                    edges.update(attribute_lines)
+            item_place = braces.nest == 0 and module_braces >= set(range(1, braces.depth + 1))
+            if (mod := RUST_MOD.match(rest)) and item_place:
+                if test_attribute:
+                    module_depth, opened = braces.depth, True
+                    if edges is not None:
+                        edges.update(attribute_lines)
+                elif not rest[mod.end():].strip() or rest[mod.end():].lstrip().startswith("//"):
+                    module_brace = braces.depth + 1
             # Blank lines, comments and attribute-only lines keep looking for the item.
             if rest and not rest.startswith("//"):
                 test_attribute, attribute_lines = False, []
-        if braces.feed(text, module_depth) and module_depth is not None:
+        closed = braces.feed(text, module_depth)
+        module_braces = {depth for depth in module_braces if depth <= braces.low} | (
+            {module_brace} if module_brace is not None and braces.depth >= module_brace else set())
+        if closed and module_depth is not None:
             module_depth = None
             if edges is not None:
                 edges.add(index)

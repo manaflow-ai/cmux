@@ -512,6 +512,21 @@ class RustTestModuleTests(unittest.TestCase):
                                 + ["+    std::fs::remove_dir_all(dir).unwrap();", " }"]))
                 self.assertEqual(self.tier(patch, {RS: head}, {RS: base}), "high")
 
+    def test_a_test_module_inside_macro_tokens_is_product_code(self):
+        # A macro can take `#[cfg(test)] mod m { ... }` as tokens and emit the module without the cfg.
+        body = ["    #[cfg(test)]", "    mod generated {", "        fn clean(p: &str) {",
+                "            std::fs::remove_dir_all(p).unwrap();", "        }", "    }"]
+        for opening, closing in (("emit! {", "}"), ("emit!(", ");"), ("macro_rules! emit {", "}"),
+                                 ("fn f() {", "}")):
+            with self.subTest(opening=opening):
+                lines = [opening] + body + [closing]
+                patch = f"@@ -0,0 +1,{len(lines)} @@\n" + "\n".join("+" + line for line in lines)
+                self.assertEqual(self.tier(patch, {RS: "\n".join(lines)}), "high")
+        # Inside a plain module body, the test module still counts.
+        lines = ["mod outer { // the outer module"] + body + ["}"]
+        patch = f"@@ -0,0 +1,{len(lines)} @@\n" + "\n".join("+" + line for line in lines)
+        self.assertEqual(self.tier(patch, {RS: "\n".join(lines)}), "normal")
+
     def test_an_edited_rust_delete_is_not_new_when_the_base_shows_it_was_product_code(self):
         base = "\n".join(["use std::fs;", "", "fn prune(dir: &Path) {", "    fs::remove_dir_all(dir).ok();", "}"])
         head = base.replace("remove_dir_all(dir).ok()", "remove_dir_all(dir)?")
