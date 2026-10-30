@@ -1142,6 +1142,14 @@ async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<(
                 b.get("title").and_then(Value::as_str).unwrap_or("")
             );
         }
+        // Peers whose briefs are missing from the list, and why (`server/requests/briefs.rs`).
+        for f in v.get("peersFailed").and_then(Value::as_array).into_iter().flatten() {
+            eprintln!(
+                "left out {}: {}",
+                f.get("peer").and_then(Value::as_str).unwrap_or("?"),
+                f.get("error").and_then(Value::as_str).unwrap_or("?")
+            );
+        }
     } else {
         println!(
             "{}",
