@@ -342,101 +342,112 @@ impl Hub {
             .ok_or_else(|| RpcError::invalid_params("revision is required"))?;
         let body = json!({"groupId":id,"revision":revision,"decisionKey":key,"decision":choice});
         let cfg = self.config.read().await;
-        let mut state = session.permissions.lock_or_recover();
-        // A decision key belongs to one body within this session.
-        if let Some((previous, receipt)) = state
-            .groups
-            .iter()
-            .filter_map(|g| g.receipt.as_ref())
-            .find(|(b, _)| b["decisionKey"] == key)
-        {
-            if previous != &body {
-                return Err(RpcError::invalid_params("key_conflict")
-                    .with_data(json!({"reason":"key_conflict"})));
+        let (result, replies) = {
+            let mut state = session.permissions.lock_or_recover();
+            // A decision key belongs to one body within this session.
+            if let Some((previous, receipt)) = state
+                .groups
+                .iter()
+                .filter_map(|g| g.receipt.as_ref())
+                .find(|(b, _)| b["decisionKey"] == key)
+            {
+                if previous != &body {
+                    return Err(RpcError::invalid_params("key_conflict")
+                        .with_data(json!({"reason":"key_conflict"})));
+                }
+                let mut result = receipt.clone();
+                result.set("replayed", json!(true));
+                return Ok(result);
             }
-            let mut result = receipt.clone();
-            result.set("replayed", json!(true));
-            return Ok(result);
-        }
-        // The group and the pending replies are separate fields: one borrow each.
-        let state = &mut *state;
-        let g = state
-            .groups
-            .iter_mut()
-            .find(|g| g.id == id)
-            .ok_or_else(|| RpcError::not_found("not_found"))?;
-        let value = g.value(&session.id);
-        if g.terminal() {
-            return Err(conflict("already_resolved", value));
-        }
-        if g.state == "collecting" {
-            return Err(conflict("collecting", value));
-        }
-        if g.revision != revision {
-            return Err(conflict("stale_revision", value));
-        }
-        let meta = session.meta();
-        let policy = self.policy_for(session, cfg.permission_policy);
-        if choice != "deny"
-            && (policy == PermissionPolicy::DenyAll
-                || g.items.iter().filter(|i| i.state == "pending").any(|i| {
-                    meta.permission_rules
-                        .as_ref()
-                        .and_then(|rules| super::rules::decide(rules, &i.request))
-                        == Some(super::rules::RuleDecision::Deny)
-                }))
-        {
-            return Err(conflict("policy_changed", value));
-        }
-        let mut answers = Vec::new();
-        for item in g.items.iter().filter(|i| i.state == "pending") {
-            let selected =
-                option(&item.request, if choice == "deny" { "reject_once" } else { "allow_once" });
-            if selected.is_none() && choice != "deny" {
-                return Err(RpcError::invalid_params("no single-use allow option"));
+            // The group and the pending replies are separate fields: one borrow each.
+            let state = &mut *state;
+            let g = state
+                .groups
+                .iter_mut()
+                .find(|g| g.id == id)
+                .ok_or_else(|| RpcError::not_found("not_found"))?;
+            let value = g.value(&session.id);
+            if g.terminal() {
+                return Err(conflict("already_resolved", value));
             }
-            if !state.pending.contains_key(&item.id) {
+            if g.state == "collecting" {
+                return Err(conflict("collecting", value));
+            }
+            if g.revision != revision {
                 return Err(conflict("stale_revision", value));
             }
-            let outcome = selected.map_or_else(
-                || json!({"outcome":"cancelled"}),
-                |o| json!({"outcome":"selected","optionId":o}),
-            );
-            answers.push((item.id.clone(), outcome));
-        }
-        let mut replies = Vec::new();
-        for (id, outcome) in answers {
-            if let Some(pending) = state.pending.remove(&id) {
-                replies.push((id, pending.reply, outcome));
+            let meta = session.meta();
+            let policy = self.policy_for(session, cfg.permission_policy);
+            if choice != "deny"
+                && (policy == PermissionPolicy::DenyAll
+                    || g.items.iter().filter(|i| i.state == "pending").any(|i| {
+                        meta.permission_rules
+                            .as_ref()
+                            .and_then(|rules| super::rules::decide(rules, &i.request))
+                            == Some(super::rules::RuleDecision::Deny)
+                    }))
+            {
+                return Err(conflict("policy_changed", value));
             }
-        }
-        if choice == "allow_chat" {
-            state.chat_allowed = true;
-            self.append(session, "mux", "permission_chat_allowance", json!({"active":true}));
-        }
-        for item in &mut g.items {
-            if item.state == "pending" {
-                item.state = if replies
-                    .iter()
-                    .any(|(id, _, outcome)| id == &item.id && outcome["outcome"] == "cancelled")
-                {
-                    "cancelled"
-                } else {
-                    "resolved"
-                };
+            let mut answers = Vec::new();
+            for item in g.items.iter().filter(|i| i.state == "pending") {
+                let selected = option(
+                    &item.request,
+                    if choice == "deny" { "reject_once" } else { "allow_once" },
+                );
+                if selected.is_none() && choice != "deny" {
+                    return Err(RpcError::invalid_params("no single-use allow option"));
+                }
+                if !state.pending.contains_key(&item.id) {
+                    return Err(conflict("stale_revision", value));
+                }
+                let outcome = selected.map_or_else(
+                    || json!({"outcome":"cancelled"}),
+                    |o| json!({"outcome":"selected","optionId":o}),
+                );
+                answers.push((item.id.clone(), outcome));
             }
-        }
-        g.state = "resolved";
-        g.revision += 1;
-        // Include decision in the snapshot before storing the replay receipt.
-        g.receipt = Some((body.clone(), Value::Null));
-        let result = json!({"group":g.value(&session.id),"replayed":false});
-        g.receipt = Some((body, result.clone()));
-        self.append(session, "mux", "permission_group", json!({"group":result.field("group")}));
-        state.prune();
+            let mut replies = Vec::new();
+            for (id, outcome) in answers {
+                if let Some(pending) = state.pending.remove(&id) {
+                    replies.push((id, pending.reply, pending.decision_seq, outcome));
+                }
+            }
+            if choice == "allow_chat" {
+                state.chat_allowed = true;
+                self.append(session, "mux", "permission_chat_allowance", json!({"active":true}));
+            }
+            for item in &mut g.items {
+                if item.state == "pending" {
+                    item.state = if replies.iter().any(|(id, _, _, outcome)| {
+                        id == &item.id && outcome["outcome"] == "cancelled"
+                    }) {
+                        "cancelled"
+                    } else {
+                        "resolved"
+                    };
+                }
+            }
+            g.state = "resolved";
+            g.revision += 1;
+            // Include decision in the snapshot before storing the replay receipt.
+            g.receipt = Some((body.clone(), Value::Null));
+            let result = json!({"group":g.value(&session.id),"replayed":false});
+            g.receipt = Some((body, result.clone()));
+            self.append(session, "mux", "permission_group", json!({"group":result.field("group")}));
+            state.prune();
+            (result, replies)
+        };
+        drop(cfg);
         // All callbacks were removed and the receipt saved before any wake.
-        for (_, reply, outcome) in replies {
+        let mut decisions = Vec::with_capacity(replies.len());
+        for (_, reply, decision_seq, outcome) in replies {
             let _ = reply.send(outcome);
+            decisions.push(decision_seq);
+        }
+        // Each asking task appends its decision record once woken: the answer waits for them too.
+        for decision_seq in decisions {
+            super::request_writes::note_decision(&session.id, decision_seq).await;
         }
         Ok(result)
     }
