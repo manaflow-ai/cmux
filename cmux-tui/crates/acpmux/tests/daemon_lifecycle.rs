@@ -649,6 +649,8 @@ async fn ready_daemon(dir: &Path, home: &Path, socket: &Path) -> std::process::C
         json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
     )
     .unwrap();
+    let mut output_log = std::fs::File::create(dir.join("daemon.stdout.log")).unwrap();
+    let error_log = std::fs::File::create(dir.join("daemon.stderr.log")).unwrap();
     let mut child = daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
         .args(["--log", "warn"])
@@ -657,19 +659,37 @@ async fn ready_daemon(dir: &Path, home: &Path, socket: &Path) -> std::process::C
         .env("ACPMUX_LOGIN_ENV", "0")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::from(error_log))
         .spawn()
         .unwrap();
+    // Keep draining the daemon's readiness pipe after the first line. The daemon logs to the
+    // inherited stream too; closing it after readiness produced BrokenPipe errors during shutdown.
+    // Keep both output streams for a failure diagnostic, outside the home these tests remove.
     let stdout = child.stdout.take().unwrap();
-    let ready = tokio::task::spawn_blocking(move || {
-        BufReader::new(stdout).lines().map_while(Result::ok).find_map(|line| {
-            serde_json::from_str::<Value>(&line).ok().filter(|v| v["ready"] == true)
-        })
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+    tokio::task::spawn_blocking(move || {
+        let mut ready_tx = Some(ready_tx);
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            let _ = writeln!(output_log, "{line}");
+            if let Ok(value) = serde_json::from_str::<Value>(&line)
+                && value["ready"] == true
+                && let Some(tx) = ready_tx.take()
+            {
+                let _ = tx.send(());
+            }
+        }
     });
-    let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
-    if ready.is_none() {
-        let _ = child.kill();
-        panic!("the daemon exited without a readiness line: {:?}", child.wait());
+    let ready = tokio::time::timeout(Duration::from_secs(20), ready_rx).await;
+    match ready {
+        Ok(Ok(())) => {}
+        Ok(Err(_)) => {
+            let _ = child.kill();
+            panic!("the daemon exited without a readiness line: {:?}", child.wait());
+        }
+        Err(_) => {
+            let _ = child.kill();
+            panic!("the daemon did not report readiness in time: {:?}", child.wait());
+        }
     }
     child
 }
@@ -746,7 +766,13 @@ async fn a_daemon_whose_home_ancestor_is_renamed_stops() {
     let mut child = ready_daemon(&dir, &home, &home.join("s.sock")).await;
     std::fs::rename(&parent, dir.join("moved")).unwrap();
     let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
-    assert!(status.expect("ancestor rename left the daemon running").success());
+    let status = status.expect("ancestor rename left the daemon running");
+    assert!(
+        status.success(),
+        "ancestor rename exit {status:?}\nstdout:\n{}\nstderr:\n{}",
+        std::fs::read_to_string(dir.join("daemon.stdout.log")).unwrap_or_default(),
+        std::fs::read_to_string(dir.join("daemon.stderr.log")).unwrap_or_default(),
+    );
     assert!(!parent.exists(), "shutdown recreated the renamed ancestor");
     let _ = std::fs::remove_dir_all(&dir);
 }
