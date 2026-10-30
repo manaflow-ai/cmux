@@ -76,10 +76,18 @@ judge || fail "(d) a regenerated change on a stale base failed: $(cat "$tmp/out.
 grep -q 'base drift' "$tmp/out.txt" || fail "(d) no base drift warning"
 products_are_heads "(d)"
 
-# (e) A catalog failure that no regeneration fixes still fails.
+# (e) A catalog failure that no regeneration fixes still fails, and tells the workflow so
+# (catalog=failure), whose summary then says "catalog failure", never "stale".
 repo '' no 's/^c$/BAD/' yes
-if judge; then fail "(e) a catalog failure passed"; fi
+: > "$tmp/gh-output"
+if GITHUB_OUTPUT="$tmp/gh-output" judge; then fail "(e) a catalog failure passed"; fi
 grep -q "a catalog failure, not a stale file" "$tmp/out.txt" || fail "(e) wrong reason: $(cat "$tmp/out.txt")"
+grep -qx "catalog=failure" "$tmp/gh-output" || fail "(e) no catalog=failure output: $(cat "$tmp/gh-output")"
+# A stale export of the change's own is not a catalog failure.
+repo '' no 's/^c$/C/' no
+: > "$tmp/gh-output"
+if GITHUB_OUTPUT="$tmp/gh-output" judge; then fail "(e) a change's own stale export passed"; fi
+if grep -q "catalog=" "$tmp/gh-output"; then fail "(e) a stale export reported a catalog failure"; fi
 
 # (f) Fresh everywhere: passes with nothing to say.
 repo '' no 's/^e$/E/' yes
