@@ -132,6 +132,48 @@ test("a slow acknowledgement stays pending past the former failure deadline and 
   }
 });
 
+test("a remote-origin send with no answer still fails after the deadline, for Retry", async () => {
+  const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const timing = { ...deliveryTiming };
+  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80 });
+  const prompts: any[] = [];
+  class SilentRemoteHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = async (method, params) => {
+        if (method === "initialize") {
+          // A connection with no native relay journal behind it (another machine's acpmux).
+          const result = (await answer(method, params)) as { _meta: { acpmux: Record<string, unknown> } };
+          return { ...result, _meta: { ...result._meta, acpmux: { ...result._meta.acpmux, origin: "remote" } } };
+        }
+        if (method !== "session/prompt") return answer(method, params);
+        prompts.push(params);
+        return new Promise(() => undefined);
+      };
+    }
+  }
+  let rows: Row[] = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => (rows = snapshot.rows as Row[]),
+    undefined,
+    () => new SilentRemoteHost() as unknown as WebSocket,
+  );
+  const mine = () => rows.find((row) => row.kind === "user" && row.text === "anyone there");
+  try {
+    void client.send("anyone there").catch(() => undefined);
+    await settle(() => mine()?.failed === true);
+    expect(mine()?.delivery).toMatchObject({ state: "failed", hop: "acpmux", code: "timeout" });
+    expect(prompts.length).toBe(1);
+  } finally {
+    Object.assign(deliveryTiming, timing);
+    client.close?.();
+  }
+});
+
 test("a busy session keeps an unacknowledged eight-image prompt queued with previews", async () => {
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
@@ -147,10 +189,19 @@ test("a busy session keeps an unacknowledged eight-image prompt queued with prev
     return new Promise(() => undefined);
   };
   let snapshot: { rows: Row[]; isWorking?: boolean; queue?: Array<{ id: string; images?: unknown[] }> } = { rows: [] };
-  const client = await AcpmuxDirectClient.connect(mockHost, (next) => (snapshot = next as typeof snapshot), undefined,
-    () => socket as unknown as WebSocket);
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (next) => (snapshot = next as typeof snapshot),
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
   const attachments = Array.from({ length: 8 }, (_, n) => ({
-    id: `shot-${n}`, kind: "image" as const, name: `shot-${n}.png`, mimeType: "image/png", size: 3, data: "YWJj",
+    id: `shot-${n}`,
+    kind: "image" as const,
+    name: `shot-${n}.png`,
+    mimeType: "image/png",
+    size: 3,
+    data: "YWJj",
   }));
   try {
     hooks.emit(mockHost.sessionId!, { mux: "turn_started", msg: {} });
