@@ -189,23 +189,22 @@ export const PreviewCard = React.forwardRef<
   );
   const at = layer ? origin : { x: 0, y: 0 };
   const scrollKey = layer ? (event: React.KeyboardEvent) => forwardScrollKey(scroller!, event) : undefined;
+  const cardStyle: React.CSSProperties & { "--acpmux-rail-left": string } = {
+    "--acpmux-rail-left": `${railLeft}px`,
+    // On the right the anchor is the pane's right edge: the card ends `x` in from it.
+    ...(side === "left"
+      ? { transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)` }
+      : layer
+        ? { transform: `translate3d(${at.x - x}px, ${at.y + y}px, 0) translateX(-100%)` }
+        : { left: "auto", right: 0, transform: `translate3d(${-x}px, ${y}px, 0)` }),
+  };
   const card = (
     <div
       ref={own}
       id={id}
       className="acpmux-minimap__card"
       data-prompt={prompt !== undefined ? "" : undefined}
-      style={
-        {
-          "--acpmux-rail-left": `${railLeft}px`,
-          // On the right the anchor is the pane's right edge: the card ends `x` in from it.
-          ...(side === "left"
-            ? { transform: `translate3d(${at.x + x}px, ${at.y + y}px, 0)` }
-            : layer
-              ? { transform: `translate3d(${at.x - x}px, ${at.y + y}px, 0) translateX(-100%)` }
-              : { left: "auto", right: 0, transform: `translate3d(${-x}px, ${y}px, 0)` }),
-        } as React.CSSProperties
-      }
+      style={cardStyle}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onWheel={layer ? (event) => forwardWheel(scroller!, event.nativeEvent) : undefined}
