@@ -325,6 +325,9 @@ pub(super) fn reads_tabs(plan: &RequestPlan) -> bool {
     )
 }
 
+/// The tab kinds a CLI reader decodes (`declare_tab_kinds`).
+const TAB_KINDS: [&str; 3] = ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"];
+
 /// Declares the conversation tab kinds on this connection (`client.metadata.update
 /// {client: current, capabilities}`), so the daemon shows an agent chat tab as
 /// `content_kind: conversation` with its `extra.conversation.agent_session` (host, session)
@@ -335,11 +338,14 @@ pub(super) fn reads_tabs(plan: &RequestPlan) -> bool {
 pub(super) fn declare_tab_kinds(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
 ) -> Result<(), ()> {
-    let Ok(request_id) = random_request_id() else { return Ok(()) };
+    let (Ok(request_id), Ok(key)) = (random_request_id(), random_idempotency_key()) else {
+        return Ok(());
+    };
+    // A mutation: it names its machine and session and carries an idempotency key.
     let request = json!({"protocol": PROTOCOL, "type": "request", "id": request_id,
-        "operation": "client.metadata.update",
-        "params": {"client": "current",
-                   "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"]}});
+        "operation": "client.metadata.update", "idempotency_key": key,
+        "params": {"machine": "current", "session": "current", "client": "current",
+                   "capabilities": TAB_KINDS}});
     let Ok(mut encoded) = serde_json::to_vec(&request) else { return Ok(()) };
     encoded.push(b'\n');
     if reader.get_mut().write_all(&encoded).and_then(|_| reader.get_mut().flush()).is_err() {
