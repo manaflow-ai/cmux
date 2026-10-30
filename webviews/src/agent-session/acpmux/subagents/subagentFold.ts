@@ -197,7 +197,28 @@ export class SubagentFold {
     // A live update can arrive before the session summary. Remove that late phantom and promote
     // anything it had already acquired so a later root seed repairs the in-memory tree too.
     const phantom = this.agents.get(id);
-    if (!phantom) return;
+    if (phantom) this.dropPhantom(id);
+    // Children can name the root as parent without the root ever getting a row of its own.
+    const promoted = [...this.agents.values()].filter((agent) => agent.parent === id);
+    if (promoted.length === 0) return;
+    const at = phantom?.startedAt ?? Math.min(...promoted.map((agent) => agent.startedAt));
+    const group = this.open ?? { id: `${SUBAGENTS}-root-${id}`, at, version: 0, ids: [] };
+    this.open = group;
+    for (const agent of promoted) {
+      const previous = this.groupOf.get(agent.id);
+      if (previous && previous !== group) {
+        previous.ids = previous.ids.filter((child) => child !== agent.id);
+        this.changed.add(previous);
+      }
+      agent.parent = null;
+      if (!group.ids.includes(agent.id)) group.ids.push(agent.id);
+      this.groupOf.set(agent.id, group);
+      this.bump(agent.id);
+    }
+    this.changed.add(group);
+  }
+  /// Removes a root thread that was folded as a subagent before its identity was known.
+  private dropPhantom(id: string): void {
     const groups = new Set<Group>([...this.groupOf.values(), ...this.changed, ...(this.open ? [this.open] : [])]);
     this.agents.delete(id);
     const phantomGroup = this.groupOf.get(id);
@@ -218,16 +239,6 @@ export class SubagentFold {
         this.bump(parent);
       }
     }
-    const promoted = [...this.agents.values()].filter((agent) => agent.parent === id);
-    if (promoted.length === 0) return;
-    const group = this.open ?? { id: `${SUBAGENTS}-root-${id}`, at: phantom.startedAt, version: 0, ids: [] };
-    this.open = group;
-    for (const agent of promoted) {
-      agent.parent = null;
-      if (!group.ids.includes(agent.id)) group.ids.push(agent.id);
-      this.groupOf.set(agent.id, group);
-    }
-    this.changed.add(group);
   }
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
   /// report that trails it (Claude's last task_progress) does not run one again.
