@@ -44,8 +44,7 @@ extension SidebarBridge {
             // first, including a refused move's unchanged order. No second pending edit owns its lifetime.
             if let document = SidebarDocStore.current {
                 let machines = services.machines
-                document.show(live: SidebarDocWiring.docMachines(machines).liveRefs(), connectedRemotes:
-                    Set(machines.remoteDaemons.filter { $0.connection != nil }.compactMap(\.store.registryID)))
+                document.reshow(live: SidebarDocWiring.docMachines(machines).liveRefs())
                 resync()
             }
             return
