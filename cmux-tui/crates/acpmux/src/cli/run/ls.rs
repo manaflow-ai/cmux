@@ -115,7 +115,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         || json_out
         || fields.as_ref().is_some_and(|f| f.iter().any(|f| f.starts_with("usageStats")));
     if usage {
-        params["usage"] = json!(true);
+        params.set("usage", json!(true));
     }
     // The daemon drops closed rows itself (`hub/session_pages.rs`), so a `--live` reply
     // carries none of them; `RowFilter` checks again below.

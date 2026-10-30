@@ -67,7 +67,7 @@ impl Models {
         let mut keys: Vec<&String> = catalog.models.keys().collect();
         keys.sort_by_key(resold);
         for key in keys {
-            let info = &catalog.models[key];
+            let Some(info) = catalog.models.get(key.as_str()) else { continue };
             let Some((_, id)) = key.split_once('/') else { continue };
             let prices = info.cost.as_ref().and_then(|c| {
                 Some(Prices {
@@ -432,7 +432,7 @@ impl Tracker {
             let finished = std::fs::read(path.with_extension("meta.json"))
                 .ok()
                 .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-                .is_some_and(|meta| meta["finished"] == Value::Bool(true));
+                .is_some_and(|meta| meta.get("finished").and_then(Value::as_bool) == Some(true));
             if agent.tail.path.as_os_str().is_empty() {
                 agent.tail.path = path.clone();
                 // Older than the window: nothing in it counts; never read.
@@ -574,10 +574,10 @@ fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
         Some(at) => Class::Counted { at, counts },
         None => Class::Lost { at: None, key: counts.key() },
     };
-    let n = |v: &Value, k: &str| v[k].as_u64();
+    let n = |v: &Value, k: &str| v.get(k).and_then(Value::as_u64);
     match harness {
-        Harness::Claude { main } => match record["type"].as_str() {
-            Some("system") if record["subtype"] == "compact_boundary" => {
+        Harness::Claude { main } => match field(&record, "type").as_str() {
+            Some("system") if field(&record, "subtype") == "compact_boundary" => {
                 if main {
                     counted(Counts::Compaction)
                 } else {
@@ -585,14 +585,15 @@ fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
                 }
             }
             Some("assistant") => {
-                let message = &record["message"];
-                let model = message["model"].as_str().unwrap_or_default();
-                let usage = &message["usage"];
+                let message = field(&record, "message");
+                let model = field(message, "model").as_str().unwrap_or_default();
+                let usage = field(message, "usage");
                 if model.is_empty() || model.starts_with('<') || !usage.is_object() {
                     return Class::Uncountable;
                 }
-                let key =
-                    message["id"].as_str().map_or(Key::None, |id| Key::Message(id.to_owned()));
+                let key = field(message, "id")
+                    .as_str()
+                    .map_or(Key::None, |id| Key::Message(id.to_owned()));
                 if let Key::Message(id) = &key
                     && tail.recent.iter().any(|seen| seen == id)
                 {
@@ -608,7 +609,7 @@ fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
                 let read = n(usage, "cache_read_input_tokens").unwrap_or(0);
                 let write = n(usage, "cache_creation_input_tokens").unwrap_or(0);
                 let write_1h = usage.pointer("/cache_creation/ephemeral_1h_input_tokens");
-                let own = main && record["isSidechain"] != Value::Bool(true);
+                let own = main && field(&record, "isSidechain").as_bool() != Some(true);
                 counted(Counts::Tokens(Tokens {
                     model: Some(model.to_owned()),
                     input,
@@ -625,21 +626,21 @@ fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
             _ => Class::Uncountable,
         },
         Harness::Codex => {
-            let payload = &record["payload"];
-            match (record["type"].as_str(), payload["type"].as_str()) {
+            let payload = field(&record, "payload");
+            match (field(&record, "type").as_str(), field(payload, "type").as_str()) {
                 // Untimed, it cannot say which calls ran after it: as before, it is passed over.
-                (Some("turn_context"), _) => match (at, payload["model"].as_str()) {
+                (Some("turn_context"), _) => match (at, field(payload, "model").as_str()) {
                     (Some(_), Some(model)) => Class::Model { model: model.to_owned() },
                     _ => Class::Uncountable,
                 },
                 (Some("compacted"), _) => counted(Counts::Compaction),
                 (Some("response_item"), Some("function_call" | "custom_tool_call"))
-                    if payload["name"] == "spawn_agent" =>
+                    if field(payload, "name") == "spawn_agent" =>
                 {
                     counted(Counts::Spawn)
                 }
                 (Some("event_msg"), Some("token_count")) => {
-                    let info = &payload["info"];
+                    let info = field(payload, "info");
                     // A rate-limit update alone carries no info.
                     if info.is_null() {
                         return Class::Uncountable;
@@ -650,7 +651,7 @@ fn classify(harness: Harness, line: &[u8], tail: &Tail) -> Class {
                     if total.is_some() && total == tail.last_total {
                         return Class::Duplicate;
                     }
-                    let last = &info["last_token_usage"];
+                    let last = field(info, "last_token_usage");
                     let (Some(total), Some(input), Some(output)) =
                         (total, n(last, "input_tokens"), n(last, "output_tokens"))
                     else {
@@ -730,7 +731,7 @@ fn read_new(
         // Else a line still being written: read again, whole, next time.
         return false;
     };
-    let mut lines = buf[..end].split(|b| *b == b'\n');
+    let mut lines = buf.get(..end).unwrap_or_default().split(|b| *b == b'\n');
     if skip_to_line {
         lines.next();
     }
@@ -852,7 +853,7 @@ pub fn autocompact(source: &Source, window: Option<u64>) -> (Autocompact, Option
             let Ok(settings) = serde_json::from_slice::<Value>(&settings) else {
                 return (Autocompact::Unknown, None);
             };
-            match &settings["autoCompactWindow"] {
+            match field(&settings, "autoCompactWindow") {
                 Value::Null => (Autocompact::Uncapped, None),
                 Value::Number(n) => capped(n.as_u64()),
                 Value::String(s) => value(s),
@@ -862,7 +863,8 @@ pub fn autocompact(source: &Source, window: Option<u64>) -> (Autocompact, Option
         "codex" => {
             const KEY: &str = "model_auto_compact_token_limit";
             let from_argv = argv.windows(2).rev().find_map(|w| {
-                let value = (w[0] == "-c" || w[0] == "--config").then_some(&w[1])?;
+                let [flag, value] = w else { return None };
+                let value = (flag == "-c" || flag == "--config").then_some(value)?;
                 let (key, value) = value.split_once('=')?;
                 (key.trim() == KEY).then(|| value.trim().to_owned())
             });
@@ -914,8 +916,9 @@ fn tokens(text: &str) -> Option<u64> {
 fn quick_timestamp(line: &[u8]) -> Option<u64> {
     const KEY: &[u8] = b"\"timestamp\":\"";
     let start = memchr::memmem::rfind(line, KEY)? + KEY.len();
-    let len = memchr::memchr(b'"', &line[start..])?;
-    crate::server::machine_health::rfc3339_ms(std::str::from_utf8(&line[start..start + len]).ok()?)
+    let rest = line.get(start..)?;
+    let len = memchr::memchr(b'"', rest)?;
+    crate::server::machine_health::rfc3339_ms(std::str::from_utf8(rest.get(..len)?).ok()?)
 }
 
 /// A Claude reply's message id found without parsing the line (`"id":"msg_…"`, as the API
@@ -923,8 +926,15 @@ fn quick_timestamp(line: &[u8]) -> Option<u64> {
 fn quick_message_id(line: &[u8]) -> Option<String> {
     const KEY: &[u8] = b"\"id\":\"msg_";
     let start = memchr::memmem::find(line, KEY)? + KEY.len() - 4;
-    let len = memchr::memchr(b'"', &line[start..])?;
-    String::from_utf8(line[start..start + len].to_vec()).ok()
+    let rest = line.get(start..)?;
+    let len = memchr::memchr(b'"', rest)?;
+    String::from_utf8(rest.get(..len)?.to_vec()).ok()
+}
+
+/// A record's field, `Null` when it has none: `record[key]` without the index (the panic ratchet).
+fn field<'a>(record: &'a Value, key: &str) -> &'a Value {
+    const NULL: &Value = &Value::Null;
+    record.get(key).unwrap_or(NULL)
 }
 
 /// A line the parse's byte pre-filter passed over that is a counted kind written escaped
@@ -936,16 +946,17 @@ fn escaped_kind(harness: Harness, line: &[u8], tail: &mut Tail, now: u64) {
         return;
     }
     let Ok(record) = serde_json::from_slice::<Value>(line) else { return };
-    let (kind, payload) = (record["type"].as_str().unwrap_or_default(), &record["payload"]);
+    let (kind, payload) =
+        (field(&record, "type").as_str().unwrap_or_default(), field(&record, "payload"));
     let counted = match harness {
         Harness::Claude { main } => {
             kind == "assistant"
-                || main && kind == "system" && record["subtype"] == "compact_boundary"
+                || main && kind == "system" && field(&record, "subtype") == "compact_boundary"
         }
         Harness::Codex => {
             kind == "compacted"
-                || kind == "event_msg" && payload["type"] == "token_count"
-                || kind == "response_item" && payload["name"] == "spawn_agent"
+                || kind == "event_msg" && field(payload, "type") == "token_count"
+                || kind == "response_item" && field(payload, "name") == "spawn_agent"
         }
     };
     if counted {
