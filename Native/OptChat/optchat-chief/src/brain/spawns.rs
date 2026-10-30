@@ -1595,8 +1595,8 @@ impl Brain {
             return;
         };
         // The close setting closes every finished one and forgets it; a short
-        // task closes only while none of its terminals runs a command, so its
-        // key stays recorded (a later close of a closed one does nothing).
+        // task closes only while none of its terminals runs a command, and its
+        // key is forgotten once that close succeeds (a kept one stays).
         let explicit = self.sub_close_on_finish;
         if explicit {
             if let Some(sub) = self.state.sub_mut(id) {
