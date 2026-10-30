@@ -165,18 +165,23 @@ pub(crate) fn plain_send(from_peer: bool, team: bool, supersede: bool, steer_onl
     !from_peer && !team && !supersede && !steer_only
 }
 
-/// Whether a provenance is a plain message from another agent: none (a sender that named
-/// itself, or a connection that proved its session) or `session_message`.
+/// Whether a provenance is a plain message from another agent: none (a connection that proved
+/// its session), `session_message`, or the `agent_message` acpmux stamps on a sender that named
+/// itself (`prompt_provenance::named_sender`, which has no `msgId`).
 ///
-/// A `cmux agent message` (`agent_message`, which only the cmux daemon's delivery pump sends)
-/// is not one: the cmux daemon keeps that message, its delivery receipt and its Stop hold, and
-/// its chat shows it as the agent message the app's reply in place answers (`app_reply.rs`
-/// finds its `user_message`). In this inbox it became a notice, so a reply in place was refused,
-/// a send to a chat that cannot run said delivered, and a send to an idle chat ran no turn.
+/// A `cmux agent message` is not one: its provenance (`prompt_provenance::of`, which only the cmux
+/// daemon's delivery pump sends) always names its `msgId`. The cmux daemon keeps that message,
+/// its delivery receipt and its Stop hold, and its chat shows it as the agent message the app's
+/// reply in place answers (`app_reply.rs` finds its `user_message`). In this inbox it became a
+/// notice, so a reply in place was refused, a send to a chat that cannot run said delivered, and
+/// a send to an idle chat ran no turn.
 fn plain_kind(provenance: Option<&Value>) -> bool {
-    match provenance.and_then(|p| p.get("kind")) {
-        None => true,
-        Some(kind) => kind.as_str() == Some("session_message"),
+    let Some(provenance) = provenance else { return true };
+    match provenance.get("kind").and_then(Value::as_str) {
+        None => provenance.get("kind").is_none(),
+        Some("session_message") => true,
+        Some("agent_message") => provenance.get("msgId").is_none(),
+        Some(_) => false,
     }
 }
 

@@ -82,7 +82,12 @@ fn only_a_plain_send_from_this_host_goes_to_the_inbox() {
     assert!(!plain_send(false, false, false, true), "a steer-only send");
     assert!(plain_kind(None));
     assert!(plain_kind(Some(&json!({"kind": "session_message"}))));
-    for kind in ["agent_message", "lane_report", "task_result", "offer_result", "agent_digest"] {
+    let named = crate::prompt_provenance::named_sender("lane-a", "s2");
+    assert!(plain_kind(Some(&named)), "acpmux send --from: {named}");
+    let pumped = json!({"kind": "agent_message", "from": "acp:s1", "to": "acp:s2",
+                        "msgId": "m", "threadId": "t"});
+    assert!(!plain_kind(Some(&pumped)), "a cmux agent message stays the cmux daemon's");
+    for kind in ["lane_report", "task_result", "offer_result", "agent_digest"] {
         assert!(!plain_kind(Some(&json!({"kind": kind}))), "{kind}");
     }
 }
