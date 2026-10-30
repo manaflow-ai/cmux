@@ -247,10 +247,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       image: isImageFile(file),
       scope: batch.scope,
     }));
-    shown.forEach((chip, index) => {
+    // This read's own source for each chip: a chip cancelled and brought back (undo, `revive`) or
+    // read again (Retry) under the same id has a new one, and only the read that owns the id's
+    // source now settles it, so an older read still running never takes or drops the newer one's.
+    const owned = shown.map((chip, index): { file: File | Promise<File>; uploads: boolean } => {
       const file = files[index]!;
-      sources.current.set(chip.id, { file: isMadeFile(file) ? file.file : file, uploads });
+      const source = { file: isMadeFile(file) ? file.file : file, uploads };
+      sources.current.set(chip.id, source);
+      return source;
     });
+    const owns = (index: number) => sources.current.get(shown[index]!.id) === owned[index];
     const gesture = (gestures.current += 1);
     // Paste order: a chip read again keeps the place its paste gave it.
     shown.forEach((chip, index) => {
@@ -278,7 +284,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // Each file's placeholder goes in the same render as what it became, the moment it is ready.
     const settle = (index: number) => {
       const id = shown[index]!.id;
-      if (!sources.current.delete(id)) return false;
+      if (!owns(index)) return false;
+      sources.current.delete(id);
       setPending((chips) => chips.filter((chip) => chip.id !== id));
       return true;
     };
@@ -305,7 +312,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
     const failed = (index: number, error: IntakeError) => {
       const id = shown[index]!.id;
-      if (!sources.current.has(id)) return;
+      if (!owns(index)) return;
       marked.add(index);
       const failed = intakeErrorText(error, live.current.t);
       setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, failed } : chip)));
@@ -316,9 +323,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const settled = await Promise.all(files.map((file) => (isMadeFile(file) ? file.file : file)));
       // The bytes are made: Retry reads these, never the promise again.
       settled.forEach((file, index) => {
-        const id = shown[index]!.id;
-        const source = sources.current.get(id);
-        if (source) sources.current.set(id, { ...source, file });
+        owned[index]!.file = file;
       });
       await intakeFiles(
         settled,
@@ -331,7 +336,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           // would go nowhere.
           cancelled: (index) => {
             const chip = made[index];
-            if (!chip) return !sources.current.has(shown[index]!.id);
+            if (!chip) return !owns(index);
             return chipRemoved({
               chip,
               stagedHere: staged.has(chip),
@@ -346,6 +351,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           ready,
           failed,
           uploading: (index) => {
+            if (!owns(index)) return;
             const id = shown[index]!.id;
             setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, uploading: true } : chip)));
           },
@@ -361,8 +367,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       batches.current.delete(batch);
       // A file intake said nothing of (it threw) is not left loading.
       shown.forEach((chip, index) => {
-        if (sources.current.has(chip.id) && !marked.has(index))
-          failed(index, { name: chip.name, reason: "unsupported" });
+        if (owns(index) && !marked.has(index)) failed(index, { name: chip.name, reason: "unsupported" });
       });
     }
   });

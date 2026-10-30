@@ -367,6 +367,51 @@ test("attachment intake wires local link deduplication through its hook state", 
   expect(held.map((chip) => chip.path)).toEqual(["/Users/you/assets"]);
 });
 
+// Review (Codex): a loading chip cancelled and brought back by an undo is read again under its id
+// while its first read still runs. That stale read ending (here a failed upload) must leave the new
+// read's chip alone: only the read that owns the id settles it.
+test("an undone cancel's chip is settled by its new read, never by the cancelled one", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const answers: ((result: { paths: string[] } | { error: string }) => void)[] = [];
+  let intake!: ReturnType<typeof useAttachmentIntake>;
+  function Field() {
+    intake = useAttachmentIntake({
+      allowImages: true,
+      pasteTarget: () => undefined,
+      upload: () => new Promise((resolve) => answers.push(resolve)),
+    });
+    return null;
+  }
+  root ??= createRoot(host);
+  await act(async () => root!.render(<Field />));
+  const file = new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" });
+  await act(async () => void intake.attach([file], true));
+  await until(() => answers.length === 1, "the first upload");
+  const id = intake.pending[0]!.id;
+  // Its x, then an undo that brings its node back: the file is read again under the same id.
+  await act(async () => intake.cancel(id));
+  expect(intake.pending).toEqual([]);
+  let revived = false;
+  await act(async () => {
+    revived = intake.revive(id);
+  });
+  expect(revived).toBe(true);
+  await until(() => answers.length === 2, "the second upload");
+  // The cancelled read's upload fails: the revived chip is still loading, not failed.
+  await act(async () => answers[0]!({ error: "The upload failed." }));
+  for (let turn = 0; turn < 5; turn += 1)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  expect(intake.pending.map((chip) => [chip.id, chip.failed])).toEqual([[id, undefined]]);
+  // The revived read's upload lands: one attachment, under the id.
+  await act(async () => answers[1]!({ paths: ["/tmp/notes.bin"] }));
+  await until(() => intake.attachments.length === 1, "the revived attachment");
+  expect(intake.pending).toEqual([]);
+  expect(intake.attachments.map((chip) => [chip.id, chip.path])).toEqual([[id, "/tmp/notes.bin"]]);
+});
+
 test("an image copied as HTML into a plain text field comes in as a chip and the text still goes in", async () => {
   const { createRoot } = await import("react-dom/client");
   const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");

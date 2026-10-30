@@ -325,6 +325,25 @@ test.each(["inline", "strip"] as const)(
   },
 );
 
+// Review (Codex): a chip between words opened its text at the caret, so a caret after the words put
+// the text after them and changed the prompt's order. It goes where the chip was.
+test.each(["inline", "strip"] as const)(
+  "a click on a chip between words puts its text at the chip's place, not at the caret (%s view)",
+  async (view) => {
+    const composer = await openComposer();
+    await showAttachments(view);
+    await typeDraft("before ");
+    await paste(LOG);
+    await typeDraft(" after");
+    expect(placed()).toEqual([chips(composer)[0]!.id]);
+    // The caret is after " after", past the chip.
+    await act(async () => chipButtons(view).open()!.click());
+    expect(chips(composer)).toEqual([]);
+    expect(placed()).toEqual([]);
+    expect(markdownField().agentText(markdownField().value())).toBe(`before ${LOG} after`);
+  },
+);
+
 test("Paste as Plain Text by the key's position (a non-Latin layout) keeps the paste raw too", async () => {
   const composer = await openComposer();
   await plainPasteKey({ key: "м", code: "KeyV" });

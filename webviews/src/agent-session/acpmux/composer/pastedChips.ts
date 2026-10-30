@@ -55,7 +55,8 @@ export function usePastedChips(
     });
     return true;
   };
-  /// Puts chip `id`'s text back in the prompt at the caret, as a paste of it, and drops the chip.
+  /// Puts chip `id`'s text back in the prompt, as a paste of it, and drops the chip: at the chip's
+  /// place in the text, or at the caret when it has none.
   const expand = (id: string) => {
     const chip = attachments.current.find((held) => held.id === id);
     if (chip?.kind !== "pasted" || chip.text === undefined) return;
@@ -63,8 +64,9 @@ export function usePastedChips(
     attachments.current = attachments.current.filter((held) => held.id !== id);
     setAttachments((current) => current.filter((held) => held.id !== id));
     field.current?.focus();
-    // Its place in the text goes, and its text goes in at the caret (composer/inlineAttachments.tsx).
-    field.current?.removeInline(id);
+    // Its place in the text goes, and the caret with it, so its text goes in where the chip was
+    // (composer/inlineAttachments.tsx), wherever the caret was before.
+    field.current?.removeInline(id, true);
     expanding.current = true;
     try {
       field.current?.pasteText(chip.text);
