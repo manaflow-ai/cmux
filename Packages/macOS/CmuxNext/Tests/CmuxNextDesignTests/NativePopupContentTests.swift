@@ -261,6 +261,25 @@ import Testing
         #expect(picked == "next")
     }
 
+    @Test func repeatedKeyboardToggleFlipsTheSwitchEachTime() throws {
+        let content = NativePopupContent()
+        var model = Self.model()
+        model.rows = [NativePopupRow(id: "toggle", kind: .toggle, label: "Toggle", checked: false)]
+        var changes: [String?] = []
+        content.emit = { type, id, value in if type == .change, id == "toggle" { changes.append(value) } }
+        content.update(model)
+        let control = try #require(Self.descendants(of: content).compactMap { $0 as? NSSwitch }.first)
+        for code: UInt16 in [125, 36, 36] {
+            let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                     timestamp: 0, windowNumber: 0, context: nil,
+                                                     characters: "", charactersIgnoringModifiers: "",
+                                                     isARepeat: false, keyCode: code))
+            content.keyDown(with: event)
+        }
+        #expect(changes == ["true", "false"], "a second Return before the page echoes must flip back, not resend")
+        #expect(control.state == .off)
+    }
+
     @Test func ordinaryTextFieldReturnDoesNotActivateTheHighlightedAction() throws {
         let content = NativePopupContent()
         var model = Self.model()
