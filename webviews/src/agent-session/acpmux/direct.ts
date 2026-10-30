@@ -932,19 +932,26 @@ export type GitRoute = "native" | "daemon";
 /// How soon a hidden page draws a change its native tab reads (`emitInFrame`).
 const HIDDEN_DRAW_MS = 50;
 
+/// What hidden pages left for their first frame once shown (`nextFrame`): at most one per client,
+/// since a client waits for one frame at a time; a closed client's draws nothing.
+const waitingForShow = new Set<() => void>();
+function drawShown(): void {
+  if (!pageShown()) return;
+  document.removeEventListener("visibilitychange", drawShown);
+  const due = [...waitingForShow];
+  waitingForShow.clear();
+  for (const run of due) nextFrame(run);
+}
+
 /// Runs `run` once before the next display frame, or after 50 ms when a shown page draws no frames
 /// (an occluded window). A hidden page draws nothing: `run` waits until it shows, and its first
 /// frame then draws everything that landed meanwhile (`emitInFrame` holds one waiting snapshot).
-/// The wait's listener goes with that show. A hidden page used to draw the shown chat's stream
-/// every 50 ms that nobody could see.
+/// Every page's waits share one listener, which goes with that show. A hidden page used to draw the
+/// shown chat's stream every 50 ms that nobody could see.
 export const nextFrame = (run: () => void) => {
   if (!pageShown()) {
-    const shown = () => {
-      if (!pageShown()) return;
-      document.removeEventListener("visibilitychange", shown);
-      nextFrame(run);
-    };
-    document.addEventListener("visibilitychange", shown);
+    if (waitingForShow.size === 0) document.addEventListener("visibilitychange", drawShown);
+    waitingForShow.add(run);
     return;
   }
   let ran = false;
@@ -3561,9 +3568,11 @@ export class AcpmuxDirectClient {
     const scheduled = this.frameSnapshot !== undefined;
     this.frameSnapshot = connection;
     // A hidden page's frames wait for it to show (`nextFrame`), but what the native tab reads from
-    // it still goes within 50 ms: a change to its chat (its title, its status) and a turn starting
-    // or ending (the header's state, App.tsx `pane.tabState`). The transcript's stream waits.
-    if (!pageShown() && (connection === "session changed" || this.workingNow() !== this.drawnWorking)) {
+    // it does not. A turn starting or ending draws at once, each one, since the header's state
+    // follows each (App.tsx `pane.tabState`); a change to its chat (its title, its status) within
+    // 50 ms. The transcript's stream waits.
+    if (!pageShown() && this.workingNow() !== this.drawnWorking) return this.emit(connection);
+    if (!pageShown() && connection === "session changed") {
       this.hiddenDraw ??= setTimeout(() => {
         this.hiddenDraw = undefined;
         const pending = this.frameSnapshot;

@@ -274,13 +274,17 @@ test("a hidden pane draws its chat's turn start and end, not its stream", async 
     record(socket, 463, "turn_end");
     jest.advanceTimersByTime(50);
     expect(snapshots() - before).toBe(3);
+    // A turn that starts and ends at once still draws both: the header refreshes on the end.
+    record(socket, 464, "turn_started");
+    record(socket, 465, "turn_end");
+    expect(snapshots() - before).toBe(5);
     // Nothing waits for the show: that snapshot carried the stream too.
     setVisibility("visible");
     flushFrames();
-    expect(snapshots() - before).toBe(3);
-    chunk(socket, 464);
+    expect(snapshots() - before).toBe(5);
+    chunk(socket, 466);
     flushFrames();
-    expect(snapshots() - before).toBe(4);
+    expect(snapshots() - before).toBe(6);
   } finally {
     jest.useRealTimers();
     client.close();
