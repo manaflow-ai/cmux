@@ -96,16 +96,11 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
     snapshot = pr_status.list_comments(status_api, repo, number)
     did = "unchanged"
     text = ""
-    deferred_legacy_ids: set[str] = set()
     for attempt in range(pr_status.ATTEMPTS):
         if attempt:
             snapshot = pr_status.list_comments(status_api, repo, number)
         text = publication_text(snapshot, line, text)
         writes = pr_status.plan(repo, number, snapshot, SECTION, text, legacy=MARKER)
-        if deferred_legacy_ids:
-            writes = [write for write in writes
-                      if not (write[0] == "DELETE" and
-                              write[1].rsplit("/", 1)[-1] in deferred_legacy_ids)]
         if writes:
             # pr_status.render trims the longest section when a comment exceeds
             # GitHub's cap. Never delete a legacy comment if that would drop a
@@ -126,15 +121,10 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
                                          if key != SECTION)
                 if publication_lost or other_section_lost:
                     return legacy_publish(repo, number, line, snapshot, pause, text)
-                # A migration needs one status edit and one legacy deletion.
-                # Keep the old comment until a later no-op run can remove it;
-                # two content writes per PR would exhaust the hourly budget on
-                # a large release span.
-                legacy_ids = {str(comment["id"]) for comment in pr_status.bot_comments(snapshot, MARKER)}
-                deferred_legacy_ids.update(legacy_ids)
-                writes = [write for write in writes
-                          if not (write[0] == "DELETE" and
-                                  write[1].rsplit("/", 1)[-1] in legacy_ids)]
+            # plan() puts the shared edit before legacy deletions. Finish the
+            # migration in this run; a future release would need another edit
+            # and could otherwise leave the old comment behind indefinitely.
+            # Pace each deletion too, so cleanup stays under the write limit.
             for method, path, payload in writes:
                 status_api(method, path, payload)
                 time.sleep(pause)
