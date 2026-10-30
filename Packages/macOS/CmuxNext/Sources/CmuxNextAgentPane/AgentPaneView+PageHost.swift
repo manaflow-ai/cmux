@@ -29,6 +29,8 @@ extension AgentPaneView {
         pageEvents?.replay = { [weak self] in
             // A new subscriber is a page that loaded again: its registry renderers are gone.
             guard let self else { return [] }
+            self.questionKeyBinding = nil
+            self.refreshQuestionKeyBinding()
             self.runPageHostRegistry()
             let events = AgentPanePageHost.currentEvents(self)
             // The theme it gets here is the one it has now, whatever was pushed before.

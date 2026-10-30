@@ -93,6 +93,12 @@ public final class AgentPaneView: NSView {
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
+    struct QuestionKeyBinding: Equatable {
+        let connection: Int
+        let session: String
+        let contexts: [String: AcpmuxDecisionContexts.Context]
+    }
+    var questionKeyBinding: QuestionKeyBinding?
     /// The page's menu shown past the window's edge (AgentPaneView+Popup).
     var popupHostStorage: WebPopupHost?
     /// The message and the selected transcript text the page reported under the pointer for the
@@ -413,6 +419,9 @@ public final class AgentPaneView: NSView {
         model.transport.onOtherInstall = nil
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil
+        model.transport.onQuestionStateChanged = nil
+        model.onQuestionKeySessionChange = nil
+        questionKeyBinding = nil
         hideRemoteApprovalsOff()
         transportPacer?.stop()
         removeContextMenu()

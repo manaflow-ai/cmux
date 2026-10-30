@@ -145,6 +145,17 @@ function keyboardIsIdle(document: Document): boolean {
   return composer !== null && composerText(composer) === "";
 }
 
+function enterReply(question: AgentQuestion, state: CardState): string | undefined {
+  if (!canSubmit(state)) return undefined;
+  try {
+    const sent = reply(question, cardAnswer(state));
+    const { optionId, answers, annotations } = sent;
+    return JSON.stringify({ optionId, answers, ...(annotations === undefined ? {} : { annotations }) });
+  } catch {
+    return undefined;
+  }
+}
+
 // The rows are buttons with radio or checkbox roles (a radiogroup or group), not native inputs:
 // one roving tab stop and the reducer's keys drive them, and the Other row turns into a text field
 // in place. aria-checked carries the choice.
@@ -367,6 +378,9 @@ function PendingQuestion({
         data-consent=""
         aria-labelledby={legendId}
         aria-busy={sent || undefined}
+        data-cmux-question-session={question.source.session}
+        data-cmux-question-id={question.source.permission ?? question.id}
+        data-cmux-question-enter-reply={enterReply(question, state)}
       >
         <legend id={legendId} className="acpmux-question-head">
           <span className="acpmux-hidden-label">
@@ -440,6 +454,9 @@ function PendingQuestion({
       className="acpmux-question"
       aria-labelledby={legendId}
       aria-busy={sent || undefined}
+      data-cmux-question-session={question.source.session}
+      data-cmux-question-id={question.source.permission ?? question.id}
+      data-cmux-question-enter-reply={enterReply(question, state)}
       data-preview={showPreview || undefined}
       data-preview-layout={showPreview ? layout : undefined}
     >

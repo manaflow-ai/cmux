@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextPages
 import os
 import CmuxNextCompat
 
@@ -74,6 +75,18 @@ import CmuxNextCompat
     public let sessions = AcpmuxPaneSessions()
     /// Each shown prompt's decision nonce and daemon run, for a relayed allow's proof (cx-0q7o).
     public let decisions = AcpmuxDecisionContexts()
+    /// The private isolated-world snapshot for the current physical Return. The page can only
+    /// request a ticket matching it; it cannot create or replace this evidence.
+    struct QuestionKeyCredit {
+        let target: PageQuestionKeyTarget
+        let intent: AgentPaneGestureIntent
+        let context: AcpmuxDecisionContexts.Context
+        let connection: Int
+        let witness: UUID
+        let redeem: @MainActor () async -> Bool
+    }
+    var questionKeyCredit: QuestionKeyCredit?
+    private var questionKeyTickets: [String: QuestionKeyCredit] = [:]
     /// The keyed restart the chat's machine offers, when it runs on another machine.
     private(set) var remoteApprovals: AgentPaneRemoteApprovals?
     /// The canonical host key of the current remote chat, when its tab record supplied one.
@@ -109,6 +122,8 @@ import CmuxNextCompat
     /// (peer-route approvals, ``AcpmuxMacApprover``): it has not enrolled this Mac, or the allow
     /// was not a one-time allow. nil: a later answer counted, and what was said no longer holds.
     public var onPeerApprovalsOff: (@MainActor (AgentPanePeerApprovals?) -> Void)?
+    /// Called after daemon frames update the native pending-question projection.
+    var onQuestionStateChanged: (@MainActor () -> Void)?
     /// The pane's own roots (``AcpmuxPathPolicy/Scope/roots``), asked at each frame.
     public var roots: @MainActor () -> [String] = { [] }
     /// Folders that are roots only when the user picks one by a gesture (the new tab page's scan).
@@ -222,6 +237,8 @@ import CmuxNextCompat
         pacer.reset()
         // A reconnect drops every ticket of the old connection.
         gestures.clearTickets()
+        questionKeyCredit = nil
+        questionKeyTickets.removeAll()
         current += 1
         let id = current
         localAppToken = connection.localAppToken
@@ -252,11 +269,13 @@ import CmuxNextCompat
         let socket = AcpmuxPaneSocket(request: connection.request, wire: wire, limits: limits,
                                       options: permissionOptions, sessions: sessions, decisions: decisions,
                                       replacements: replacements, connection: id, ids: ids,
-                                      agentReplies: connection.remote == nil ? currentAgentReply : nil) { [weak self] in
+                                      agentReplies: connection.remote == nil ? currentAgentReply : nil,
+                                      onQuestionStateChanged: onQuestionStateChanged) { [weak self] in
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
         self.socket = socket
+        onQuestionStateChanged?()
         // cx-fcaq: the local WebSocket goes only to a port the acpmux this app runs listens on.
         if connection.remote == nil, let executable = connection.executable, let port = connection.url.port,
            !(await AcpmuxServerPeer.verifyListener(port: port, executable: executable)) {
@@ -337,8 +356,9 @@ import CmuxNextCompat
         if intent.method == "_acpmux/permission_respond" {
             guard case .string(let session)? = intent.params["sessionId"], case .string(let permission)? = intent.params["permissionId"],
                   case .string(let option)? = intent.params["optionId"], sessions.contains(session),
-                  permissionOptions.isKnownAllow(permissionId: permission, optionId: option),
-                  gestures.hasFreshAnswerGesture else { return nil }
+                  permissionOptions.isKnownAllow(permissionId: permission, optionId: option) else { return nil }
+            if let ticket = takeQuestionKeyTicket(intent) { return ticket }
+            guard gestures.hasFreshAnswerGesture else { return nil }
         }
         // A prompt held for the folder trust answer right after a new chat's start: the start took
         // the send's gesture, and its credit becomes the prompt's ticket (the ticket outlives it).
@@ -364,9 +384,38 @@ import CmuxNextCompat
         trustDaemon = nil // A new native pick after close belongs to the next local connection.
         guard let socket else { return }
         socket.close(code: 1000, reason: "", error: nil)
+        gestures.recordQuestionReturn(false)
         gestures.clearTickets(connection: id)
+        questionKeyCredit = nil
+        questionKeyTickets = questionKeyTickets.filter { $0.value.connection != id }
+        decisions.reset()
+        onQuestionStateChanged?()
         localAppToken = nil
         promptRelay?.ended(byDaemon: false)
+    }
+
+    func offerQuestionKeyCredit(target: PageQuestionKeyTarget, intent: AgentPaneGestureIntent,
+                                context: AcpmuxDecisionContexts.Context, connection: Int, witness: UUID,
+                                redeem: @escaping @MainActor () async -> Bool) {
+        guard connection == current, context.isQuestion else { return }
+        questionKeyCredit = QuestionKeyCredit(target: target, intent: intent, context: context,
+                                               connection: connection, witness: witness, redeem: redeem)
+    }
+
+    func takeQuestionKeyTicket(_ intent: AgentPaneGestureIntent) -> String? {
+        guard let credit = questionKeyCredit, credit.connection == current,
+              credit.intent == intent, gestures.questionReturnWitness == credit.witness else { return nil }
+        questionKeyCredit = nil
+        questionKeyTickets.removeAll()
+        let ticket = UUID().uuidString
+        questionKeyTickets[ticket] = credit
+        return ticket
+    }
+
+    func takeQuestionKeyCredit(_ ticket: String, connection: Int) -> QuestionKeyCredit? {
+        guard let credit = questionKeyTickets.removeValue(forKey: ticket), credit.connection == connection,
+              gestures.questionReturnWitness == credit.witness else { return nil }
+        return credit
     }
 
     private func arrived(_ id: Int) {
@@ -393,6 +442,10 @@ import CmuxNextCompat
         if batch.closed != nil {
             failHostRequests(connection: current)
             self.socket = nil
+            gestures.recordQuestionReturn(false)
+            questionKeyCredit = nil
+            questionKeyTickets.removeAll()
+            onQuestionStateChanged?()
             trustDaemon = nil
             gestures.clearTickets(connection: current)
             localAppToken = nil

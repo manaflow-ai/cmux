@@ -21,6 +21,7 @@ import CmuxNextCompat
     /// A real user event reached the pane. `click`: a click on the page or the native permission
     /// shortcut, the only gestures that may answer a permission prompt (``hasFreshAnswerGesture``).
     public func record(click: Bool = false) {
+        questionReturn = nil
         last = now()
         lastScope = last
         if click { lastClick = last }
@@ -29,6 +30,23 @@ import CmuxNextCompat
     /// How old the person's click may be when a permission answer uses it (cx-ocdz).
     public static let answerWindow: TimeInterval = 1.5
     private var lastClick: TimeInterval?
+    /// A distinct native witness for one nonrepeating Chromium Return. Any later page input
+    /// revokes it, including posted input; no generic gesture uptime can manufacture this.
+    private var questionReturn: UUID?
+
+    func recordQuestionReturn(_ isPersonReturn: Bool) {
+        questionReturn = isPersonReturn ? UUID() : nil
+    }
+
+    var questionReturnWitness: UUID? { questionReturn }
+
+    func consumeQuestionReturn(_ witness: UUID) -> Bool {
+        guard questionReturn == witness else { return false }
+        questionReturn = nil
+        // The key cannot also send a prompt or another granting frame.
+        last = nil
+        return true
+    }
 
     /// Whether the person clicked in the pane (or pressed the permission shortcut) just now: an
     /// Allow needs that, not a gesture left by typing, so a click another process posts on Allow

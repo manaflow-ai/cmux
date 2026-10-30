@@ -1,11 +1,58 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 import WebKit
 
 extension AgentPaneView {
+    func refreshQuestionKeyBinding() {
+        guard let page else { return }
+        guard let session = model.sessionId, let connection = model.transport.connection else {
+            if questionKeyBinding != nil { page.bindQuestionKeyTargets([]) { _ in } }
+            questionKeyBinding = nil
+            model.transport.gestures.recordQuestionReturn(false)
+            return
+        }
+        let contexts = model.transport.decisions.questions(session: session)
+        let binding = QuestionKeyBinding(connection: connection, session: session, contexts: contexts)
+        guard questionKeyBinding != binding else { return }
+        model.transport.gestures.recordQuestionReturn(false)
+        page.bindQuestionKeyTargets([]) { _ in }
+        let targets = contexts.keys.map {
+            PageQuestionKeyTarget(sessionID: session, permissionID: $0)
+        }
+        let bound = page.bindQuestionKeyTargets(targets) { [weak self, weak page] snapshot in
+            guard let self, let page, self.model.sessionId == snapshot.target.sessionID,
+                  self.model.transport.connection == connection,
+                  let context = self.model.transport.decisions.context(session: snapshot.target.sessionID,
+                                                                                permission: snapshot.target.permissionID),
+                  context.isQuestion, let witness = self.model.transport.gestures.questionReturnWitness,
+                  let reply = try? JSONSerialization.jsonObject(with: Data(snapshot.replyJSON.utf8)) as? [String: Any],
+                  let option = reply["optionId"] as? String,
+                  let answers = reply["answers"] as? [String: Any] else { return }
+            let annotations = reply["annotations"] as? [String: Any]
+            var params: [String: Any] = ["sessionId": snapshot.target.sessionID, "permissionId": snapshot.target.permissionID,
+                                          "optionId": option, "answers": answers]
+            if let annotations { params["annotations"] = annotations }
+            let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "_acpmux/permission_respond",
+                "params": params]])
+            guard let intent else { return }
+            self.model.transport.offerQuestionKeyCredit(target: snapshot.target, intent: intent, context: context,
+                                                        connection: connection, witness: witness) {
+                await page.redeemQuestionKeySnapshot(snapshot)
+            }
+            guard let ticket = self.model.transport.reserveGesture(intent) else { return }
+            params["_meta"] = [AcpmuxPaneMethods.gestureTicketKey: ticket]
+            let request: [String: Any] = ["jsonrpc": "2.0", "id": "question-key-" + UUID().uuidString,
+                                            "method": "_acpmux/permission_respond", "params": params]
+            guard let text = AcpmuxRequestIds.encode(request) else { return }
+            self.model.transport.submit(connection: connection, frames: [text]) { _ in }
+        }
+        questionKeyBinding = bound ? binding : nil
+    }
     /// The pane's side of the host transport: the native sheet it asks for (a config option that is
     /// not free) and the delivery of its frames to the page.
     func installTransport() {
+        refreshQuestionKeyBinding()
         // A config option that is not free (paired devices): the user confirms it natively.
         model.onConfirmMode = { [weak self] asked, answer in
             guard let self, self.window != nil, !self.isHiddenOrHasHiddenAncestor else { return answer(false) }
@@ -28,6 +75,8 @@ extension AgentPaneView {
         model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }
         model.transport.onRemoteApprovalsOff = { [weak self] approvals in self?.showRemoteApprovalsOff(approvals) }
         model.transport.onPeerApprovalsOff = { [weak self] reason in self?.showPeerApprovalsOff(reason) }
+        model.transport.onQuestionStateChanged = { [weak self] in self?.refreshQuestionKeyBinding() }
+        model.onQuestionKeySessionChange = { [weak self] in self?.refreshQuestionKeyBinding() }
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }
             if let pageEvents = self.pageEvents {
@@ -77,6 +126,7 @@ extension AgentPaneView {
     /// A key press with the page focused, or a click on the page, by the person (``AgentPanePersonInput``):
     /// the user's gesture. `eventWindow` is the event's window (tests pass it: a synthesized event cannot resolve it).
     public func judge(_ event: NSEvent, eventWindow: NSWindow?) {
+        model.transport.gestures.recordQuestionReturn(false)
         // A Chromium page has its own window, a child of the pane's.
         if let window, let eventWindow, eventWindow !== window, eventWindow.parent === window {
             return judgeChromium(event, eventWindow: eventWindow)
@@ -89,6 +139,7 @@ extension AgentPaneView {
             guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
         }
         model.transport.gestures.record(click: event.type != .keyDown)
+        if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(event.keyCode == 36) }
     }
 
     /// The same for an event in the Chromium page's own window (a child of the pane's window): a key
@@ -107,5 +158,6 @@ extension AgentPaneView {
             guard chromiumPageContains(eventWindow.convertPoint(toScreen: event.locationInWindow), eventWindow: eventWindow) else { return }
         }
         model.transport.gestures.record(click: event.type != .keyDown)
+        if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(event.keyCode == 36) }
     }
 }

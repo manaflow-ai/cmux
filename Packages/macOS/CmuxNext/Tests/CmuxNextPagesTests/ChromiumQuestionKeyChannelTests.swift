@@ -130,7 +130,8 @@ struct ChromiumQuestionKeyChannelTests {
           const target = changes.target ?? document.activeElement;
           const path = []; for (let node = target; node; node = node.parentNode) path.push(node);
           listener?.({isTrusted:true, repeat:false, isComposing:false, keyCode:13, key:'Enter',
-            shiftKey:false, ctrlKey:false, altKey:false, target, composedPath:() => path, ...changes});
+            shiftKey:false, ctrlKey:false, altKey:false, target, composedPath:() => path,
+            preventDefault() {}, stopImmediatePropagation() {}, ...changes});
         }
         function reply(answer, annotations) {
           const value = {optionId:'allow', answers:{Question:answer}};
@@ -434,6 +435,9 @@ struct ChromiumQuestionKeyChannelTests {
             }
         }
         let descriptor = PageDescriptor(id: "cmux.agent", resource: "agent", namespaces: [])
+        #if DEBUG
+        PageID.allowFixtureRoot(root, for: descriptor.id)
+        #endif
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [],
                                            options: PageEngineOptions(chromiumAgentChat: true), chromium: hosting))
         view.chromiumClock = PageTestClock.never

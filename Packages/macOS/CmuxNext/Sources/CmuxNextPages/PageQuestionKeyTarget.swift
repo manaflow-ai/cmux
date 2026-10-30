@@ -153,6 +153,10 @@ nonisolated enum PageQuestionKeyScript {
             pending = snapshot;
             field.addEventListener('input', revoke, true);
             // Capture runs before the card's handler. No page API receives a ticket or secret.
+            // Keep the original field mounted and focused until the native owner redeems the
+            // snapshot. The native owner sends this exact reply through the normal relay.
+            event.preventDefault();
+            event.stopImmediatePropagation();
             post(JSON.stringify({ nonce, sequence, sessionID, permissionID, replyJSON }));
           };
           document.addEventListener('keydown', key, true);
