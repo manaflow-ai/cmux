@@ -540,13 +540,17 @@ final class CloudService {
             guard !recordReadsOutstanding.contains(where: { $0.key > read && $0.value == machineID }) else { continue }
             deferredRecordRemovals[machineID] = nil
             recordReadApplied[machineID] = max(read, recordReadApplied[machineID, default: 0])
-            removeConfirmedMachine(machineID)
+            // A list omission is not proof that the provider VM was destroyed: retired
+            // provider rows can be filtered while the VM still exists. Revoke delivered
+            // access, but retain the broker target/auth mode unless destruction is explicit.
+            removeConfirmedMachine(machineID, destructionConfirmed: false)
         }
     }
 
-    /// Both an authoritative list omission and a destroyed detail confirm removal.
-    /// Keep the read watermark so an older list cannot recreate the removed session.
-    private func removeConfirmedMachine(_ machineID: String) {
+    /// Remove the app session after an authoritative omission or destroyed detail. Only a
+    /// destroyed detail may discard the broker's target/auth metadata; an omission may be a
+    /// filtered retired-provider row while the VM survives.
+    private func removeConfirmedMachine(_ machineID: String, destructionConfirmed: Bool) {
         deferredRecordRemovals[machineID] = nil
         guard machines.session(machineID) != nil else { return }
         if let user = auth.user {
@@ -554,7 +558,9 @@ final class CloudService {
             // task-owner: confirmed removal stops renewal, then discards the deleted target.
             Task {
                 try? await codexBroker.revoke(machineID: machineID, scope: scope)
-                await codexBroker.machineWasDeleted(machineID, scope: scope)
+                if destructionConfirmed {
+                    await codexBroker.machineWasDeleted(machineID, scope: scope)
+                }
             }
         }
         creations.machineRemoved(machineID)
@@ -573,7 +579,7 @@ final class CloudService {
         let wasLive = session.machine.status.isLive
         session.machine = machine
         if machine.status == .destroyed {
-            removeConfirmedMachine(machine.id)
+            removeConfirmedMachine(machine.id, destructionConfirmed: true)
             return
         }
         if wasLive, !machine.status.isLive {
