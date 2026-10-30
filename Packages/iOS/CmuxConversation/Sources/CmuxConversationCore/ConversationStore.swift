@@ -179,6 +179,10 @@ public final class ConversationStore {
     /// current value still equals it takes the recovered revision; one a live
     /// event or local edit changed since keeps that change.
     private var recoveryBaseline: [String: ConversationMessage]?
+    /// The backend's own polls at reconnect, before local intent. A server
+    /// poll that differs from it by the time history lands came live and is
+    /// newer than the page.
+    private var recoveryPollBaseline: [String: ConversationPoll]?
     /// Bumps on every list state change so a stale reply or rollback never
     /// overwrites a newer state.
     private var listStateGeneration = 0
@@ -572,6 +576,7 @@ public final class ConversationStore {
             ? Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) }) : nil
         let overlap = retained?.values.compactMap(\.seq).min()
         recoveryBaseline = retained
+        recoveryPollBaseline = retained == nil ? nil : polls.server
         if rebase {
             olderGeneration += 1
             olderTask?.cancel()
@@ -658,6 +663,17 @@ public final class ConversationStore {
                             current.reactions = kept.reactions
                             if !incoming.isUnsent { incoming.reactions = live.reactions }
                         }
+                        // So is a poll vote or added choice (mine, still
+                        // unconfirmed, or a live one): the page brings the
+                        // rest, upsert layers my intent back over its poll,
+                        // and a live server poll beats the page's.
+                        if let kept = retained[message.id], current.poll != kept.poll {
+                            current.poll = kept.poll
+                            if !incoming.isUnsent, let livePoll = polls.server[message.id],
+                               livePoll != recoveryPollBaseline?[message.id] {
+                                incoming.poll = livePoll
+                            }
+                        }
                         if current != retained[message.id] { continue }
                     }
                     if upsert(incoming) { inserted.append(incoming.rowID) }
@@ -691,6 +707,7 @@ public final class ConversationStore {
         }
         hasLoadedNewest = true
         recoveryBaseline = nil
+        recoveryPollBaseline = nil
         let buffered = bufferedLive
         bufferedLive = []
         for message in buffered { ingestBuffered(message) }
