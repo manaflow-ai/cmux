@@ -27,6 +27,11 @@ enum Verb {
     ChatNew,
     ChatState,
     ChatInterrupt,
+    ChatSteer,
+    ChatRename,
+    ChatSet,
+    ChatClose,
+    ChatMove,
 }
 
 pub(super) struct AgentTool {
@@ -158,6 +163,48 @@ pub(super) const TOOLS: &[AgentTool] = &[
             (`cmux agents chat interrupt`), as its stop button does. Never the caller's own \
             chat. Nudge it on afterwards with agents_chat_send.",
     },
+    AgentTool {
+        name: "agents_chat_steer",
+        verb: Verb::ChatSteer,
+        title: "Steer a chat",
+        description: "Send text into the running turn of another agent chat of this cmux \
+            session (`cmux agents chat steer`), as its composer's Steer does; with no turn \
+            running it runs next. It goes in as your message, never as the person's words. \
+            Never the caller's own chat. To queue text behind the turn instead, use \
+            agents_chat_send. Answers {action, origin, result: {chat, prompt_id, state}}.",
+    },
+    AgentTool {
+        name: "agents_chat_rename",
+        verb: Verb::ChatRename,
+        title: "Rename a chat",
+        description: "Rename an agent chat of this cmux session (`cmux agents chat rename`): \
+            its tab and its row in the chat lists follow.",
+    },
+    AgentTool {
+        name: "agents_chat_set",
+        verb: Verb::ChatSet,
+        title: "Change a chat's model, effort or mode",
+        description: "Change an agent chat's model, thinking effort or mode (`cmux agents chat \
+            set`), as its pickers do. mode full-access is the harness's Full access mode. acpmux \
+            refuses a mode wider than this caller may give. Answers {action, origin, result: \
+            {chat, model?, effort?, mode?}}.",
+    },
+    AgentTool {
+        name: "agents_chat_close",
+        verb: Verb::ChatClose,
+        title: "Close a chat's tabs",
+        description: "Close every tab of the app that shows an agent chat of this cmux session \
+            (`cmux agents chat close`), as a person closes a tab. The chat keeps running and \
+            stays in All Chats. Answers {action, origin, result: {chat, closed_tabs}}.",
+    },
+    AgentTool {
+        name: "agents_chat_move",
+        verb: Verb::ChatMove,
+        title: "Move a chat's tab",
+        description: "Move the tab that shows an agent chat of this cmux session to another \
+            workspace (`cmux agents chat move`), without moving the person's focus. Answers \
+            {action, origin, result: {chat, tab, workspace, screen}}.",
+    },
 ];
 
 pub(super) fn find(name: &str) -> Option<&'static AgentTool> {
@@ -184,6 +231,10 @@ impl AgentTool {
                 | Verb::ChatNew
                 | Verb::ChatState
                 | Verb::ChatInterrupt
+                | Verb::ChatRename
+                | Verb::ChatSet
+                | Verb::ChatClose
+                | Verb::ChatMove
         )
     }
 
@@ -203,7 +254,16 @@ impl AgentTool {
     fn chat(&self) -> bool {
         matches!(
             self.verb,
-            Verb::ChatSend | Verb::ChatRead | Verb::ChatNew | Verb::ChatState | Verb::ChatInterrupt
+            Verb::ChatSend
+                | Verb::ChatRead
+                | Verb::ChatNew
+                | Verb::ChatState
+                | Verb::ChatInterrupt
+                | Verb::ChatSteer
+                | Verb::ChatRename
+                | Verb::ChatSet
+                | Verb::ChatClose
+                | Verb::ChatMove
         )
     }
 
@@ -215,6 +275,7 @@ impl AgentTool {
                 | Verb::DialogAnswer
                 | Verb::ChatSend
                 | Verb::ChatNew
+                | Verb::ChatSteer
         );
         let description = if self.chat() {
             self.description.to_owned()
@@ -230,7 +291,11 @@ impl AgentTool {
                 "readOnlyHint": self.read_only(),
                 "destructiveHint": matches!(
                     self.verb,
-                    Verb::DialogAnswer | Verb::ChatSend | Verb::ChatInterrupt
+                    Verb::DialogAnswer
+                        | Verb::ChatSend
+                        | Verb::ChatInterrupt
+                        | Verb::ChatSteer
+                        | Verb::ChatClose
                 ),
                 "idempotentHint": idempotent,
                 "openWorldHint": false,
@@ -375,12 +440,64 @@ impl AgentTool {
                     }),
                 );
             }
-            Verb::ChatState | Verb::ChatInterrupt => {
+            Verb::ChatState | Verb::ChatInterrupt | Verb::ChatClose => {
                 properties.insert(
                     "target".into(),
                     id_schema("The chat: its acpmux session id, name or unique prefix."),
                 );
                 required.push("target");
+            }
+            Verb::ChatSteer => {
+                properties.insert(
+                    "target".into(),
+                    id_schema("The chat: its acpmux session id, name or unique prefix."),
+                );
+                properties.insert(
+                    "text".into(),
+                    json!({
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": agent_message::MAX_BODY_BYTES,
+                        "description": "The text, at most 32 KiB of UTF-8.",
+                    }),
+                );
+                required.extend(["target", "text"]);
+            }
+            Verb::ChatRename => {
+                properties.insert(
+                    "target".into(),
+                    id_schema("The chat: its acpmux session id, name or unique prefix."),
+                );
+                properties.insert("name".into(), id_schema("The chat's new name."));
+                required.extend(["target", "name"]);
+            }
+            Verb::ChatSet => {
+                properties.insert(
+                    "target".into(),
+                    id_schema("The chat: its acpmux session id, name or unique prefix."),
+                );
+                for (name, description) in [
+                    ("model", "The model, as the harness names it."),
+                    ("effort", "Thinking effort: default, low, medium, high, xhigh or max."),
+                    ("mode", "The mode: the harness's mode id, or full-access."),
+                ] {
+                    properties.insert(
+                        name.into(),
+                        json!({"type": "string", "minLength": 1, "description": description}),
+                    );
+                }
+                required.push("target");
+            }
+            Verb::ChatMove => {
+                properties.insert(
+                    "target".into(),
+                    id_schema("The chat: its acpmux session id, name or unique prefix."),
+                );
+                properties.insert(
+                    "workspace".into(),
+                    id_schema("The workspace to move the chat's tab to (ws_ id or its name)."),
+                );
+                required.extend(["target", "workspace"]);
             }
         }
         if self.routed() {
@@ -551,6 +668,31 @@ impl AgentTool {
             }
             Verb::ChatInterrupt => {
                 words.extend(["chat".into(), "interrupt".into(), args.word("target")?]);
+            }
+            Verb::ChatSteer => {
+                words.extend(["chat".into(), "steer".into(), args.word("target")?]);
+                let text =
+                    args.text("text")?.ok_or_else(|| format!("{}: text is required", self.name))?;
+                words.extend(["--".into(), text]);
+            }
+            Verb::ChatRename => {
+                words.extend(["chat".into(), "rename".into(), args.word("target")?]);
+                words.push(args.word("name")?);
+            }
+            Verb::ChatSet => {
+                words.extend(["chat".into(), "set".into(), args.word("target")?]);
+                for name in ["model", "effort", "mode"] {
+                    if let Some(value) = args.text(name)? {
+                        words.push(format!("--{name}={value}"));
+                    }
+                }
+            }
+            Verb::ChatClose => {
+                words.extend(["chat".into(), "close".into(), args.word("target")?]);
+            }
+            Verb::ChatMove => {
+                words.extend(["chat".into(), "move".into(), args.word("target")?]);
+                words.extend(["--workspace".into(), args.word("workspace")?]);
             }
         }
         let key = match args.text("idempotency_key")? {
