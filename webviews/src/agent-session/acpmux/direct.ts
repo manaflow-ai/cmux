@@ -330,8 +330,8 @@ function strayedFrom(watch: AttachWatch, replyOf?: unknown): boolean {
 /// can't fucking scroll up past the current fucking turn after restarting"). The bound keeps one
 /// read from walking a whole log when a single turn is larger than this.
 const OLDER_PAGES_PER_ASK = 128;
-/// Publish a bounded batch of older pages together so each prepend does not redraw the bottom stack.
-/// This keeps the reader responsive while preserving the eight-page cap for large turns.
+/// Pages one older read takes at least, published together so each prepend does not redraw the
+/// bottom stack; once one of them starts a turn older than the first prompt drawn, the read stops here.
 const OLDER_MIN_PAGES_PER_ASK = 4;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
