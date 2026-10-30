@@ -134,6 +134,10 @@ struct ScreenSharingViewerSettings: View {
                 Text("Full Control").tag(SessionScope.full)
                 Text("View Only").tag(SessionScope.view)
             }
+            Picker("Touch", selection: $preferences.defaults.inputMode) {
+                ForEach(ScreenInputMode.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
+            }
+            .accessibilityIdentifier("screenSharing.inputMode")
             Picker("Quality", selection: $preferences.defaults.quality) {
                 ForEach(ScreenQuality.allCases) { Text($0.title).tag($0) }
             }
@@ -142,7 +146,7 @@ struct ScreenSharingViewerSettings: View {
         } header: {
             Text("Viewer")
         } footer: {
-            Text("Full Control lets this iPhone click and type on the Mac. Quality Auto keeps text sharp and lowers the frame rate on a slow network.")
+            Text("Full Control lets this iPhone click and type on the Mac. Direct Touch clicks where you touch; Trackpad moves a pointer like a MacBook trackpad. Quality Auto keeps text sharp and lowers the frame rate on a slow network.")
         }
     }
 }

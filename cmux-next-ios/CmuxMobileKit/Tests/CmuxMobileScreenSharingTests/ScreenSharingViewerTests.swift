@@ -107,11 +107,13 @@ import Testing
         var changed = preferences.screen(for: hostID)
         changed.quality = .smooth
         changed.showStats = false
+        changed.inputMode = .trackpad
         preferences.save(changed, for: hostID)
         preferences.defaultScope = .view
         let reloaded = ScreenSharingPreferences(store: store)
         #expect(reloaded.screen(for: "another-mac").quality == .smooth)
         #expect(reloaded.screen(for: "another-mac").showStats == false)
+        #expect(reloaded.screen(for: "another-mac").inputMode == .trackpad)
         #expect(reloaded.defaultScope == .view)
     }
 
