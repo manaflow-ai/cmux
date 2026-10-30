@@ -53,9 +53,42 @@ fn every_row_starts_its_description_in_one_column() {
     }
 }
 
+/// The verbs that act on no one machine, or pick or create it themselves:
+/// every other verb's usage starts with the target (CloudActionCatalog.swift
+/// gives those `targets: [.machine]`).
+const TARGETLESS: &[&str] = &[
+    "list-machines",
+    "new-machine",
+    "new-workspace",
+    "start-session",
+    "network-list",
+    "tunnel-attach",
+    "tunnel-detach",
+    "tunnel-rotate-key",
+    "firewall-list",
+    "firewall-get",
+    "firewall-create",
+    "firewall-delete",
+    "domain-list",
+    "publication-list",
+    "move",
+    "bring-back",
+    "sign-in",
+    "sign-out",
+    "diagnostics",
+    "open-mobile-pairing",
+];
+
 #[test]
 fn every_verb_has_both_languages_and_a_target_when_it_names_a_machine() {
     for verb in GROUPS.iter().flat_map(|group| group.verbs) {
+        assert_eq!(
+            verb.usage.starts_with("{target}"),
+            !TARGETLESS.contains(&verb.name),
+            "{}: usage {:?}",
+            verb.name,
+            verb.usage
+        );
         assert!(!verb.en.is_empty() && !verb.ja.is_empty(), "{} lacks a description", verb.name);
         assert_ne!(verb.en, verb.ja, "{} is not translated", verb.name);
         let usage = usage_line(verb);

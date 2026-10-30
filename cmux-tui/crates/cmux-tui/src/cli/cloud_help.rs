@@ -39,7 +39,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "new-machine",
-                "[--size small|medium|large|xlarge] [--name NAME] [--persistent] [--machine-config FILE]",
+                "[--size small|medium|large|xlarge] [--name NAME] [--persistent] [--repo OWNER/NAME[@REF]] [--machine-config FILE] [--bootstrap lane] [--bootstrap-script FILE]",
                 "Create a machine; answers its machine_id",
                 "マシンを作成し、machine_id を返す",
             ),
@@ -135,7 +135,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "open-desktop",
-                "{target}",
+                "{target} [--viewer web]",
                 "Show the machine's desktop in a browser tab",
                 "マシンのデスクトップをブラウザタブに表示",
             ),
@@ -153,13 +153,13 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "apply-machine-config",
-                "{target} [--machine-config FILE] [--repo OWNER/NAME]",
+                "{target} [--machine-config FILE]",
                 "Apply a .cmux/machine.toml",
                 ".cmux/machine.toml を適用",
             ),
             verb(
                 "deliver-secrets",
-                "{target} [--repo OWNER/NAME]",
+                "{target} [--repo OWNER/NAME] [--names A,B]",
                 "Send the secrets its machine config names",
                 "マシン設定で宣言されたシークレットを送信",
             ),
@@ -362,9 +362,9 @@ USAGE
   cmux cloud <action> --help
 
 These actions run through the cmux app, signed in (`cmux cloud sign-in`).
-Every machine action needs --target machine:MACHINE_ID, even with one machine:
-`cmux cloud list-machines` prints each machine's target. Without the app (CI,
-a headless agent), `cmux vm --help` talks to the cmux VM API directly.
+An action on one machine needs --target machine:MACHINE_ID, even with one
+machine: `cmux cloud list-machines` prints each machine's target. Without the
+app (CI, a headless agent), `cmux vm --help` talks to the cmux VM API directly.
 
 QUICK START
   cmux cloud list-machines --json
@@ -381,7 +381,7 @@ const INTRO_JA: &str = "\
   cmux cloud <アクション> --help
 
 これらのアクションはサインイン済みの cmux アプリ経由で動きます（`cmux cloud sign-in`）。
-マシンを操作するアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
+特定のマシンを操作するアクションには、マシンが 1 台でも --target machine:MACHINE_ID が必要です。
 各マシンの target は `cmux cloud list-machines` で確認できます。アプリなしで使う場合
 （CI、画面のないエージェント）は、`cmux vm --help` で cmux VM API を直接使えます。
 
