@@ -133,6 +133,17 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         let area = NSTrackingArea(rect: rect, options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self)
         addTrackingArea(area)
         hoverArea = area
+        // A replaced area sends no exit: the divider moved (a double-click reset, a clamp) or the list
+        // folded under a still pointer, so the hover is read again from where the pointer is now.
+        reconcileHover()
+    }
+
+    private func reconcileHover() {
+        guard !isDividerDragging else { return }
+        let hovered = !list.isHidden && window.map { grabRect.contains(convert($0.mouseLocationOutsideOfEventStream, from: nil)) } == true
+        guard hovered != isDividerHovered else { return }
+        isDividerHovered = hovered
+        updateGlow()
     }
 
     override public func updateTrackingAreas() {
@@ -182,7 +193,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             if onDivider {
                 isDividerDragging = false
                 // Where the release left the pointer: still over the divider keeps the hover band.
-                if let window { isDividerHovered = grabRect.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) }
+                isDividerHovered = !list.isHidden && window.map { grabRect.contains(convert($0.mouseLocationOutsideOfEventStream, from: nil)) } == true
                 updateGlow()
             }
         }
@@ -241,6 +252,8 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             // `layout()` calls this).
             super.layout()
             updateChatCompose()
+            // A folded list has no divider to hover; shown again, its area comes back.
+            updateHoverArea()
         }
         return fold
     }
