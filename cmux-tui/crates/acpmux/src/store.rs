@@ -17,6 +17,8 @@ use std::sync::Mutex;
 
 mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
+mod superseded;
+pub use superseded::{Superseded, starts_prompt};
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1687,6 +1689,7 @@ fn sync_directory(_path: &Path) -> Result<()> {
 #[cfg(unix)]
 fn open_private_append(path: &Path) -> Result<File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    crate::config::refuse_lost_home(path)?;
 
     let file = OpenOptions::new()
         .create(true)
