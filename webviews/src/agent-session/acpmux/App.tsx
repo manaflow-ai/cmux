@@ -6212,6 +6212,8 @@ function AcpmuxPane() {
       directClient.current?.notice(translate("composer.offloadNotRun", { action: name })),
     );
   };
+  // New Tab shows no transcript, so the page says a refusal itself (NewTabScreen plusRefused).
+  const runNewTabPlusSearch = (id: string) => callNative("action.run", { id });
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   // SSH… opens Connect to Machine; New Cloud Machine opens the host's create flow (Lawrence 2026-10-06).
   const connectMachine = (kind: ConnectKind) =>
@@ -10517,7 +10519,7 @@ function AcpmuxPane() {
               }
               chips={registryChips ?? NewTabComposerChips}
               focusField={newTab.focusesField !== false}
-              onPlusCommand={runPlusSearch}
+              onPlusCommand={runNewTabPlusSearch}
               {...withSubmitAfterHandshake(
                 newTabScreenActions({
                   callNative,

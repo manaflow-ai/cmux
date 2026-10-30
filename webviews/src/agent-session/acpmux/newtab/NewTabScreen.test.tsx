@@ -106,7 +106,7 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
   expect(container.querySelector('.acpmux-newtab-plus [data-value="history.search"]')).toBeNull();
   await act(async () => add().click());
 
-  await render((id) => ran.push(id));
+  await render(async (id) => ran.push(id));
   for (const id of ["agentPane.searchChats", "history.search"]) {
     await act(async () => add().click());
     expect(container.querySelector('.acpmux-newtab-plus [data-value="searchFiles"]')).toBeNull();
@@ -118,6 +118,19 @@ test("New Tab + offers Search chats and Search pages as app actions, and no Sear
     });
   }
   expect(ran).toEqual(["agentPane.searchChats", "history.search"]);
+  expect(container.querySelector(".acpmux-switch-notice")).toBeNull();
+
+  // The app refused it: the page says so instead of nothing happening (New Tab shows no transcript).
+  await render(() => Promise.reject(new Error("unavailable")));
+  await act(async () => add().click());
+  const pages = container.querySelector<HTMLElement>('.acpmux-newtab-plus [data-value="history.search"]')!;
+  await act(async () => {
+    pages.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+  await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 0)));
+  expect(container.querySelector(".acpmux-switch-notice [role=alert]")?.textContent).toBe(
+    "Search pages isn't available for this chat",
+  );
 });
 
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {

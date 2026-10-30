@@ -130,9 +130,9 @@ export type NewTabScreenActions = {
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
-  /// The + menu's Search chats and Search pages: runs that app action (PLUS_SEARCH_ACTIONS). Without
-  /// it the + menu leaves both rows out.
-  onPlusCommand?(id: string): void;
+  /// The + menu's Search chats and Search pages: runs that app action (PLUS_SEARCH_ACTIONS); it
+  /// rejects when the app refused it, and the page says so. Without it the + menu leaves both rows out.
+  onPlusCommand?(id: string): Promise<unknown>;
   onInputReady?(token: string): void;
   /// The first user input reached the page (the host recycles only an untouched page, R81).
   onTouched?(): void;
@@ -1147,6 +1147,16 @@ export function NewTabScreen(props: Props) {
 
   const onPlusCommand = props.onPlusCommand;
   const plusSearchRows = useMemo(() => composerPlusSearchExtensions(t), [t]);
+  /// The + search the app refused (turned off, or not for this tab), said over the composer until
+  /// the next pick or the next edit of the prompt.
+  const [plusRefusal, setPlusRefusal] = useState<{ action: string; text: string }>();
+  const plusRefused = plusRefusal && plusRefusal.text === text ? plusRefusal.action : undefined;
+  const runPlusSearch = (id: string) => {
+    setPlusRefusal(undefined);
+    const action = plusSearchRows.find((row) => row.id === id)?.name ?? id;
+    const asked = text;
+    void onPlusCommand?.(id).catch(() => setPlusRefusal({ action, text: asked }));
+  };
   const attachmentPicker = (
     <>
       <input
@@ -1189,7 +1199,7 @@ export function NewTabScreen(props: Props) {
                     description: row.description,
                     icon: <Icon name={row.icon} size={18} />,
                   })),
-                  onPick: (id: string) => onPlusCommand(id),
+                  onPick: runPlusSearch,
                 },
               ]
             : []),
@@ -1384,6 +1394,11 @@ export function NewTabScreen(props: Props) {
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
           <output className="acpmux-switch-notice">
             <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
+          </output>
+        )}
+        {plusRefused && (
+          <output className="acpmux-switch-notice">
+            <span role="alert">{t("composer.offloadNotRun", { action: plusRefused })}</span>
           </output>
         )}
         {/* Above the box: the project strip (Cards draws it under the field). */}
