@@ -92,7 +92,7 @@ final class QuickComposerController {
             if moveToFloatingChat(session: held) { return }
             defaults.removeObject(forKey: Self.heldSessionKey)
         }
-        guard let chat = chat ?? makeChat(nil, nil).map(adopt) else {
+        guard let chat = chat ?? makeChat(nil, drafts?.handOut(Self.draftKey)).map(adopt) else {
             logger.notice("quick agent chat unavailable: this build has no agent page")
             return
         }
@@ -222,6 +222,7 @@ final class QuickComposerController {
             floatingState: { [weak self] in self?.floatingState ?? AgentPaneFloatingState() },
             context: { [weak self] in await self?.context() })
         // A new chat's text is kept until its first prompt starts a session, which clears it.
+        if chat.model.sessionId == nil { drafts?.wire(chat.model) { Self.draftKey } }
         // A held chat that moves to another session (a fork, Continue In) is the one a quit keeps.
         let started = chat.model.onSessionChange
         chat.model.onSessionChange = { [weak self] session in
