@@ -4,12 +4,13 @@
 // inside a main-queue job (a main-actor Task, a CEF pump pass); the fix opens them from a main
 // run-loop block (MainRunLoopBlock). A background thread queues a main-queue job every 5 ms while
 // the stand-in menu is open (page replies, transcript updates, Chromium events do this) and records
-// how long each waited. "after close" is how long the main thread stays busy with that backlog after
+// how long each waited. Arguments: [open seconds, default 0.4] [rounds, default 7]. "after close" is how long the main thread stays busy with that backlog after
 // the menu closes: the click that closed the menu waits that long before anything it hit responds.
 import AppKit
 
-let openSeconds = 0.4
-let rounds = 7
+let args = CommandLine.arguments
+let openSeconds = args.count > 1 ? Double(args[1]) ?? 0.4 : 0.4
+let rounds = args.count > 2 ? Int(args[2]) ?? 7 : 7
 
 func trackingMenu() {
     let end = Date().addingTimeInterval(openSeconds)
@@ -83,7 +84,7 @@ final class Bench: NSObject, NSApplicationDelegate {
         CFRunLoopWakeUp(CFRunLoopGetMain())
     }
     func report() {
-        for (label, fromJob) in [("in-main-queue-job (before)", true), ("run-loop-callout (after)", false)] {
+        for (label, fromJob) in [("in-main-queue-job", true), ("run-loop-callout", false)] {
             let rs = results[fromJob]!
             print(String(format: "MENU-TRACKING %@ worst_wait_ms=%.1f p50_wait_ms=%.1f drain_after_close_ms=%.1f rounds=%d",
                          label, median(rs.map(\.worstWaitMs)), median(rs.map(\.p50WaitMs)),
