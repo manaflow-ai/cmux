@@ -193,6 +193,7 @@ async fn a_failover_to_another_store_starts_fresh_with_the_transcript() {
         )]);
         if fallback.is_some() {
             env.insert("FAKE_CLAUDE_DIE_IF".into(), die.to_string_lossy().into_owned());
+            env.insert("FAKE_CLAUDE_AUTH_FAIL".into(), "1".into());
         }
         HarnessProfile {
             kind: acpmux::config::HarnessKind::ClaudeStdio,
@@ -292,6 +293,7 @@ async fn context_failover_setup(root: &std::path::Path, late: bool) -> (Arc<Hub>
             env.insert("FAKE_CLAUDE_CONTEXT".into(), "1".into());
             env.insert("FAKE_CLAUDE_LIMITS".into(), "1".into());
             env.insert("FAKE_CLAUDE_DIE_IF".into(), path("die"));
+            env.insert("FAKE_CLAUDE_AUTH_FAIL".into(), "1".into());
             if late {
                 env.insert("FAKE_CLAUDE_LATE_CONTEXT".into(), path("late"));
             }
