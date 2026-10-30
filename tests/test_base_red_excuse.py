@@ -98,6 +98,49 @@ class InProgressJobLogGitHub(FakeGitHub):
         raise AssertionError(args)
 
 
+class LargeJobListGitHub(excuse.GitHub):
+    """The real client and pager over FakeGitHub's data, through `gh api` calls only.
+
+    GitHub answers a run's job listing with HTTP 502 when a page holds more than 30 jobs' steps:
+    seen on 2026-10-30 for the 34-job web run 41098664586, where per_page=100 and 50 failed every
+    time and per_page=30 answered, so no red in that run could be judged.
+    """
+
+    def __init__(self):
+        self.data = FakeGitHub()
+        self.calls: list[str] = []
+
+    def run(self, args):
+        assert args[0] == "api", args
+        route = args[-1]
+        self.calls.append(route)
+        path, _, query = route.partition("?")
+        params = dict(part.split("=", 1) for part in query.split("&") if part)
+        if path.endswith("/jobs"):
+            per_page, page = int(params["per_page"]), int(params["page"])
+            if per_page > 30:
+                raise excuse.Refused("GitHub evidence request failed: gh: Server Error (HTTP 502)")
+            jobs = self.data.json(f"{path}?filter=latest&per_page=100", paginate=True)[0]["jobs"]
+            return json.dumps({"total_count": len(jobs), "jobs": jobs[(page - 1) * per_page:page * per_page]})
+        if path.endswith("/logs"):
+            return self.data.logs[int(path.rsplit("/", 2)[-2])]
+        return json.dumps(self.data.json(route))
+
+
+class JobListPages(unittest.TestCase):
+    def test_a_run_with_many_jobs_is_still_judged(self):
+        github = LargeJobListGitHub()
+        lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertIn("run 20", "\n".join(lines))
+
+    def test_job_lists_are_read_in_pages_of_30(self):
+        github = LargeJobListGitHub()
+        excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        job_reads = [route for route in github.calls if "/jobs?" in route]
+        self.assertTrue(job_reads)
+        self.assertTrue(all("per_page=30&" in route for route in job_reads), job_reads)
+
+
 class JobLogEndpoint(unittest.TestCase):
     def test_finished_red_job_is_classified_while_its_run_is_in_progress(self):
         github = InProgressJobLogGitHub()
@@ -459,6 +502,33 @@ class Excusing(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "aggregate job"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh,
                          checks=["nightly-guards / Guard status"])
+
+    def runner_preamble(self, name):
+        """The lines the runner writes before a called workflow's job starts (cmux#28099's Guard status log)."""
+        return log(name, "Set up job", "##[group]GITHUB_TOKEN Permissions", "Contents: read", "##[endgroup]",
+                   "Uses: manaflow-ai/cmux/.github/workflows/ci-guards.yml@refs/pull/28099/merge", "##[group] Inputs",
+                   "  linux_guard_tests: true", '  linux_guard_test_groups: ["release-notary"]',
+                   "  linux_guard_history: false", "  linux_guard_cli: false", "  linux_guard_source: false",
+                   "##[endgroup]", f"Complete job name: {name}") + "\n"
+
+    def test_a_called_workflows_echoed_inputs_are_not_route_reports(self):
+        # cmux#28099 at 0080692 (run 41072552965): the echoed `linux_guard_tests: true` input was read as a route
+        # report and refused the Guard status, whose only failed child is release-notary, red the same way on the base.
+        self.test_a_guard_status_is_judged_by_its_routed_child()
+        name = "nightly-guards / Guard status"
+        for job_id in (3, 4):
+            self.gh.logs[job_id] = self.runner_preamble(name) + self.gh.logs[job_id]
+        self.assertIn("release-notary", "\n".join(self.judge_guard()))
+
+    def test_a_route_report_after_the_preamble_is_still_judged(self):
+        self.test_a_called_workflows_echoed_inputs_are_not_route_reports()
+        self.gh.logs[3] += "\n" + log("nightly-guards / Guard status", "Check routed guard jobs",
+                                      "workflow-guard-source-lints: skipped (route linux_guard_source=true)")
+        with self.assertRaisesRegex(excuse.Refused, "skipped"):
+            self.judge_guard()
+
+    def judge_guard(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["nightly-guards / Guard status"])
 
     def test_guard_route_job_must_match_the_reported_route_input(self):
         # ci-guards.yml maps linux_guard_tests -> workflow-guard-tests and

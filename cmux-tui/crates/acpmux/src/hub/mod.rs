@@ -188,6 +188,7 @@ pub use subsession_send::Delivery;
 mod drafts;
 pub(crate) mod outbox;
 pub mod rules;
+pub(crate) mod stop_if_idle;
 #[cfg(test)]
 mod stop_settles_tests;
 mod transcript;
@@ -200,6 +201,8 @@ mod transfer_watch;
 mod trust_wait;
 mod turn_git;
 mod turn_usage;
+mod usage_view;
+pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod turns;
 #[cfg(test)]
 mod turns_copy_stop_tests;
@@ -456,6 +459,8 @@ pub struct Hub {
     pub(super) events: list_guard::Events,
     /// The shared, paced full session list (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
+    pub(crate) usage_stats: usage_view::UsageCache,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -724,6 +729,7 @@ impl Hub {
             inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
+            usage_stats: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
@@ -1587,7 +1593,11 @@ impl Hub {
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
-        self.touch(session);
+        // What its harness spent, read after a turn (`usage_view.rs`), is bookkeeping: it never
+        // keeps the chat's agent awake.
+        if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
+            self.touch(session);
+        }
         // A fenced record keeps its receipt.
         let kept = stored.filter(|_| !fenced).map(|msg| EventRecord {
             seq,

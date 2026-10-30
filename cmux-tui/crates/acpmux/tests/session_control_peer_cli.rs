@@ -503,6 +503,19 @@ async fn lifecycle_commands_use_peer_stable_ids_and_refuse_ambiguous_names() {
         .await;
     }
 
+    // A conditional stop runs only on the daemon that owns the session: an older peer would
+    // ignore the condition and stop it anyway. Refused here, and the session stays open.
+    let (ok, stdout, stderr) = cli(
+        &root,
+        &socket,
+        &["--json", "session", "stop", "--id", &stop_id, "--if-idle", "--expect-revision", "1"],
+    )
+    .await;
+    assert!(!ok, "a peer's session took a conditional stop: {stdout}{stderr}");
+    assert!(format!("{stdout}{stderr}").contains("stop_if_idle_remote"), "{stdout}{stderr}");
+    let open = cb.call(method::MUX_INFO, json!({"sessionId": stop_id})).await;
+    assert_ne!(open["status"], "closed", "the refused conditional stop closed it");
+
     // `--id` needs no `--mesh`: it stops the session as the positional form does.
     let (ok, stdout, stderr) =
         cli(&root, &socket, &["--json", "session", "stop", "--id", &stop_id]).await;

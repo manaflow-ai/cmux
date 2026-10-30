@@ -2340,6 +2340,9 @@ pre.cv-math-source {
 }
 .cv-step-thought__body {
   display: block;
+  margin: 0;
+  padding-left: 0;
+  border-left: 0;
   line-height: 20px;
 }
 .cv-step.is-thought::after {
