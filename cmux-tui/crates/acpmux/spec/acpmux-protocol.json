@@ -1103,6 +1103,12 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/chat_projects",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/chat_changed",
       "params": true
@@ -1110,6 +1116,23 @@
     {
       "kind": "notification",
       "name": "_acpmux/chats_lagged",
+      "params": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chats_window",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chats_window_close",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/chats_window_changed",
       "params": true
     },
     {
