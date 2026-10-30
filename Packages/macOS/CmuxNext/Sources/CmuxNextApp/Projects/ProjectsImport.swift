@@ -107,8 +107,14 @@ final class ProjectsImport {
         let client = ProjectStateClient(connection: connection)
         sending = Task { [weak self] in
             var batches: [Batch] = []
-            if let socket, let projects = try? await AcpmuxChatProjects.read(socketPath: socket) {
-                batches = Self.batches(projects, sent: alreadySent)
+            if let socket {
+                do {
+                    batches = Self.batches(try await AcpmuxChatProjects.read(socketPath: socket), sent: alreadySent)
+                } catch {
+                    // Nothing is sent (a partial list would drop projects). The next index change or
+                    // daemon connection relays again: an event that can make the read succeed.
+                    self?.logger.error("project list read failed: \(String(describing: error), privacy: .public)")
+                }
             }
             var delivered: [String: Int] = [:]
             var synced = !fresh

@@ -15,12 +15,16 @@ use serde_json::{Value, json};
 
 use super::{ChatActivity, ChatQuery, chat_value, key_text, parse_key};
 
-/// What a window shows: `{window, query?, harness?, folder?, account?, limit?, topLevel?,
-/// exclude?, keys?}`. With `keys`, exactly those chats in that order (a pinned list); otherwise
+/// What a window shows: `{window, gen?, query?, harness?, folder?, account?, limit?, topLevel?,
+/// exclude?, keys?}`. `gen` is the client's generation of the window's spec: acpmux keeps the
+/// highest it saw and echoes it in every message, so requests that run out of order never leave a
+/// window on an older spec. With `keys`, exactly those chats in that order (a pinned list); otherwise
 /// the newest chats the filter passes, none of `exclude`, at most `limit`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowSpec {
     pub window: String,
+    /// The client's generation of this window's spec (0 from a client that sends none).
+    pub generation: u64,
     filter: ChatQuery,
     /// Leaves out a chat another chat's agent started (`parent`): it folds under that chat.
     top_level: bool,
@@ -54,8 +58,13 @@ impl WindowSpec {
             Some(Value::Bool(on)) => *on,
             Some(_) => return Err("topLevel must be true or false".to_owned()),
         };
+        let generation = match params.get("gen") {
+            None | Some(Value::Null) => 0,
+            Some(value) => value.as_u64().ok_or("gen must be a non-negative number")?,
+        };
         Ok(Self {
             window,
+            generation,
             filter,
             top_level,
             exclude: strings("exclude")?.unwrap_or_default().into_iter().collect(),
@@ -164,6 +173,7 @@ impl WindowState {
         let mut message = message;
         if let Some(object) = message.as_object_mut() {
             object.insert("window".into(), json!(self.spec.window));
+            object.insert("gen".into(), json!(self.spec.generation));
             object.insert("revision".into(), json!(self.revision));
             object.insert("hasMore".into(), json!(next.has_more));
         }
@@ -189,6 +199,8 @@ mod tests {
         assert!(WindowSpec::from_params(&json!({})).is_err());
         assert!(WindowSpec::from_params(&json!({"window": "w", "exclude": "x"})).is_err());
         assert!(WindowSpec::from_params(&json!({"window": "w", "topLevel": 1})).is_err());
+        assert!(WindowSpec::from_params(&json!({"window": "w", "gen": -1})).is_err());
+        assert_eq!(spec(json!({"window": "w", "gen": 7})).generation, 7);
         let s = spec(json!({"window": "w", "limit": 3, "exclude": ["a:1"], "keys": ["b:2"]}));
         assert_eq!(s.filter.limit, 3);
         assert!(s.exclude.contains("a:1"));
@@ -202,6 +214,7 @@ mod tests {
         let full = state.next(first.clone()).unwrap();
         assert_eq!(full["full"], true);
         assert_eq!(full["revision"], 1);
+        assert_eq!(full["gen"], 0);
         assert_eq!(full["rows"].as_array().unwrap().len(), 2);
         assert_eq!(state.next(first), None, "nothing new, nothing sent");
         let moved = WindowRows {
