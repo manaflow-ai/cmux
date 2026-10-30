@@ -322,7 +322,10 @@ test("removing the last chip waits until the host forgot it", async () => {
   act(() => page.current!.attach(screenshot(1)));
   await settle();
   expect(hold()).toBeNull();
+  expect(placed()).toEqual(["shot-1"]);
   act(() => page.current!.detach(["shot-1"]));
+  // Its place in the text goes with it: no empty atom stays in the draft (#26545's review at 17b50e79).
+  expect(placed()).toEqual([]);
   // The empty list still rests: a reload now would read the chip back from the host.
   expect(hold()).toBe("composer.attachments-unsaved");
   await settle();

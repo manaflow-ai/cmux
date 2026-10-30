@@ -156,6 +156,9 @@ export function chipRemoved(state: {
 /// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip's Retry.
 type Intake = (given: (File | MadeFile)[], uploads?: boolean, kind?: DroppedKind, again?: string) => Promise<void>;
 
+/// How many cancelled loading chips keep their file for an undo (`revive`).
+const PARKED_MAX = 16;
+
 /// `file`: a promise while its bytes are still being made (MadeFile).
 type PendingSource = { file: File | Promise<File>; uploads: boolean };
 
@@ -195,6 +198,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
+  /// Files of chips cancelled while still loading (their node deleted from the prompt), by id: an
+  /// undo that brings the node back reads its file again under the same id (`revive`).
+  const parked = useRef(new Map<string, PendingSource>());
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
   stagedNow.current = attachments;
@@ -245,7 +251,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     batches.current.add(batch);
     // A chip read again is the same chip loading again, in one render: never gone for a frame, so
     // the text's node of it stays (inlineAttachments.tsx).
-    if (again !== undefined) setPending((chips) => chips.map((chip) => (chip.id === again ? shown[0]! : chip)));
+    if (again !== undefined)
+      setPending((chips) =>
+        chips.some((chip) => chip.id === again)
+          ? chips.map((chip) => (chip.id === again ? shown[0]! : chip))
+          : [...chips, shown[0]!],
+      );
     else {
       setPending((chips) => [...chips, ...shown]);
       current.place?.(shown);
@@ -354,8 +365,28 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   );
   /// A pending chip's ×: it goes, and whatever its read makes later is dropped.
   const [cancel] = useState(() => (id: string) => {
+    const source = sources.current.get(id);
+    if (source) {
+      parked.current.delete(id);
+      parked.current.set(id, source);
+      // Only the latest few: an undo reaches back a short way.
+      for (const old of parked.current.keys()) {
+        if (parked.current.size <= PARKED_MAX) break;
+        parked.current.delete(old);
+      }
+    }
     sources.current.delete(id);
     setPending((chips) => chips.filter((chip) => chip.id !== id));
+  });
+  /// A cancelled loading chip's node came back (undo): its file is read again under its id, so the
+  /// node draws it loading and then what the read makes. False when its file is not kept.
+  const [revive] = useState(() => (id: string): boolean => {
+    const source = parked.current.get(id);
+    const file = source?.file;
+    if (!source || !file || "then" in file) return false;
+    parked.current.delete(id);
+    void intake([file], source.uploads, undefined, id);
+    return true;
   });
   /// A failed chip's Retry: its file is read again (and uploaded again when it was) as the same chip,
   /// where it was: a retry read as a new paste went in at the caret, or nowhere (review of #26545).
@@ -422,6 +453,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     videoReading,
     cancel,
     retry,
+    revive,
     attachError,
     setAttachError,
     dropping,

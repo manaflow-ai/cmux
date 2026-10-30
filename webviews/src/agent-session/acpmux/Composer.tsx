@@ -576,6 +576,7 @@ export function Composer({
     videoReading,
     cancel,
     retry,
+    revive,
     attachError,
     setAttachError,
     drop,
@@ -699,6 +700,8 @@ export function Composer({
       },
       detach(ids) {
         setAttachments((current) => current.filter((chip) => !ids.includes(chip.id)));
+        // Their places in the text go with them: no empty atom stays in the draft.
+        for (const id of ids) field.current?.removeInline(id);
       },
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
@@ -1887,6 +1890,7 @@ export function Composer({
           field.current?.focus();
         }}
         onRetryAttachment={retry}
+        onReviveAttachment={revive}
         onPasteFile={(file) => void attach([file], true, "paste")}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}

@@ -8,11 +8,14 @@
 // 4. a PDF, a video and a file in the text are the strip's own chips (#26545's review at 2b4ccd42):
 //    the same open, play and remove controls, doing the same things;
 // 5. an image in the text that cannot be drawn says so, as the strip's does, with Retry and Remove.
+// 6. a loading chip's node deleted and brought back by undo loads again under its id (#26545's
+//    review at 17b50e79); one whose file is not kept leaves the text, never an empty atom.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, useRef, useState } from "react";
 import type { Root } from "react-dom/client";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import type { PendingAttachment } from "../src/agent-session/acpmux/composer/attachmentIntake";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
@@ -117,6 +120,9 @@ async function render(initial: {
   placing?: boolean;
   /// The strip too, with the same attachments: what the chips in the text are held to.
   strip?: boolean;
+  pending?: PendingAttachment[];
+  /// The intake's revive (attachmentIntake.tsx): whether the chip's file is kept to read again.
+  revives?: boolean;
 }) {
   const { createRoot } = await import("react-dom/client");
   const { AttachmentStrip } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
@@ -128,6 +134,7 @@ async function render(initial: {
     const [text, setText] = useState(initial.text);
     const [attachments, setAttachmentsState] = useState<ComposerAttachment[]>(initial.attachments ?? []);
     const [placing, setPlacing] = useState(initial.placing ?? true);
+    const [pending, setPending] = useState<PendingAttachment[]>(initial.pending ?? []);
     const attachmentsRef = useRef(attachments);
     attachmentsRef.current = attachments;
     const inline = useInlineAttachments({
@@ -136,9 +143,19 @@ async function render(initial: {
       attachments,
       attachmentsRef,
       setAttachments: (update) => setAttachmentsState((current) => update(current)),
-      pending: [],
-      cancel: () => {},
+      pending,
+      cancel: (id) => {
+        calls.push(`cancel ${id}`);
+        setPending((chips) => chips.filter((chip) => chip.id !== id));
+      },
       retry: () => {},
+      revive: (id) => {
+        calls.push(`revive ${id}`);
+        const chip = initial.pending?.find((each) => each.id === id);
+        if (!initial.revives || !chip) return false;
+        setPending((chips) => [...chips, chip]);
+        return true;
+      },
       expand: () => {},
       placing: () => placing,
     });
@@ -166,11 +183,12 @@ async function render(initial: {
       </>
     );
   }
+  const calls: string[] = [];
   root = createRoot(host);
   await act(async () => root!.render(<Harness />));
   await until(() => !!field.current?.element() && !!host.querySelector(".acpmux-md"));
   for (let turn = 0; turn < 5; turn++) await settle();
-  return { field, controls: controls.current! };
+  return { field, controls: controls.current!, calls };
 }
 
 const nodes = () =>
@@ -355,3 +373,29 @@ test("an image in the text that cannot be drawn says so, with Retry and Remove t
   expect(nodes()).toEqual([]);
   expect(controls.attachments()).toEqual([]);
 });
+
+const LOADING: PendingAttachment = { id: "loading-zip", name: "build-logs.zip", image: false };
+
+for (const revives of [true, false])
+  test(`a loading chip's node deleted, then undone, ${revives ? "loads again in its place" : "leaves the text"}`, async () => {
+    const { field, calls } = await render({
+      text: `logs ${inlineToken(LOADING.id)} here`,
+      pending: [LOADING],
+      revives,
+    });
+    await until(() => nodes().includes(LOADING.id));
+    await act(async () => field.current!.removeInline(LOADING.id));
+    await settle();
+    expect(nodes()).toEqual([]);
+    expect(calls).toEqual([`cancel ${LOADING.id}`]);
+    await act(async () => field.current!.undo());
+    await settle();
+    await settle();
+    expect(calls).toEqual([`cancel ${LOADING.id}`, `revive ${LOADING.id}`]);
+    if (revives) {
+      expect(nodes()).toEqual([LOADING.id]);
+      await until(() => !!host.querySelector(".acpmux-md-inline-chip[data-state='loading']"));
+      expect(host.querySelector(".acpmux-md-inline-chip[data-state='loading']")).not.toBeNull();
+    } else expect(nodes()).toEqual([]);
+    expect(text()).toContain("logs");
+  });

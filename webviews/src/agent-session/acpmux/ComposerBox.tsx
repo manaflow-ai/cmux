@@ -54,6 +54,8 @@ export type ComposerBoxProps = {
   /// A loading chip's × and a failed chip's Retry (attachmentIntake.tsx PendingChip).
   onCancelAttachment?(id: string): void;
   onRetryAttachment?(id: string): void;
+  /// A cancelled loading chip's node came back (undo): read its file again; false when it can't.
+  onReviveAttachment?(id: string): boolean;
   /// A staged chip dragged along the strip; unset, the box moves it in `attachments` itself.
   onReorderAttachment?(id: string, index: number): void;
   /// Attaches a file as a pasted one is: a paste of text past what a prompt carries goes as one.
@@ -107,6 +109,7 @@ export function ComposerBox({
   onRemoveAttachment,
   onCancelAttachment,
   onRetryAttachment,
+  onReviveAttachment,
   onReorderAttachment,
   onPasteFile,
   fieldMenu,
@@ -157,6 +160,7 @@ export function ComposerBox({
     pending: pending ?? [],
     cancel: (id) => onCancelAttachment?.(id),
     retry: (id) => onRetryAttachment?.(id),
+    revive: (id) => onReviveAttachment?.(id) ?? false,
     expand: (id) => {
       pastedChips.expand(id);
       prompt.current?.removeInline(id);

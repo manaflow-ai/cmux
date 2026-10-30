@@ -31,6 +31,8 @@ type Options = {
   /// A pending chip's cancel (attachmentIntake.tsx).
   cancel(id: string): void;
   retry(id: string): void;
+  /// A cancelled loading chip's file read again under its id (attachmentIntake.tsx `revive`).
+  revive(id: string): boolean;
   expand(id: string): void;
   /// Whether a paste or drop now places what it brings in the text (not in shell mode).
   placing(): boolean;
@@ -47,6 +49,8 @@ export function useInlineAttachments(options: Options) {
   const removed = useRef(new Map<string, ComposerAttachment>());
   /// Placeholders this composer placed in the text, until each is a chip or gone.
   const placed = useRef(new Set<string>());
+  /// Placeholders whose node an edit took out while they loaded: an undo brings each back loading.
+  const cancelled = useRef(new Set<string>());
   /// Attachments sent with a prompt: an undo of the send's clear brings their nodes back with no
   /// attachment to draw, so they leave the text again. One the host puts back (a refusal, Edit on a
   /// failed prompt) is the composer's again.
@@ -54,6 +58,7 @@ export function useInlineAttachments(options: Options) {
   useLayoutEffect(() => {
     removed.current.clear();
     placed.current.clear();
+    cancelled.current.clear();
     sentIds.current.clear();
   }, [options.scope]);
   const [views, setViews] = useState<ReadonlyMap<string, HTMLElement>>(() => new Map());
@@ -91,7 +96,10 @@ export function useInlineAttachments(options: Options) {
     return undefined;
   };
   const known = (id: string) =>
-    placed.current.has(id) || live.current.pending.some((chip) => chip.id === id) || sourceFor(id) !== undefined;
+    placed.current.has(id) ||
+    cancelled.current.has(id) ||
+    live.current.pending.some((chip) => chip.id === id) ||
+    sourceFor(id) !== undefined;
   /// Whether `id` went with a prompt and has not been put back.
   const isSent = (id: string) =>
     sentIds.current.has(id) && !live.current.attachmentsRef.current.some((attachment) => attachment.id === id);
@@ -129,7 +137,18 @@ export function useInlineAttachments(options: Options) {
       const gone = new Set(was.filter((id) => !kept.has(id)));
       const came = now.filter((id) => !had.has(id));
       const { setAttachments, attachmentsRef, pending, cancel } = live.current;
-      for (const id of gone) if (placed.current.delete(id) || pending.some((chip) => chip.id === id)) cancel(id);
+      for (const id of gone)
+        if (placed.current.delete(id) || pending.some((chip) => chip.id === id)) {
+          cancelled.current.add(id);
+          cancel(id);
+        }
+      // Undo of a loading chip's deletion: it reads again under its id and loads in its node; one whose
+      // file is not kept leaves the text, never an empty atom.
+      for (const id of came) {
+        if (!cancelled.current.delete(id) || sourceFor(id)) continue;
+        if (live.current.revive(id)) placed.current.add(id);
+        else queueMicrotask(() => live.current.field.current?.removeInline(id));
+      }
       for (const attachment of attachmentsRef.current) if (gone.has(attachment.id)) keep(attachment);
       const update = (current: ComposerAttachment[]) => {
         let next = gone.size ? current.filter((attachment) => !gone.has(attachment.id)) : current;
