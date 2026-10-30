@@ -125,3 +125,52 @@ test("new user and assistant rows enter once, while streamed versions stay still
     await act(async () => root.unmount());
   }
 });
+
+test("a new notice row keeps the generic entrance and its direct .cv-tools child", async () => {
+  // Notices are user-kind status lines (IncomingNotice draws a `.cv-tools` strip). Row CSS such as
+  // `.acpmux-row--after-step > .cv-tools` targets that strip as the article's direct child, so a
+  // notice must never get the message presentation wrapper.
+  const Row = ({ row: item }: { row: AcpmuxRow }) =>
+    item.incoming?.kind === "notice" ? (
+      <div className="cv-tools" data-testid={`notice-${item.id}`}>
+        {item.text}
+      </div>
+    ) : (
+      <div>{item.text}</div>
+    );
+  const registry = { user: Row, assistant: Row } as never;
+  const host = dom.window.document.createElement("div");
+  dom.window.document.body.append(host);
+  const root = createRoot(host);
+  const render = (rows: AcpmuxRow[]) =>
+    act(async () => {
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          registry={registry}
+          sessionId="notice-entrance-session"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  try {
+    const existing = [row("prompt-1", "user", "Earlier prompt"), row("reply-1", "assistant", "Earlier reply")];
+    await render(existing);
+    const notice = {
+      ...row("notice-1", "user", "Background task finished"),
+      incoming: { kind: "notice" as const, text: "Background task finished" },
+    };
+    await render([...existing, notice]);
+    const node = host.querySelector<HTMLElement>('[data-row-id="notice-1"]');
+    expect(node).toBeTruthy();
+    expect(node!.classList.contains("acpmux-row--enter")).toBe(true);
+    expect(node!.classList.contains("acpmux-row--message-enter")).toBe(false);
+    expect(node!.querySelector(".acpmux-row__message-presentation")).toBeNull();
+    expect(node!.querySelector(":scope > .cv-tools")).toBeTruthy();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
