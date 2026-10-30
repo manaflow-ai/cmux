@@ -938,8 +938,11 @@ impl<B: Backend> Server<B> {
                 return Ok(std::borrow::Cow::Borrowed(arguments));
             };
             let mut list = Map::new();
-            if let Some(session) = arguments.get("session") {
-                list.insert("session".into(), session.clone());
+            // The call's session, else the `<session>:` the name carried.
+            if let Some(session) =
+                arguments.get("session").cloned().or_else(|| session.clone().map(Value::String))
+            {
+                list.insert("session".into(), session);
             }
             list.insert("limit".into(), json!(500));
             let answer = self.call_v2(tab_list, &list);
