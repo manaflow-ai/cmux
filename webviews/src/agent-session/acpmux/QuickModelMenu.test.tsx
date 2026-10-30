@@ -362,8 +362,13 @@ test("inline effort picks a different model and its level together; model names 
     await settle();
   };
   await open();
-  expect(await openEffort(document, "Model A")).toHaveLength(4);
+  // The running Model A lists its own two levels and the session-only Ultracode (3); Model B only
+  // its one (the menu held 4 levels across both rows before each got its own dropdown).
+  expect(await openEffort(document, "Model A")).toHaveLength(3);
   expect(document.querySelector('[aria-label="Model A · Ultracode"]')).toBeTruthy();
+  expect((await openEffort(document, "Model B")).map((item) => item.getAttribute("aria-label"))).toEqual([
+    "Model B · Low",
+  ]);
   expect(document.querySelector('[aria-label="Model B · High"]')).toBeNull();
   await act(async () => (await effortLevel(document, "Model A · Ultracode"))!.click());
   expect(effortPicks).toEqual(["ultracode"]);
@@ -392,11 +397,11 @@ test("inline effort picks a different model and its level together; model names 
   await settle();
   await act(async () => root!.render(<InlineHarness combined={false} />));
   await open();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
+  expect(document.querySelectorAll(".acpmux-quick-effort-trigger, .acpmux-quick-effort-segment")).toHaveLength(0);
   expect(labels(list())).toContain("Effort");
   await act(async () => root!.render(<InlineHarness omitInlineEffort />));
   await settle();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
+  expect(document.querySelectorAll(".acpmux-quick-effort-trigger, .acpmux-quick-effort-segment")).toHaveLength(0);
   expect(labels(list())).toContain("Effort");
 });
 
