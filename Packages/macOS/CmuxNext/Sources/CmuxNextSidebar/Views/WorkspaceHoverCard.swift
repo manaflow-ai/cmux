@@ -310,7 +310,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     /// The stats line's row, which puts it on the text column (hidden with it).
     private let statsRow = NSStackView()
     /// Rex-style default: tabs are the useful affordance; rich details stay behind an explicit toggle.
-    let detailsToggle = ClickableButton(title: "Show details", target: nil, action: nil)
+    let detailsToggle = ClickableButton(title: Strings.showDetails, target: nil, action: nil)
     private var detailsExpanded = false
     var isDetailsExpanded: Bool { detailsExpanded }
     var onDetailsChanged: (() -> Void)?
@@ -685,7 +685,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 }
 
-extension WorkspaceHoverCardView: HoverCardTextReporting {
+extension WorkspaceHoverCardView {
     var reportedLines: [String] { lines }
 }
 
