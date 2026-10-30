@@ -6,8 +6,9 @@ import Testing
 /// cmux-platform#89, part 2: a Worker machine (the Cloud app server link) has no `/api/vm` row, so
 /// `cmux cloud deliver-secrets`, `apply-machine-config` and credential recovery failed at their
 /// first read ("This machine has no finished machine config yet"). Its exec and file routes are the
-/// same requests under `/v1/cloud/machines/{id}/` on the cmux API Worker, with the install token
-/// as the only credential.
+/// same requests under `/v1/cloud/machines/{id}/` on the cmux API Worker, with the person's Stack
+/// session and the team in `x-cmux-team`: a Mac install has no execute grant (backend
+/// domains/user.ts), so the route's caller check (cloud-client-session.ts) refuses its token with a 403.
 @Suite(.serialized)
 struct CloudWorkerMachineFilesTests {
     nonisolated final class WorkerAPI: URLProtocol {
@@ -17,6 +18,7 @@ struct CloudWorkerMachineFilesTests {
             var authorization: String?
             var refresh: String?
             var team: String?
+            var cmuxTeam: String?
         }
 
         nonisolated(unsafe) static var seen: [Seen] = []
@@ -29,7 +31,8 @@ struct CloudWorkerMachineFilesTests {
             Self.seen.append(Seen(method: request.httpMethod ?? "", url: url.absoluteString,
                                   authorization: request.value(forHTTPHeaderField: "Authorization"),
                                   refresh: request.value(forHTTPHeaderField: "X-Stack-Refresh-Token"),
-                                  team: request.value(forHTTPHeaderField: "X-Cmux-Team-Id")))
+                                  team: request.value(forHTTPHeaderField: "X-Cmux-Team-Id"),
+                                  cmuxTeam: request.value(forHTTPHeaderField: "x-cmux-team")))
             let body = switch url.path {
             case let path where path.hasSuffix("/exec"): #"{"exitCode":0,"stdout":"ok","stderr":""}"#
             case let path where path.hasSuffix("/fs/read"): #"{"path":"/a","dataBase64":"aGk=","size":2}"#
@@ -50,13 +53,14 @@ struct CloudWorkerMachineFilesTests {
     private func worker() -> CloudAPIClient {
         let sessionConfiguration = URLSessionConfiguration.ephemeral
         sessionConfiguration.protocolClasses = [WorkerAPI.self]
-        return CloudAPIClient.workerMachines(baseURL: Self.origin, installToken: { "install-token" },
+        return CloudAPIClient.workerMachines(baseURL: Self.origin, accessToken: { "session-access" }, teamID: { "team_cmux" },
                                              session: URLSession(configuration: sessionConfiguration))
     }
 
-    @Test func execAndFilesGoToTheWorkerRoutesWithOnlyTheInstallToken() async throws {
+    @Test func execAndFilesGoToTheWorkerRoutesWithThePersonsSessionAndCmuxTeam() async throws {
         WorkerAPI.seen = []
-        let api = worker().pinningTeam("team_1")
+        // A flow that pins the app's (Stack) team keeps the cmux team the Worker knows.
+        let api = worker().pinningTeam("stack-team-1")
         let machine = "vm_aaaaaaaaaaaaaaaaaaaa"
         #expect(try await api.exec(machine, command: "true", timeoutMs: 8_000).stdout == "ok")
         #expect(try await api.readFile(machine, path: "/home/cmux/.cmux/machine-config/status.json").dataBase64 == "aGk=")
@@ -68,7 +72,9 @@ struct CloudWorkerMachineFilesTests {
             "https://machines.standin.invalid/v1/cloud/machines/\(machine)/fs/write",
         ])
         for request in WorkerAPI.seen {
-            #expect(request.authorization == "Bearer install-token")
+            // A Mac install token here is a 403 for every Mac user: its grant has no execute.
+            #expect(request.authorization == "Bearer session-access")
+            #expect(request.cmuxTeam == "team_cmux")
             #expect(request.refresh == nil, "the Stack refresh token never goes to the Worker")
             #expect(request.team == nil)
         }
