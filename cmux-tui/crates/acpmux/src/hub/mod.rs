@@ -88,7 +88,7 @@ mod prompt_line;
 mod queue;
 mod queue_edit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
-pub use queue::{QueuedPrompt, supersede::key as supersede_key};
+pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
@@ -925,11 +925,10 @@ impl Hub {
         if let Some(link) = &meta.subsession {
             self.subsessions.note_name(&link.started_by, &link.short_name);
         }
-        // A sub-session that is not closed holds a slot of its parent (`subsessions.rs`).
-        if let Some(link) =
-            meta.subsession.as_ref().filter(|_| meta.status != SessionStatus::Closed)
-        {
-            self.subsessions.set_open(&link.started_by, &meta.id, true);
+        // A live sub-session holds a slot of its parent (`subsessions.rs`). Idle-finished,
+        // disconnected and closed children are retained in the store but do not use a slot.
+        if let Some(link) = meta.subsession.as_ref() {
+            self.subsessions.note_status(&link.started_by, &meta.id, meta.status);
         }
         let session = self.make_session(meta);
         session.caught_up.store(false, Ordering::SeqCst);
@@ -1051,6 +1050,7 @@ impl Hub {
             queue_moved: Notify::new(),
             moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
+            inbox_digests: StdMutex::new(HashMap::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
             permission_epoch: AtomicU64::new(0),
@@ -1554,11 +1554,7 @@ impl Hub {
             // concurrent status writes and the index never disagree (the
             // index is a leaf lock, `subsessions.rs`).
             if let Some(link) = &m.subsession {
-                self.subsessions.set_open(
-                    &link.started_by,
-                    &session.id,
-                    status != SessionStatus::Closed,
-                );
+                self.subsessions.note_status(&link.started_by, &session.id, status);
             }
             (was, m.subsession.clone())
         };

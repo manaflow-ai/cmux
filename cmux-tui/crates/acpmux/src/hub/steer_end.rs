@@ -187,7 +187,7 @@ impl Hub {
                 .provenance
                 .as_ref()
                 .filter(|p| super::subsession_guard::is_family(Some(p)))
-                .and_then(|p| p["from"].as_str())
+                .and_then(|p| p.get("from")?.as_str())
                 .map(str::to_owned);
             let sent = super::carried_turn::SteerSent {
                 client: client.to_owned(),
@@ -208,13 +208,15 @@ impl Hub {
         // Another session's plain message goes in with the other agents' messages waiting for
         // this step, as one message (claude_stdio `steer_batch.rs`). One read now goes alone at
         // once, and so do a family message (its gate holds until it is written), a slash command
-        // (only a line's first words run one) and one with uploaded files.
+        // (only a line's first words run one), one with uploaded files and an inbox digest (one
+        // steer, `inbox_digest.rs`).
         let sender = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         if let Some(from) = sender
             && !step_now
             && !super::subsession_guard::is_family_prompt(opts.provenance.as_ref())
             && super::forum::slash_command(&blocks).is_none()
             && !crate::prompt_uploads::any(&blocks)
+            && !super::digest::inbox_digest::is_digest(opts.provenance.as_ref())
         {
             params["_meta"]["batch"] = json!({"from": from});
         }
@@ -257,6 +259,15 @@ impl Hub {
         let turn_id = into.as_deref().unwrap_or(turn_id);
         if let Some(count) = count {
             count.done(steer_entered_turn(&answer));
+        }
+        // An inbox digest's steer that went into the turn and failed with it: the messages it
+        // took go back held, as messages that joined a failed turn do (`inbox_digest.rs`).
+        if answer.is_err() && steer_entered_turn(&answer) {
+            let made =
+                session.inbox_digests.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
+            if let Some(made) = made {
+                self.requeue_joined(session, &made, true);
+            }
         }
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
