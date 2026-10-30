@@ -181,6 +181,10 @@ final class SSHMachineSession {
         connectionAttemptID &+= 1
         startupError = nil
         daemonFailure = nil
+        // The link leaves a blocked failure only after an asynchronous user wake; the
+        // mirror moves now, so the new attempt never shows the old failure. The link
+        // then reports `.connecting` (already mirrored) and the retry's own result.
+        if linkStatus.needsRecovery { linkStatusChanged(.connecting) }
         daemon.beginAttempt()
     }
 
