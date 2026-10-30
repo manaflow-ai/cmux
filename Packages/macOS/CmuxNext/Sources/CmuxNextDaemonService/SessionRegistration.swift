@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import CmuxNextWakeups
 import Foundation
 import os
@@ -19,8 +19,9 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     /// Called when a backoff ends: the owner syncs, which submits the record again.
     public var onRetryDue: (@MainActor () -> Void)?
 
-    /// `notice` shows one localized message (a toast) for a refused record.
-    public init(policy: RetryPolicy = .sessionRegistration, notice: @escaping @MainActor (String) -> Void) {
+    /// `policy` spaces the retries of a send with no answer (the app passes
+    /// `RetryPolicy.sessionRegistration`); `notice` shows one localized message (a toast) for a refused record.
+    public init(policy: RetryPolicy, notice: @escaping @MainActor (String) -> Void) {
         ledger = SessionRegistrationLedger(policy: policy)
         self.notice = notice
     }
@@ -53,7 +54,7 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
     private func failed(session: String, record: Record, machine: String?, error: any Error) {
         logger.error("put-session \(session, privacy: .public) failed: \(String(describing: error), privacy: .public)")
         let outcome = ledger.failed(session: session, record: record, error: error)
-        if let reason = outcome.refusal { notice(SessionRegistrationStrings.notSavedForRestore(machine: machine, reason: reason)) }
+        if let reason = outcome.refusal { notice(Self.notSavedForRestore(machine: machine, reason: reason)) }
         guard let delay = outcome.retryAfter else { return }
         let timer = retries[session] ?? DemandTimer(owner: "SessionRegistration.retry")
         retries[session] = timer
@@ -62,12 +63,10 @@ public final class SessionRegistration<Record: Hashable & Sendable> {
             self?.onRetryDue?()
         }
     }
-}
 
-/// Strings of ``SessionRegistration``. Keys live in Resources/SessionRegistration.xcstrings.
-enum SessionRegistrationStrings {
+    // Keys live in Resources/SessionRegistration.xcstrings.
     /// The home daemon refused to record a connected machine: the next launch does not restore it.
-    static func notSavedForRestore(machine: String?, reason: String) -> String {
+    nonisolated static func notSavedForRestore(machine: String?, reason: String) -> String {
         guard let machine, !machine.isEmpty else {
             return String(format: String(localized: "sessionRegistration.notSaved.unnamed",
                                          defaultValue: "This machine was not saved for restore: %@",
