@@ -8799,28 +8799,27 @@ function AcpmuxPane() {
     const argument = args?.trim();
     // The composer sends the prompt as typed through onSend, attachments and steer included, the
     // way any other prompt goes.
-    const passThrough = () => CMUX_PASS_THROUGH;
-    if (command.action === "passThrough") return passThrough();
+    if (command.action === "passThrough") return CMUX_PASS_THROUGH;
     // GUI-native commands are available even when a harness does not advertise an ACP command.
     // Arguments keep the harness form useful (`/model opus`, `/plan explain`). New Tab has no chat
     // to act on yet, so there they go to the harness as typed.
     if (command.action === "model") {
-      if (argument || fresh) return passThrough();
-      return openPicker(translate(PICKER_LABELS.model)) || passThrough();
+      if (argument || fresh) return CMUX_PASS_THROUGH;
+      return openPicker(translate(PICKER_LABELS.model)) || CMUX_PASS_THROUGH;
     }
     if (command.action === "context") {
-      if (argument || fresh) return passThrough();
+      if (argument || fresh) return CMUX_PASS_THROUGH;
       if (inspector.reveal) {
         inspector.reveal("context");
         return true;
       }
-      return passThrough();
+      return CMUX_PASS_THROUGH;
     }
     // A bare `/plan` with a Plan mode is the composer's own Plan/Build toggle (it remembers the mode
     // to return to); anything else goes to the harness as typed.
-    if (command.action === "plan") return passThrough();
+    if (command.action === "plan") return CMUX_PASS_THROUGH;
     if (command.action === "fast") {
-      if (argument || fresh) return passThrough();
+      if (argument || fresh) return CMUX_PASS_THROUGH;
       const option = snapshot.summary?.configOptions?.find(isFastModeOption);
       if (option) {
         const off =
@@ -8832,7 +8831,7 @@ function AcpmuxPane() {
         const next = option.currentValue === off ? on : off;
         if (next) return callNative("chat.effort", { configId: option.id, value: next });
       }
-      return passThrough();
+      return CMUX_PASS_THROUGH;
     }
     if (command.action === "btw") {
       const question = args?.trim();
