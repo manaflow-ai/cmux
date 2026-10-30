@@ -37,8 +37,8 @@ struct ContextMenuEssentialsTests {
     private static let sidebarTrimmedActions: [ActionID] = [
         "workspace.setTheme", "workspace.setTint", "workspace.removeAllColors",
         "sidebar.workspaceTabs.toggle", "sidebar.density.compact", "sidebar.density.comfortable",
-        "sidebar.density.expanded", "workspace.copyPath", "palette.copyWorkspaceID",
-        "palette.copyWorkspaceLink", "palette.copyWorkspaceIDAndRef", "copyWorkspaceSSHError",
+        // Copy Workspace ID and Copy Workspace Link came back under More > Copy (#27709, classic parity).
+        "sidebar.density.expanded", "workspace.copyPath", "palette.copyWorkspaceIDAndRef", "copyWorkspaceSSHError",
         "agentChat.copyIdentifier", "workspace.showResources", "revealWorkspaceInFinder",
         "palette.openWorkspacePullRequests", "workspace.setRemoteLocalhost",
     ]
@@ -57,6 +57,16 @@ struct ContextMenuEssentialsTests {
         // The rest moved, not gone.
         #expect(allActions(menu).contains("palette.markWorkspaceUnread"))
         #expect(allActions(menu).contains("workspace.duplicate"))
+    }
+
+    /// Classic's row menu copies the workspace's id and link (#27709); here they sit in More > Copy,
+    /// so the top level keeps its essentials.
+    @Test func theWorkspaceMenuCopiesTheIDAndLinkUnderMore() {
+        let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
+        #expect(!rows(menu).contains("palette.copyWorkspaceID"))
+        let more = menu.items.first { $0.title == "More" }?.submenu
+        #expect(more.map(allActions)?.contains("palette.copyWorkspaceID") == true)
+        #expect(more.map(allActions)?.contains("palette.copyWorkspaceLink") == true)
     }
 
     /// Leo 2026-10-23: "I don't think anybody actually looks at most of the, like, row settings
