@@ -117,12 +117,12 @@ async fn a_watched_claude_transcript_starts_at_its_newest_page() {
     let _ = std::fs::remove_dir_all(home);
 }
 
-/// The open-time harness of the PR (run with `--ignored --nocapture`): adopting a ~210 MB
+/// The open-time harness of the PR (run with `--ignored --nocapture`): adopting a ~420 MB
 /// synthetic Claude Code transcript of tool-heavy turns, timed from the replay's start until the
 /// chat's log holds its newest turn and an attach-sized tail page is read.
 #[tokio::test]
-#[ignore = "bench: writes a 210 MB transcript"]
-async fn bench_adopt_open_of_a_210_mb_transcript() {
+#[ignore = "bench: writes a 420 MB transcript"]
+async fn bench_adopt_open_of_a_420_mb_transcript() {
     let home = home("bench");
     let hub = hub(&home);
     let file = home.join("projects/-work/s1.jsonl");
