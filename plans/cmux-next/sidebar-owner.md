@@ -609,3 +609,7 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Resize edge lights a themed band (2026-10-29)
 
 - Leo 2026-10-29, verbatim: "like the little draggy bars and whatever, I feel like, you know, when we're dragging them, you know, Claude Code has it so that, you know, it has this glowy bar thing, and I think, like, having that themed color band would be quite nice for our app as well." Before: the edge showed only a separator-colored hairline on hover and drag. Now `SidebarResizeHandle` also lights `DividerGlowBand` (dim on hover, full while dragging) on the edge; the resting look and the hit band are unchanged.
+
+## Top workspace insert lands without a cascade (2026-10-30)
+
+- PR #28205 (commits 56cf435e02b, 7c6021767c0, d999052a714, 7135d84323b). Leo: "when you create a workspace at the top it's a huge cascade" and it "pushes all the workspaces below down pretty hard". The shipped `sidebar.insertMotion` default is now `.snap`: rows below a top insert land in their slots immediately while only the new row fades in. Nudge, quick and full spring remain available in the gallery/debug choice. `SidebarInsertMotionTests` covers the default and `SidebarInsertMotionGalleryTests` renders all four variants with snap selected.
