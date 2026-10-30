@@ -51,6 +51,27 @@ struct PendingPlacementRetryTests {
         #expect(!windows.pendingPlacementOrder.contains(id))
     }
 
+    @Test func rejectedProvisionalPlacementIsRemoved() throws {
+        let (services, controller) = try Self.services()
+        defer { controller.teardown(); controller.window?.close() }
+        let windows = services.windows
+        let store = services.machines.local.store
+        let key = WorkspaceKey.generate()
+        let transaction = ClientTransactionID.generate()
+        let tab = ProvisionalTab().conversation(ConversationTabRef(agentSession: AgentSessionRef(host: "test", hostName: nil)))
+        store.intend(.createWorkspace(provisional: ProvisionalWorkspace(key: key, name: "rejected", tab: tab), index: nil),
+                     transaction: transaction)
+        let provisional = try #require(services.machines.workspace(id: key.rawValue)?.0)
+        #expect(provisional.isProvisional, "the test must exercise a provisional create")
+
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, slot: .bottom(anchor: nil), byDefault: nil, windows: windows)
+        #expect(windows.pendingPlacements[key.rawValue] != nil)
+        store.rejectIntent(transaction)
+        windows.applyPendingPlacements(live: [])
+        #expect(windows.pendingPlacements[key.rawValue] == nil)
+        #expect(!windows.pendingPlacementOrder.contains(key.rawValue))
+    }
+
     @Test func placementWaitingForUnreportedOrProvisionalWorkspaceIsKept() throws {
         let (services, controller) = try Self.services()
         defer { controller.teardown(); controller.window?.close() }
@@ -70,9 +91,57 @@ struct PendingPlacementRetryTests {
         #expect(windows.pendingPlacements[key.rawValue] != nil)
     }
 
-    private final class Callbacks {
+    @MainActor private final class Callbacks {
+
         var first = 0
         var second = 0
+    }
+
+    @MainActor private final class SelfRegisteringPlacement {
+        let windows: WindowManager
+        let id: String
+        let window: String
+        var calls = 0
+
+        init(windows: WindowManager, id: String, window: String) {
+            self.windows = windows
+            self.id = id
+            self.window = window
+        }
+
+        func register() {
+            NewWorkspacePlacements.expect(id, in: window, slot: nil, byDefault: nil,
+                                          then: { [weak self] _, _ in self?.callback() }, windows: windows)
+        }
+
+        func callback() {
+            calls += 1
+            // Keep the request pending through the outer pass and its one bounded follow-up;
+            // the next externally requested pass is allowed to settle it.
+            if calls < 3 { register() }
+        }
+    }
+
+    @Test func selfRegisteringCallbackGetsOneBoundedFollowup() throws {
+        let (services, controller) = try Self.services()
+        defer { controller.teardown(); controller.window?.close() }
+        let windows = services.windows
+        let store = services.machines.local.store
+        let id = "self-registering-placement"
+        let callback = SelfRegisteringPlacement(windows: windows, id: id, window: controller.state.id)
+        callback.register()
+        store.apply(snapshot: PlacementStaleRowsTests.tree(["base", id], personal: ["base", id]))
+        windows.registry.apply { $0.openWindow(id: controller.state.id, workspaceIDs: ["base", id]); return WindowRegistry.Changes() }
+
+        windows.applyPendingPlacements(live: ["base", id])
+        #expect(callback.calls == 2, "nested self-registration gets only one follow-up pass")
+        #expect(windows.pendingPlacements[id] != nil, "the second callback re-registered the placement")
+        #expect(windows.pendingPlacementOrder.contains(id))
+
+        windows.applyPendingPlacements(live: ["base", id])
+        #expect(callback.calls == 3, "a later external retry progresses the retained placement")
+        #expect(windows.pendingPlacements[id] == nil)
+        #expect(!windows.pendingPlacementOrder.contains(id))
     }
 
     @Test func callbackEnqueuingLivePlacementGetsOneFollowupPass() throws {
