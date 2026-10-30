@@ -745,7 +745,7 @@ async fn a_restart_does_not_bring_back_the_messages_of_a_withdrawn_digest() {
 /// start: a stop between them gives its messages back, never the digest alone.
 #[tokio::test]
 async fn a_restart_between_a_digests_prompt_and_its_turn_gives_its_messages_back() {
-    let (dir, hub, mut c, id, digest) = waiting_digest(&["p-a", "p-b"]).await;
+    let (dir, hub, c, id, digest) = waiting_digest(&["p-a", "p-b"]).await;
     end_busy(&hub, &id).await;
     record_until(&hub, &id, "turn_result", |m| m["promptId"] == *digest).await;
     hub.shutdown_all().await;
@@ -951,7 +951,7 @@ async fn an_edited_digest_whose_turn_fails_puts_its_messages_back_held() {
 /// never started) and that then ran on its own answers a later resend from its own turn.
 #[tokio::test]
 async fn a_resend_of_a_message_given_back_before_its_digests_turn_answers_from_its_own() {
-    let (dir, hub, mut c, id, digest) = waiting_digest(&["p-a"]).await;
+    let (dir, hub, c, id, digest) = waiting_digest(&["p-a"]).await;
     let own = record_until(&hub, &id, "queued", |m| m["promptId"] == "p-a").await["turnId"].clone();
     end_busy(&hub, &id).await;
     record_until(&hub, &id, "turn_result", |m| m["promptId"] == *digest).await;
