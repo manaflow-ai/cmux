@@ -95,7 +95,7 @@ struct SidebarGroupFlow {
         let life = bridge.life, ending = life.emptied(by: members, into: id)
         // A pending edit until the store holds the move (cx-odqn): no recompute in between shows the old group.
         let (failed, applied) = bridge.rows.outcome(bridge.rows.add(intent), resync: { bridge.resync() })
-        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: members, into: id) },
+        life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) },
                     failed: failed, applied: applied) { connection in
             for workspace in members {
                 try await connection.state.placePersonalWorkspace(session: workspace.session, key: workspace.key, resource: workspace.resource,
@@ -128,7 +128,7 @@ struct SidebarGroupFlow {
         // The sidebar's place wins; else the caller's (New Workspace in New Group: `workspaces.newPlacement`).
         let move = place.move ?? index, top = place.topIndex, flow = self
         editor.creating[id] = []
-        life.commit("create-personal-group", ending: ending, recheck: { life.emptied(by: members, into: nil) }, failed: failed,
+        life.commit("create-personal-group", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) }, failed: failed,
                     applied: applied, landed: { created in flow.landed(id, as: created) }) { connection -> WorkspaceGroupID in
             // The v2 operation names the group itself.
             let created = v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(

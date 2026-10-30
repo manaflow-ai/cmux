@@ -14,6 +14,10 @@ import Foundation
 ///   new window or sheet to appear, at about 50 ms per action.
 /// - `CUA_DRIVER_HOST_BUNDLE_ID`: the helper's bundle id, so
 ///   check_permissions names the helper as the attributed host.
+/// - `CUA_DRIVER_DISABLE_RUN_SCRIPT=1`: since v0.35 upstream offers
+///   run_script (JavaScript that calls the driver's tools in process), whose
+///   inner calls never pass the helper's target guard. The guard refuses the
+///   tool too; this keeps it out of the tool list.
 public struct HelperEnvironment: Sendable {
     public let helperBundleID: String
 
@@ -28,6 +32,7 @@ public struct HelperEnvironment: Sendable {
             "CUA_DRIVER_RS_UPDATE_CHECK": "false",
             "CUA_DRIVER_WINDOW_CHANGE_TIMEOUT_MS": String(Self.windowChangeTimeoutMilliseconds),
             "CUA_DRIVER_HOST_BUNDLE_ID": helperBundleID,
+            "CUA_DRIVER_DISABLE_RUN_SCRIPT": "1",
         ]
     }
 

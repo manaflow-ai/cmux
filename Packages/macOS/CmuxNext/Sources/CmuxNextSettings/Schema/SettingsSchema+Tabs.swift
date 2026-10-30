@@ -70,6 +70,19 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
+    /// `tabs.nativeNewTabPage`: the native New Tab page, an alternative to the web one (off by default).
+    static func nativeNewTabPage(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            NativeNewTabPageSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.nativeNewTabPage", "Native New Tab Page"),
+            help: SettingsText.keyed("settings.tabs.nativeNewTabPage.help",
+                                     "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now."),
+            kind: .toggle,
+            default: .bool(NativeNewTabPageSetting.fallback),
+            keywords: ["new tab", "native", "swift", "page", "cmd-t", "fast", "web", "alternative", "command palette", "actions"]
+        )
+    }
+
     /// `tabs.cmdWClosesPinnedTabs`: whether the user's Cmd-W closes a pinned tab.
     static func cmdWClosesPinnedTabs(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(

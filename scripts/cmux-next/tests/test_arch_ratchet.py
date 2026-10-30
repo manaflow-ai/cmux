@@ -1834,6 +1834,61 @@ class ClosureTests(Repo):
             counts.delta_count(self.repo, self.base, head)
 
 
+class BatchDeadlockTests(Repo):
+    """A `git cat-file --batch` round bigger than a pipe never deadlocks the ratchet (a804, a796, a801 and a808's
+    pushes, 2026-10-28: the closure walk wrote a whole round into git's stdin while git sat blocked writing the
+    answers into a full stdout pipe; the ratchet hit guardrails' 20 s limit and was not applied)."""
+
+    PACKAGES = 600
+    DEADLINE = 30.0
+
+    def setUp(self):
+        super().setUp()
+        deps = "".join(f'        .package(path: "../../Shared/P{i:04d}"),\n' for i in range(self.PACKAGES))
+        self.write(f"{counts.PACKAGE_DIR}/Package.swift",
+                   "// swift-tools-version: 6.2\nimport PackageDescription\nlet package = Package(\n"
+                   f'    name: "CmuxNext",\n    dependencies: [\n{deps}    ]\n)\n')
+        filler = "// " + "x" * 2000 + "\n"
+        for i in range(self.PACKAGES):
+            self.write(f"Packages/Shared/P{i:04d}/Package.swift",
+                       f'// swift-tools-version: 6.2\nimport PackageDescription\n{filler}let package = Package(name: "P{i:04d}")\n')
+            self.write(f"Packages/Shared/P{i:04d}/Sources/P{i:04d}/A.swift", "public struct A {}\n")
+        self.head = self.commit("many local packages")
+
+    def within_deadline(self, snippet):
+        """Run SNIPPET (python; `counts`, `repo` and `head` are bound) in a child process killed at DEADLINE: a
+        deadlocked git child cannot be stopped from a thread of this process."""
+        code = ("import importlib.util, sys\n"
+                f"spec = importlib.util.spec_from_file_location('c', {str(SCRIPTS / 'arch_counts.py')!r})\n"
+                "counts = importlib.util.module_from_spec(spec); sys.modules['c'] = counts\n"
+                "spec.loader.exec_module(counts)\n"
+                f"from pathlib import Path\nrepo = Path({str(self.repo)!r}); head = {self.head!r}\n" + snippet)
+        child = subprocess.Popen([sys.executable, "-I", "-c", code], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True, start_new_session=True)
+        started = time.monotonic()
+        try:
+            out, err = child.communicate(timeout=self.DEADLINE)
+        except subprocess.TimeoutExpired:
+            os.killpg(child.pid, 9)
+            child.communicate()
+            self.fail(f"git cat-file --batch did not answer within {self.DEADLINE:.0f}s (a request and its answers "
+                      "deadlocked on pipes)")
+        self.assertEqual(child.returncode, 0, err)
+        return out.strip(), time.monotonic() - started
+
+    def test_a_round_bigger_than_a_pipe_answers(self):
+        out, _ = self.within_deadline(
+            f"specs = [f'{{head}}:Packages/Shared/P{{i:04d}}/Package.swift' for i in range({self.PACKAGES})]\n"
+            "reader = counts._ObjectReader(repo)\n"
+            "got = reader.ask(specs)\nreader.close()\n"
+            "print(sum(1 for g in got if g is not None and g[1] == 'blob' and len(g[2]) > 2000))\n")
+        self.assertEqual(out, str(self.PACKAGES))
+
+    def test_the_closure_walk_over_many_packages_answers(self):
+        out, _ = self.within_deadline("print(len(counts._walk_closure(counts.Git(repo), head).packages))\n")
+        self.assertEqual(out, str(self.PACKAGES + 1))
+
+
 class MethodTests(unittest.TestCase):
     def test_strip_blanks_comments_and_strings_and_keeps_offsets(self):
         raw = 'let a = "x \\(f("}")) y" // static let shared = Foo()\n/* { */ let b = #"\\("{"#\n'

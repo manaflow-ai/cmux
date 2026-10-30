@@ -5,6 +5,8 @@
 //! app's Add Device card (the app action `device.add`); with `--yes` it is
 //! the headless enroll on a machine with no app.
 
+use cmux_json::JsonSet as _;
+
 mod model;
 mod network;
 mod removal;
@@ -22,7 +24,8 @@ use crate::remote_host::{audit, config as host_config, self_exe};
 use model::{Device, Listing, Role, Sources, State};
 use network::{Choice, TailscaleNetwork, WeftNetwork};
 
-const USAGE: &str = "usage: cmux device list [--json] [--network auto|tailscale|weft]
+const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
+       cmux device list [--json] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
        cmux device add HOST --yes [--name NAME] [--json]
        cmux device invite [--role client|read-only] [--ttl 15m] [--label TEXT] [--json]
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
@@ -34,23 +37,47 @@ const USAGE: &str = "usage: cmux device list [--json] [--network auto|tailscale|
 /// The verbs this module runs; `add` only with `--yes`.
 const VERBS: &[&str] = &["list", "ls", "remove", "rm", "audit", "network", "invite", "help"];
 
-/// Whether `cmux <raw_args>` is a device verb run here (not the app's card).
-pub(crate) fn handles(raw_args: &[String]) -> bool {
-    if raw_args.first().map(String::as_str) != Some("device") {
-        return false;
+/// The output flags a device verb takes anywhere: before `device`, before the verb or after.
+fn output_flag(word: &str) -> bool {
+    matches!(word, "--json" | "--jsonl" | "--quiet" | "-q")
+}
+
+/// The words after `device` for [`run`], with output flags written before `device`
+/// (`cmux --json device list`) kept; `None` when `cmux <raw_args>` is not a device verb run
+/// here.
+pub(crate) fn device_args(raw_args: &[String]) -> Option<Vec<String>> {
+    let lead = raw_args.iter().take_while(|w| output_flag(w)).count();
+    if raw_args.get(lead).map(String::as_str) != Some("device") {
+        return None;
     }
-    match raw_args.get(1).map(String::as_str) {
-        Some(verb) if VERBS.contains(&verb) => true,
-        Some("add") => raw_args[2..].iter().any(|a| a == "--yes" || a == "-y"),
+    let (leading, after_lead) = raw_args.split_at_checked(lead)?;
+    let rest = after_lead.get(1..).unwrap_or_default();
+    let verb = rest.iter().position(|w| !output_flag(w));
+    let handled = match verb.and_then(|i| rest.get(i..)) {
+        Some([verb, ..]) if VERBS.contains(&verb.as_str()) => true,
+        Some([verb, after @ ..]) if verb == "add" => {
+            after.iter().any(|a| a == "--yes" || a == "-y")
+        }
         None => true,
         _ => false,
-    }
+    };
+    handled.then(|| leading.iter().chain(rest).cloned().collect())
 }
 
 /// Runs `cmux device <rest>`; returns the exit code (0 ok, 1 failed, 2 usage).
 pub(crate) fn run(rest: &[String]) -> i32 {
-    let verb = rest.first().map(String::as_str).unwrap_or("help");
-    let args = &rest[1.min(rest.len())..];
+    // Output flags may come before the verb too (`cmux device --quiet list`).
+    let (rest, quiet) = output_flags(rest);
+    let (verb, args) = verb_and_args(&rest);
+    let verb = verb.as_str();
+    if quiet && matches!(verb, "remove" | "rm") && !args.iter().any(|a| a == "--yes" || a == "-y") {
+        eprintln!("cmux device {verb}: --quiet cannot ask; pass --yes\n{USAGE}");
+        return 2;
+    }
+    // Quiet prints nothing on success: stdout goes nowhere for the verb; stderr (errors,
+    // the reason for a failure) stays.
+    let _silenced = if quiet { Silenced::stdout() } else { None };
+    let args = args.as_slice();
     let result = match verb {
         "list" | "ls" => list(args),
         "add" => add(args),
@@ -72,6 +99,79 @@ pub(crate) fn run(rest: &[String]) -> i32 {
         Err(e) => {
             eprintln!("cmux device {verb}: {e:#}");
             1
+        }
+    }
+}
+
+/// `args` with `--jsonl` read as `--json` (each verb prints one JSON line) and `--quiet`
+/// (`-q`) taken out; whether it was there. Words after `--` stay as they are.
+fn output_flags(args: &[String]) -> (Vec<String>, bool) {
+    let mut quiet = false;
+    let mut kept = Vec::with_capacity(args.len());
+    let mut words = args.iter();
+    for word in words.by_ref() {
+        match word.as_str() {
+            "--" => {
+                kept.push(word.clone());
+                break;
+            }
+            "--quiet" | "-q" => quiet = true,
+            "--jsonl" => kept.push("--json".into()),
+            _ => kept.push(word.clone()),
+        }
+    }
+    kept.extend(words.cloned());
+    (kept, quiet)
+}
+
+/// The verb (`help` when none) and its arguments, with a `--json` written before the verb
+/// handed to it like one written after.
+fn verb_and_args(words: &[String]) -> (String, Vec<String>) {
+    let lead = words.iter().take_while(|w| *w == "--json").count();
+    let Some(verb) = words.get(lead) else {
+        return ("help".to_owned(), words.to_vec());
+    };
+    let before = words.get(..lead).unwrap_or_default();
+    let after = words.get(lead + 1..).unwrap_or_default();
+    (verb.clone(), before.iter().chain(after).cloned().collect())
+}
+
+/// Stdout pointed at the null device until this is dropped.
+struct Silenced {
+    #[cfg(unix)]
+    saved: libc::c_int,
+}
+
+impl Silenced {
+    #[cfg(unix)]
+    fn stdout() -> Option<Self> {
+        use std::os::fd::AsRawFd as _;
+        let null = std::fs::OpenOptions::new().write(true).open("/dev/null").ok()?;
+        let _ = std::io::stdout().flush();
+        // SAFETY: dup and dup2 on this process's own descriptors; `saved` is restored on drop.
+        let saved = unsafe { libc::dup(1) };
+        if saved < 0 || unsafe { libc::dup2(null.as_raw_fd(), 1) } < 0 {
+            return None;
+        }
+        Some(Self { saved })
+    }
+
+    #[cfg(not(unix))]
+    fn stdout() -> Option<Self> {
+        None
+    }
+}
+
+impl Drop for Silenced {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            let _ = std::io::stdout().flush();
+            // SAFETY: puts back the descriptor `stdout()` saved, then closes the copy.
+            unsafe {
+                libc::dup2(self.saved, 1);
+                libc::close(self.saved);
+            }
         }
     }
 }
@@ -148,6 +248,9 @@ impl Flags {
 /// surface, run too when this is `cmux-tui` (the app runs its bundled `cmux-tui device …`).
 fn cmux() -> anyhow::Result<Command> {
     let mut command = Command::new(self_exe()?);
+    // Neither a join token nor the cmux credential reaches a child: the credential was read
+    // once (`JoinAuth`) and a revoke step gets it on its stdin.
+    command.env_remove("CMUX_JOIN").env_remove("CMUX_CLOUD_ACCESS_TOKEN");
     #[cfg(unix)]
     std::os::unix::process::CommandExt::arg0(&mut command, "cmux");
     Ok(command)
@@ -170,7 +273,7 @@ fn run_json(args: &[&str]) -> anyhow::Result<Value> {
 
 /// Reads every store. A store that does not answer (no acpmux daemon, no
 /// remote-hosting file) adds nothing and a note, never a failure.
-fn read_sources(notes: &mut Vec<String>) -> Sources {
+fn read_sources(auth: &JoinAuth, notes: &mut Vec<String>) -> Sources {
     let mut read = |args: &[&str], what: &str| match run_json(args) {
         Ok(v) => v,
         Err(e) => {
@@ -190,7 +293,29 @@ fn read_sources(notes: &mut Vec<String>) -> Sources {
         },
         _ => Value::Null,
     };
-    Sources { peers, pairing, remote, ssh_hosts: crate::machine_runtime::ssh_config_targets() }
+    // The team's joined machines, when a cmux credential is set (cmux machine add).
+    #[cfg(unix)]
+    let joined =
+        match crate::cli::joined_machine_rows(auth.platform.as_deref(), auth.credential.clone()) {
+            Some(Ok(rows)) => Value::Array(rows),
+            Some(Err(e)) => {
+                notes.push(format!("joined machines: {e}"));
+                Value::Null
+            }
+            None => Value::Null,
+        };
+    #[cfg(not(unix))]
+    let joined = {
+        let _ = auth;
+        Value::Null
+    };
+    Sources {
+        peers,
+        pairing,
+        remote,
+        ssh_hosts: crate::machine_runtime::ssh_config_targets(),
+        joined,
+    }
 }
 
 fn choice(flags: &Flags) -> anyhow::Result<Choice> {
@@ -203,20 +328,54 @@ fn choice(flags: &Flags) -> anyhow::Result<Choice> {
         .ok_or_else(|| usage(format!("--network must be auto, tailscale or weft, not {text:?}")))
 }
 
-fn current(flags: &Flags, notes: &mut Vec<String>) -> anyhow::Result<Listing> {
+/// How `device list|remove` sign in to the cmux platform for joined machines.
+#[derive(Default)]
+struct JoinAuth {
+    platform: Option<String>,
+    credential: Option<String>,
+}
+
+/// The flags that name the platform and the cmux credential.
+const JOIN_VALUES: [&str; 2] = ["platform", "cloud-token-file"];
+
+impl JoinAuth {
+    /// `--platform`, and the credential from `--cloud-token-stdin`, `--cloud-token-file` or
+    /// `CMUX_CLOUD_ACCESS_TOKEN`. An unreadable one is a usage error that names neither.
+    #[cfg(unix)]
+    fn read(flags: &Flags) -> anyhow::Result<Self> {
+        let credential = crate::cli::joined_machine_credential(
+            flags.value("cloud-token-file").map(PathBuf::from),
+            flags.has("cloud-token-stdin"),
+        )
+        .map_err(usage)?;
+        Ok(Self { platform: flags.value("platform").map(str::to_owned), credential })
+    }
+
+    #[cfg(not(unix))]
+    fn read(_flags: &Flags) -> anyhow::Result<Self> {
+        Ok(Self::default())
+    }
+}
+
+fn current(flags: &Flags, auth: &JoinAuth, notes: &mut Vec<String>) -> anyhow::Result<Listing> {
     let net =
         network::pick(choice(flags)?, Box::new(WeftNetwork), || Box::new(TailscaleNetwork::read()));
-    let sources = read_sources(notes);
+    let sources = read_sources(auth, notes);
     Ok(model::merge(&sources, net.status(), &net.nodes()))
 }
 
 fn list(args: &[String]) -> anyhow::Result<()> {
-    let flags = Flags::parse(args, &["network"], &["json"])?;
+    let flags = Flags::parse(
+        args,
+        &["network", JOIN_VALUES[0], JOIN_VALUES[1]],
+        &["json", "cloud-token-stdin"],
+    )?;
+    let auth = JoinAuth::read(&flags)?;
     let mut notes = Vec::new();
-    let listing = current(&flags, &mut notes)?;
+    let listing = current(&flags, &auth, &mut notes)?;
     if flags.has("json") {
         let mut v = serde_json::to_value(&listing)?;
-        v["notes"] = json!(notes);
+        v.set("notes", json!(notes));
         println!("{v}");
         return Ok(());
     }
@@ -404,6 +563,25 @@ fn invite(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Runs one removal step; `stdin_line` (a credential) goes to its stdin, then it closes.
+fn run_step(args: &[&str], stdin_line: Option<&str>) -> std::io::Result<std::process::Output> {
+    let Some(line) = stdin_line else {
+        return cmux().map_err(std::io::Error::other)?.args(args).stdin(Stdio::null()).output();
+    };
+    let mut child = cmux()
+        .map_err(std::io::Error::other)?
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(line.as_bytes())?;
+        stdin.write_all(b"\n")?;
+    }
+    child.wait_with_output()
+}
+
 fn confirm(question: &str) -> anyhow::Result<bool> {
     if !std::io::stdin().is_terminal() {
         return Ok(false);
@@ -416,12 +594,17 @@ fn confirm(question: &str) -> anyhow::Result<bool> {
 }
 
 fn remove(args: &[String]) -> anyhow::Result<()> {
-    let flags = Flags::parse(args, &["network"], &["json", "yes"])?;
+    let flags = Flags::parse(
+        args,
+        &["network", JOIN_VALUES[0], JOIN_VALUES[1]],
+        &["json", "yes", "cloud-token-stdin"],
+    )?;
+    let auth = JoinAuth::read(&flags)?;
     let [key] = flags.positional.as_slice() else {
         return Err(usage("needs exactly one device: its id, name or address (cmux device list)"));
     };
     let mut notes = Vec::new();
-    let listing = current(&flags, &mut notes)?;
+    let listing = current(&flags, &auth, &mut notes)?;
     // An open invite is removed by its ticket id.
     if let Some(invite) = listing.invites.iter().find(|i| i.id == *key) {
         let v = run_json(&["acp", "host", "ticket", "revoke", &invite.id, "--json"])?;
@@ -447,8 +630,20 @@ fn remove(args: &[String]) -> anyhow::Result<()> {
     let mut done = Vec::new();
     let mut failed = Vec::new();
     for step in &steps {
-        let args: Vec<&str> = step.args.iter().map(String::as_str).collect();
-        let out = cmux()?.args(&args).stdin(Stdio::null()).output();
+        let mut args: Vec<&str> = step.args.iter().map(String::as_str).collect();
+        // A joined machine's revoke signs in as this remove did: the credential on its
+        // stdin, never in its argv or environment.
+        let credential =
+            if args.first() == Some(&"machine") { auth.credential.as_deref() } else { None };
+        if args.first() == Some(&"machine")
+            && let Some(platform) = auth.platform.as_deref()
+        {
+            args.extend(["--platform", platform]);
+        }
+        if credential.is_some() {
+            args.push("--cloud-token-stdin");
+        }
+        let out = run_step(&args, credential);
         match out {
             Ok(o) if o.status.success() => done.push(step.what.clone()),
             Ok(o) => failed.push(
