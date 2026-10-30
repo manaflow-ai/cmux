@@ -711,6 +711,59 @@ mod tests {
     }
 
     #[test]
+    fn tree_changes_invalidate_layout_and_reject_pending_layout_answers() {
+        for event in [
+            json!({"event":"tree-changed"}),
+            json!({"event":"layout-changed"}),
+            json!({"event":"empty"}),
+            json!({"event":"workspace-closed", "workspace":1, "workspace_revision":4}),
+            json!({"event":"tab-changed", "workspace":1,"screen":2,"pane":3,"surface":4,
+                "entity":{"surface":99}}),
+            json!({"event":"workspace-closed", "workspace":1, "registry_id":"other"}),
+        ] {
+            let layout = json!({"result":{"sections":[{"workspaces":["one"]}]}});
+            let mut state = Snapshots::default();
+            state.answer(TREE, tree()).unwrap();
+            state.answer(LAYOUT, layout.clone()).unwrap();
+            state.pending[LAYOUT] = Some(Instant::now() + QUERY_WAIT);
+            state.event(&event).unwrap();
+            assert!(state.views[LAYOUT].is_none(), "old layout survived {event}");
+            assert!(state.dirty[LAYOUT], "layout must refresh after {event}");
+            state.answer(LAYOUT, layout).unwrap();
+            assert!(state.views[LAYOUT].is_none(), "pending reply restored old layout after {event}");
+            assert!(state.dirty[LAYOUT]);
+        }
+    }
+
+    #[test]
+    fn deltas_already_in_the_snapshot_do_not_invalidate_layout() {
+        let mut state = Snapshots::default();
+        state.answer(TREE, tree()).unwrap();
+        state.answer(LAYOUT, json!({"result":{"sections":[]}})).unwrap();
+        state.event(&json!({"event":"workspace-closed", "workspace":1,"workspace_revision":3})).unwrap();
+        assert!(state.views[LAYOUT].is_some());
+        assert!(!state.dirty[LAYOUT]);
+    }
+
+    #[test]
+    fn malformed_optional_layout_waits_for_an_event_then_recovers() {
+        let mut state = Snapshots::default();
+        state.answer(TREE, tree()).unwrap();
+        state.answer(PERSONAL, json!({"ok":true,"data":{"groups":[],"workspaces":[]}})).unwrap();
+        state.answer(LAYOUT, json!({"result":{"sections":"invalid"}})).unwrap();
+        assert!(state.views[TREE].is_some());
+        assert!(state.views[PERSONAL].is_some());
+        assert!(state.views[LAYOUT].is_none());
+        assert!(!state.dirty[LAYOUT], "a failure must not start a tight retry loop");
+        state.event(&json!({"event":"sidebar-layout-changed"})).unwrap();
+        assert!(state.dirty[LAYOUT]);
+        // As in the worker, starting the replacement request clears dirty.
+        state.dirty[LAYOUT] = false;
+        state.answer(LAYOUT, json!({"result":{"sections":[]}})).unwrap();
+        assert!(state.views[LAYOUT].is_some());
+    }
+
+    #[test]
     fn in_flight_invalidation_does_not_publish_an_old_answer() {
         let mut state = Snapshots::default();
         state.pending[TREE] = Some(Instant::now() + QUERY_WAIT);
@@ -774,18 +827,20 @@ mod tests {
         let mut state = Snapshots::default();
         assert!(state.answer(TREE, json!({"ok":false,"data":{"workspaces":[{"key":"other"}]}})).is_err());
         assert!(state.answer(PERSONAL, json!({"ok":true,"data":{"groups":[]}})).is_err());
-        assert!(state.answer(LAYOUT, json!({"type":"error","error":{"code":"unavailable"}})).is_err());
+        assert!(state.answer(LAYOUT, json!({"type":"error","error":{"code":"unavailable"}})).is_ok());
         assert!(state.views.iter().all(Option::is_none));
     }
 
     #[test]
-    fn unsupported_optional_layout_preserves_other_snapshots() {
+    fn optional_layout_errors_preserve_other_snapshots_without_immediate_retry() {
         let mut state = Snapshots::default();
         state.answer(TREE, tree()).unwrap();
         state.answer(PERSONAL, json!({"ok":true,"data":{"groups":[],"workspaces":[]}})).unwrap();
         for error in [
             json!({"code":"operation.unsupported"}),
             json!("unknown variant `sidebar_layout.get`, expected a known operation"),
+            json!({"code":"unavailable", "message":"temporarily unavailable"}),
+            json!("permission denied"),
         ] {
             state.answer(LAYOUT, json!({"error":error})).unwrap();
             assert!(state.views[TREE].is_some());
