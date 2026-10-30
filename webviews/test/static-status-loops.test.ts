@@ -125,6 +125,18 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     expect(running.some((loop) => loop.startsWith("cv-spinner ") && loop.endsWith("cmux-breathe"))).toBe(false);
   });
 
+  test("a hidden page has no running infinite CSS loops", async () => {
+    const p = await page(`${desktop}${pane}${home}${diff}`, paneLoops + diffLoops, "no-preference");
+    try {
+      expect((await loops(p)).length).toBeGreaterThanOrEqual(6);
+      await p.evaluate(() => document.documentElement.setAttribute("data-cmux-page-hidden", ""));
+      await p.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      expect(await loops(p)).toEqual([]);
+    } finally {
+      await p.close();
+    }
+  });
+
   /** Infinite opacity or scale animations running on a working mark, including its children. */
   async function workingMarkPulseLoops(p: Page): Promise<string[]> {
     return p.evaluate(() =>
