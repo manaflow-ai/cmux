@@ -367,6 +367,12 @@ pub struct QueuedPromptSummary {
     /// Its version for the owner's approval: 0 when queued, one more at each edit by its author.
     #[serde(default)]
     pub revision: u64,
+    /// Another agent's message the person's Stop holds (`hub/cancel.rs`): it waits until the
+    /// person's next turn completes or the queue is resumed. False otherwise; absent from a peer
+    /// on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub held_by_stop: bool,
     /// The images it sends, in its order; `_acpmux/attachment` reads each by its id.
     #[serde(default)]
     pub images: Vec<QueuedImage>,
