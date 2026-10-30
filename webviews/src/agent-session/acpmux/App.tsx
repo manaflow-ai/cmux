@@ -19,7 +19,7 @@ import React, {
 import { AnsweredBy, AuthorChip } from "./multiplayer/Faces";
 import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { flushSync } from "react-dom";
-import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
+import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { restoreForkSource } from "./handoff/restoreForkSource";
 import { rowPresence } from "./conversation/rowPresence";
@@ -200,7 +200,6 @@ import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { openSourceFile } from "./inspector/SourcesSection";
 import { useChatInspector } from "./inspector/ChatInspector";
-import { environmentToSave } from "./inspector/EnvironmentSection";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -6670,11 +6669,6 @@ function AcpmuxPane() {
     inspectorSummary !== undefined &&
     !inspectorSummary.peer &&
     !(inspectorSummary.host && inspectorSummary.hostKind !== "local");
-  // Save in its Environment keeps the machine and folder as a New Tab environment, only for a chat
-  // in a project (a scratch folder has none).
-  const environmentDraft = quick
-    ? undefined
-    : environmentToSave(inspectorSummary, snapshot.peerKinds, githubRepository);
   // A background command's Bash call in the transcript (`showToolRow` below, which needs what the
   // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat).
   const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
@@ -6747,7 +6741,10 @@ function AcpmuxPane() {
       quick || !inspectorLocal
         ? undefined
         : (path) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
-    onSaveEnvironment: environmentDraft ? () => savedEnvironmentHost(callNative).save(environmentDraft) : undefined,
+    // Active chat panes do not support environment.save; the native handler accepts it only from
+    // New Tab. Keep the inspector's optional callback for gallery/host integrations, but do not
+    // expose a button here that would always be rejected.
+    onSaveEnvironment: undefined,
     // A failed MCP server's Reconnect in Connectors, where acpmux offers it (a Claude Code chat's).
     onReconnectMcp: snapshot.reconnectsMcp ? reconnectMcp : undefined,
     // Quick Chat's panel has no room beside it for the side panel.
