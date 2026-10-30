@@ -57,4 +57,40 @@ import Testing
         #expect(WorkspaceRowContent(ws, preferences: preferences, machine: "dev-vm · Paused").detail == "Paused · ~")
         #expect(WorkspaceRowContent(ws, preferences: preferences, machine: "build-vm").detail == "build-vm · ~")
     }
+
+    /// The second line the one-list sidebar gives a Cloud row titled `title` on `machine` (status `status`), normal
+    /// rows and expanded ones (`meta`).
+    private static func secondLines(title: String, machine name: String, status: String? = nil) -> (normal: String?, expanded: String?) {
+        let machine = SidebarMachine(id: MachineID("vm"), name: name, kind: .cloud)
+        let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: machine.id, title: title, directory: "~")
+        let mac = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [])
+        let section = SidebarSection(kind: .machine(machine), nodes: [.workspace(ws)])
+        var o = SidebarModel(sections: [mac, section]).listOptions()
+        o.flattensMachines = true
+        o.workspaceRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: []))
+        if let status { o.machineStatusLabels[machine.id] = status }
+        let normal = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o)).detail
+        o.expanded = true
+        return (normal, o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o)).meta)
+    }
+
+    /// Only the machine's whole name is dropped: a title that is the start of a name holding the separator says
+    /// nothing about the rest of it (`dev-vm` on `dev-vm · staging` read `staging`).
+    @Test func aTitleThatStartsTheMachinesNameKeepsTheName() {
+        let lines = Self.secondLines(title: "dev-vm", machine: "dev-vm · staging")
+        #expect(lines.normal == "dev-vm · staging · ~")
+        #expect(lines.expanded == "dev-vm · staging")
+        let paused = Self.secondLines(title: "dev-vm", machine: "dev-vm · staging", status: "Paused")
+        #expect(paused.normal == "dev-vm · staging · Paused · ~")
+        #expect(paused.expanded == "dev-vm · staging · Paused")
+    }
+
+    @Test func aRowTitledByAMachineNameWithTheSeparatorDropsOnlyThatName() {
+        let lines = Self.secondLines(title: "dev-vm · staging", machine: "dev-vm · staging", status: "Paused")
+        #expect(lines.normal == "Paused · ~")
+        #expect(lines.expanded == "Paused")
+        let idle = Self.secondLines(title: "dev-vm · staging", machine: "dev-vm · staging")
+        #expect(idle.normal == "~")
+        #expect(idle.expanded == nil)
+    }
 }
