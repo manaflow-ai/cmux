@@ -6419,6 +6419,137 @@
           }
         }
       }
+    },
+    "terminal.surface.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal unavailable: the terminal engine could not open it"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الطرفية غير متاحة: تعذّر على محرك الطرفية فتحها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal nije dostupan: pokretač terminala ga nije mogao otvoriti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal utilgængelig: terminalmotoren kunne ikke åbne den"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal nicht verfügbar: Die Terminal-Engine konnte es nicht öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal no disponible: el motor del terminal no pudo abrirlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal indisponible : le moteur du terminal n’a pas pu l’ouvrir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminale non disponibile: il motore del terminale non è riuscito ad aprirlo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルを使用できません: ターミナルエンジンが開けませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចប្រើស្ថានីយបានទេ៖ ម៉ាស៊ីនស្ថានីយមិនអាចបើកវាបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널을 사용할 수 없음: 터미널 엔진이 열지 못했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminalen er utilgjengelig: terminalmotoren kunne ikke åpne den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal niedostępny: silnik terminala nie mógł go otworzyć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal indisponível: o mecanismo do terminal não conseguiu abri-lo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Терминал недоступен: движку терминала не удалось его открыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้เทอร์มินัลไม่ได้: เอนจินเทอร์มินัลเปิดไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal kullanılamıyor: terminal motoru onu açamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Термінал недоступний: рушію термінала не вдалося його відкрити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không dùng được terminal: công cụ terminal không mở được"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端不可用：终端引擎无法打开它"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機無法使用：終端機引擎無法開啟它"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

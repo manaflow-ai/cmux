@@ -89,6 +89,18 @@ final class TerminalStatusBanner: NSView {
         isHidden = false
     }
 
+    /// Shows `text` as it is, with no reveal (a terminal view whose surface libghostty could not make).
+    func showText(_ text: String) {
+        if label.stringValue != text {
+            label.stringValue = text
+            invalidateIntrinsicContentSize()
+            needsLayout = true // invalidate: new text (the check above) at another width
+        }
+        setAccessibilityLabel(text)
+        endReveal()
+        isHidden = false
+    }
+
     /// "Restoring…" fades in only after `restoringRevealDelay`, so an attach
     /// that answers within a second (the usual case, warm or cold) never flashes the label
     /// (Lawrence's restore targets, 2026-10-27: no pill unless the attach is still missing after 1 s,
