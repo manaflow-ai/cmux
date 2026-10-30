@@ -55,7 +55,8 @@ struct RecoveredDraftPaletteTests {
         #expect(rows.map(\.id) == [newer.id, older.id])
         #expect(rows.map(\.title) == ["newer.swift", "older.md"])
         #expect(rows.first?.subtitle == newer.filePath)
-        #expect(rows.allSatisfy(\.isEnabled))
+        let allEnabled = rows.allSatisfy(\.isEnabled)
+        #expect(allEnabled)
 
         guard case .perform(let open) = try #require(rows.last).primary.effect else {
             Issue.record("a draft row opens the draft")
