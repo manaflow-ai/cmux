@@ -32,7 +32,6 @@ export function settleSummary(samples: readonly unknown[]) {
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 800;
 const DEFAULT_DEVICE_SCALE = 2;
-const DEFAULT_CAPTURE_SELECTOR = "[data-gallery-capture], #root";
 const DEFAULT_CAPTURE_CONTEXT = 32;
 /** A VM pauses itself after this much network idleness (at most 300 s, coordinator rule
  * 2026-10-07); the run's own pause by exact id is the primary path. */
@@ -201,14 +200,21 @@ async function serveDirectory(root: string): Promise<{ baseUrl: string; close: (
  * a tighter element using `data-gallery-capture`; the root remains the safe default for stages
  * without a named surface. Coordinates are CSS pixels and Playwright applies the 2x scale. */
 export async function captureClip(page: Page): Promise<{ x: number; y: number; width: number; height: number } | undefined> {
-  const selector = process.env.CMUX_GALLERY_CAPTURE_SELECTOR || DEFAULT_CAPTURE_SELECTOR;
+  const selector = process.env.CMUX_GALLERY_CAPTURE_SELECTOR;
   const measured = await page.evaluate(({ selector }) => {
-    const element = document.querySelector(selector);
+    const element = selector
+      ? document.querySelector(selector)
+      : document.querySelector("[data-gallery-capture]") ?? document.querySelector("#root");
     if (!element) return null;
     const rect = element.getBoundingClientRect();
     return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight };
   }, { selector });
   if (!measured) return undefined;
+  const visibleLeft = Math.max(0, measured.left);
+  const visibleTop = Math.max(0, measured.top);
+  const visibleRight = Math.min(measured.viewportWidth, measured.right);
+  const visibleBottom = Math.min(measured.viewportHeight, measured.bottom);
+  if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) return undefined;
   const left = Math.max(0, measured.left - DEFAULT_CAPTURE_CONTEXT);
   const top = Math.max(0, measured.top - DEFAULT_CAPTURE_CONTEXT);
   const right = Math.min(measured.viewportWidth, measured.right + DEFAULT_CAPTURE_CONTEXT);

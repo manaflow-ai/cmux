@@ -27,18 +27,18 @@ test("capture clips stay in the viewport after scroll and handle offscreen or mi
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage({ viewport: { width: 400, height: 300 } });
-    await page.setContent('<style>body{margin:0;height:1600px}#root{position:absolute;left:80px;top:600px;width:100px;height:80px;background:red}</style><div id="root"></div>');
+    await page.setContent('<style>body{margin:0;height:1600px}#root{position:absolute;left:80px;top:600px;width:100px;height:80px;background:blue}[data-gallery-capture]{position:absolute;left:10px;top:10px;width:40px;height:30px;background:red}</style><div id="root"><div data-gallery-capture></div></div>');
     await page.evaluate(() => window.scrollTo(0, 500));
     expect(await page.evaluate(() => window.scrollY)).toBe(500);
     const clip = await captureClip(page);
-    expect(clip).toEqual({ x: 48, y: 68, width: 164, height: 144 });
+    expect(clip).toEqual({ x: 58, y: 78, width: 104, height: 94 });
     const pixels = PNG.sync.read(await page.screenshot({ clip }));
-    const pixel = (50 * pixels.width + 50) * 4;
+    const pixel = (40 * pixels.width + 40) * 4;
     expect([...pixels.data.subarray(pixel, pixel + 3)]).toEqual([255, 0, 0]);
     // A partially visible target retains only its visible portion plus context.
-    await page.evaluate(() => Object.assign(document.getElementById("root")!.style, { left: "-40px", top: "750px", width: "500px", height: "100px" }));
+    await page.evaluate(() => { const root = document.getElementById("root")!; root.querySelector("[data-gallery-capture]")!.remove(); Object.assign(root.style, { left: "-40px", top: "750px", width: "500px", height: "100px" }); });
     expect(await captureClip(page)).toEqual({ x: 0, y: 218, width: 400, height: 82 });
-    for (const [left, top] of [[500, 600], [-500, 600], [80, 0], [80, 1200]]) {
+    for (const [left, top] of [[500, 600], [-500, 600], [-110, 600], [410, 600], [80, 410], [80, 810], [80, 0], [80, 1200]]) {
       await page.evaluate(({ left, top }) => Object.assign(document.getElementById("root")!.style, { left: `${left}px`, top: `${top}px`, width: "100px", height: "80px" }), { left, top });
       expect(await captureClip(page)).toBeUndefined();
     }
