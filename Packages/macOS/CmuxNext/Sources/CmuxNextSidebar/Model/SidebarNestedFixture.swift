@@ -34,6 +34,9 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         /// The session tree's needs-you tray (`SidebarNeedsYou`): sessions started by other sessions,
         /// some blocked on you (a question, a permission, a sign-in), one failed, two finished unread.
         case needsYou
+        /// Lineage nesting in a group (#28103): a parent with two children, one of them a parent itself, folded
+        /// behind its count (a parent below the top level starts folded).
+        case lineageGroup
     }
 
     /// The state this fixture captures.
@@ -41,10 +44,14 @@ public nonisolated struct SidebarNestedFixture: Sendable {
     /// The sidebar rows: one local machine section holding the scenario's group tree.
     public let sections: [SidebarSection]
 
-    /// Who started whom (the session tree's `parents`), for ``Scenario/needsYou``; empty for the others.
+    /// Who started whom (the session tree's `parents`), for ``Scenario/needsYou`` and ``Scenario/lineageGroup``;
+    /// empty for the others.
     public var parents: [WorkspaceID: WorkspaceID] {
-        guard scenario == .needsYou else { return [:] }
-        let links = ["settings": "release", "shrink": "settings", "notes": "release", "changelog": "notes"]
+        let links: [String: String] = switch scenario {
+        case .needsYou: ["settings": "release", "shrink": "settings", "notes": "release", "changelog": "notes"]
+        case .lineageGroup: ["settings": "release", "shrink": "settings", "notes": "release"]
+        default: [:]
+        }
         return Dictionary(uniqueKeysWithValues: links.map { (WorkspaceID("w-\($0.key)"), WorkspaceID("w-\($0.value)")) })
     }
 
@@ -97,6 +104,8 @@ public nonisolated struct SidebarNestedFixture: Sendable {
             nodes = Self.tallGroup
         case .needsYou:
             nodes = Self.needsYouRows.map(SidebarNode.workspace)
+        case .lineageGroup:
+            nodes = Self.lineageGroup
         }
         sections = [SidebarSection(kind: .machine(machine), nodes: nodes)]
     }
@@ -113,6 +122,16 @@ public nonisolated struct SidebarNestedFixture: Sendable {
         ws("notes", "Release notes", activity: .working), ws("changelog", "Changelog", activity: .waiting(kind: .permission)),
         ws("flaky", "Flaky test hunt", activity: .error), ws("login", "Cloud sign-in", activity: .waiting(kind: .auth)),
         ws("docs", "Docs sweep", unread: .dot), ws("icons", "Icon pass", unread: .count(2)), ws("api", "API cleanup", busy: true),
+    ]
+
+    /// ``Scenario/lineageGroup``'s rows: a person's own row, then a group whose members an agent started from
+    /// Release week (``parents`` nests them; model order is not the drawn order).
+    private static let lineageGroup: [SidebarNode] = [
+        .workspace(ws("docs", "Docs sweep", unread: .dot)),
+        group("release-week", "Release", .purple, [
+            ws("notes", "Release notes", activity: .working), ws("release", "Release week"),
+            ws("shrink", "Shrink large files", activity: .waiting(kind: .question)), ws("settings", "Settings pass"),
+        ]),
     ]
 
     private static func group(_ id: String, _ name: String, _ color: GroupColor, parent: String? = nil, folded: Bool = false,
