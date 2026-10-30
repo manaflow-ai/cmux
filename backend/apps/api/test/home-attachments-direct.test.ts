@@ -208,6 +208,25 @@ describe("Home attachments: a direct completion recovers from lost answers and t
     expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
   })
 
+  it("a part whose presigned PUT finished after the slot's expiry: no new part URL, but completing within the upload grace stores the file", async () => {
+    const alice = await signIn("att-direct-past-expiry")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32 * MiB + 19).map((_, i) => (i * 17) % 223)
+    const r = await ask(alice, id, body)
+    const parts = await sendParts(id, r.json.value, body)
+    // The last part's URL was signed before the expiry and R2 took its PUT after it: the slot is past its time, inside the grace.
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ? WHERE id = ?", Date.now() - 60_000, r.json.value.slot))
+    const { handleAttachmentDirectPart } = await import("../src/home-attachments.ts")
+    const token = new URL(r.json.value.upload_url).pathname.split("/").pop()!
+    const late = await handleAttachmentDirectPart(new Request(r.json.value.upload_url, { method: "POST", headers: { "x-cmux-part-number": "1" } }), small, id, token)
+    expect(late.status).toBe(403)
+    const done = await run(alice, id, r.json.value.slot, parts)
+    expect([done.status, done.json.value?.state, done.json.error?.code]).toEqual([200, "stored", undefined])
+    const downloaded = new Uint8Array(await (await worker.fetch((await urlFor(alice, id, sha(body))).json.value.url)).arrayBuffer())
+    expect(sha(downloaded)).toBe(sha(body))
+  })
+
   it("a read-back step whose R2 get fails or whose body stream errors answers 503 retryable, and completing again stores the file", async () => {
     const alice = await signIn("att-direct-readback-transient")
     const { id } = await group(alice)
