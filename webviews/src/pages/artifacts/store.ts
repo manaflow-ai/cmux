@@ -59,7 +59,10 @@ export class ArtifactsStore {
 
   getSnapshot = (): ArtifactsSnapshot => this.snapshot;
 
-  /** Reads the tree, then opens its first file unless one is already chosen. */
+  /**
+   * Reads the tree, then opens its first file unless one is already chosen. When the head moved
+   * since the last read, the chosen file reads again, so a revision saved meanwhile shows.
+   */
   async start(): Promise<void> {
     if (!this.client) return this.set({ ...INITIAL, status: "unavailable" });
     const request = ++this.treeRequest;
@@ -68,9 +71,12 @@ export class ArtifactsStore {
     try {
       const { paths, sha, truncated } = await this.readTree(this.client);
       if (request !== this.treeRequest) return;
+      const moved = this.snapshot.headSha !== undefined && this.snapshot.headSha !== sha;
       this.set({ status: paths.length ? "ready" : "empty", paths, headSha: sha, truncated });
-      const keep = this.snapshot.selected && paths.includes(this.snapshot.selected);
-      if (!keep && paths[0]) await this.select(paths[0]);
+      const selected = this.snapshot.selected;
+      if (selected && paths.includes(selected)) {
+        if (moved) await this.select(selected, true);
+      } else if (paths[0]) await this.select(paths[0]);
     } catch (error) {
       if (request !== this.treeRequest) return;
       const failure = failureOf(error);
@@ -78,20 +84,24 @@ export class ArtifactsStore {
     }
   }
 
-  /** Opens `path`: its content at the head and its history, with the newest revision's change. */
-  async select(path: string): Promise<void> {
+  /**
+   * Opens `path`: its content at the head and its history, with the newest revision's change.
+   * `reload` reads the chosen file again and keeps what is shown until the new reads arrive.
+   */
+  async select(path: string, reload = false): Promise<void> {
     const client = this.client;
-    if (!client || path === this.snapshot.selected) return;
+    if (!client || (path === this.snapshot.selected && !reload)) return;
     const request = ++this.fileRequest;
-    this.set({
-      selected: path,
-      file: undefined,
-      fileLoading: true,
-      fileFailure: undefined,
-      history: [],
-      selectedCommit: undefined,
-      diff: undefined,
-    });
+    if (!reload)
+      this.set({
+        selected: path,
+        file: undefined,
+        fileLoading: true,
+        fileFailure: undefined,
+        history: [],
+        selectedCommit: undefined,
+        diff: undefined,
+      });
     try {
       const [file, history] = await Promise.all([
         client.call<ArtifactFile>(ArtifactsOps.file, { path }),
@@ -116,7 +126,9 @@ export class ArtifactsStore {
     const client = this.client;
     const path = this.snapshot.selected;
     if (!client || !path) return;
-    this.set({ selectedCommit: commit.sha, diff: undefined, fileFailure: undefined });
+    // Reading the same revision again (a refresh) keeps its change on screen meanwhile.
+    const same = this.snapshot.diff?.sha === commit.sha;
+    this.set({ selectedCommit: commit.sha, fileFailure: undefined, ...(same ? {} : { diff: undefined }) });
     const text = async (ref: string) => textOf(await client.call<ArtifactFile>(ArtifactsOps.file, { path, ref }));
     try {
       const parent = commit.parents[0];

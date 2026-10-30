@@ -5,7 +5,9 @@ public extension PageDescriptor {
     /// The Artifacts page (webviews/src/pages/artifacts): the account's synced artifacts and
     /// memories as a tree, a preview and their history, read only. Its three ops are relayed to
     /// cmux-platform's `/v1/artifacts` reads with the app's own bearer; the page never sees a token.
-    static let artifacts = PageDescriptor(id: "cmux.artifacts", resource: "artifacts", namespaces: ["cmux.artifacts."])
+    /// Saved HTML previews in passive srcdoc frames, which never navigate.
+    static let artifacts = PageDescriptor(id: "cmux.artifacts", resource: "artifacts", namespaces: ["cmux.artifacts."],
+                                          passiveFrames: true)
 }
 
 /// One authenticated GET the provider asks the app to make: `path` under the platform's base URL
@@ -100,10 +102,24 @@ public final class ArtifactsPageProvider: PageProvider {
     /// cmux-platform's development Worker, which serves `/v1/artifacts` first.
     public static let developmentAPI = URL(string: "https://cmux-platform-development.debussy.workers.dev")
 
-    /// The API base: `CMUX_NEXT_ARTIFACTS_API_URL` when set, else ``developmentAPI``.
+    /// The API base: `CMUX_NEXT_ARTIFACTS_API_URL` when it names a platform deployment
+    /// (``isPlatformOrigin(_:)``), else ``developmentAPI``. The bearer goes to this host, so an
+    /// override elsewhere is ignored.
     public static func apiBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL? {
-        if let value = environment["CMUX_NEXT_ARTIFACTS_API_URL"], let url = URL(string: value) { return url }
+        if let value = environment["CMUX_NEXT_ARTIFACTS_API_URL"], let url = URL(string: value), isPlatformOrigin(url) { return url }
         return developmentAPI
+    }
+
+    /// A cmux-platform Worker over https (`*.debussy.workers.dev`), or `wrangler dev` on this Mac
+    /// (http on loopback). No user, password, query or fragment.
+    public static func isPlatformOrigin(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased(), url.user == nil, url.password == nil, url.query == nil, url.fragment == nil
+        else { return false }
+        switch url.scheme?.lowercased() {
+        case "https": return host.hasSuffix(".debussy.workers.dev") && url.port == nil
+        case "http": return host == "localhost" || host == "127.0.0.1" || host == "::1"
+        default: return false
+        }
     }
 
     /// The app's fetch: one GET of `read` under `base` with the bearer `token` gives, or a 401
@@ -123,11 +139,16 @@ public final class ArtifactsPageProvider: PageProvider {
         }
     }
 
-    /// `read`'s URL under `base`, whose own path (a deployment under a prefix) is kept.
+    /// `read`'s URL under `base`, whose own path (a deployment under a prefix) is kept. Each query
+    /// value is encoded whole (`&`, `=`, `+`, `;` and `#` included), so a path can never add a param.
     nonisolated static func url(_ read: ArtifactsRead, base: URL) -> URL? {
         guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return nil }
         components.path = (components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path) + read.path
-        components.queryItems = read.query.isEmpty ? nil : read.query
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+;#")
+        components.percentEncodedQueryItems = read.query.isEmpty ? nil : read.query.map {
+            URLQueryItem(name: $0.name, value: $0.value?.addingPercentEncoding(withAllowedCharacters: allowed))
+        }
         return components.url
     }
 

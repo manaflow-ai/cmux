@@ -1,4 +1,4 @@
-import CmuxNextPages
+@testable import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -152,5 +152,49 @@ struct ArtifactsPageProviderTests {
             try await provider.call("cmux.artifacts.tree", params: [:], context: Self.context)
         }
         #expect(error?.code == "cmux.artifacts.failed")
+    }
+}
+
+/// The bearer only ever goes to a platform deployment: an override elsewhere is ignored.
+struct ArtifactsAPIBaseTests {
+    @Test(arguments: [
+        "https://cmux-platform-development.debussy.workers.dev",
+        "https://cmux-platform-staging.debussy.workers.dev/",
+        "http://localhost:8787",
+        "http://127.0.0.1:8787",
+    ])
+    func platformOverridesApply(text: String) throws {
+        let url = try #require(URL(string: text))
+        #expect(ArtifactsPageProvider.apiBaseURL(environment: ["CMUX_NEXT_ARTIFACTS_API_URL": text]) == url)
+    }
+
+    @Test(arguments: [
+        "https://evil.example",
+        "http://cmux-platform-development.debussy.workers.dev",
+        "https://debussy.workers.dev.evil.example",
+        "https://evil.workers.dev",
+        "https://user:pw@cmux-platform-development.debussy.workers.dev",
+        "https://cmux-platform-development.debussy.workers.dev:8443",
+        "http://192.168.1.4:8787",
+        "file:///tmp/x",
+        "not a url",
+    ])
+    func otherOverridesFallBackToDevelopment(text: String) {
+        #expect(ArtifactsPageProvider.apiBaseURL(environment: ["CMUX_NEXT_ARTIFACTS_API_URL": text]) == ArtifactsPageProvider.developmentAPI)
+    }
+
+    @Test func noOverrideIsDevelopment() {
+        #expect(ArtifactsPageProvider.apiBaseURL(environment: [:]) == ArtifactsPageProvider.developmentAPI)
+    }
+
+    @Test func readURLKeepsTheBasePathAndOnlyTheReadsQuery() throws {
+        let base = try #require(URL(string: "https://cmux-platform-development.debussy.workers.dev/prefix/"))
+        let read = ArtifactsRead(path: "/v1/artifacts/file", query: [URLQueryItem(name: "path", value: "a b&c=d")])
+        let url = try #require(ArtifactsPageProvider.url(read, base: base))
+        #expect(url.absoluteString == "https://cmux-platform-development.debussy.workers.dev/prefix/v1/artifacts/file?path=a%20b%26c%3Dd")
+        let injected = ArtifactsRead(path: "/v1/artifacts/tree", query: [URLQueryItem(name: "path", value: "x&ref=evil#y")])
+        let other = try #require(ArtifactsPageProvider.url(injected, base: base))
+        let items = try #require(URLComponents(url: other, resolvingAgainstBaseURL: false)?.queryItems)
+        #expect(items == [URLQueryItem(name: "path", value: "x&ref=evil#y")])
     }
 }

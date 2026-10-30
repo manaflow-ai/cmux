@@ -194,3 +194,51 @@ test("a revision's change keeps three lines of context and splits distant edits"
     ],
   ]);
 });
+
+test("a refresh after a new save reads the chosen file again, keeping it on screen meanwhile", async () => {
+  const shas = ["1".repeat(40), "2".repeat(40)];
+  let head = 0;
+  const texts = ["first\n", "first\nsecond\n"];
+  const host = new Host((op, params) => {
+    const sha = shas[head]!;
+    if (op === ArtifactsOps.tree) return { ref: "main", sha, entries: [{ name: "a.md", path: "a.md", type: "blob" }] };
+    if (op === ArtifactsOps.history)
+      return {
+        commits: shas
+          .slice(0, head + 1)
+          .reverse()
+          .map((commit, n, all) => ({
+            sha: commit,
+            parents: all[n + 1] ? [all[n + 1]] : [],
+            message: commit.slice(0, 1),
+            authorName: "cmux",
+            time: 0,
+            trailers: {},
+          })),
+      };
+    const at = params.ref ? shas.indexOf(String(params.ref)) : head;
+    return { path: "a.md", size: 1, contentType: "text/markdown", commit: shas[at], content: texts[at] };
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  expect(store.getSnapshot().file?.content).toBe("first\n");
+  head = 1;
+  const seen: (string | undefined)[] = [];
+  store.subscribe(() => seen.push(store.getSnapshot().file?.content));
+  await store.start();
+  expect(seen).not.toContain(undefined);
+  const snapshot = store.getSnapshot();
+  expect(snapshot.file?.content).toBe("first\nsecond\n");
+  expect(snapshot.history).toHaveLength(2);
+  expect(snapshot.diff).toEqual({ sha: shas[1], before: "first\n", after: "first\nsecond\n" });
+});
+
+test("a refresh with the head unchanged reads only the tree", async () => {
+  const mock = new MockArtifactsProvider();
+  const host = new Host((op, params) => mock.call(op, params));
+  const store = new ArtifactsStore(host);
+  await store.start();
+  const before = host.calls.length;
+  await store.start();
+  expect(host.calls.slice(before).every((call) => call.op === ArtifactsOps.tree)).toBe(true);
+});
