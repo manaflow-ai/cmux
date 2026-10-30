@@ -9887,7 +9887,7 @@ function AcpmuxPane() {
                                                   onLoadOlder={
                                                     workflowTranscript.rows
                                                       ? workflowTranscript.loadOlder
-                                                      : !childRows && snapshot.connection === "connected"
+                                                      : !childRows
                                                         ? () => directClient.current?.loadOlder() ?? Promise.resolve()
                                                         : undefined
                                                   }
