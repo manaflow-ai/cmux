@@ -3195,7 +3195,7 @@ def never_fails_over(path: str) -> bool:
     return path in NEVER_FAILOVER_PATHS or "nightly" in path.rsplit("/", 1)[-1]
 
 
-def job_started(job: Mapping[str, Any]) -> bool:
+def job_started(job: Mapping[str, Any], target: Target | None = None) -> bool:
     """Whether a cancel could lose this job (dep-fleet's ruling): every job must be queued or waiting with no runner
     assigned, except a PLACEMENT_JOBS job finished with conclusion success. A job GitHub skipped never ran and was
     never assigned a runner. Anything else, a runner assigned, running, or finished any other way, is started."""
@@ -3205,7 +3205,11 @@ def job_started(job: Mapping[str, Any]) -> bool:
         return False
     if status == "completed" and conclusion == "skipped" and not assigned:
         return False
-    return not (status == "completed" and conclusion == "success" and str(job.get("name") or "") in PLACEMENT_JOBS)
+    placement = str(job.get("name") or "") in PLACEMENT_JOBS
+    if target is not None and target.path == IOS_KIT_WORKFLOW_PATH:
+        placement = placement or (job.get("name") == E2E_PICKER_JOB and
+                                  any("ubuntu" in str(label) for label in job.get("labels") or ()))
+    return not (status == "completed" and conclusion == "success" and placement)
 
 
 def job_key(job: Mapping[str, Any]) -> Any:
@@ -3249,7 +3253,7 @@ def unstarted_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
       created_at and when a watch first saw it queued (`first_seen`, the watcher's; else this look's). A job that
       has waited less is looked at again once it has waited that long (one bounded sleep), not given up on.
     """
-    if not target.pr_number or target.nightly or target.main or target.e2e or target.push_branch \
+    if not target.pr_number or target.nightly or target.main or (target.e2e and target.path != IOS_KIT_WORKFLOW_PATH) or target.push_branch \
             or target.path in FEED_TIMEOUT_PATHS or never_fails_over(target.path):
         return ""
     reader = getattr(api, "pool_snapshot", None)
@@ -3271,7 +3275,7 @@ def unstarted_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
         if len(jobs) >= MAX_JOB_PAGES * 100:
             log(f"run {target.run_id} lists {len(jobs)} jobs, maybe more; the open head keeps the run")
             return ""
-        if any(job_started(job) for job in jobs):
+        if any(job_started(job, target) for job in jobs):
             return ""
         at = now()
         waiting = [(job, str(mac_route(job))) for job in jobs if waiting_for_runner(job) and mac_route(job)]
@@ -3305,7 +3309,7 @@ def failover_receipt(api: GitHub, target: Target, why: str, sleep: Callable[[flo
     except Exception:  # noqa: BLE001 - the receipt never stops the failover
         jobs = []
     queued = sorted(f"{job.get('name')} on {mac_route(job) or 'linux'}" for job in jobs
-                    if not job_started(job) and job.get("status") != "completed")
+                    if not job_started(job, target) and job.get("status") != "completed")
     placed = sorted(str(job.get("name")) for job in jobs if str(job.get("name") or "") in PLACEMENT_JOBS
                     and job.get("conclusion") == "success")
     line = (f"run {target.run_id} attempt {target.attempt} of PR #{target.pr_number} at {target.head_sha[:12]}: "
@@ -3333,7 +3337,7 @@ def open_head_guard(api: GitHub, target: Target, sleep: Callable[[float], None],
             raise OpenHeadStarted(f"the run is at attempt {attempt}, not {target.attempt}")
         if run.get("status") == "completed":
             raise OpenHeadStarted("the run has finished")
-        taken = sorted(str(job.get("name") or job.get("id")) for job in jobs if job_started(job))
+        taken = sorted(str(job.get("name") or job.get("id")) for job in jobs if job_started(job, target))
         if taken:
             raise OpenHeadStarted(f"{', '.join(taken)} started before the cancel")
     return check

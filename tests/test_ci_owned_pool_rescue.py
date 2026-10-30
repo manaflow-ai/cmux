@@ -3979,6 +3979,23 @@ IOS_SIM = "glaeda-ios-sim"
 class IOSDispatch(unittest.TestCase):
     """test-ios.yml and ios-screenshots.yml dispatches are watched like an E2E run."""
 
+    def test_kit_events_use_the_picker_and_three_minute_budget(self):
+        for kind in ("pull_request", "push", "workflow_dispatch"):
+            payload = event(path=rescue.IOS_KIT_WORKFLOW_PATH, event=kind)
+            target = rescue.target_from_event(payload, "manaflow-ai/cmux")
+            self.assertIsInstance(target, rescue.Target)
+            self.assertEqual(target.picker_job, "runner")
+            self.assertEqual(bool(target.pr_number), kind == "pull_request")
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [e2e_runner()(seconds),
+                      job("kit tests", labels=[MINI, IOS_SIM], created=0)], marker=True)
+        target = rescue.target_from_event(e2e_event(path=rescue.IOS_KIT_WORKFLOW_PATH), "manaflow-ai/cmux")
+        lines = []
+        rescue.follow(api, target, seconds=600, queue_rounds="2", now=clock.now,
+                      sleep=clock.sleep, log=lines.append)
+        self.assertIn("budget 180s", lines[0])
+        self.assertIn("rerun-failed", api.calls)
+
     def test_ios_dispatches_are_targets(self):
         for path in (".github/workflows/test-ios.yml", ".github/workflows/ios-screenshots.yml"):
             target = rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux")
@@ -5996,6 +6013,26 @@ class OpenHeadUnstartedFailover(unittest.TestCase):
         self.assertNotIn("rerun-failed", api.calls)
         self.assertNotIn(rescue.OPEN_HEAD_RULE, result)
         self.assertTrue(any(line.startswith(rescue.OPEN_HEAD_FAILOVER) and SESSION in line for line in lines), lines)
+
+    def test_kit_picker_allows_failover_but_a_started_test_does_not(self):
+        def kit_jobs(seconds):
+            picker = job("runner", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"], runner="linux")
+            picker["conclusion"] = "success"
+            return [picker, job("CmuxMobileKit tests (macOS swift test, iOS simulator)",
+                                labels=[SESSION, IOS_SIM], created=-240)]
+        clock, api, target = self.world(kit_jobs, path=rescue.IOS_KIT_WORKFLOW_PATH,
+                                        extra={"side": False, "e2e": True})
+        result, _ = self.run_rescue(api, clock, target)
+        self.assertIn("rerun", api.calls)
+        self.assertNotIn(rescue.OPEN_HEAD_RULE, result)
+        def started(seconds):
+            jobs = kit_jobs(seconds)
+            jobs[1].update(status="in_progress", runner_name="mac")
+            return jobs
+        clock, api, target = self.world(started, path=rescue.IOS_KIT_WORKFLOW_PATH,
+                                        extra={"side": False, "e2e": True})
+        result, _ = self.run_rescue(api, clock, target)
+        assert_left_at_open_head(self, api, result, number=26999)
 
     def test_a_label_that_runs_a_job_keeps_the_open_head_rule(self):
         clock, api, target = self.world(self.gates, running=1)
