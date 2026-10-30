@@ -1,0 +1,78 @@
+import AppKit
+@testable import CmuxNextApp
+import CmuxNextCloud
+@testable import CmuxNextDaemon
+import CmuxNextRemote
+import Foundation
+import Testing
+
+/// Review of #28358 (P-AUSTIN B7b): a saved Cloud workspace whose machine this run has no daemon
+/// for is gone only when the signed-in account's own machine list loaded without its machine.
+/// These run `WindowManager.isDead` itself with a given account state (`WindowManager.cloudList`),
+/// since a test cannot sign in.
+@MainActor @Suite(.serialized)
+struct CloudWorkspaceAccountListTests {
+    static let workspace = "ws-account-list"
+
+    /// Services with this Mac's tree loaded and `workspace` saved on Cloud machine `machine`.
+    static func services(savedOn machine: String, list: CloudService.ListFacts) -> AppServices {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.machines.local.store.apply(snapshot: DaemonTree(registryID: "s-local"))
+        services.windows.cloudList = { _ in list }
+        var record = WindowRecord(id: "w1", workspaceKey: WorkspaceKey(rawValue: workspace),
+                                  workspaceKeys: [WorkspaceKey(rawValue: workspace)], machine: machine)
+        record.workspaceMachines = [workspace: machine]
+        services.windows.rememberMachines(of: WindowStateDocument(windows: [record]))
+        return services
+    }
+
+    static let signedInWithCurrentList = CloudService.ListFacts(isSignedIn: true, isRestoring: false,
+                                                        hasLoadedMachines: true, hasLoadedCurrentMachines: true)
+
+    /// Finding 4: a machine deleted from the account (the signed-in account's loaded list does not
+    /// have it, so the registry has no session for it) takes its workspace out of the saved window.
+    @Test func aMachineDeletedFromTheAccountTakesItsWorkspaceOutOfTheSavedWindow() {
+        let services = Self.services(savedOn: "vm-deleted", list: Self.signedInWithCurrentList)
+        let windows = services.windows
+        #expect(windows.isDead(Self.workspace), "the account's loaded list does not have its machine: it left the account")
+        var record = WindowRecord(id: "w1", workspaceKey: WorkspaceKey(rawValue: "ws-local"),
+                                  workspaceKeys: [WorkspaceKey(rawValue: "ws-local"), WorkspaceKey(rawValue: Self.workspace)])
+        record.workspaceMachines = [Self.workspace: "vm-deleted"]
+        var document = WindowStateDocument(windows: [record])
+        document.prune(liveWorkspaces: Set([WorkspaceKey(rawValue: "ws-local"), WorkspaceKey(rawValue: Self.workspace)]
+            .filter { !windows.isDead($0.rawValue) }))
+        #expect(document.windows.first?.workspaceKeys == [WorkspaceKey(rawValue: "ws-local")])
+        #expect(document.windows.first?.workspaceMachines.isEmpty == true)
+    }
+
+    /// Finding 4: the same account state with the machine listed (paused, so it has no tree yet)
+    /// keeps the workspace: only "not listed" and "the list loaded" together mean gone.
+    @Test func aListedMachineKeepsItsWorkspaceWithTheSameAccountList() {
+        let services = Self.services(savedOn: "vm-listed", list: Self.signedInWithCurrentList)
+        _ = CloudWorkspaceRestoreTests.pausedMachine(services, id: "vm-listed")
+        #expect(!services.windows.isDead(Self.workspace), "a listed machine that has not connected is not gone")
+    }
+
+    /// Finding 1: during a team switch the user stays signed in and the store still holds the
+    /// previous team's list until the new team's arrives. A workspace on a machine of the new team
+    /// is not in that old list; it must wait for the new team's list, not be pruned.
+    @Test func aTeamSwitchDoesNotPruneTheNewTeamsWorkspaceFromTheOldTeamsList() {
+        let previousTeamsList = CloudService.ListFacts(isSignedIn: true, isRestoring: false,
+                                               hasLoadedMachines: true, hasLoadedCurrentMachines: false)
+        let services = Self.services(savedOn: "vm-new-team", list: previousTeamsList)
+        #expect(!services.windows.isDead(Self.workspace),
+                "the store's list is the previous team's: it says nothing about the new team's machines")
+    }
+
+    /// Finding 3: the ids the app gives SSH machines and paired servers are never Cloud ids, read
+    /// from the types that make them, so a change of their id form cannot make them Cloud machines.
+    @Test func sshAndServerMachineIDsAreNeverCloudIDs() throws {
+        let ssh = try SSHHost(destination: SSHDestination(parsing: "me@cloud-list-box"))
+        let server = try ServerReach(hostID: "host_cloudlist01", installID: "inst_cloudlist01", name: "Mini",
+                                     route: .overlay(linkSocket: "/tmp/cmux-cloud-list-link.sock"))
+        #expect(!MachineRegistry.isCloudMachineID(ssh.machineID))
+        #expect(!MachineRegistry.isCloudMachineID(server.machineID))
+        #expect(MachineRegistry.isCloudMachineID("vm_0123456789"))
+    }
+}
