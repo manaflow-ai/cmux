@@ -212,6 +212,26 @@ import Testing
         #expect(engine.operations.withLock { $0.isEmpty })
     }
 
+    /// A pipe or a device is not a file to stream: a FIFO can block the open beyond cancellation's
+    /// reach, and /dev/zero never reaches the end. Both are refused before any page script runs.
+    @Test func aPipeOrDeviceIsRefusedBeforeTheStreamStarts() async throws {
+        let (folder, _) = try scratch([])
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let fifo = folder.appendingPathComponent("pipe").path
+        #expect(mkfifo(fifo, 0o600) == 0)
+        let link = folder.appendingPathComponent("link-to-pipe").path
+        try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: fifo)
+        for path in [fifo, link, "/dev/zero"] {
+            let engine = ChooserEngine(chooser: "withdrawn", fileInput: true)
+            let router = install(engine)
+
+            let answer = await call(router, "browser.page.upload", ["selector": "#f", "files": [.string(path)]])
+
+            #expect(answer.controlError?.code == "not_regular_file", "\(path) was not refused: \(answer)")
+            #expect(engine.scripts.isEmpty, "\(path) started a page upload stream")
+        }
+    }
+
     @Test func downloadsListAndWaitReachTheEngineForTheTab() async throws {
         let engine = ChooserEngine(chooser: "chosen")
         let router = install(engine)
