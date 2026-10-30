@@ -8,7 +8,7 @@ import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
 import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
-import { TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
+import { PLATFORM_IDENTITY_PREFIX, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import type { SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { platformCall, type PlatformCall, type PlatformReply } from "./cloud-platform.ts"
 import { statusApplied } from "./cloud-do-core.ts"
@@ -334,6 +334,17 @@ export class CloudDO extends CloudIdle {
       machine: (id) => rows()?.get<MachineRow>(TABLE_MACHINE, id)?.row,
       ledger: (key) => rows()?.get<LedgerRow>(TABLE_LEDGER, key)?.row,
       snapshot: (id) => rows()?.get<SnapshotRow>(TABLE_SNAPSHOT, id)?.row,
+      platformSnapshot: (u, id) => {
+        const reader = rows()
+        if (!reader) return false
+        let after: number | undefined
+        for (;;) {
+          const page = reader.range<LedgerRow>(TABLE_LEDGER, { after, limit: 1000 })
+          if (page.some((l) => l.row.op === "snapshot" && l.row.snapshot === id && l.row.key.startsWith(`${PLATFORM_IDENTITY_PREFIX}${u}|platform-env:snapshot:`))) return true
+          if (page.length < 1000) return false
+          after = page[page.length - 1]!.n!
+        }
+      },
       tombstoned: (machine) => rows()?.get(TABLE_TOMBSTONE, machine) !== undefined,
       exec: async (row, command, stdin, timeoutMs) => {
         const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)

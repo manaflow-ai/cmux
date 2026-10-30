@@ -147,7 +147,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await rpc.deleteSnapshot(c, "snap_bad")).toMatchObject({ ok: false, code: "validation.invalid" })
   })
 
-  it("deletes a platform snapshot after its creation ledger is pruned", async () => {
+  it.each([false, true])("deletes a platform snapshot after its creation ledger is pruned (legacy=%s)", async (legacy) => {
     const c = caller()
     const { machine, stub } = await bootAndBind(c)
     const name = nameOf()
@@ -161,6 +161,11 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     await inDO(stub, async (instance) => {
       const rows = instance.boundEngine.rows
       const key = ledgerKey(`platform:${c.user}`, `platform-env:snapshot:${name}`)
+      if (legacy) {
+        const stored = rows.get(TABLE_SNAPSHOT, id)
+        const { platform: _platform, ...row } = stored.row
+        rows.apply([{ table: TABLE_SNAPSHOT, op: "upsert", key: id, n: stored.n, row }])
+      }
       const created = rows.get(TABLE_LEDGER, key).row
       expect(created.state).toBe("done")
       const now = created.updated_at + LEDGER_KEEP_MS + 1
@@ -181,7 +186,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(saved).toMatchObject({ ok: true })
     const id = saved.value.id as string
     await stub.fakeControl({ snapshot_delete_refuse: 1 } as never)
-    expect(await rpc.deleteSnapshot(c, id)).toMatchObject({ ok: false, code: "cloud.provider.refused" })
+    expect(await rpc.deleteSnapshot(c, id)).toMatchObject({ ok: false, code: "cloud.provider.unavailable" })
     await inDO(stub, async (instance) => {
       expect(instance.boundEngine.rows.get(TABLE_SNAPSHOT, id).row.status).toBe("ready")
       const deletes = instance.boundEngine.rows.range(TABLE_LEDGER, { limit: 100 }).filter((l: any) => l.row.op === "snapshot_delete")

@@ -45,6 +45,8 @@ export interface PlatformHost {
   machine(id: string): MachineRow | undefined
   ledger(key: string): LedgerRow | undefined
   snapshot(id: string): SnapshotRow | undefined
+  /** Legacy fallback for platform snapshots created before the row marker was introduced. */
+  platformSnapshot(user: string, id: string): boolean
   tombstoned(machine: string): boolean
   /** One command on the machine's VM as root; null when the provider did not answer. */
   exec(row: MachineRow, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<GuestExecResult | null>
@@ -145,7 +147,7 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       const snap = host.snapshot(call.snapshot)
       // Absence also covers a successful prior delete, even after its ledger is pruned.
       // cmux-platform treats cloud.snapshot.not_found as successful cleanup.
-      if (!snap || snap.platform !== true || snap.creator !== user) return refused("cloud.snapshot.not_found", "no such platform snapshot in this team", false)
+      if (!snap || snap.creator !== user || (snap.platform !== true && !host.platformSnapshot(user, snap.id))) return refused("cloud.snapshot.not_found", "no such platform snapshot in this team", false)
       const deleting = refused("mutation.indeterminate", "the snapshot is still being deleted; retry", true)
       if (snap.status === "deleting") return deleting
       // Like destroy, a terminal failure restores the row at a new revision. The next request
