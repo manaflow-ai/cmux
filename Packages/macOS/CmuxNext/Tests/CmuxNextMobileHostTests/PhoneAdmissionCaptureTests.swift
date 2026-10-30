@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextMobile
 @testable import CmuxNextMobileHost
 import Testing
 
