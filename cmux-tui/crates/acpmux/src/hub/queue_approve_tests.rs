@@ -10,6 +10,9 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
+/// The owner at this machine: approves under no rule stricter than the prompt's own.
+const OWNER: Approver<'static> = Approver { control: Control::Local, trust_gate: false, device: None };
+
 /// The first message on `out` that `pred` matches.
 async fn until(out: &mut mpsc::Receiver<String>, pred: impl Fn(&Value) -> bool) -> Value {
     loop {
@@ -81,7 +84,7 @@ async fn concurrent_enqueues_reserve_only_one_last_held_slot() {
 
     // Approval frees an author's held slot, while another author and the owner have their own
     // admission. None of these direct enqueues has a task that could drain the queue meanwhile.
-    hub.approve_queued(&session, &queued[0].prompt_id, &queued[0].turn_id, 0).unwrap();
+    hub.approve_queued(&session, &queued[0].prompt_id, &queued[0].turn_id, 0, &OWNER).unwrap();
     insert(&hub, &session, "after-approval", Some(&guest));
     let mut other = guest.clone();
     other["from"] = json!("guest:other");
@@ -170,7 +173,7 @@ async fn a_held_prompt_with_a_steer_flag_never_reaches_the_agent() {
 
     // Approved, it runs once the turn ends, in its place and not as a steer.
     let turn = session.queue().iter().find(|q| q.prompt_id == "g-1").unwrap().turn_id.clone();
-    hub.approve_queued(&session, "g-1", &turn, 0).unwrap();
+    hub.approve_queued(&session, "g-1", &turn, 0, &OWNER).unwrap();
     hub.cancel(&session).await.unwrap();
     let answer = until(&mut out, |v| v["id"] == 3).await;
     assert!(answer.get("error").is_none(), "{answer}");
@@ -271,6 +274,63 @@ async fn a_decline_racing_the_queued_record_stays_declined_after_a_restart() {
     let resend = hub.logged_prompt(&session, "g-1").expect("the log knows it");
     let reason = resend.expect_err("a resend is told it was declined").data.unwrap();
     assert_eq!(reason["reason"], "queue.declined");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The owner approves a held prompt from the Web: it runs under the stricter rules of both, the
+/// Web's control and trust gate and no Full-access machine the approver's request did not name,
+/// logged with the approval so a restart restores them (review of #26747).
+#[tokio::test]
+async fn an_approval_keeps_the_approvers_rules_across_a_restart() {
+    let dir = std::env::temp_dir().join(format!("acpmux-approver-{}", uuid::Uuid::now_v7()));
+    let durable = || {
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "defaultHarness": "fake"
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        let store = crate::store::open(&cfg.store, &dir).unwrap();
+        Hub::new(cfg, store)
+    };
+    let hub = durable();
+    let (tx, rx) = mpsc::channel(8);
+    let (out_tx, mut out) = mpsc::channel(4096);
+    tokio::spawn(crate::server::serve_connection_with(
+        hub.clone(),
+        rx,
+        out_tx,
+        crate::server::Origin::Local,
+    ));
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    tx.send(Message::request(1, method::SESSION_NEW, new).to_line()).await.unwrap();
+    let created = until(&mut out, |v| v["id"] == 1).await;
+    let id = created["result"]["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    let guest = json!({"kind": "person_message", "from": "guest:web", "fromName": "Cy",
+        "approval": "owner"});
+    insert(&hub, &session, "g-1", Some(&guest));
+    let turn = session.queue()[0].turn_id.clone();
+    let web = Approver { control: Control::Web, trust_gate: true, device: Some("phone-1") };
+    hub.approve_queued(&session, "g-1", &turn, 0, &web).unwrap();
+    let rules = |q: &QueuedPrompt| (q.run.control, q.run.trust_gate, q.run.full_access_device.clone());
+    assert_eq!(rules(&session.queue()[0]), (Control::Web, true, None));
+    let logged = hub.events(&id, 0, 10_000).unwrap();
+    let approved = logged.iter().find(|e| e.kind == "queue_approved").expect("logged");
+    assert_eq!((&approved.msg["control"], &approved.msg["trustGate"]), (&json!("web"), &json!(true)));
+    hub.shutdown_all().await;
+    drop((tx, out, session, hub));
+
+    // Restored, it is approved and keeps them. The queue is read without starting its tasks.
+    let hub = durable();
+    let session = hub.resolve(&id).unwrap();
+    hub.restore_queue(&session);
+    let queue = session.queue();
+    assert_eq!(queue.len(), 1, "{queue:?}");
+    assert!(!queue[0].awaiting_owner, "the approval was lost");
+    assert_eq!(rules(&queue[0]), (Control::Web, true, None));
+    drop(queue);
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }

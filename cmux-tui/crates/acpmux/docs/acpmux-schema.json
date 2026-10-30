@@ -171,7 +171,7 @@
     "inbox_read": {"threadId": "string", "promptIds": "string[] (marked read by _acpmux/inbox_thread markRead)"},
     "inbox_removed": {"promptId": "string", "threadId": "string", "reason": "withdrawn (_acpmux/prompt_withdraw of an inbox item no notice carried yet; a restart drops it too)"},
     "queue_removed": {"promptId": "string", "turnId": "string", "queued": "number (still waiting)", "reason": "withdrawn? (_acpmux/prompt_withdraw) | declined (_acpmux/queue_decline); absent for _acpmux/queue_remove"},
-    "queue_approved": {"promptId": "string", "turnId": "string", "revision": "number", "approvedAt": "number (Unix ms)"},
+    "queue_approved": {"promptId": "string", "turnId": "string", "revision": "number", "approvedAt": "number (Unix ms)", "control": "local|peer|web (the stricter of its sender's and the approver's; a restart restores it, web when absent)", "trustGate": "boolean (its sender's or the approver's; a restart restores it, true when absent)"},
     "queue_declined": {"promptId": "string", "turnId": "string", "revision": "number", "declinedAt": "number (Unix ms)"},
     "prompt_retracted": {"promptId": "string (the withdrawn prompt)", "msgId": "string", "turnId": "string (its running turn)", "via": "steer|queued (how the notice went to the agent)", "noticePromptId": "string (the notice's promptId)"},
     "turn_started": {"prompt": "string", "client": "string", "promptId": "string", "turnId": "string", "note": "turnSeq of the turn is this record's seq"},

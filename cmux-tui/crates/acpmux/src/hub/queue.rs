@@ -20,6 +20,7 @@ mod queue_waiting;
 // `_acpmux/queue_approve` and `_acpmux/queue_decline`: a person's prompt waits for the owner.
 #[path = "queue_approve.rs"]
 mod queue_approve;
+pub use queue_approve::Approver;
 pub(super) use queue_approve::{approved_error, declined_error, released};
 
 // `_meta.acpmux.supersede`: a prompt replaces its sender's queued one under the same key.
@@ -94,7 +95,7 @@ impl QueuedPrompt {
 }
 
 /// A queued prompt and the rules it runs under.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct PromptRun {
     pub(super) blocks: Vec<Value>,
     /// Sanitized app display metadata, keyed by ACP block index. It is persisted with queued
@@ -207,6 +208,16 @@ async fn gone_or_declined(
         return Err(queue_approve::declined_error(prompt_id, turn_id));
     }
     gone_reply(joined, prompt_id, withdrawn).await
+}
+
+/// A restored prompt the owner approved runs under the stricter of its sender's rules and the
+/// ones the owner approved it under (`queue_approve.rs`), as it did before the restart. A
+/// `queue_approved` record that names none restores as the Web's: the strictest.
+fn approved_rules(run: PromptRun, approval: Option<&Value>) -> PromptRun {
+    let Some(approval) = approval else { return run };
+    let control = Control::from_recorded(approval.get("control").and_then(Value::as_str));
+    let trust_gate = approval.get("trustGate").and_then(Value::as_bool).unwrap_or(true);
+    run.restricted(control, trust_gate, None)
 }
 
 /// Whether a prompt waits in the chat's queue that a failed turn does not hold, read under the
@@ -1069,7 +1080,7 @@ impl Hub {
         let mut held: std::collections::HashSet<String> = Default::default();
         // The revision the owner approved, by the queued prompt's turn id (`queue_approve.rs`):
         // its incarnation, never its client-chosen prompt id, which a later prompt may reuse.
-        let mut approved: HashMap<String, Option<u64>> = Default::default();
+        let mut approved: HashMap<String, Value> = Default::default();
         // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
         // moved here was the source's until its `imported` record.
         let mut moving: Option<String> = None;
@@ -1151,7 +1162,7 @@ impl Hub {
                     }
                     "queue_approved" => {
                         if let Some(turn) = turn_id.and_then(Value::as_str) {
-                            approved.insert(turn.to_owned(), e.msg["revision"].as_u64());
+                            approved.insert(turn.to_owned(), e.msg.clone());
                         }
                     }
                     // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
@@ -1300,8 +1311,9 @@ impl Hub {
             // Its approval counts for this incarnation at the revision the owner saw, which an
             // edit since replaced.
             let revision = e.msg["revision"].as_u64();
-            let awaiting_owner = e.msg.get("awaitingOwner") == Some(&Value::Bool(true))
-                && approved.get(&turn_id) != Some(&revision);
+            let approval = approved.get(&turn_id).filter(|a| a["revision"].as_u64() == revision);
+            let awaiting_owner =
+                e.msg.get("awaitingOwner") == Some(&Value::Bool(true)) && approval.is_none();
             restored.push((prompt_id.clone(), turn_id.clone()));
             queue.push(QueuedPrompt {
                 prompt_id: prompt_id.clone(),
@@ -1310,21 +1322,24 @@ impl Hub {
                 preview: short_text(&text, 200),
                 queued_at: e.at,
                 withdraw: Arc::new(Notify::new()),
-                run: Arc::new(PromptRun {
-                    blocks,
-                    display_parts: e.msg.get("displayParts").cloned(),
-                    control,
-                    trust_gate,
-                    provenance,
-                    agent,
-                    class,
-                    supersede,
-                    // A restored prompt names no machine: it does not run a chat out of its
-                    // policy's mode (`Hub::full_access_hold`).
-                    full_access_device: None,
-                    message_id: restored_message_opts.message_id,
-                    message_sender: restored_message_opts.message_sender,
-                }),
+                run: Arc::new(approved_rules(
+                    PromptRun {
+                        blocks,
+                        display_parts: e.msg.get("displayParts").cloned(),
+                        control,
+                        trust_gate,
+                        provenance,
+                        agent,
+                        class,
+                        supersede,
+                        // A restored prompt names no machine: it does not run a chat out of its
+                        // policy's mode (`Hub::full_access_hold`).
+                        full_access_device: None,
+                        message_id: restored_message_opts.message_id,
+                        message_sender: restored_message_opts.message_sender,
+                    },
+                    approval,
+                )),
                 restored: true,
                 resume: true,
                 steer: false,

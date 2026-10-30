@@ -37,6 +37,17 @@ pub(in crate::hub) fn approved_error() -> RpcError {
     refused(-32602, "queue.approved", msg, json!({}))
 }
 
+/// The rules the owner's approval came under (`server/requests/queued.rs`): the approved prompt
+/// runs under the stricter of these and its sender's (`PromptRun::restricted`).
+pub struct Approver<'a> {
+    pub control: Control,
+    /// From the app's pane or the Web, which run a prompt only in a trusted folder
+    /// (`server/trust_gate.rs`).
+    pub trust_gate: bool,
+    /// The paired machine whose Full-access setting covers the request (`remote_guard.rs`).
+    pub device: Option<&'a str>,
+}
+
 /// The most prompts one person has waiting for the owner at once.
 const MAX_HELD_PER_AUTHOR: usize = 16;
 
@@ -70,13 +81,15 @@ fn refused(code: i64, reason: &str, message: &str, mut data: Value) -> RpcError 
 }
 
 impl Hub {
-    /// `_acpmux/queue_approve`: the prompt at `revision` runs in its place in the queue.
+    /// `_acpmux/queue_approve`: the prompt at `revision` runs in its place in the queue, under
+    /// the stricter of its sender's rules and the owner's who approved it (`by`).
     pub fn approve_queued(
         &self,
         session: &Arc<Session>,
         prompt_id: &str,
         turn_id: &str,
         revision: u64,
+        by: &Approver<'_>,
     ) -> Result<(), RpcError> {
         if session.moving().is_some() {
             return Err(moving_error());
@@ -96,8 +109,13 @@ impl Hub {
             }
             // It runs in its place, never as a steer, whatever flag a race left on it.
             (q.awaiting_owner, q.steer) = (false, false);
+            // An approval from the Web lets it run only as a Web prompt would: under the Web's
+            // control, its trust gate and its Full-access machine, checked again at dispatch
+            // (`check_dispatch`) and kept for a restart (review of #26747).
+            q.run = Arc::new(q.run.restricted(by.control, by.trust_gate, by.device));
             let msg = json!({"promptId": prompt_id, "turnId": q.turn_id, "revision": revision,
-                             "approvedAt": now_ms()});
+                             "approvedAt": now_ms(), "control": q.run.control.as_str(),
+                             "trustGate": q.run.trust_gate});
             // The session summary's queue changed (`awaitingOwner`), as a `queue_order` changes it.
             session.state_seq.fetch_add(1, Ordering::SeqCst);
             // Logged under the lock that approved it: the author's removal, which takes this lock

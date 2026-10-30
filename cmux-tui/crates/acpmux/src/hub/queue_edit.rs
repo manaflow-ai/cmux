@@ -39,6 +39,25 @@ fn stricter(a: Control, b: Control) -> Control {
     }
 }
 
+impl PromptRun {
+    /// This run under the stricter of its own rules and another's who acts on it (its editor, or
+    /// the owner who approves it, `queue_approve.rs`): the stricter control, the trust gate when
+    /// either asks it, and a Full-access machine only when both are that machine.
+    pub(super) fn restricted(
+        &self,
+        control: Control,
+        trust_gate: bool,
+        device: Option<&str>,
+    ) -> PromptRun {
+        PromptRun {
+            control: stricter(self.control, control),
+            trust_gate: self.trust_gate || trust_gate,
+            full_access_device: same_device(self.full_access_device.as_deref(), device),
+            ..self.clone()
+        }
+    }
+}
+
 /// What an `update` puts in a waiting prompt.
 enum Edit {
     /// `prompt`: these blocks, all of it.

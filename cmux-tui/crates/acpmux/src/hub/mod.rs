@@ -89,7 +89,7 @@ mod prompt_line;
 mod queue;
 mod queue_edit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
-pub use queue::{QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};

@@ -4,8 +4,10 @@
 //! turnId, revision}` and `_acpmux/queue_decline {sessionId, promptId}`. The answer is the owner's only:
 //! a request that names a person (`_meta.acpmux.author`) is refused `queue.owner_only`. From Web it
 //! counts as controlling the chat, as a Web prompt does (`remote_guard.rs`), and a chat in Full
-//! access by a machine's setting takes any of them from that machine only (`full_access_hold`). A
-//! peer's chat gets them forwarded (`peer_forward.rs`).
+//! access by a machine's setting takes any of them from that machine only (`full_access_hold`).
+//! An approved prompt then runs under the approver's rules as well as its sender's: the stricter
+//! control, the trust gate and the Full-access machine (`Hub::approve_queued`). A peer's chat gets
+//! them forwarded (`peer_forward.rs`).
 
 use super::*;
 
@@ -54,7 +56,9 @@ pub(super) async fn handle(
         let revision = params.get("revision").and_then(Value::as_u64).ok_or_else(|| {
             RpcError::invalid_params("revision is required: the one the queue listed")
         })?;
-        hub.approve_queued(&s, prompt_id, turn_id, revision)?;
+        let gated = super::super::trust_gate::gated(conn.origin, params);
+        let by = crate::hub::Approver { control, trust_gate: gated, device: device.as_deref() };
+        hub.approve_queued(&s, prompt_id, turn_id, revision, &by)?;
         reply["turnId"] = json!(turn_id);
         (reply["approved"], reply["revision"]) = (json!(true), json!(revision));
     } else {
