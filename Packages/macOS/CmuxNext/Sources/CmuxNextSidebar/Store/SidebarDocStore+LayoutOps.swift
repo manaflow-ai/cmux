@@ -32,6 +32,20 @@ extension SidebarDocStore {
         return out
     }
 
+    /// The `item.update` ops that store the acting window's space `room` on `items` moving into `section`: a link,
+    /// tab or app in Pinned draws only in its space (`extra.room`), and one with none stored reads as the default
+    /// space's (spaces.md), so a move into Pinned from another band stores it in the same change, as `item.add` does.
+    /// A workspace (its space is its own) and a group (its `profile`) store none, nor does a move into another band,
+    /// one with no space, or an item `records` does not confirm yet (the daemon would refuse the whole change).
+    static func roomOps(moving items: [String], into section: String, room: String?, records: SidebarDocRecords) -> [[String: Any]] {
+        guard section == pinnedSection, let room else { return [] }
+        return items.compactMap { id -> [String: Any]? in
+            guard let record = records.items[id], record.body.workspace == nil, !record.body.isGroup,
+                  (record.room ?? SidebarDocItem.defaultRoom) != room else { return nil }
+            return ["op": "item.update", "id": id, "patch": ["room": room]]
+        }
+    }
+
     /// Sends `ops` as one document change titled `title`. Throws when an op
     /// has no document form (`LayoutOpGap`, nothing is sent) or the change is
     /// refused at once (`SidebarDocSendRefusal`).
@@ -52,7 +66,7 @@ private struct LayoutOpPlanner {
     let confirmed: SidebarDocRecords
     let shown: SidebarDocProjection?
     let layout: SidebarLayoutDocument
-    /// The space a new Pinned item is made in (`SidebarDocStore.newItemRoom`).
+    /// The space a Pinned item is made in or moved into Pinned in (`SidebarDocStore.newItemRoom`).
     let room: String?
     /// The top-level item ids of each band section in shown order, as the planned ops leave them.
     var siblings: [String: [String]]
@@ -120,7 +134,8 @@ private struct LayoutOpPlanner {
         case let .itemMove(id, section, index):
             guard let record = records.items[id.rawValue] else { throw .unknownItem }
             if section == Self.workspaces { return backToMachine(record) }
-            return [["op": "move", "items": [record.id], "to": target(section.rawValue, index: index, moving: record.id)]]
+            let move: [[String: Any]] = [["op": "move", "items": [record.id], "to": target(section.rawValue, index: index, moving: record.id)]]
+            return move + SidebarDocStore.roomOps(moving: [record.id], into: section.rawValue, room: room, records: confirmed)
         case let .itemRemove(id):
             guard let record = records.items[id.rawValue] else { throw .unknownItem }
             return remove(record)

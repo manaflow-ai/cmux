@@ -275,6 +275,12 @@ public final class SidebarDocStore {
     /// Moves `items` to `target` as one change and one undo step titled `title`.
     public func move(_ items: [String], to target: SidebarDocTarget, title: String) {
         guard !items.isEmpty else { return } // nothing placed yet to move (an adopt is on the way)
+        // A link, tab or app moved into Pinned stores the acting window's space in the same change (spaces.md).
+        let stamps = Self.roomOps(moving: items, into: target.section, room: newItemRoom(), records: settledRecords)
+        // main-actor-ok: one SidebarDocTarget (section, parent, before, after, index), fixed size.
+        if !stamps.isEmpty, let to = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(target)) {
+            return send(ops: [["op": "move", "items": items, "to": to]] + stamps, title: title)
+        }
         send(.move(items, to: target, key: Self.newKey()), title: title) { remote, key, _ in
             try await remote.move(items, to: target, key: key)
         }
