@@ -49,6 +49,40 @@ test("a summary that says more than its title is kept", () => {
   expect(summaries(view)).toEqual({ tabs: "Colored labels, icons, and pins that keep a group." });
 });
 
+test("All Changes suppresses a title-fallback description without changing the source notes", () => {
+  const title = "Tabs keep their position, even after restarting with several windows open";
+  const source = notes([]);
+  // Missing or rejected PR prose produces this full-title description at release time.
+  source.items = [
+    { title: `fix(tabs): ${title}`, pr: 123, description: `${title}.` },
+    { title: "fix(tabs): Tabs stay put", pr: 124, description: "tabs stay put." },
+    {
+      title: "Provider allocations stay consistent",
+      internal: true,
+      description: "Provider allocations stay consistent.",
+    },
+  ];
+  const original = structuredClone(source);
+  const view = releaseView(source, "en");
+  expect(view.changes.map((item) => [item.title, item.description])).toEqual([
+    [title, ""],
+    ["Tabs stay put", ""],
+  ]);
+  expect(view.underTheHood[0]?.description).toBe("");
+  expect(source).toEqual(original);
+  expect(source.items[0]?.description).toBe(`${title}.`);
+});
+
+test("All Changes preserves distinct descriptions and changes without descriptions", () => {
+  const source = notes([]);
+  source.items = [
+    { title: "fix(tabs): Tabs stay put", description: "Your layout comes back after restart." },
+    { title: "fix(panes): Panes restore" },
+  ];
+  const view = releaseView(source, "en");
+  expect(view.changes.map((item) => item.description)).toEqual(["Your layout comes back after restart.", undefined]);
+});
+
 test("a shortened digest title and its full summary title appear as one change", () => {
   const title = "Tabs keep their position, even after restarting with several windows open";
   const description = "Your workspace comes back where you left it.";

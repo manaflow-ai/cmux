@@ -236,7 +236,15 @@ export function readableChanges<T extends ChangeItem>(items: T[]): { changes: T[
     const key = item.pr !== undefined ? `#${item.pr}` : readable.title.toLowerCase();
     // The notes mark a commit that touches only CI or tooling files internal, whatever its subject.
     const internal = readable.internal || item.internal === true;
-    const row = { key, item: { ...item, title: readable.title }, internal };
+    const row = {
+      key,
+      item: {
+        ...item,
+        title: readable.title,
+        description: item.description ? distinctSummary(readable.title, item.description) : item.description,
+      },
+      internal,
+    };
     const at = byKey.get(key);
     if (at === undefined) {
       byKey.set(key, rows.length);
