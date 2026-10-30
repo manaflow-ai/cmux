@@ -76,11 +76,41 @@ class Check(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(check.main(["--body-file", str(body), "--paths-file", str(paths), "--map", str(m)]), 2)
 
+    def test_a_pr_that_drops_or_shrinks_the_map_is_judged_by_the_bases(self):
+        with tempfile.TemporaryDirectory() as d:
+            base, body, paths = Path(d, "base.json"), Path(d, "b.md"), Path(d, "p.txt")
+            base.write_text(json.dumps({"surfaces": SURFACES}))
+            body.write_text("no spec here")
+            paths.write_text(QMM + "\n")
+            shrunk = {"surfaces": {"model-picker": {"spec": "x/model-picker.md", "paths": []}}}
+            for pr_map in ("{}", json.dumps(shrunk), None):
+                args = ["--body-file", str(body), "--paths-file", str(paths), "--map", str(base),
+                        "--pr-map", str(Path(d, "pr.json"))]
+                if pr_map is None:
+                    Path(d, "pr.json").unlink()
+                else:
+                    Path(d, "pr.json").write_text(pr_map)
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    self.assertEqual(check.main(args), 0)
+                self.assertIn("model-picker surface", out.getvalue(), pr_map)
+                if pr_map in ("{}", None):
+                    self.assertIn("using the base branch's map", out.getvalue())
+
+    def test_maps_join_by_surface(self):
+        moved = {"model-picker": {"spec": "leo-workspace design/model-picker.md", "paths": ["webviews/y/Picker.tsx"]}}
+        joined = check.join_maps(SURFACES, moved)
+        self.assertEqual(joined["model-picker"]["paths"], [QMM, "webviews/x/modelPicker.css", "webviews/y/Picker.tsx"])
+        self.assertEqual(len(check.check(joined, ["webviews/y/Picker.tsx"], "")[0]), 1)
+
     def test_the_workflow_only_warns_and_runs_the_base_script(self):
         wf = (ROOT / ".github" / "workflows" / "pr-design-spec-check.yml").read_text()
         self.assertIn("continue-on-error: true", wf)
         self.assertIn("ref: ${{ github.event.pull_request.base.ref }}", wf)
         self.assertIn("|| true", wf)
+        self.assertIn("--map .github/design-surfaces.json --pr-map", wf)
+        sparse = wf.split("sparse-checkout: |", 1)[1].split("sparse-checkout-cone-mode", 1)[0]
+        self.assertIn(".github/design-surfaces.json", sparse, "the base's own map is checked out")
         self.assertIn("permissions: {}", wf)
         self.assertNotIn("pull_request_target", wf)
 

@@ -13,6 +13,10 @@ tabs across the top, and nobody noticed the earlier design was gone until Leo di
 
 It only warns: a `::warning` annotation per surface and a short summary, and it always exits 0 (2 on bad
 input). A mapped path that no longer exists in the checkout is warned about too, so the map follows moves.
+
+The map is read twice: the base branch's (--map) and the pull request's (--pr-map). Their surfaces are joined,
+path by path, so a PR that drops or empties the map, or removes a surface's paths, is still judged by the
+base's map; a PR that moves a surface's files and maps the new paths is judged on both.
 """
 from __future__ import annotations
 
@@ -34,6 +38,16 @@ def load_map(path: Path) -> dict[str, dict]:
         if not isinstance(s, dict) or not isinstance(s.get("spec"), str) or not isinstance(s.get("paths"), list):
             raise ValueError(f"{path}: surface {name!r} needs a `spec` string and a `paths` list")
     return surfaces
+
+
+def join_maps(*maps: dict[str, dict] | None) -> dict[str, dict]:
+    """The surfaces of every map, joined: a surface's paths from all of them, its spec from the first."""
+    out: dict[str, dict] = {}
+    for m in maps:
+        for name, s in (m or {}).items():
+            have = out.setdefault(name, {"spec": s["spec"], "paths": []})
+            have["paths"] += [p for p in s["paths"] if p not in have["paths"]]
+    return out
 
 
 def norm(p: str) -> str:
@@ -83,18 +97,27 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--body-file", required=True)
     p.add_argument("--paths-file", required=True)
-    p.add_argument("--map", default=DEFAULT_MAP)
-    p.add_argument("--tree-file", help="the base's file list (git ls-tree -r --name-only): mapped paths are checked against it")
+    p.add_argument("--map", default=DEFAULT_MAP, help="the base branch's map")
+    p.add_argument("--pr-map", help="the pull request's map, joined with --map; missing or unreadable is ignored")
+    p.add_argument("--tree-file", help="the PR's file list (git ls-tree -r --name-only): mapped paths are checked against it")
     a = p.parse_args(argv)
     try:
-        surfaces = load_map(Path(a.map))
+        base = load_map(Path(a.map))
         body = Path(a.body_file).read_text()
         paths = Path(a.paths_file).read_text().splitlines()
         tree = {norm(t) for t in Path(a.tree_file).read_text().splitlines() if norm(t)} if a.tree_file else None
     except (OSError, ValueError) as err:
         print(f"::error::pr_design_spec_check: {err}")
         return 2
-    uncited, gone = check(surfaces, paths, body, tree=tree)
+    theirs = None
+    if a.pr_map:
+        try:
+            theirs = load_map(Path(a.pr_map))
+        except (OSError, ValueError) as err:
+            print(f"::warning title=Design spec::this PR's {DEFAULT_MAP} is missing or unreadable ({err}); "
+                  "using the base branch's map")
+    uncited, _ = check(join_maps(base, theirs), paths, body)
+    _, gone = check(theirs or base, [], body, tree=tree)
     for w in uncited + gone:
         print(f"::warning title=Design spec::{w}")
     if not uncited and not gone:
