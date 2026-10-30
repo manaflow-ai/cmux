@@ -320,7 +320,9 @@ impl LogWriter {
         state.wait_first(id);
         // The writer runs at this reader's QoS while it waits.
         let _raise = self.shared.boost.wait();
-        while !state.written(id, ticket) {
+        // RED PROOF ONLY: the old wait, for an empty queue.
+        let _ = ticket;
+        while state.queued.contains_key(id) || state.writing.as_deref() == Some(id) {
             state = self.shared.done.wait(state).unwrap_or_else(|e| e.into_inner());
         }
     }
@@ -377,11 +379,9 @@ impl LogWriter {
             .map(|(id, q)| (id.clone(), q.ticket))
             .chain(state.writing.clone().map(|id| (id, state.writing_ticket)))
             .collect();
-        loop {
-            pending.retain(|(id, ticket)| !state.written(id, *ticket));
-            if pending.is_empty() {
-                break;
-            }
+        // RED PROOF ONLY: the old wait, for an empty queue.
+        pending.clear();
+        while !state.queued.is_empty() || state.writing.is_some() {
             state = self.shared.done.wait(state).unwrap_or_else(|e| e.into_inner());
         }
         drop(state);
