@@ -2965,9 +2965,52 @@ class NightlyRepick(unittest.TestCase):
         target = rescue.Target(RUN_ID, 2, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH, side=True, nightly=True,
                                push_branch="nightly-next")
         api.attempt = 2
-        text = rescue.rerun_failed_or_repick(api, target, clock.sleep, lambda line: None)
+        text = rescue.rerun_failed_or_repick(api, target, clock.sleep, lambda line: None, refusal=True)
         self.assertEqual(api.calls, ["rerun-failed"])
         self.assertIn("re-ran the failed jobs", text)
+
+    def later_attempt(self, jobs, workflow=None):
+        clock = Clock()
+        api = NightlyAPI(clock, lambda s: [], workflow=picker_workflow() if workflow is None else workflow)
+        api.attempt, api.rerun_jobs = 2, lambda s: jobs
+        target = rescue.Target(RUN_ID, 2, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH, side=True, nightly=True,
+                               push_branch="nightly-next")
+        lines = []
+        return api, rescue.rerun_failed_or_repick(api, target, clock.sleep, lines.append), lines
+
+    def test_a_later_attempt_s_build_moved_off_a_queue_re_runs_the_picker(self):
+        # #26614 queues the build on a busy owned label when every Blacksmith label is stalled. A re-run of
+        # failed jobs from attempt 2 would take attempt 2's `blacksmith` output, that stalled label, where no
+        # owned watch follows it: the picker runs again instead, so attempt 3 picks fresh.
+        api, text, _ = self.later_attempt(self.picker_jobs(done("decide", "success"),
+                                                           done("build-nightly-app", "cancelled")))
+        self.assertEqual(api.calls[-1], "rerun-job:901")
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("so attempt 3 picks its runner fresh", text)
+
+    def test_a_later_attempt_s_moved_build_re_runs_every_job_when_the_picker_cannot_be_re_run(self):
+        # A failed job outside the picker's tree: re-running the picker alone would leave it, so the whole run
+        # goes again (the pickers choose afresh), never a re-run of failed jobs onto the stalled label.
+        for name, jobs, workflow in (
+                ("unrelated failure", self.picker_jobs(done("build-nightly-app", "cancelled"), done("lint", "failure")),
+                 None),
+                ("no picker in the file", self.picker_jobs(done("build-nightly-app", "cancelled")),
+                 '{"jobs": {"build-nightly-app": {}}}')):
+            with self.subTest(name):
+                api, text, lines = self.later_attempt(jobs, workflow)
+                self.assertEqual(api.calls[-1], "rerun")
+                self.assertNotIn("rerun-failed", api.calls)
+                self.assertIn("attempt 3's pickers choose again", text)
+                self.assertTrue(any(line.startswith("no fresh runner pick:") for line in lines), lines)
+
+    def test_a_later_attempt_whose_app_was_built_keeps_the_failed_jobs_re_run(self):
+        # Only the verify jobs wait: they take their sign picker's alternate, and the built app is kept.
+        api, text, lines = self.later_attempt(self.picker_jobs(done("build-nightly-app", "success"),
+                                                               done("publish", "cancelled")))
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertNotIn("rerun-job:901", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertTrue(any("was not moved off a queue" in line for line in lines), lines)
 
     def test_a_refused_job_re_run_re_runs_the_failed_jobs(self):
         clock = Clock()

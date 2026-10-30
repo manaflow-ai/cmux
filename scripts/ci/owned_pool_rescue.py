@@ -616,9 +616,10 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     if attempt <= 1:
         return False
     if run.get("path") == NIGHTLY_WORKFLOW_PATH:
-        # nightly-next's picker places any attempt that runs it again (a person's full re-run) on an idle owned
-        # Mac and marks it; a re-run of failed jobs keeps the earlier pick and takes Blacksmith, so its watch
-        # ends at its first look. The sweeper adopts it only by that marker.
+        # nightly-next's picker places any attempt that runs it again (a person's full re-run, or the rescue's
+        # re-run of the picker: rerun_failed_or_repick()) on an owned Mac and marks it; a re-run of failed jobs
+        # keeps the earlier pick and takes Blacksmith, so its watch ends at its first look. The sweeper adopts it
+        # only by that marker.
         return run.get("head_branch") == "nightly-next"
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
     if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
@@ -2966,19 +2967,43 @@ def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]]) -> tuple[i
     return int(picker["id"]), f"every failed job of this attempt needs {NIGHTLY_BUILD_PICKER}"
 
 
+# nightly-next's app build, which runs on pick-nightly-build-runner's `owned` or `blacksmith` output (nightly.yml).
+NIGHTLY_APP_BUILD = "build-nightly-app"
+
+
+def nightly_build_unfinished(jobs: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether this attempt lists build-nightly-app and it did not succeed: nothing after the build has run, so the
+    build picker may choose again (the jobs that verify a built app take their own alternates instead)."""
+    builds = [job for job in jobs if str(job.get("name") or "") == NIGHTLY_APP_BUILD
+              or str(job.get("name") or "").startswith(NIGHTLY_APP_BUILD + " (")]
+    return bool(builds) and any(job.get("conclusion") != "success" for job in builds)
+
+
 def rerun_failed_or_repick(api: GitHub, target: Target, sleep: Callable[[float], None],
-                           log: Callable[[str], None]) -> str:
-    """Re-run a finished attempt's failed jobs; for attempt 1 of a nightly-next run, re-run its build picker
-    and the jobs that need it instead when repick_job() allows (once: attempt 2's re-run keeps attempt 2's
-    fresh pick, whose Blacksmith label it then takes)."""
-    if target.nightly and target.push_branch == "nightly-next" and target.attempt == 1:
+                           log: Callable[[str], None], *, refusal: bool = False) -> str:
+    """Re-run a finished attempt's failed jobs; for a nightly-next run, re-run its build picker and the jobs that
+    need it instead when repick_job() allows, so the next attempt picks its runner fresh.
+
+    Attempt 1 repicks whatever moved it. Any attempt whose app build was moved off a queue (not a refusal) repicks
+    too: nightly_build_runner.py queues the build on a busy owned label when every Blacksmith label is stalled, and a
+    re-run of failed jobs would send it to the stalled Blacksmith label that same pick named, where no owned watch
+    follows it, so the build could wait there as long as the label stalls. When repick_job() declines there, the
+    whole run is re-run (nothing past the build has run, and a started nightly is never cancelled), so the pickers
+    still choose again. Such a move comes only after the queue budget and the stall hold (hold_for_destination()),
+    so these re-runs are spaced that far apart, and an attempt the picker puts on an owned label is marked and
+    watched again (owned_rerun()). A refusal from attempt 2 on keeps the re-run of failed jobs onto that attempt's
+    Blacksmith pick: a fresh pick could send the job to the refusing Mac again, round after round."""
+    if target.nightly and target.push_branch == "nightly-next" and (target.attempt == 1 or not refusal):
         try:
             jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
             text = read(lambda: api.workflow_file(NIGHTLY_WORKFLOW_PATH, target.head_sha), sleep, log)
         except READ_ERRORS as error:
             jobs, text = [], None
             log(f"could not read the run for a fresh runner pick ({error}); re-running its failed jobs")
-        if text:
+        build_moved = not refusal and nightly_build_unfinished(jobs)
+        if target.attempt > 1 and not build_moved:
+            log(f"no fresh runner pick: attempt {target.attempt}'s app build was not moved off a queue")
+        elif text:
             picker, why = repick_job(text, jobs)
             if picker is not None:
                 try:
@@ -2992,6 +3017,11 @@ def rerun_failed_or_repick(api: GitHub, target: Target, sleep: Callable[[float],
                 return (f"re-ran {NIGHTLY_BUILD_PICKER} of run {target.run_id} and every job that needs it ({why}), "
                         f"so attempt {target.attempt + 1} picks its runner fresh")
             log(f"no fresh runner pick: {why}")
+            if build_moved:
+                api.rerun(target.run_id, target.attempt + 1)
+                return (f"re-ran every job of run {target.run_id}: its app build was moved off a queue before it "
+                        f"started, so attempt {target.attempt + 1}'s pickers choose again instead of the label "
+                        f"attempt {target.attempt} picked")
     api.rerun_failed(target.run_id, target.attempt + 1)
     return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
 
@@ -3328,7 +3358,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         if e2e_build_unfinished(api, target, sleep, log):
             api.rerun(target.run_id, target.attempt + 1)
             return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
-        return rerun_failed_or_repick(api, target, sleep, log)
+        return rerun_failed_or_repick(api, target, sleep, log, refusal=refusal)
     if target.path == CMUX_NEXT_WORKFLOW_PATH:
         # Only cmux-next.yml places jobs on the freshness slot (macos-placement's fresh_runner).
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
@@ -3347,7 +3377,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     log(f"{CANCEL_SENT} run {target.run_id} attempt {target.attempt}{'' if failed_only else EVERY_JOB}")
     try:
         result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log, failed_only=failed_only,
-                                  keep_main=keep_main)
+                                  keep_main=keep_main, refusal=refusal)
     except Exception:
         # An error ends this rescue for good (gave_up()); the run's attempt is as GitHub has it, not a stopped job's.
         # An open-head failover's cancel is a pull request's run at its head: leave CANCEL_SENT unsettled, so a
@@ -3390,8 +3420,9 @@ def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
 
 
 def settle_and_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
-                     log: Callable[[str], None], failed_only: bool, keep_main: bool) -> str:
-    """rescue() after its cancel went out: wait for the run to settle, then re-run it unless its head moved."""
+                     log: Callable[[str], None], failed_only: bool, keep_main: bool, refusal: bool = False) -> str:
+    """rescue() after its cancel went out: wait for the run to settle, then re-run it unless its head moved.
+    `refusal` is rescue()'s (rerun_failed_or_repick())."""
     log(f"cancelled run {target.run_id}")
     started = now()
     # Time spent waiting through rate limits (GitHub.request) is not the run's settling time:
@@ -3427,7 +3458,7 @@ def settle_and_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.dateti
         if e2e_build_unfinished(api, target, sleep, log):
             api.rerun(target.run_id, target.attempt + 1)
             return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
-        return rerun_failed_or_repick(api, target, sleep, log)
+        return rerun_failed_or_repick(api, target, sleep, log, refusal=refusal)
     api.rerun(target.run_id, target.attempt + 1)
     if target.attempt + 1 <= LAST_OWNED_ATTEMPT and not target.e2e:
         return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} picks again, the owned machines "
