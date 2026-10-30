@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use super::listen::{BoundSocket, ServedSession, spawn_accept_loop};
-use super::{PendingServer, RenderService, cleanup};
+use super::{PendingServer, cleanup};
 use crate::diagnostics::{ConnectionBudget, ConnectionLane};
 use crate::mux::Mux;
 use crate::platform::transport;
@@ -141,11 +141,7 @@ impl RestoringServer {
         // its watcher before the session serves its first client.
         mux.start_default_settings_owner();
         mux.start_default_keybindings_owner();
-        self.slot.attach(ServedSession {
-            mux: mux.clone(),
-            render_service: Arc::new(RenderService::new()),
-            app_render_service: Arc::new(RenderService::new()),
-        });
+        self.slot.attach(ServedSession::new(mux.clone()));
         self.attached = true;
         PendingServer::from_parts(std::mem::take(&mut self.path), mux, self.shutdown.clone())
     }

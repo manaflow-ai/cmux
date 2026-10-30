@@ -455,6 +455,16 @@ pub(super) struct ServedSession {
 }
 
 impl ServedSession {
+    /// The session `mux` serves on both sockets, each with its own outbound
+    /// byte budgets.
+    pub(super) fn new(mux: Arc<Mux>) -> Self {
+        Self {
+            mux,
+            render_service: Arc::new(RenderService::new()),
+            app_render_service: Arc::new(RenderService::new()),
+        }
+    }
+
     /// Serve one connection accepted on `lane` on its own thread, bounded by
     /// the lane's budget and, on the session socket, by its client's fair
     /// share (`diagnostics::ConnectionBudget`).
