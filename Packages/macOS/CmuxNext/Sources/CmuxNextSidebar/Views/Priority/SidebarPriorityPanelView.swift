@@ -48,11 +48,8 @@ final class SidebarPriorityPanelView: NSView {
         scroll.automaticallyAdjustsContentInsets = false
         scroll.contentView.drawsBackground = false
         scroll.documentView = document
-        // A scroll while a row is held keeps the row under the pointer (`clipScrolled`). AppKit posts these on main,
-        // and a selector observer is removed with the view.
+        // A scroll while a row is held keeps the row under the pointer (`clipScrolled`, observed while in a window).
         scroll.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(self, selector: #selector(clipScrolled),
-                                               name: NSView.boundsDidChangeNotification, object: scroll.contentView)
         document.passesThrough = { [weak self] view in self?.closing.contains { $0 === view } ?? false }
         SystemScrollers.followThin(scroll)
         empty.isHidden = true
@@ -270,8 +267,23 @@ final class SidebarPriorityPanelView: NSView {
         placeRows(animated: window != nil)
     }
 
+    private var scrollObserver: (any NSObjectProtocol)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        let center = NotificationCenter.default
+        if let scrollObserver { center.removeObserver(scrollObserver) }
+        scrollObserver = nil
+        guard window != nil else { return endPointerGesture() }
+        // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
+        scrollObserver = center.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView,
+                                            queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.clipScrolled() } // main-proof: observer on queue: .main
+        }
+    }
+
     /// The scroll moved under a held row: the row follows it, as a pointer move would.
-    @objc private func clipScrolled(_ note: Notification) {
+    private func clipScrolled() {
         guard let id = draggingID, let row = rows[id] else { return }
         drag(row, offset: dragPointerOffset, ended: false)
     }
