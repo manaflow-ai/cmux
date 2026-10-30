@@ -57,6 +57,19 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
         setError(true);
       }
     };
+    const recheckBeforeDeadline = async (): Promise<"done" | "deadline"> => {
+      let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          recheck().then(() => "done" as const),
+          new Promise<"deadline">((resolve) => {
+            deadlineTimer = setTimeout(() => resolve("deadline"), Math.max(0, deadline - Date.now()));
+          }),
+        ]);
+      } finally {
+        if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+      }
+    };
     const read = async () => {
       if (!identity || !active) return;
       try {
@@ -64,7 +77,13 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
         if (disposed) return;
         const next = cloudChatState(JSON.parse(identity) as CloudChatIdentity, reply);
         if (next !== undefined || !resuming) setState(next);
-        if (resuming && next !== "deleted" && next !== undefined) await recheck();
+        if (resuming && next !== "deleted" && next !== undefined) {
+          if ((await recheckBeforeDeadline()) === "deadline") {
+            setResuming(false);
+            setError(true);
+            return;
+          }
+        }
         if (disposed) return;
         if (next === "deleted") {
           setResuming(false);

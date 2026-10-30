@@ -1,5 +1,5 @@
 // l10n-allow-file: deterministic recovery fixtures.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, jest, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -262,6 +262,67 @@ test("a nonretryable inventory refusal ends recovery without repeated polls", as
   expect(state).toContain('"resuming":false');
   expect(state).toContain('"error":');
   await act(async () => root.render(null));
+}, 10_000);
+
+test("a recheck that never resolves still ends recovery at the deadline", async () => {
+  jest.useFakeTimers();
+  setSystemTime(new Date(0));
+  const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  Object.assign(dom.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: ({ method }: { method: string }) => {
+            if (method === "cloudMachine.attach") return { ok: true, value: {} };
+            return {
+              ok: true,
+              value: {
+                signedIn: true,
+                loaded: true,
+                complete: true,
+                account: ["user", null],
+                machines: [{ id: "vm-demo", name: "Demo machine", stage: "connecting" }],
+              },
+            };
+          },
+        },
+      },
+    },
+  });
+  function Recovery() {
+    const recovery = useCloudChatRecovery({
+      cloud: { id: "vm-demo", account: ["user", null] },
+      session: "chat-demo",
+      active: true,
+      recheck: () => new Promise<void>(() => {}),
+    });
+    return (
+      <div>
+        <button data-action="deadline-wake" onClick={recovery.resume}>
+          Resume
+        </button>
+        <span data-action="deadline-state">
+          {JSON.stringify({ resuming: recovery.resuming, error: recovery.error })}
+        </span>
+      </div>
+    );
+  }
+  try {
+    await act(async () => root.render(<Recovery />));
+    await act(async () => mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]')!.click());
+    expect(mount.querySelector('[data-action="deadline-state"]')?.textContent).toContain('"resuming":true');
+    await act(async () => {
+      jest.advanceTimersByTime(60_000);
+      await Promise.resolve();
+    });
+    const state = mount.querySelector('[data-action="deadline-state"]')?.textContent ?? "";
+    expect(state).toContain('"resuming":false');
+    expect(state).toContain('"error":');
+  } finally {
+    await act(async () => root.render(null));
+    jest.useRealTimers();
+    setSystemTime();
+  }
 }, 10_000);
 
 test("an old chat's late inventory refusal leaves the new recovery running", async () => {
