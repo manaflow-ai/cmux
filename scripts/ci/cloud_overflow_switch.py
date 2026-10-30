@@ -45,14 +45,15 @@ elsewhere is left alone. Nothing here touches the lane switches
 (CI_PR_POOL_OWNED, CI_E2E_OWNED_UI, CI_IOS_OWNED, ...): minis-first routing
 never changes, only where overflow goes.
 
-Signing jobs read their runner from the variables in
-signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES (LINUX_RUNNER,
-MACOS_RUNNER_26), which must only ever name an ephemeral runner (rule 7 of
+Some variables are read by signing jobs' runs-on, and those must only ever
+name an ephemeral runner (rule 7 of
 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py on
-feat-cmux-next, checked live by cmux-next-guards.yml there; the variables are
-repository-wide, and this scheduled switch runs from main). The switch
-never writes anything else to one: MACOS_RUNNER_26 has no owned failover (its
-jobs wait for Blacksmith), an override that names a reused machine for one is
+feat-cmux-next, checked live by cmux-next-guards.yml there). Which ones is
+read from the workflows of main and of feat-cmux-next
+(signing_runner_variables.signing_variables(); the variables are
+repository-wide, and this scheduled switch runs from main). The switch never
+writes anything else to one: such a variable has no owned failover (its jobs
+wait for Blacksmith), an override that names a reused machine for one is
 refused, and an older record that still names one as switched to an owned
 pool is not re-applied. Turning overflow back on still puts back the value a
 record names.
@@ -116,13 +117,11 @@ LINUX_VARIABLES = (LINUX_VARIABLE, TRUSTED_VARIABLE)
 # lane goes through e2e_runner_pool.py, the iOS lane through
 # MACOS_RUNNER_IOS) and MACOS_RUNNER_BACKGROUND is GitHub-hosted, so neither
 # is here; CI_CLOUD_FAILOVER can add one.
-# MACOS_RUNNER_26 is not either: signing jobs run on it, so it never names an owned
-# mini (SIGNING_VARIABLES below). On 2026-10-28 the failover pointed it at the std
-# pool and turned cmux-next-guards.yml's signing-runner-variables red on every PR.
-STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR", "MACOS_RUNNER_DUAL_XCODE")
-# The variables signing jobs take their runner from: the switch writes only an
-# ephemeral label (blacksmith-* or ubuntu-*) to these, or puts back a recorded value.
-SIGNING_VARIABLES = signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES
+# Any of these a signing job reads (signing_runner_variables) keeps its value: on
+# 2026-10-28 the failover pointed MACOS_RUNNER_26 at the std pool and turned
+# cmux-next-guards.yml's signing-runner-variables red on every PR.
+STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR",
+                 "MACOS_RUNNER_DUAL_XCODE")
 GUI_VARIABLE = "MACOS_RUNNER_DISPLAY"
 IOS_VARIABLE = "MACOS_RUNNER_IOS"
 SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, GUI_VARIABLE, IOS_VARIABLE, PAID_OVERFLOW_VARIABLE)
@@ -255,9 +254,9 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
                 else:
                     values[name] = value.strip()
     for name in [name for name, value in values.items() if not signing_safe(name, value)]:
-        # Nothing above should produce one; this is the backstop the tests pin.
-        problems.append(f"the failover for {name} is {values.pop(name)}, not an ephemeral runner; signing jobs "
-                        "run on it, so it is left alone")
+        # A signing job reads it (read from the workflows), so it keeps its value. Not a problem:
+        # this is the routine case for MACOS_RUNNER_26.
+        values.pop(name)
     if any(name not in LINUX_VARIABLES for name in values):
         # MACOS_RUNNER_15, _26 and friends are read only when this is 1.
         values[PAID_OVERFLOW_VARIABLE] = "1"
