@@ -805,6 +805,50 @@ test("a Stop of a known turn does not swallow the next unnamed turn's Stop", asy
   }
 });
 
+// Review at 141de3a4 (P2): behind the compaction fence, a turn whose opener named no turn ends on its
+// own named result.
+test("a fenced turn opened without an id ends on its own named result", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "old prompt", turnId: "turn-old" }],
+      ["mux", "turn_started", { turnId: "turn-old" }],
+      ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+      ["mux", "turn_result", { turnId: "turn-old", status: "cancelled", cancelForced: true }],
+      ["mux", "user_message", { text: "next prompt" }],
+      ["mux", "turn_started", {}],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    daemon.push(record([["mux", "turn_result", { turnId: "turn-b", status: "completed" }]], 7));
+    expect(rows().some((row) => row.kind === "typing")).toBe(false);
+    expect(rows().some((row) => row.id === "summary-turn-b")).toBe(true);
+  } finally {
+    client.close();
+  }
+});
+
+// Review at 141de3a4 (P2): a replayed result of an ended turn keeps that turn's fork boundary.
+test("a replayed result of an ended turn keeps its summary's sequence", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "a", turnId: "turn-a" }],
+      ["mux", "turn_started", { turnId: "turn-a" }],
+      ["mux", "turn_result", { turnId: "turn-a", status: "completed" }],
+      ["mux", "user_message", { text: "b", turnId: "turn-b" }],
+      ["mux", "turn_started", { turnId: "turn-b" }],
+      ["mux", "turn_result", { turnId: "turn-b", status: "completed" }],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    daemon.push(record([["mux", "turn_result", { turnId: "turn-a", status: "completed" }]], 7));
+    expect(rows().find((row) => row.id === "summary-turn-a")?.seq).toBe(3);
+  } finally {
+    client.close();
+  }
+});
+
 // Review at 3b26be74 (P2): after a named turn ends, a turn the agent starts on its own that names none
 // is a new turn; its result (naming it) settles it.
 test("an agent-started unnamed turn after a named one takes its own result", async () => {
