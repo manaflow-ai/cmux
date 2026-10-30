@@ -191,7 +191,9 @@ struct SidebarPriorityDragTests {
         let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
         let harness = Harness(sidebar: sidebar)
         defer { harness.close() }
-        harness.panel.leftButtonIsDown = { false }
+        // App focus loss can arrive while AppKit still reports the button held; the release then
+        // goes to the other app and must not leave this row raised.
+        harness.panel.leftButtonIsDown = { focusLoss }
         let row = try #require(harness.panel.rows["c"])
         let originalTop = row.frame.minY
         let height = row.frame.height

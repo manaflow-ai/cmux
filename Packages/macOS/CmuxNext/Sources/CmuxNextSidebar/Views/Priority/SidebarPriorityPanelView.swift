@@ -302,9 +302,10 @@ final class SidebarPriorityPanelView: NSView {
         }
     }
 
-    /// The app or the window lost focus with the button up: the gesture's release will not come here.
+    /// The app lost focus: its eventual release is delivered to another app, even when AppKit still
+    /// reports the button held at the notification. End the gesture immediately so the row cannot
+    /// remain raised until another sidebar event.
     func pointerFocusLost() {
-        guard !leftButtonIsDown() else { return }
         endPointerGesture()
     }
 
