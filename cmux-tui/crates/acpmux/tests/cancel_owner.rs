@@ -26,8 +26,6 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const REFUSED: &str = "remote.session_cancel_ownership";
-/// `method::MUX_CANCEL_REFUSED`, which the fix adds.
-const CANCEL_REFUSED: &str = "_acpmux/cancel_refused";
 
 fn hub() -> Arc<Hub> {
     let _ = HERMETIC;
@@ -154,7 +152,7 @@ async fn the_owners_peer_daemon_stops_a_chat_started_on_this_machine() {
             if notification {
                 owner.notify(method::SESSION_CANCEL, cancel(&id, meta.clone())).await;
                 assert!(
-                    !owner.comes(CANCEL_REFUSED, 300, |_| true).await,
+                    !owner.comes(method::MUX_CANCEL_REFUSED, 300, |_| true).await,
                     "{meta}: the owner's Stop was refused"
                 );
             } else {
@@ -205,7 +203,7 @@ async fn guests_other_members_and_forged_owner_claims_cannot_stop_it_and_hear_wh
         assert!(message.contains(&host) && message.contains("owner"), "{what}: {message}");
 
         other.notify(method::SESSION_CANCEL, cancel(&id, meta.clone())).await;
-        let told = other.wait_for(CANCEL_REFUSED, |_| true).await;
+        let told = other.wait_for(method::MUX_CANCEL_REFUSED, |_| true).await;
         assert_eq!(told["sessionId"], id, "{what}: {told}");
         assert_eq!(told["reason"], REFUSED, "{what}: {told}");
         assert!(told["message"].as_str().is_some_and(|m| m.contains(&host)), "{what}: {told}");
@@ -281,7 +279,7 @@ async fn the_owners_stop_of_a_lane_started_on_the_peer_ends_its_turn() {
         let mut ca = Client::new(&a, origin, auth);
         ca.notify(method::SESSION_CANCEL, json!({"sessionId": "b/lane"})).await;
         assert!(turn_ended(&mut cb, &id, 20_000).await, "{n}: the owner's Stop ended nothing");
-        assert!(!ca.comes(CANCEL_REFUSED, 300, |_| true).await, "{n}: refused");
+        assert!(!ca.comes(method::MUX_CANCEL_REFUSED, 300, |_| true).await, "{n}: refused");
         b.shutdown_all().await;
         a.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&home);
@@ -295,7 +293,7 @@ async fn a_peers_refusal_of_a_forwarded_stop_reaches_the_sender() {
     let (a, b, mut cb, id, home) = two_daemons("web").await;
     let mut web = Client::new(&a, Origin::Web, ConnAuth::ListenerToken);
     web.notify(method::SESSION_CANCEL, json!({"sessionId": "b/lane"})).await;
-    let told = web.wait_for(CANCEL_REFUSED, |_| true).await;
+    let told = web.wait_for(method::MUX_CANCEL_REFUSED, |_| true).await;
     assert_eq!(told["sessionId"], "b/lane", "{told}");
     assert_eq!(told["reason"], REFUSED, "{told}");
     assert_eq!(told["peer"], "b", "{told}");

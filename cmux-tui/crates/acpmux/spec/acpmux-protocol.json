@@ -1569,6 +1569,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/cancel_refused",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/lagged",
       "params": true
     },

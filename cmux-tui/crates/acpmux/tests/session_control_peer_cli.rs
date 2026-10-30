@@ -488,13 +488,10 @@ async fn lifecycle_commands_use_peer_stable_ids_and_refuse_ambiguous_names() {
             p["sessionId"] == cancel_id && p["update"]["content"]["text"] == "running"
         })
         .await;
+        // The person's own CLI on A stops a chat started on B (its link presented B's peer
+        // token for itself), as `session stop` closes one (`remote_guard/cancel_owner.rs`).
         let (ok, stdout, stderr) = cli(&root, &socket, &["--json", "session", "cancel", key]).await;
-        assert!(!ok, "remote cancel must retain the local-origin ownership rule: {stdout}{stderr}");
-        assert!(
-            format!("{stdout}{stderr}").contains("remote.session_cancel_ownership"),
-            "{stdout}{stderr}"
-        );
-        cb.send(method::SESSION_CANCEL, json!({"sessionId": cancel_id})).await;
+        assert!(ok, "the owner's cancel of a chat started on its peer: {stdout}{stderr}");
         cb.wait(method::MUX_EVENT, |p| {
             p["sessionId"] == cancel_id
                 && p["kind"] == "turn_result"
