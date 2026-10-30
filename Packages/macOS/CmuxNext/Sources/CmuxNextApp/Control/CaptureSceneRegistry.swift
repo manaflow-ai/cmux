@@ -41,6 +41,8 @@ final class CaptureSceneRegistry {
     /// Seeds one dense real scene, waits for the agent page to paint, and snapshots the app window.
     func render(_ params: [String: CmuxNextSettings.JSONValue]) async -> CmuxNextSettings.JSONValue {
         let name = params["scene"]?.stringValue ?? "main-showcase"
+        // A cloud-agent-machines picture stays for the capture's stills; any next render ends it.
+        endAgentCloudMachines()
         guard let definition = Self.definitions.first(where: { $0.name == name }) else {
             return .object([
                 "error": .string("unknown scene"),
@@ -275,12 +277,12 @@ extension CaptureSceneRegistry {
             return .object(["error": .string("no window"), "scene": .string(definition.name)])
         }
         controller.sidebar.restore(width: 300, hidden: false)
-        let groupedBefore = DesignSettings.shared.sidebarSections.groupsByComputer
-        removeAgentCloudMachines()
-        defer {
-            removeAgentCloudMachines()
-            DesignSettings.shared.sidebarSections.groupsByComputer = groupedBefore
-        }
+        // The capture driver takes its light and dark stills (debug.window_snapshot) after this
+        // returns: the machines stay until the next render. A failure takes them away at once.
+        endAgentCloudMachines()
+        Self.agentMachinesGroupedBefore = DesignSettings.shared.sidebarSections.groupsByComputer
+        var shown = false
+        defer { if !shown { endAgentCloudMachines() } }
         DesignSettings.shared.sidebarSections.groupsByComputer = true
         _ = addAgentCloudMachines()
         let done = { [self] in
@@ -318,12 +320,25 @@ extension CaptureSceneRegistry {
         snapshotParams["window"] = .string(windowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
         guard case .object(var result) = snapshot else { return snapshot }
+        shown = true
         result["scene"] = .string(definition.name)
         result["description"] = .string(definition.description)
         result["settled_ms"] = settled.map(CmuxNextSettings.JSONValue.number) ?? .null
         result["frames"] = frameStats
         result["scene_action"] = report
         return .object(result)
+    }
+
+    /// The grouping setting before a cloud-agent-machines render turned it on; nil while none is shown.
+    static var agentMachinesGroupedBefore: Bool?
+
+    /// Takes a shown cloud-agent-machines picture away: the machines, and the grouping setting it changed.
+    func endAgentCloudMachines() {
+        removeAgentCloudMachines()
+        if let grouped = Self.agentMachinesGroupedBefore {
+            DesignSettings.shared.sidebarSections.groupsByComputer = grouped
+            Self.agentMachinesGroupedBefore = nil
+        }
     }
 
     func removeAgentCloudMachines() {
