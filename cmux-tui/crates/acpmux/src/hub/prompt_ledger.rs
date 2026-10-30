@@ -129,10 +129,19 @@ impl Hub {
                     ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
                     return false;
                 }
-                // The digest's turn started: the one its `user_message` names (a steer goes into
-                // the turn that ran then) is this prompt's.
-                ("user_message", Some(_))
+                // The digest's turn started, as the queue's restore reads it (`queue_waiting.rs`
+                // `Digests`): its `turn_started`, or its steer's `user_message` (a steer goes into
+                // the turn that ran then). That turn is this prompt's.
+                ("turn_started", Some(_))
                     if digest.is_some() && field("promptId") == digest.as_deref() =>
+                {
+                    turn_id = field("turnId").map(str::to_owned);
+                    ended = None;
+                }
+                ("user_message", Some(_))
+                    if digest.is_some()
+                        && field("promptId") == digest.as_deref()
+                        && rec.msg.get("steer") == Some(&Value::Bool(true)) =>
                 {
                     turn_id = field("turnId").map(str::to_owned);
                     ended = None;

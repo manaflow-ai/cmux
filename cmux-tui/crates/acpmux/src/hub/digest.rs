@@ -275,16 +275,16 @@ impl Hub {
         // A slash command (`/compact`) runs only as a turn's first words: it goes in alone. So does
         // a message with uploaded files: its turn reads and checks them (`prompt_uploads.rs`).
         // An inbox digest goes in as it was made (`inbox_digest.rs`): it leads none.
+        // An inbox digest's turn takes over the messages it took, so a failed turn puts them
+        // back as it puts back any that joined it: held only after its prompt reached the agent.
+        // Also once the person edited it (it is their prompt then, `queue_edit.rs`).
+        let made =
+            session.inbox_digests.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt_id);
+        if let Some(made) = made {
+            let taken = std::mem::take(&mut *made.taken.lock().unwrap_or_else(|e| e.into_inner()));
+            *digest.taken.lock().unwrap_or_else(|e| e.into_inner()) = taken;
+        }
         if inbox_digest::is_digest(head.provenance.as_ref()) {
-            // Its turn takes over the messages it took, so a failed turn puts them back as it
-            // puts back any that joined it: held only after its prompt reached the agent.
-            let made =
-                session.inbox_digests.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt_id);
-            if let Some(made) = made {
-                let taken =
-                    std::mem::take(&mut *made.taken.lock().unwrap_or_else(|e| e.into_inner()));
-                *digest.taken.lock().unwrap_or_else(|e| e.into_inner()) = taken;
-            }
             return Vec::new();
         }
         if head.agent.is_none()
@@ -410,12 +410,16 @@ impl Hub {
             let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
             self.append(session, "mux", "queued", queued);
         }
-        if hold {
-            self.append(session, "mux", "queue_paused", json!({"held": ids, "requeued": true}));
+        // Held: by this failure, or before an inbox digest took them. Their retry is scheduled
+        // again: the one their hold scheduled may have found none of them while they were out.
+        let held: Vec<&String> =
+            taken.iter().filter(|q| q.held || hold).map(|q| &q.prompt_id).collect();
+        if !held.is_empty() {
+            self.append(session, "mux", "queue_paused", json!({"held": held, "requeued": true}));
         }
         self.append(session, "mux", "queue_order", json!({"order": order}));
         session.queue_moved.notify_waiters();
-        if hold {
+        if !held.is_empty() {
             self.retry_held_agent_messages(session);
         }
     }

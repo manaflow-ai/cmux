@@ -221,6 +221,15 @@ impl Hub {
         if let Some(count) = count {
             count.done(steer_entered_turn(&answer));
         }
+        // An inbox digest's steer that went into the turn and failed with it: the messages it
+        // took go back held, as messages that joined a failed turn do (`inbox_digest.rs`).
+        if answer.is_err() && steer_entered_turn(&answer) {
+            let made =
+                session.inbox_digests.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
+            if let Some(made) = made {
+                self.requeue_joined(session, &made, true);
+            }
+        }
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else {

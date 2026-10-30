@@ -14,8 +14,9 @@
 //!   (`prompt_ledger.rs`). A digest refused or failed puts them back first (`requeue_joined`,
 //!   their `queued` records marked `requeued`), so none is lost: they wait again, held when a
 //!   failed turn held them or when the digest's prompt reached its agent and failed. Its turn
-//!   takes them over as it starts (`take_joined`), so it puts them back as it puts back any
-//!   message that joined it.
+//!   takes them over as it starts (`take_joined`, also once the person edited it), and so does
+//!   the running turn its steer went into (`steer_end.rs`), so each puts them back as it puts
+//!   back any message that joined it.
 //! - A restart before the digest's turn started gives the messages back in its place and drops
 //!   it (`queue_waiting.rs` `Digests`); draining again makes a new one. After it started, its
 //!   turn is theirs: none runs again on its own. The digest's own `queued` record is logged
@@ -74,14 +75,18 @@ pub(crate) fn is_digest_record(record: &Value) -> bool {
     is_digest(record.pointer("/_meta/provenance"))
 }
 
-/// The prompts an inbox digest's `queued` record took: its provenance's parts. None for any
-/// other record.
+/// The prompts an inbox digest's `queued` record took, in the queue's order (its `took`; a
+/// record without one: its provenance's parts, in the order they arrived). None for any other
+/// record.
 pub(crate) fn took(record: &Value) -> Vec<String> {
     let provenance = record.pointer("/_meta/provenance");
     if !is_digest_record(record) {
         return Vec::new();
     }
-    let parts = provenance.and_then(|p| p.get("parts")).and_then(Value::as_array);
+    let parts = record
+        .get("took")
+        .or_else(|| provenance.and_then(|p| p.get("parts")))
+        .and_then(Value::as_array);
     let ids = parts.into_iter().flatten().filter_map(|p| p.get("promptId")?.as_str());
     ids.map(str::to_owned).collect()
 }
@@ -432,7 +437,8 @@ impl Hub {
         // The digest is logged before the originals leave, so the log never loses them.
         // It holds the queue's new order too, so a stop before the `queue_order` record below keeps
         // its place (`queue.rs` `restore_queue`).
-        let queued = json!({"text": text, "client": client, "position": at + 1, "promptId": digest_id, "turnId": turn_id, "prompt": blocks, "control": control.as_str(), "trustGate": false, "fromAgent": SENDER, "order": order});
+        let took: Vec<Value> = taken.iter().map(|q| json!({"promptId": q.prompt_id})).collect();
+        let queued = json!({"text": text, "client": client, "position": at + 1, "promptId": digest_id, "turnId": turn_id, "prompt": blocks, "control": control.as_str(), "trustGate": false, "fromAgent": SENDER, "order": order, "took": took});
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);
         self.append(session, "mux", "queue_order", json!({"promptId": digest_id, "order": order}));
@@ -461,9 +467,10 @@ impl Hub {
                 // The messages it took go back first, so a stop between these records loses none
                 // (`queue_waiting.rs` `Digests`), and before its answer, so their waiting tasks
                 // wait again (`queue_slot`). A turn that took it put them back already, as it
-                // puts back messages that joined it (`take_joined`, `requeue_joined`): held only
-                // after its prompt reached the agent. Refused before that, they go back here as
-                // they were (held when a failed turn held them).
+                // puts back messages that joined it (`take_joined`, `requeue_joined`, edited or
+                // not): held only after its prompt reached the agent; so did a steer the turn
+                // took (`steer_end.rs`). Refused before that, they go back here as they were
+                // (held when a failed turn held them, their retry scheduled again).
                 hub.requeue_joined(&s, &digest, false);
                 // Refused before its turn (as a restored prompt is, `resume_restored`): it leaves
                 // the queue, so the prompts behind it still run, and the log says why.
