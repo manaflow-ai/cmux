@@ -773,7 +773,7 @@ mod tests;
 /// queue drops them; it does not survive a restart, so the open drops what
 /// it left. Before, every snapshot read deleted them under the registry lock.
 pub(crate) fn prune_stale_notification_reads_at_open(
-    transaction: &rusqlite::Transaction<'_>,
+    transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     transaction.execute(
         "DELETE FROM resource_notification_reads
