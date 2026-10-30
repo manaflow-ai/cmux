@@ -1,6 +1,6 @@
 //! Opt-in managed Codex runtime. The binary is downloaded only on explicit
 //! request and is never preferred over a Codex already found on PATH.
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -125,7 +125,7 @@ fn activate(_base: &Path, _install: &Path) -> Result<()> {
 /// a failed attempt changes nothing. Install directories nothing points at are removed after.
 #[cfg(unix)]
 fn activate(base: &Path, install: &Path) -> Result<()> {
-    let name = install.file_name().context("install directory has no name")?;
+    let name = install.file_name().ok_or_else(|| anyhow::anyhow!("install directory has no name"))?;
     if !install.join("codex").is_file() || !install.join("ready.json").is_file() {
         bail!("{} is not a finished Codex install", install.display())
     }
