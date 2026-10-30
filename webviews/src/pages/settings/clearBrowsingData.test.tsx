@@ -49,3 +49,17 @@ test("a refused clear shows the native error instead of Cleared", async () => {
   expect(form.querySelector<HTMLElement>("[data-clear-error]")?.textContent).toBe("Couldn’t clear browsing data. The browser profile is in use.");
   page.unmount();
 });
+
+test("an unknown refusal keeps the clear error generic", async () => {
+  const page = await renderPage({
+    path: "/settings/browser",
+    mock: { failing: { "cmux.app.action.run": "cmux.browser.unknown" } },
+  });
+  const row = page.container.querySelector<HTMLElement>('[data-profile="p-work"]')!;
+  await act(async () => row.querySelector<HTMLButtonElement>(".host-toggle")!.click());
+  const form = row.querySelector<HTMLElement>("[data-clear-browsing-data]")!;
+  await act(async () => form.querySelector<HTMLButtonElement>("[data-clear]")!.click());
+  await settle();
+  expect(form.querySelector<HTMLElement>("[data-clear-error]")?.textContent).toBe("Couldn’t clear browsing data.");
+  page.unmount();
+});
