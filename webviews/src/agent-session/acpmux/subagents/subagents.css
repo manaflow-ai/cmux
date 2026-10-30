@@ -490,6 +490,9 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-summary-row:not(.acpmux-running-tray__head) {
   height: var(--ui-row-height, 28px);
 }
+.acpmux-running-tray__head {
+  height: var(--ui-row-height, 28px);
+}
 .acpmux-running-tray__time,
 .acpmux-running-tray .acpmux-agent-line__time {
   box-sizing: border-box;
