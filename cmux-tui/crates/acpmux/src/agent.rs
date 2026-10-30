@@ -832,8 +832,8 @@ impl ChildAgent {
                 // open; watch it so its exit is reported regardless.
                 let mut leader_check = tokio::time::interval(LEADER_CHECK);
                 let mut leader_gone: Option<tokio::time::Instant> = None;
-                // A carry's hold was waited out (`claude_stdio/carry.rs`): once per hold.
-                let mut held = false;
+                // The carry whose hold was waited out (`claude_stdio/carry.rs`): once per carry.
+                let mut held: Option<u64> = None;
                 loop {
                     let next = tokio::select! {
                         next = lines.next_line() => next,
@@ -990,14 +990,16 @@ impl ChildAgent {
                     // Claude Code ended its turn and runs on with steers it had not read: its next
                     // line waits until the hub logged that turn's end and the next one's start
                     // (the next turn's prompt), bounded (`claude_stdio/carry.rs`).
-                    let holding = agent_for_exit.translator.as_ref().filter(|tr| tr.holding());
+                    // Each carry holds once, also one made while an earlier one still holds.
+                    let tr = agent_for_exit.translator.as_ref();
+                    let holding = tr.and_then(|tr| tr.holding().map(|carry| (tr, carry)));
                     match holding {
-                        Some(tr) if !held => {
+                        Some((tr, carry)) if held != Some(carry) => {
                             tr.wait_unheld(crate::claude_stdio::CARRY_HOLD_MAX).await;
-                            held = true;
+                            held = Some(carry);
                         }
                         Some(_) => {}
-                        None => held = false,
+                        None => held = None,
                     }
                 }
                 // Claude's background shells ended with it (cx-ncc.84).
