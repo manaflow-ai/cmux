@@ -14,17 +14,23 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-UI_PATH = re.compile(r"^webviews/src/.*\.(?:css|tsx)$")
+UI_PATHS = (
+    re.compile(r"^webviews/src/.*\.(?:css|tsx)$"),
+    # Native CmuxNext UI is Swift under the package Sources tree. Keep this
+    # advisory broad: the review section is warning-only and the native UI
+    # surface is split across several source modules.
+    re.compile(r"^Packages/macOS/CmuxNext/Sources/.*\.swift$"),
+)
 HEADING = re.compile(r"(?im)^#{2,6}\s+UI review\s*$")
 VERDICT = re.compile(r"(?im)^\s*Verdict:\s*(blocked|approve with changes|ship it)\s*$")
 
 
 def ui_files(files: Iterable[Any]) -> list[str]:
-    """Return changed webview CSS/TSX paths, tolerating API or plain strings."""
+    """Return changed webview or native CmuxNext UI paths, tolerating API or plain strings."""
     paths: list[str] = []
     for item in files:
         path = item if isinstance(item, str) else item.get("filename") if isinstance(item, dict) else None
-        if isinstance(path, str) and UI_PATH.fullmatch(path):
+        if isinstance(path, str) and any(pattern.fullmatch(path) for pattern in UI_PATHS):
             paths.append(path)
     return sorted(set(paths))
 

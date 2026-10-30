@@ -40,7 +40,7 @@ class UiReviewAdvisoryTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertIn("::warning title=UI review::", result.stdout)
 
-    def test_only_webview_css_and_tsx_paths_are_ui_changes(self):
+    def test_webview_and_native_cmuxnext_paths_are_ui_changes(self):
         files = [
             {"filename": "webviews/src/ui/Button.tsx"},
             {"filename": "webviews/src/ui/button.css"},
@@ -48,10 +48,14 @@ class UiReviewAdvisoryTests(unittest.TestCase):
             {"filename": "webviews/README.md"},
             {"filename": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home.swift"},
         ]
-        self.assertEqual(module.ui_files(files), ["webviews/src/ui/Button.tsx", "webviews/src/ui/button.css"])
+        self.assertEqual(module.ui_files(files), [
+            "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home.swift",
+            "webviews/src/ui/Button.tsx",
+            "webviews/src/ui/button.css",
+        ])
 
     def test_heading_and_verdict_are_required_only_when_ui_paths_change(self):
-        files = [{"filename": "webviews/src/ui/Button.tsx"}]
+        files = [{"filename": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home.swift"}]
         self.assertEqual(module.inspect("## Summary", files)["missing"], ["the `## UI review` heading", "a `Verdict:` line"])
         self.assertEqual(module.inspect("## UI review\nVerdict: ship it", files)["missing"], [])
         self.assertEqual(module.inspect("", [{"filename": "docs/ui.md"}])["missing"], [])
