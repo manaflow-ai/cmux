@@ -483,6 +483,7 @@ import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
 import {
+  CMUX_PASS_THROUGH,
   continueTargets,
   cmuxCommandRefusal,
   mergedCommands,
@@ -512,6 +513,7 @@ import { useSideSessions } from "./aside/sideSessions";
 import { BtwNotes, type BtwRow as InlineBtwRow } from "./aside/btwNotes";
 import { BtwAside } from "./aside/BtwAside";
 import { askBtwQuestion } from "./btwCapability";
+import { isFastModeOption } from "./heldOptions";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -7251,7 +7253,7 @@ function AcpmuxPane() {
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   const composerSnapshot = useMemo(() => {
-    const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
+    const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import", "model", "fast", "context", "plan"]);
     if (snapshot.summary) enabledCmuxActions.add("status");
     if (forkable && forkSeq !== undefined) {
       enabledCmuxActions.add("fork");
@@ -8839,6 +8841,43 @@ function AcpmuxPane() {
     if (command.action === "status") {
       setStatusCardOpen(true);
       return true;
+    }
+    const argument = args?.trim();
+    // The composer sends the prompt as typed through onSend, attachments and steer included, the
+    // way any other prompt goes.
+    if (command.action === "passThrough") return CMUX_PASS_THROUGH;
+    // GUI-native commands are available even when a harness does not advertise an ACP command.
+    // Arguments keep the harness form useful (`/model opus`, `/plan explain`). New Tab has no chat
+    // to act on yet, so there they go to the harness as typed.
+    if (command.action === "model") {
+      if (argument || fresh) return CMUX_PASS_THROUGH;
+      return openPicker(translate(PICKER_LABELS.model)) || CMUX_PASS_THROUGH;
+    }
+    if (command.action === "context") {
+      if (argument || fresh) return CMUX_PASS_THROUGH;
+      if (inspector.reveal) {
+        inspector.reveal("context");
+        return true;
+      }
+      return CMUX_PASS_THROUGH;
+    }
+    // A bare `/plan` with a Plan mode is the composer's own Plan/Build toggle (it remembers the mode
+    // to return to); anything else goes to the harness as typed.
+    if (command.action === "plan") return CMUX_PASS_THROUGH;
+    if (command.action === "fast") {
+      if (argument || fresh) return CMUX_PASS_THROUGH;
+      const option = snapshot.summary?.configOptions?.find(isFastModeOption);
+      if (option) {
+        const off =
+          option.options.find((choice) => /^(off|false|disabled)$/i.test(choice.value))?.value ??
+          option.options[0]?.value;
+        const on =
+          option.options.find((choice) => /^(on|true|enabled|fast|priority)$/i.test(choice.value))?.value ??
+          option.options.find((choice) => choice.value !== off)?.value;
+        const next = option.currentValue === off ? on : off;
+        if (next) return callNative("chat.effort", { configId: option.id, value: next });
+      }
+      return CMUX_PASS_THROUGH;
     }
     if (command.action === "btw") {
       const question = args?.trim();
