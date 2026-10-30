@@ -783,6 +783,12 @@ export function applySwitch(
           ? undefined
           : exactStartMode(intent.harness, intent.cwd)?.modeId,
     });
+  const configOptions = live?.configOptions ?? profile?.configOptions;
+  const held = { ...config.options };
+  for (const [configId, value] of Object.entries(config.options)) {
+    const pick = heldOptionPick(configId, value, configOptions ?? []);
+    if (pick && !(pick.configId in held)) held[pick.configId] = pick.value;
+  }
   const summary: Summary = {
     ...(live ?? { sessionId: "", turnCount: 0, cwd: raw.summary?.cwd ?? intent.cwd }),
     harness: intent.harness,
@@ -790,8 +796,8 @@ export function applySwitch(
     // Nothing to confirm before a session: the composer sequences picks against what it draws.
     confirmedModel: live ? live.model : predicted,
     modes: modes && config.mode ? { ...modes, currentModeId: config.mode } : modes,
-    configOptions: (live?.configOptions ?? profile?.configOptions)?.map((option) =>
-      option.id in config.options ? { ...option, currentValue: config.options[option.id] } : option,
+    configOptions: configOptions?.map((option) =>
+      option.id in held ? { ...option, currentValue: held[option.id] } : option,
     ),
     promptCapabilities: live?.promptCapabilities ?? profile?.promptCapabilities,
   };

@@ -11,14 +11,16 @@ enum SidebarContextMenus {
     /// system's blue (#19754's follow-up); the workspace and group menus open with their name and
     /// colors. `trailing` rows end a workspace menu after a separator (a pinned tile's own rows).
     static func menu(for target: SidebarContextTarget, model: SidebarModel, services: AppServices, scope: ThemeScope,
-                     trailing: [NSMenuItem] = []) -> NSMenu? {
+                     trailing: [NSMenuItem] = [], workspaceMachineID: String? = nil) -> NSMenu? {
         let registry = services.registry
         switch target {
         case .tab(let workspace, let tab):
             // The tab's own menu, as on its strip; the row is not selected by the right-click.
-            let model = services.locateTab(tab.rawValue)?.0
+            let owner = services.machines.daemon(forWorkspace: workspace.rawValue)
+            let model = owner.flatMap { services.locateTab(tab.rawValue, onMachine: $0.machineID)?.0 }
             let menu = PaneController.tabMenu(tab.rawValue, tab: model, keepsTab: TabPromotion.staysPut(tab: tab.rawValue, in: services.workspace(id: workspace.rawValue)),
-                                              sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry)
+                                              sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry,
+                                              machineID: owner?.machineID)
             menu.themeRows(in: scope)
             return menu
         case .workspaces(let ids):
@@ -29,16 +31,18 @@ enum SidebarContextMenus {
             // A placeholder row is no workspace yet: no menu, not one that does nothing.
             guard let first = ids.first, !ids.contains(where: { model.isPlaceholder($0) || CloudCreationRows.isRow($0, services) }) else { return nil }
             // Dismiss Highlight shows only while the row's workspace draws an attention ring (cx-epgo).
-            let highlighted = services.daemon.store.workspaces.first { $0.id == first.rawValue }.map(services.notifications.hasHighlight) ?? false
+            let owner = (workspaceMachineID ?? model.workspace(first)?.machineID.rawValue).flatMap { services.machines.daemon(machine: $0) }
+            let highlighted = owner?.store.workspaces.first { $0.id == first.rawValue }.map(services.notifications.hasHighlight) ?? false
             // Several selected rows get Chrome's menu for several tabs (ContextMenuEssentials.selectionMenus).
             let catalog = ContextMenuCatalog.shared, selection = ids.count > 1
             let all = selection ? catalog.selectionEntries(for: .workspaceRow) : catalog.entries(for: .workspaceRow)
             let entries = highlighted ? all : ContextMenuCatalog.removing(["notifications.dismissHighlight"], from: all)
             let target = ActionTargetRef(kind: .workspace, id: first.rawValue)
             let menu = registry.makeContextMenu(for: .workspaceRow, target: target, entries: entries)
+            if let owner { registry.scopeMenuAction(menu, action: "notifications.dismissHighlight", toMachine: owner.machineID) }
             // The name field renames the clicked row only, so a multi-row selection gets just the swatches.
             // A pinned workspace's tile has no row in the list model; its name comes from the workspace.
-            let title = model.workspace(first)?.title ?? services.workspace(id: first.rawValue)?.displayName ?? ""
+            let title = model.workspace(first)?.title ?? owner?.store.workspace(id: first.rawValue)?.displayName ?? ""
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : title,
                                        rename: "renameWorkspace")
             if !trailing.isEmpty {

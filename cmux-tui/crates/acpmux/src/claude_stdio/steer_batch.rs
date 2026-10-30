@@ -71,10 +71,10 @@ fn lines_of(parts: Vec<Part>) -> Vec<Vec<Part>> {
 #[derive(Debug, Default)]
 pub(super) struct Batches {
     /// By line uuid: its messages, oldest first.
-    lines: HashMap<String, Vec<Part>>,
+    pub(super) lines: HashMap<String, Vec<Part>>,
     /// The one line asked to be dropped to be written again (`rebatch-<uuid>`), and the messages
     /// that came meanwhile, oldest first, which go in the line written next.
-    rewrite: Option<(String, Vec<Part>)>,
+    pub(super) rewrite: Option<(String, Vec<Part>)>,
     /// Claude Code refused a drop (one without `cancel_async_message`): each line stands.
     no_drop: bool,
 }

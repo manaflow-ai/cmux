@@ -146,6 +146,11 @@ impl Mux {
     ) -> anyhow::Result<Arc<Self>> {
         // Continues the registry open's laps: the owner logs them (startup_timings).
         let mut timings = registry.take_open_timings();
+        // Warm the pages the adoption's terminal ends write while the restore
+        // runs (workspace_registry::terminal_end_prefetch).
+        if let Some(database) = registry.session_journal_database_path() {
+            crate::workspace_registry::terminal_end_prefetch::start_terminal_end_prefetch(database);
+        }
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let session_shutdown = crate::session_shutdown::SessionShutdownClock::open(
@@ -319,6 +324,8 @@ impl Mux {
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
             agent_message_pump: Default::default(),
+            #[cfg(unix)]
+            agent_chat_notices: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
@@ -335,6 +342,7 @@ impl Mux {
             journal_ingress,
             output_store,
             journal_maintenance: Mutex::new(None),
+            journal_maintenance_control: Arc::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
