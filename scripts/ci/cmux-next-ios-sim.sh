@@ -192,8 +192,66 @@ note "- xcodegen: $xcodegen_version (pinned, sha256 verified)"
 
 # --- Build ------------------------------------------------------------------
 t0=$SECONDS
-JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh >"$work/ffi.log" 2>&1 || {
-  tail -60 "$work/ffi.log"; echo "error: CmuxMobileLinkFFI.xcframework build failed" >&2; exit 1; }
+# The FFI comes from the worker's source-keyed cache when an earlier step built the same
+# inputs with the same toolchain (scripts/ci/ios_ffi_cache.py: key, verified restore). A
+# miss builds it as before, and a build of landed inputs (the same trees as feat-cmux-next's
+# tip, probed beside the build) is published for the next step. The cache never fails the
+# step: a miss or no key builds. Everything else (a key command that failed, a failed probe or
+# store, a helper error) is a warning in the log and SUMMARY.md, then the step builds.
+ffi_cache=(python3 -I scripts/ci/ios_ffi_cache.py)
+ffi_log="$work/ffi-cache.log"
+: >"$ffi_log"
+ffi_warn() {
+  echo "warning: ios-ffi cache: $1 (exit $2); building the FFI" >&2
+  tail -20 "$ffi_log" >&2 || true
+  note "- FFI cache warning: $1 (exit $2)"
+}
+ffi_key="" ffi_rc=0
+ffi_key="$("${ffi_cache[@]}" key "$root" "$work/ffi-inputs.json" 2>>"$ffi_log")" || ffi_rc=$?
+if [[ $ffi_rc -ne 0 ]]; then
+  [[ $ffi_rc -eq 3 ]] || ffi_warn "key failed" "$ffi_rc"
+  ffi_key=""
+elif ! [[ "$ffi_key" =~ ^[0-9a-f]{64}$ ]]; then
+  ffi_warn "key printed '${ffi_key:0:80}', not a sha256" 0
+  ffi_key=""
+fi
+ffi_xcf=cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+ffi_swift=cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift
+ffi_how=""
+if [[ -n "$ffi_key" ]]; then
+  ffi_rc=0
+  "${ffi_cache[@]}" restore "$root" "$ffi_key" >>"$ffi_log" 2>&1 || ffi_rc=$?
+  if [[ $ffi_rc -eq 0 && -f "$ffi_xcf/Info.plist" && -s "$ffi_swift" ]]; then
+    ffi_how="cache hit ${ffi_key:0:12}"
+  elif [[ $ffi_rc -eq 0 ]]; then
+    ffi_warn "restore reported a hit but left no $ffi_xcf/Info.plist" 0
+  elif [[ $ffi_rc -ne 1 ]]; then
+    ffi_warn "restore failed" "$ffi_rc"
+  fi
+fi
+if [[ -z "$ffi_how" ]]; then
+  ffi_probe=""
+  if [[ -n "$ffi_key" ]]; then
+    "${ffi_cache[@]}" probe "$work/ffi-inputs.json" "$work/ffi-tip.json" >>"$ffi_log" 2>&1 &
+    ffi_probe=$!
+  fi
+  JOBS="${JOBS:-8}" bash cmux-next-ios/rust/scripts/build-xcframework.sh >"$work/ffi.log" 2>&1 || {
+    tail -60 "$work/ffi.log"; echo "error: CmuxMobileLinkFFI.xcframework build failed" >&2; exit 1; }
+  ffi_how="built"
+  if [[ -n "$ffi_probe" ]]; then
+    ffi_how="built, cache miss ${ffi_key:0:12}"
+    ffi_rc=0
+    wait "$ffi_probe" || ffi_rc=$?
+    if [[ $ffi_rc -eq 0 ]]; then
+      "${ffi_cache[@]}" store "$root" "$work/ffi-inputs.json" "$work/ffi-tip.json" >>"$ffi_log" 2>&1 || {
+        ffi_rc=$?; ffi_warn "store failed" "$ffi_rc"; }
+    else
+      ffi_warn "probe of the feat-cmux-next tip failed, nothing stored" "$ffi_rc"
+    fi
+  fi
+fi
+grep -h '^ios-ffi cache:' "$ffi_log" || true
+note "- FFI: $((SECONDS - t0)) s ($ffi_how)"
 (cd cmux-next-ios && "$xcodegen" generate -q)
 dd="$work/dd"
 # Demo builds the Swift packages as Release (no DEBUG), so the flood benchmark

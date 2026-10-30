@@ -284,8 +284,11 @@ const REFUSAL: Readonly<Record<ClientSessionRefusal, [number, string, string]>> 
 
 type Stub = { mintClientSession(entity: string, p: Principal, machine: string, ttlSeconds: number): Promise<ClientSessionReply> }
 
-/** The caller's principal for the team's CloudDO (as the acpmux routes find it, installs allowed), or the refusal. */
-const callerFor = async (request: Request, env: Env): Promise<Principal | Response> => {
+/**
+ * The caller's principal for the team's CloudDO (as the acpmux routes find it, installs allowed), or the
+ * refusal: a person's session or a cli or mac install with execute (clientSessionCaller), else `refused`.
+ */
+export const callerFor = async (request: Request, env: Env, refused: readonly [number, string, string] = REFUSAL.forbidden): Promise<Principal | Response> => {
   const auth = request.headers.get("authorization") ?? ""
   const token = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
   if (!token?.user || !token.team) return answer(401, "auth.unauthenticated", "a session or install token is required")
@@ -298,7 +301,7 @@ const callerFor = async (request: Request, env: Env): Promise<Principal | Respon
   const granted = await principalForOwner(env, "cloud:CloudDO", authed).catch(() => null)
   if (granted === null) return answer(503, "owner.unreachable", "team membership could not be checked; retry")
   if (!granted || "refused" in granted) return answer(403, "auth.forbidden", "no access to this team's machines")
-  if (!clientSessionCaller(granted)) return answer(...REFUSAL.forbidden)
+  if (!clientSessionCaller(granted)) return answer(...refused)
   return granted
 }
 

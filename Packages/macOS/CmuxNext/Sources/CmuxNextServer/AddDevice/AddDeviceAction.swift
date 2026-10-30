@@ -9,6 +9,7 @@ public nonisolated enum AddDeviceAction: Equatable, Sendable {
     /// Open the code field (way ``AddDeviceWay/code``).
     case enterCode
     /// Copy the setup line of the chosen platform.
+    case installTailscale
     case copyLine
     /// Copy the one-line join (way ``AddDeviceWay/joinLine``), concealed from clipboard managers.
     case copyJoinLine
