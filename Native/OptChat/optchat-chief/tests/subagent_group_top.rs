@@ -1,7 +1,6 @@
-//! Lawrence 2026-10-28: a new workspace made inside a group goes to the TOP of that group by
-//! default (`workspaces.newPlacement` `top`), as Cmd-N puts a new workspace at the top of the
-//! sidebar. A Chief subagent's workspace joining the user's existing group was placed with no
-//! index, so the daemon put it last in the group. `bottom` and `afterCurrent` keep that place.
+//! A legacy `workspaces.newPlacement` value of `top` puts a new workspace at the TOP of its
+//! group. The shared `afterCurrent` default and `bottom` leave placement to the daemon, so a
+//! Chief subagent's workspace joining the user's existing group stays at the daemon's end slot.
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
@@ -78,8 +77,8 @@ fn placed(settings: Option<&str>) -> Value {
 }
 
 #[test]
-fn by_default_a_subagent_workspace_goes_to_the_top_of_its_group() {
-    assert_eq!(placed(None)["params"]["index"], json!(0));
+fn by_default_a_subagent_workspace_uses_the_daemons_end_slot() {
+    assert!(placed(None)["params"].get("index").is_none());
 }
 
 #[test]
