@@ -43,9 +43,7 @@ impl TurnRetention {
                 user_claude_home.to_path_buf(),
             ],
             compactor_work: compactor_work.to_path_buf(),
-            compactor_keep: Duration::from_secs(
-                crate::compactor::TRANSCRIPT_DAYS * 24 * 60 * 60,
-            ),
+            compactor_keep: Duration::from_secs(crate::compactor::TRANSCRIPT_DAYS * 24 * 60 * 60),
         }
     }
 
@@ -97,9 +95,8 @@ impl TurnRetention {
                 let entry = entry?;
                 let name = entry.file_name().to_string_lossy().into_owned();
                 let slot = prefixes.iter().any(|prefix| {
-                    name.strip_prefix(prefix.as_str()).is_some_and(|k| {
-                        !k.is_empty() && k.bytes().all(|b| b.is_ascii_digit())
-                    })
+                    name.strip_prefix(prefix.as_str())
+                        .is_some_and(|k| !k.is_empty() && k.bytes().all(|b| b.is_ascii_digit()))
                 });
                 if slot && entry.file_type()?.is_dir() {
                     found.push(entry.path());
@@ -238,7 +235,10 @@ mod tests {
         assert_eq!(retention.cleanup_at(later).unwrap(), crashed.len());
         for file in &crashed {
             assert!(!file.exists(), "{}", file.display());
-            assert!(!file.parent().unwrap().exists(), "the empty slot project goes");
+            assert!(
+                !file.parent().unwrap().exists(),
+                "the empty slot project goes"
+            );
         }
         for file in &kept {
             assert!(file.exists(), "{} is not a compactor slot", file.display());
