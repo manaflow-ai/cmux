@@ -82,35 +82,38 @@ import UniformTypeIdentifiers
         #expect(DevToolsSpy.calls.filter { $0.browser == 8 }.map(\.method) == ["Page.enable"])
     }
 
-    /// A one-way call made while an earlier call to the same browser still encodes reaches Chromium after it. For the
-    /// agent chat page that earlier call is a batch of chat frames: a freeze that overtook it left the batch's script
-    /// to run on a frozen page, where its wait ran out and the frames never showed.
+    /// A one-way call made while an earlier call to the same browser has not left reaches Chromium after it. For the
+    /// agent chat page that earlier call is a batch of chat frames still encoding: a freeze that overtook it left the
+    /// batch's script to run on a frozen page, where its wait ran out and the frames never showed. The tab's own
+    /// attach calls (color scheme, first paint, media, verification) also go to browser 7; only this test's calls are
+    /// compared.
     @Test func aFreezeMadeWhileALargeCallEncodesReachesChromiumAfterIt() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let tab = try rig.attachedTab()
-        DevToolsSpy.calls = []
-        let evaluate = Task { try await rig.runtime.devTools(7, method: "Runtime.evaluate", params: ["expression": Self.largeScript]) }
-        await rig.until { rig.runtime.devToolsOrder.waiting(7) > 0 }
-        try #require(DevToolsSpy.calls.isEmpty, "the evaluate is still encoding")
+        let hold = rig.runtime.devToolsOrder.take(7)
+        let evaluate = try await rig.largeEvaluateInLine()
         #expect(tab.setFrozen(true))
+        try #require(!DevToolsSpy.calls.contains(where: Self.isLarge), "the large call left before its turn")
+        await rig.release(hold)
         _ = try await evaluate.value
-        await rig.until { DevToolsSpy.calls.count >= 2 }
-        #expect(DevToolsSpy.calls.map(\.method) == ["Runtime.evaluate", "Page.setWebLifecycleState"])
+        await rig.until { DevToolsSpy.calls.contains { $0.method == "Page.setWebLifecycleState" } }
+        #expect(DevToolsSpy.calls.filter { Self.isLarge($0) || $0.method == "Page.setWebLifecycleState" }.map(\.method)
+            == ["Runtime.evaluate", "Page.setWebLifecycleState"])
     }
 
     @Test func aCommandMadeWhileALargeCallEncodesReachesChromiumAfterIt() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let tab = try rig.attachedTab()
-        DevToolsSpy.calls = []
-        let evaluate = Task { try await rig.runtime.devTools(7, method: "Runtime.evaluate", params: ["expression": Self.largeScript]) }
-        await rig.until { rig.runtime.devToolsOrder.waiting(7) > 0 }
-        try #require(DevToolsSpy.calls.isEmpty, "the evaluate is still encoding")
+        let hold = rig.runtime.devToolsOrder.take(7)
+        let evaluate = try await rig.largeEvaluateInLine()
         #expect(tab.perform("document.execCommand('copy')", gesture: .agent))
+        try #require(!DevToolsSpy.calls.contains(where: Self.isLarge), "the large call left before its turn")
+        await rig.release(hold)
         _ = try await evaluate.value
-        await rig.until { DevToolsSpy.calls.count >= 2 }
-        #expect(DevToolsSpy.calls.map { $0.params.contains("execCommand") } == [false, true])
+        await rig.until { DevToolsSpy.calls.contains { $0.params.contains("execCommand") } }
+        #expect(DevToolsSpy.calls.filter { Self.isLarge($0) || $0.params.contains("execCommand") }.map(Self.isLarge) == [true, false])
     }
 
     /// On the fork's renderer paths a page's own scripts go by `tabEvaluate`, not DevTools: they keep the browser's
@@ -134,23 +137,25 @@ import UniformTypeIdentifiers
         #expect(DevToolsSpy.calls.dropFirst().map(\.params) == ["command()", "lookUp()", "read()"])
     }
 
-    /// A tab's hover picture is asked for in the turn before its content hides (a pane switch). Queued behind a large
-    /// call, its turn comes after the hide, and it is refused: the app never pictures a hidden page (P0 #1). The hide
-    /// itself still reaches Chromium after the large call.
+    /// A tab's hover picture is asked for in the turn before its content hides (a pane switch). Queued behind an
+    /// earlier call, its turn comes after the hide, and it is refused: the app never pictures a hidden page (P0 #1,
+    /// 223988ec101).
     @Test func aPictureOfAPageHiddenBeforeItsTurnIsRefused() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let tab = try rig.attachedTab()
-        DevToolsSpy.calls = []
-        let large = Task { try await rig.runtime.devTools(7, method: "Runtime.evaluate", params: ["expression": Self.largeScript]) }
-        await rig.until { rig.runtime.devToolsOrder.waiting(7) > 0 }
-        try #require(DevToolsSpy.calls.isEmpty, "the large call is still encoding")
+        let hold = rig.runtime.devToolsOrder.take(7)
+        let evaluate = try await rig.largeEvaluateInLine()
         let picture = tab.beginThumbnail()
         tab.setContentVisible(false)
-        _ = try await large.value
+        await rig.release(hold)
+        _ = try await evaluate.value
         await #expect(throws: BrowserTabError.snapshotUnavailable) { try await picture.image() }
-        #expect(DevToolsSpy.calls.map(\.method) == ["Runtime.evaluate"])
+        #expect(!DevToolsSpy.calls.contains { $0.method == "Page.captureScreenshot" }, "a hidden page was pictured")
     }
+
+    /// This suite's large page host script (``largeScript``), not one of the tab's own attach calls.
+    fileprivate static func isLarge(_ call: DevToolsSpy.Call) -> Bool { call.params.contains("__cmuxPageReceiveMany") }
 
     // MARK: Fixtures
 
@@ -202,6 +207,27 @@ import UniformTypeIdentifiers
             try #require(tab.browserID == 7)
             return tab
         }
+
+        /// Starts a large awaited `Runtime.evaluate` to browser 7 and returns once it holds its place in the browser's
+        /// order (``CEFRuntime/devTools(_:method:params:timeout:)`` takes it before its first suspension).
+        func largeEvaluateInLine() async throws -> Task<String, any Error> {
+            let started = Started()
+            let task = Task { [runtime] in
+                started.value = true
+                return try await runtime.devTools(7, method: "Runtime.evaluate", params: ["expression": CEFDevToolsOffMainTests.largeScript])
+            }
+            await until { started.value }
+            try #require(started.value, "the large call never started")
+            return task
+        }
+
+        /// Lets the calls behind `hold` go: it waits for its own turn first (the tab's attach calls may be ahead).
+        func release(_ hold: CEFDevToolsSendOrder.Ticket) async {
+            await runtime.devToolsOrder.turn(hold, of: 7)
+            runtime.devToolsOrder.leave(hold, of: 7)
+        }
+
+        @MainActor final class Started { var value = false }
 
         /// Lets main-actor work run until `condition` (at most 500 turns).
         func until(_ condition: () -> Bool) async {
