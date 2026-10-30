@@ -24,6 +24,27 @@ class ReleaseNotesTests(unittest.TestCase):
         body = """## Summary\n\nInternal implementation details.\n\n## Changelog\n\nFixed: [Tabs](https://example.test/tabs) keep their position after restart\n\n## Testing\n\n- not user copy\n"""
         self.assertEqual(notes.pr_description(body), "Tabs keep their position after restart.")
         self.assertEqual(notes.pr_description("## Changelog\n\nnone\n"), "")
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nTabs stay put after restart. The next sentence is implementation detail."),
+            "Tabs stay put after restart.",
+        )
+        for punctuation in (".", "!", "?", "。", "！", "？"):
+            with self.subTest(punctuation=punctuation):
+                self.assertEqual(notes.pr_description(
+                    f"## Changelog\n\nFixed: Tabs stay put{punctuation} Another sentence. A third sentence."),
+                    f"Tabs stay put{punctuation}")
+        self.assertEqual(notes.pr_description("", "Tabs stay put. Extra detail."), "Tabs stay put.")
+
+    def test_pr_body_timeout_returns_media_style_empty_fallback(self):
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        with mock.patch.object(notes.subprocess, "run", side_effect=notes.subprocess.TimeoutExpired("gh", 10)):
+            body = notes.pr_body(123, None)
+        self.assertEqual(body, "")
+        self.assertEqual(notes.pr_description(body, "Tabs stay put"), "Tabs stay put.")
 
     def test_backend_descriptions_are_internal_and_summary_digest_uses_description(self):
         import importlib.util
@@ -44,7 +65,7 @@ class ReleaseNotesTests(unittest.TestCase):
         fixture = os.path.join(self.repo, "pr-fixture.json")
         with open(fixture, "w") as out:
             json.dump({"bodies": {
-                "123": "<!-- generated -->\n## Changelog\n\nFixed: [Tabs](https://example.test/tabs) keep their position after restart",
+                "123": "<!-- generated -->\n## Changelog\n\nFixed: [Tabs](https://example.test/tabs) keep their position after restart. More detail. Even more detail.",
                 "124": "## Summary\n\nInternal database cutoff plumbing.",
             }, "files": {}}, out)
         notes_dir = os.path.join(self.repo, "pr-notes")
