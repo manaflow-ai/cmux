@@ -922,11 +922,14 @@ impl<B: Backend> Server<B> {
         let Some(tab_get) = v2_tools::find("tab_get") else {
             return Ok(std::borrow::Cow::Borrowed(arguments));
         };
-        // A `tab_…` id resolves with tab_get. A plain name does not: the daemon finds a
-        // tab name only under its pane, so the session's tabs are listed and the name is
-        // used only when exactly one tab has it.
+        // A `tab_…` id, or a name under a named workspace, screen or pane, resolves with
+        // tab_get. A name with no scope does not: the daemon finds a tab name only under
+        // its pane, so the session's tabs are listed and the name is used only when
+        // exactly one tab has it.
         let bare = tab.rsplit_once(':').map_or(tab, |(_, id)| id);
-        let record = if bare.starts_with("tab_") {
+        let under_scope =
+            ["workspace", "screen", "pane"].iter().any(|key| arguments.contains_key(*key));
+        let record = if bare.starts_with("tab_") || under_scope {
             let answer = self.call_v2(tab_get, &lookup);
             if answer["isError"] == true {
                 return Err(answer);

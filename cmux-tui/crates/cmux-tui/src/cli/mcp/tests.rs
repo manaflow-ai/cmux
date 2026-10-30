@@ -1869,4 +1869,23 @@ fn a_terminal_named_by_its_tab_through_terminal() {
     let list = sent.iter().rev().find(|s| s["request"]["operation"] == "tab.list");
     let list = list.unwrap_or_else(|| panic!("{sent:?}"));
     assert_eq!(list["session"], "s2", "{list}");
+    let lists = sent.iter().filter(|s| s["request"]["operation"] == "tab.list").count();
+    drop(sent);
+
+    // A name under a named pane is that pane's tab: tab_get finds it there, and a tab of
+    // the same name in another pane does not make it ambiguous.
+    server
+        .call(
+            &json!({"name": "terminal_screen_read", "arguments": {"tab": "zsh", "pane": "pane_x"}}),
+        )
+        .expect("a tool result");
+    let sent = server.backend.sent.borrow();
+    assert_eq!(
+        sent.iter().filter(|s| s["request"]["operation"] == "tab.list").count(),
+        lists,
+        "{sent:?}"
+    );
+    let get = sent.iter().rev().find(|s| s["request"]["operation"] == "tab.get");
+    let get = get.unwrap_or_else(|| panic!("{sent:?}"));
+    assert!(get["request"].to_string().contains("pane_x"), "the pane scopes the name: {get}");
 }
