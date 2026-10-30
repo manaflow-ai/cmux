@@ -153,11 +153,15 @@ final class SidebarFooterBand {
             let rightEdge = host.bounds.maxX - side
             let requestedX = max(columnMinX, row.itemsMaxX + Metrics.space2)
             guard requestedX <= rightEdge else {
-                // There is no non-overlapping slot in an overfull customized row. Keep the
-                // accessory alive but give it no hit frame, matching update-button no-room
-                // behavior instead of putting Search under another control or outside the pane.
-                button.frame = .zero
-                return nil
+                // There is no horizontal slot in an overfull customized row. Keep Search
+                // reachable on its own footer line rather than hiding it or placing it outside.
+                let footer = host.footer.frame
+                let fallbackY = footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.bottomInset - side / 2
+                let scale = host.window?.backingScaleFactor ?? 2
+                button.frame = NSRect(x: (rightEdge * scale).rounded() / scale,
+                                      y: ((fallbackY - side / 2) * scale).rounded() / scale,
+                                      width: side, height: side)
+                return button.frame.minX
             }
             (x, midY) = (requestedX, row.frame.midY + searchLensDrop)
         } else {
