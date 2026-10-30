@@ -93,8 +93,33 @@ impl State {
         self.done.get(id).is_none_or(|done| *done >= ticket)
     }
 
-    /// Writes session `id`'s queued lines next, ahead of other sessions'.
-    fn to_front(&mut self, id: &str) {
+    /// Queues `line` for session `id`, record `seq`: it takes the next ticket.
+    fn queue(&mut self, id: &str, line: &[u8], seq: u64) {
+        if !self.queued.contains_key(id) {
+            self.order.push_back(id.to_owned());
+        }
+        self.tickets += 1;
+        let ticket = self.tickets;
+        self.done.entry(id.to_owned()).or_default();
+        let q = self.queued.entry(id.to_owned()).or_default();
+        q.lines.extend_from_slice(line);
+        q.last = q.last.max(seq);
+        q.ticket = ticket;
+    }
+
+    /// The session whose queued lines the writer writes next.
+    fn next(&mut self) -> Option<String> {
+        loop {
+            let id = self.order.pop_front()?;
+            if self.queued.contains_key(&id) {
+                return Some(id);
+            }
+        }
+    }
+
+    /// A request or a read waits for session `id`'s queued lines: they are written next, ahead
+    /// of other sessions'.
+    fn wait_first(&mut self, id: &str) {
         if let Some(at) = self.order.iter().position(|o| o == id)
             && at > 0
             && let Some(id) = self.order.remove(at)
@@ -125,6 +150,8 @@ struct Segment {
 }
 
 struct Shared {
+    /// The writer's QoS boost (`cmux_threads::OwnerBoost`).
+    boost: cmux_threads::OwnerBoost,
     state: Mutex<State>,
     work: Condvar,
     done: Condvar,
@@ -156,6 +183,7 @@ impl LogWriter {
         delay: Option<std::time::Duration>,
     ) -> Self {
         let shared = Arc::new(Shared {
+            boost: cmux_threads::OwnerBoost::new(),
             state: Mutex::new(State::default()),
             work: Condvar::new(),
             done: Condvar::new(),
@@ -201,16 +229,7 @@ impl LogWriter {
             anyhow::bail!("the event log of {id} failed earlier; nothing after it is written");
         }
         progress.send_modify(|p| p.queued = p.queued.max(seq));
-        if !state.queued.contains_key(id) {
-            state.order.push_back(id.to_owned());
-        }
-        state.tickets += 1;
-        let ticket = state.tickets;
-        state.done.entry(id.to_owned()).or_default();
-        let q = state.queued.entry(id.to_owned()).or_default();
-        q.lines.extend_from_slice(&line);
-        q.last = q.last.max(seq);
-        q.ticket = ticket;
+        state.queue(id, &line, seq);
         self.shared.work.notify_one();
         Ok(())
     }
@@ -218,7 +237,7 @@ impl LogWriter {
     /// Writes session `id`'s queued lines next, ahead of other sessions' (a request waits for
     /// them; `hub/request_writes.rs`): the person's request goes before background streaming.
     pub(super) fn expedite(&self, id: &str) {
-        lock(&self.shared.state).to_front(id);
+        lock(&self.shared.state).wait_first(id);
     }
 
     /// Waits until every line queued for session `id` before this call is written: before its
@@ -228,7 +247,7 @@ impl LogWriter {
     pub(super) fn settle(&self, id: &str) {
         let mut state = lock(&self.shared.state);
         let Some(ticket) = state.pending(id) else { return };
-        state.to_front(id);
+        state.wait_first(id);
         while !state.written(id, ticket) {
             state = self.shared.done.wait(state).unwrap_or_else(|e| e.into_inner());
         }
@@ -304,6 +323,12 @@ impl LogWriter {
     fn running(&self) -> bool {
         lock(&self.thread).is_some()
     }
+
+    /// The QoS overrides the writer thread got from the requests that waited on it.
+    #[cfg(test)]
+    fn boost_counts(&self) -> cmux_threads::BoostCounts {
+        self.shared.boost.counts()
+    }
 }
 
 impl Drop for LogWriter {
@@ -344,7 +369,7 @@ fn run(shared: &Shared, delay: Option<std::time::Duration>) {
     let watched = SyncThread::register(THREAD, WRITE_ITEM);
     let mut state = lock(&shared.state);
     loop {
-        let Some(id) = state.order.pop_front() else {
+        let Some(id) = state.next() else {
             if state.stop {
                 return;
             }
@@ -464,6 +489,10 @@ impl Files {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "write_order_tests.rs"]
+mod write_order_tests;
 
 #[cfg(test)]
 mod tests {
