@@ -21,6 +21,11 @@ extension AgentPaneModel {
         String(localized: "agentPane.error.openPreview", defaultValue: "The page could not be opened.", bundle: .module)
     }
 
+    /// The system screen capture could not start, or ended with an error and wrote no image.
+    static var captureFailedMessage: String {
+        String(localized: "agentPane.error.capture", defaultValue: "The screen capture failed.", bundle: .module)
+    }
+
     /// The host's acpmux socket refused a page frame or could not connect (AgentPaneTransport).
     static var transportFailedMessage: String {
         String(localized: "agentPane.error.transport", defaultValue: "The app refused the agent connection.", bundle: .module)

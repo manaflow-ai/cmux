@@ -22,7 +22,7 @@ enum AgentPaneCapture {
         // The screen goes to the agent: only a click in the pane starts a capture.
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
-        guard await capture(window: mode == "window", to: file) else { return AgentPaneReply.success(["cancelled": true]) }
+        guard await capture(window: mode == "window", to: file) == .taken else { return AgentPaneReply.success(["cancelled": true]) }
         let taken = Date()
         // A person waits for the attachment: the read and the scale run at userBlocking's priority.
         let value = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { () -> [String: any Sendable] in
@@ -46,12 +46,25 @@ enum AgentPaneCapture {
         return ["name": name, "mimeType": image.mimeType, "data": image.data.base64EncodedString()]
     }
 
-    /// Runs the pick; false when `screencapture` could not start. Its caller is the main actor: the spawn
-    /// runs on AsyncProcess's own queue, and the wait holds no thread.
-    nonisolated static func capture(window: Bool, to file: URL) async -> Bool {
+    /// What one pick produced.
+    nonisolated enum CaptureResult: Equatable, Sendable {
+        /// `screencapture` ran; its file holds the image, or nothing (Esc).
+        case taken
+        /// It could not start or ended with an error, in the system's words.
+        case failed(String)
+    }
+
+    /// Runs the pick with `executable` (``tool``; tests pass a stub); `.failed` when it could not start.
+    /// Its caller is the main actor: the spawn runs on AsyncProcess's own queue, and the wait holds no thread.
+    nonisolated static func capture(window: Bool, to file: URL, executable: String = tool) async -> CaptureResult {
         // -x: no shutter sound; -o: no window shadow.
         let arguments = (window ? ["-i", "-W", "-o"] : ["-i"]) + ["-x", "-t", "png", file.path]
-        return (try? await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: tool), arguments))) != nil
+        do {
+            _ = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: executable), arguments))
+            return .taken
+        } catch {
+            return .failed(String(describing: error))
+        }
     }
 
     /// The capture as an image under ``maxBytes``: the PNG as written, else scaled to ``maxSide`` as
