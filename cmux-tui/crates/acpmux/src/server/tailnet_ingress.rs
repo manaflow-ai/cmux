@@ -260,7 +260,7 @@ where
             let close = tokio::select! {
                 biased;
                 () = restart.normal() => Some(false),
-                () = restart.closing() => Some(true),
+                restarting = restart.closing_as_restart() => Some(restarting),
                 _ = stopped(&mut stop) => Some(false),
                 _ = super::pairing::serve_redeem(hub, &mut ws, secret) => None,
             };
@@ -319,7 +319,7 @@ async fn device_connection<S>(
         let restarting = tokio::select! {
             biased;
             () = restart.normal() => false,
-            () = restart.closing() => true,
+            restarting = restart.closing_as_restart() => restarting,
             _ = stopped(&mut stop) => false,
             _ = revoked => false,
             _ = network => false,

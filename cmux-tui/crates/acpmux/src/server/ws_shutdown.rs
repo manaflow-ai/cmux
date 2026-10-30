@@ -88,6 +88,16 @@ impl WsShutdown {
         let _ = state.wait_for(|stopping| *stopping).await;
     }
 
+    /// Wait until clients are to close, and say whether as a restart (close 1012). A normal stop
+    /// also closes clients, so the answer is the restart latch, read once the close signal came,
+    /// never which signal a select saw first: a writer that polled `normal` just before it was
+    /// set and `closing` just after saw only `closing`, and sent 1012 for an explicit stop. A
+    /// restart sets `requested` before any listener closes its clients, so it is seen here.
+    pub(super) async fn closing_as_restart(&self) -> bool {
+        self.closing().await;
+        self.is_requested()
+    }
+
     pub(super) async fn requested(&self) {
         let mut state = self.requested.subscribe();
         let _ = state.wait_for(|stopping| *stopping).await;
@@ -144,7 +154,7 @@ pub(super) async fn write<S>(
     let restarting = tokio::select! {
         biased;
         () = shutdown.normal() => false,
-        () = shutdown.closing() => true,
+        restarting = shutdown.closing_as_restart() => restarting,
         () = async {
             loop {
                 let line = tokio::select! {

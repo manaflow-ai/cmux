@@ -120,6 +120,8 @@ async fn late_writer_sees_restart_but_normal_connection_close_has_no_restart_cod
         let (stop, stopped) = oneshot::channel();
         let shutdown = WsShutdown::default();
         if restarting {
+            // As the daemon does: the restart latch, then the listener closes its clients.
+            shutdown.restart();
             shutdown.close_clients();
         } else {
             stop.send(()).unwrap();

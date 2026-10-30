@@ -1063,7 +1063,7 @@ pub async fn serve_ws_until(
                     let close = tokio::select! {
                         biased;
                         () = shutdown.normal() => Some(false),
-                        () = shutdown.closing() => Some(true),
+                        restarting = shutdown.closing_as_restart() => Some(restarting),
                         () = pairing::serve_redeem(hub, &mut ws, secret) => None,
                     };
                     if let Some(restarting) = close {
