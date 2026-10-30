@@ -573,12 +573,16 @@ public final class ConversationStore {
                     // More than one page may have arrived while disconnected.
                     // Refresh the entire retained window: missed edits/unsends
                     // can affect its oldest row, and live arrivals during an
-                    // earlier cancelled recovery need not be contiguous.
-                    while let overlap, page.hasMore {
+                    // earlier cancelled recovery need not be contiguous. A live
+                    // row that lands during this fetch, older than anything
+                    // kept (an empty window admits any seq), moves the anchor
+                    // down: fetch through it so no gap sits above it.
+                    while retained != nil, page.hasMore,
+                          let anchor = [overlap, self.oldestLoadedSeq].compactMap({ $0 }).min() {
                         guard let first = page.messages.compactMap(\.seq).min() else {
                             throw ConversationBackendError(code: -1, message: "History made no progress while reconnecting")
                         }
-                        guard first > overlap else { break }
+                        guard first > anchor else { break }
                         page = try await self.backend.history(beforeSeq: first, limit: self.pageSize)
                         try Task.checkCancellation()
                         guard let next = page.messages.compactMap(\.seq).min(), next < first else {
@@ -601,7 +605,10 @@ public final class ConversationStore {
         guard let newest = pages.first else { return }
         var inserted: [String] = []
         if let retained {
-            let oldestRetained = retained.values.compactMap(\.seq).min()
+            // The oldest kept row: the reconnect snapshot's, or a live row
+            // that landed below it while the pages were fetched (the fetch
+            // loop read the same window synchronously before this call).
+            let oldestRetained = [retained.values.compactMap(\.seq).min(), oldestLoadedSeq].compactMap { $0 }.min()
             for page in pages.reversed() {
                 for message in page.messages {
                     // The last fetched page may extend before the kept window.
@@ -653,6 +660,9 @@ public final class ConversationStore {
         refreshReadState()
         if olderWanted { loadOlder() }
     }
+
+    /// The lowest server sequence in the loaded window, if any.
+    private var oldestLoadedSeq: Int? { messages.compactMap(\.seq).min() }
 
     /// Requests the page above the oldest loaded message. Safe to call on
     /// every scroll tick; it coalesces and retries with backoff on failure.

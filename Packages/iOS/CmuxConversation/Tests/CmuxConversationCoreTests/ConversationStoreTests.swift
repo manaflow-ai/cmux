@@ -270,6 +270,32 @@ import Testing
         #expect(store.older == .exhausted)
     }
 
+    @Test func liveRowOlderThanTheFetchedPageDuringEmptyRecoveryLeavesNoGap() async throws {
+        let backend = ScriptedBackend(total: 0)
+        let store = ConversationStore(backend: backend, pageSize: 20)
+        defer { store.stop() }
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        let gate = PreparationGate()
+        defer { gate.open() }
+        backend.nextHistoryGate = gate
+        backend.total = 100
+        store.apply(.connected(info: backend.info, meID: "me", lagged: true))
+        try await waitUntil { backend.historyCount == 2 }
+        // An update for message 50 arrives while the newest page (81-100) is
+        // held. Recovery must fetch down to it, not leave 51-80 unreachable.
+        store.apply(.message(backend.makeMessage(seq: 50, sender: "lc"), eventSeq: 1))
+        gate.open()
+        try await waitUntil { store.message(id: "m100") != nil }
+        #expect(store.messages.compactMap(\.seq) == Array(50...100))
+        #expect(store.older == .idle)
+        for oldest in [30, 10, 1] {
+            store.loadOlder()
+            try await waitUntil { store.messages.first?.seq == oldest }
+        }
+        #expect(store.messages.compactMap(\.seq) == Array(1...100))
+    }
+
     @Test func reconnectRefreshesMissedEditsThroughoutRetainedHistory() async throws {
         let backend = ScriptedBackend(total: 100)
         let store = ConversationStore(backend: backend, pageSize: 20)
