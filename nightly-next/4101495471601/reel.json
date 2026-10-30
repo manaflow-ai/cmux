@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4101495471601",
+  "notes": "notes/4101495471601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27931,
+      "title": "acpmux: count only live sub-sessions toward the width cap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27738,
+      "title": "ci(nightly-next): rollback is red until pulled.json lists the pulled builds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27913,
+      "title": "Revert \"cmux NEXT composer: search files, chats, and pages from + (#26568)\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26547,
+      "title": "Transcript: keep sent attachments interleaved in order",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27978,
+      "title": "optchat-chief: Chief sessions never set the store's transcript retention",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27903,
+      "title": "acpmux: an adopted Claude Code chat keeps its profile (claude-sr2 comes back as claude-sr2)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
