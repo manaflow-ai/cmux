@@ -56,7 +56,7 @@ enum CloudCreationRows {
             // Paused never reads failed: "Paused (idle)" or "Paused"; an attach resumes it.
             header.status = idle ? .pausedIdle : .paused
         } else if let failure = stage.failure, header.status == .connecting || header.status == .offline {
-            header.status = .failed
+            header.status = session.stageInput.isDisconnect ? .disconnected : .failed
             header.detail = failure
         }
         // The server answered a pause, resume or resize at once and its provider call failed

@@ -201,7 +201,8 @@ export type ComposerHandle = {
   attach(attachment: ComposerAttachment): void;
   /// Adds a chip the host is still making (a long dictation recording it sends to the chat's
   /// machine): a pending tile a send waits for, which becomes the chip `make` answers, or fails with
-  /// `failure` and Retry (composer/attachmentIntake.tsx attachLater). Its × runs `stop`.
+  /// `failure` and Retry; the send keeps waiting until Retry makes it or its × takes it out
+  /// (composer/attachmentIntake.tsx attachLater). Its × runs `stop`.
   attachLater(
     name: string,
     make: () => Promise<ComposerAttachment | undefined>,

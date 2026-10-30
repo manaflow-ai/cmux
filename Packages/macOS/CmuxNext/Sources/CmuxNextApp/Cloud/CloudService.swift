@@ -445,6 +445,7 @@ final class CloudService {
         let read = beginRecordRead()
         defer { finishRecordRead(read) }
         let account = listAccount
+        let connectsAtRead = Dictionary(machines.cloud.map { ($0.machineID, $0.connects) }, uniquingKeysWith: { first, _ in first })
         do {
             let list: [CloudMachine]
             let limits: CloudMachineLimits?
@@ -460,7 +461,7 @@ final class CloudService {
             machines.cloudLimits = limits
             if let limits { planObserved(limits.planId) }
             lastError = nil
-            reconcile(list, read: read)
+            reconcile(list, read: read, connectsAtRead: connectsAtRead)
             changes.listed(machines.cloud.map(\.machine)) { [weak self] in _ = await self?.refresh() }
             hasLoadedMachines = true
             loadedAccount = account
@@ -512,13 +513,14 @@ final class CloudService {
         processDeferredRecordRemovals()
     }
 
-    func reconcile(_ list: [CloudMachine], read: Int) {
+    /// `connectsAtRead` fences a list against a connection begun after that list was requested.
+    func reconcile(_ list: [CloudMachine], read: Int, connectsAtRead: [String: Int] = [:]) {
         // A list that arrives after Cloud was turned off connects nothing.
         guard !policyDisabled else { return }
         let visible = list.filter { $0.status != .destroyed }
         for machine in visible {
             if let session = machines.session(machine.id) {
-                apply(machine, to: session, read: read)
+                apply(machine, to: session, read: read, connectsAtRead: connectsAtRead[machine.id])
             } else {
                 // Do not resurrect a machine removed by a newer detail/list response.
                 guard read > recordReadApplied[machine.id, default: 0] else { continue }
@@ -578,7 +580,7 @@ final class CloudService {
     /// machine that stopped being live suspends its link, and one that turned live connects.
     /// `read` (``beginRecordRead(machineID:)``): a record from a read asked before the one the session
     /// holds changes nothing, so answers that land out of order run no stale transition.
-    func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int) {
+    func apply(_ machine: CloudMachine, to session: CloudMachineSession, read: Int, connectsAtRead: Int? = nil) {
         // Apply the newer record before releasing any removal it was protecting.
         defer { finishRecordRead(read) }
         guard !policyDisabled, machine.id == session.machineID,
@@ -591,7 +593,7 @@ final class CloudService {
         }
         // Read ordering admits the record; mutation tracking supplies presentation until the
         // matching operation settles, so an in-flight status read cannot reopen action gates.
-        session.applyRecord(changes.applyingPending(to: machine, read: read))
+        session.listed(changes.applyingPending(to: machine, read: read), connectsAtRead: connectsAtRead ?? session.connects)
     }
 
     @discardableResult
