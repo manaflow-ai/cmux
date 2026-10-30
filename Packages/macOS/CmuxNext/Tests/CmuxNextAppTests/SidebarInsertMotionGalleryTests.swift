@@ -73,7 +73,8 @@ import Testing
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderMotionVariants() throws {
         _ = NSApplication.shared
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let out = root.appending(path: "sidebar-insert-motion-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
