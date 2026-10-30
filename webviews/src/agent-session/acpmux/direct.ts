@@ -6557,8 +6557,8 @@ export class AcpmuxDirectClient {
     // A fork is a new conversation: its harness session is its own, not the adopted one.
     if (sessionId && (adopt.ifLive === "fork" || adoptedBy(result, adopt))) {
       if (this.closed || generation !== this.selectionGeneration) return;
-      this.markAdopted(sessionId);
-      await this.select(sessionId);
+      // The tab keeps it only once the pane shows it (a switch during the attach keeps the other).
+      if ((await this.select(sessionId)) === sessionId) this.markAdopted(sessionId);
       return;
     }
     if (sessionId) await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
@@ -6574,14 +6574,21 @@ export class AcpmuxDirectClient {
     const watch: AcpmuxAdopt = { harness: adopt.harness, agentSessionId: adopt.agentSessionId, watch: true };
     const generation = this.selectionGeneration;
     const moved = () => this.closed || generation !== this.selectionGeneration;
+    // acpmux answers a watch it already has (another tab's) with that session: only one this
+    // request made is removed when nobody looks at it.
+    const known = new Set(this.sessions.map((session) => session.sessionId));
     let result: any;
     try {
       result = await this.request("session/new", newSessionParams({ adopt: watch }));
     } catch {
       return moved();
     }
-    if (moved()) return true;
     const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
+    if (moved()) {
+      if (sessionId && !known.has(sessionId) && !this.closed)
+        await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
+      return true;
+    }
     if (!sessionId) return false;
     if (!adoptedBy(result, watch)) {
       await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
