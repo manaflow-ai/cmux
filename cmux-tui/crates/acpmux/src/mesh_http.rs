@@ -318,6 +318,7 @@ const KNOWN_CODES: &[&str] = &[
     "mesh.unknown_recipient",
     "mesh.ambiguous",
     "mesh.conflict",
+    "mesh.idempotency_conflict",
     "mesh.rate_limited",
     "mesh.too_large",
     "mesh.unavailable",

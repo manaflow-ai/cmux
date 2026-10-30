@@ -1,10 +1,10 @@
 // The thread rail (threadMinimap/ThreadMinimap.tsx) is pinned to the pane's left edge and never
 // pushed aside by Session Info (Leo, 2026-10-25: "So the left rail thing, that still gets hidden. So, like, when that session rail is
 // there, the session rail ends up pushing it to the side, and also when the left pane gets too narrow,
-// the session rail still disappears. We can't have it disappear."). Session Info floats and moves the
-// chat's column left only when both fit (inspector/ChatInspector.tsx inspectorChatShift); the rail
-// stays at its pane-edge inset while the chat column moves independently.
-// In a wide pane (1600), the pane where the column moves (1200), a narrow window (800), the
+// the session rail still disappears. We can't have it disappear."). Session Info floats and never
+// moves the chat's column (Leo, 2026-10-29: "it's not supposed to be a fucking sidebar that pushes the
+// fucking layout"); the rail stays at its pane-edge inset, open or closed.
+// In a wide pane (1600), a pane whose gutter cannot hold the panel (1200), a narrow window (800), the
 // overlap breakpoint (780), and the narrowest usable pane (760), with Session Info closed, open,
 // and pushing (Push always): the rail keeps one full-width look, uses its pane-edge spacing inset,
 // and keeps a live edge strip when the text leaves no room.
