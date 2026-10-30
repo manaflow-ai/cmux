@@ -5411,7 +5411,10 @@ function AcpmuxPane() {
   );
   /// The name a subagent's pane tab shows (subagentPanes.ts subagentTabTitle): its own, else "Subagent of" the chat.
   const subagentTitle = (id: string) =>
-    subagentTabTitle(freshAgents.find((agent) => agent.id === id), `${t("subagents.of")} ${chatName}`);
+    subagentTabTitle(
+      freshAgents.find((agent) => agent.id === id),
+      `${t("subagents.of")} ${chatName}`,
+    );
   // For callbacks that keep one identity (showSubagent names a pane's tab with it).
   const subagentTitleRef = useRef(subagentTitle);
   subagentTitleRef.current = subagentTitle;
@@ -6658,7 +6661,8 @@ function AcpmuxPane() {
   // while this page has no rows for the subagent yet (they load after the pane opens), which would name
   // it "Subagent of" over the name the chat's page gave it.
   const shownSubagentKnown = !!subagentView && freshAgents.some((agent) => agent.id === subagentView);
-  const shownSubagentTitle = ownSubagentPane && subagentView && shownSubagentKnown ? subagentTitle(subagentView) : undefined;
+  const shownSubagentTitle =
+    ownSubagentPane && subagentView && shownSubagentKnown ? subagentTitle(subagentView) : undefined;
   const subagentShownOnce = useRef(false);
   useEffect(() => {
     if (!ownSubagentPane) return;
