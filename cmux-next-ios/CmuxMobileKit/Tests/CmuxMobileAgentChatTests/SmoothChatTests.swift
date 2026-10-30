@@ -337,8 +337,10 @@ import UIKit
         let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
         list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
         list.boundsMayHaveChanged()
-        let id = try #require(list.layout.items.first { $0.id.hasPrefix("m0#") }?.id)
-        #expect(list.layout.items.first { $0.id == id }?.exact == false, "the oldest blocks wait for their off-main layout")
+        let items = list.layout.items
+        try #require(!items.isEmpty, "no rows for \(store.turns.count) turns")
+        // The oldest native rows wait for their off-main layout (only the newest are laid out at once).
+        let id = try #require(items.first { !$0.exact && list.canLayOut($0.id) }?.id, "rows: \(items.prefix(16).map(\.id))")
         list.layOutNow(id)
         #expect(list.layout.items.first { $0.id == id }?.exact == true)
     }

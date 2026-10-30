@@ -479,6 +479,11 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         reload()
     }
 
+    /// Whether the row is drawn natively (its layout can be made here).
+    func canLayOut(_ id: String) -> Bool {
+        rows[id].map { lookup.eligible($0) } ?? false
+    }
+
     /// Find in Chat: the row's real height before a scroll to it. A row far from the reader
     /// may still wait for its off-main layout, and a reveal by its estimate lands off the match.
     func layOutNow(_ id: String) {
