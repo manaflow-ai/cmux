@@ -37,7 +37,9 @@ enum HomeDockOpens {
             outbound?.finish(moved: false)
         }
 
-        deinit { cancel() }
+        // The creator owns cancellation on every refusal path. Keep deinit
+        // nonisolated: this token can be released by an action task.
+        nonisolated deinit {}
     }
 
     /// The pinned dock column holding `pane` in `store`, if any.
@@ -90,5 +92,11 @@ enum HomeDockOpens {
             } != nil
             return moved ? nil : "home dock: the move beside it failed (see the app log)"
         })
+    }
+
+    /// Releases the most recently prepared Home placement when its creator
+    /// refuses before invoking the placement callback.
+    static func cancel(_ pane: PaneModel, services: AppServices) {
+        services.paneController(for: pane).map { OutboundTab.cancelLatest(in: $0) }
     }
 }

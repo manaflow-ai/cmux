@@ -118,7 +118,8 @@ extension PaneController {
         // the outbound hold and flashes Home's strip before the move callback runs.
         // A caller callback may only notify or close a source page; only a callback that owns
         // placement suppresses the normal selection.
-        let ownsPlacement = placementOwner || (then == nil && HomeDockOpens.opensBeside(pane, services: services))
+        let homePlacement = HomeDockOpens.opensBeside(pane, services: services)
+        let ownsPlacement = placementOwner || (then == nil && homePlacement)
         let selectHere = !ownsPlacement
         // Nothing opens in Home's dock: without a placement of the caller's, the tab moves beside it.
         let then = then ?? HomeDockOpens.placing(pane, services: services, focus: true, then: nil)
@@ -130,9 +131,15 @@ extension PaneController {
         let cwd = daemonResolvesCwd ? cwd : cwd ?? (fromSelectedTab ? NewTerminalStart.inherited(besides: selectedTab, in: pane, services: services) : nil) ?? selectedTab?.cwd
         // From another machine's terminal (an SSH tab in a mixed pane), a terminal on that machine (cx-2s5t).
         if fromSelectedTab, text == nil, page == nil,
-           services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { return }
+           services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) {
+            if homePlacement { HomeDockOpens.cancel(pane, services: services) }
+            return
+        }
         let workspace = services.workspaceKey(of: pane)
-        guard let connection = daemon.connection else { return }
+        guard let connection = daemon.connection else {
+            if homePlacement { HomeDockOpens.cancel(pane, services: services) }
+            return
+        }
         let intent = self.workspace?.beginFocusIntent()
         // The window's keys wait until the new terminal has the keyboard (cx-wb5.76); a creation
         // that types its own text first keeps the keys where they are.
@@ -142,7 +149,8 @@ extension PaneController {
         let size = newTerminalSize
         let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
-            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, selectHere: selectHere, then: then)
+            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window,
+                                     selectHere: selectHere, homePlacement: homePlacement, then: then)
         }
         services.registry.track(Task { [services] in
             var landed = false
@@ -163,6 +171,7 @@ extension PaneController {
                 then?(created.surface)
                 return nil
             } catch {
+                if homePlacement { HomeDockOpens.cancel(self.pane, services: services) }
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
             }
@@ -175,7 +184,8 @@ extension PaneController {
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
     /// the daemon's terminal, as before.
     private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
-                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, selectHere: Bool, then: (@MainActor (SurfaceID) -> Void)?) {
+                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, selectHere: Bool,
+                                   homePlacement: Bool, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
             Task { @MainActor () -> String? in
@@ -199,8 +209,10 @@ extension PaneController {
                 then?(created.surface)
                 return nil
             } catch is NewTerminalTabCancelled {
+                if homePlacement { HomeDockOpens.cancel(self.pane, services: services) }
                 return nil // the person closed the stand-in first
             } catch {
+                if homePlacement { HomeDockOpens.cancel(self.pane, services: services) }
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
             }

@@ -222,13 +222,17 @@ final class InternalPageTabStore {
                       controller pane: PaneController?, window: WindowController, focus: Bool, key given: String? = nil,
                       created onCreated: (@MainActor (SurfaceID) -> Void)? = nil) -> InternalPageView? {
         let store = daemon.store
+        let homePlacement = HomeDockOpens.opensBeside(model, services: services)
         // A foreground page in Home is selected by its destination placement, never while its
         // provisional tab still belongs to the dock: that would release OutboundTab too early.
-        let selectHere = focus && !HomeDockOpens.opensBeside(model, services: services)
+        let selectHere = focus && !homePlacement
         // Nothing opens in Home's dock (an app page, a file): without a placement of the caller's, the tab moves beside it.
         let onCreated = onCreated ?? HomeDockOpens.placing(model, services: services, focus: focus, then: nil)
         guard let provider = providers[page], daemon.supports(DaemonCapability.pageTabs.rawValue),
-              case .connected = store.connectionState else { return nil }
+              case .connected = store.connectionState else {
+            if homePlacement { HomeDockOpens.cancel(model, services: services) }
+            return nil
+        }
         let provisional = ProvisionalTab()
         let key = given.flatMap { LocalPageTab.page(of: $0) == page ? $0 : nil } ?? LocalPageTab.makeKey(page)
         var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
@@ -266,6 +270,7 @@ final class InternalPageTabStore {
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
                 if !store.creations.wasCancelled(transaction) { onCreated?(created.surface) }
             } catch {
+                if homePlacement { HomeDockOpens.cancel(model, services: services) }
                 daemon.logger.error("new-conversation-tab (page) failed: \(String(describing: error), privacy: .public)")
                 if !store.creations.wasCancelled(transaction) {
                     self?.keepAsLocalTab(provisional.id, key: key, page: page, in: paneKey, controller: pane, store: store, window: window,

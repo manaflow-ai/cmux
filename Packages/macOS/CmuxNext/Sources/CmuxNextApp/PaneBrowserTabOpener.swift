@@ -137,6 +137,7 @@ struct PaneBrowserTabOpener {
                     return nil
                 } catch {
                     outbound?.finish(moved: false)
+                    if callerOwnsHomePlacement { OutboundTab.cancelLatest(in: controller) }
                     child?.close()
                     controller.daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
                     return "new-frontend-browser-tab: \(error)"
