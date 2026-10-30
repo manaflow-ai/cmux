@@ -127,6 +127,7 @@ import Testing
         let chats = [(Self.parent, [AgentSessionRef(host: "install:unknown", hostName: "This Mac", session: "local")])]
         let pass = SidebarSessionTreeFeed.pass(chats, lanes: [:], localHost: nil, pullRequests: [:])
         #expect(pass.state.hosts.isEmpty)
+        #expect(pass.state.parents.isEmpty)
     }
 
     @Test func lineageNestingRemainsInPinnedSectionWhenFleetHostsExist() {
