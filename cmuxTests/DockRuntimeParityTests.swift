@@ -123,12 +123,66 @@ struct DockRuntimeParityTests {
                 terminalCommandSourcePaths: [:], workspaceCommands: [:]
             )
             for dock in docks {
-                let actual = dock.bonsplitController.configuration.appearance.splitButtons
-                #expect(actual.map(\.id) == ["down", "terminal"])
-                #expect(actual.map(\.action) == [.splitDown, .newTerminal])
-                #expect(actual.first?.tooltip == "Split below")
+                Self.expectConfiguredDockButtons(dock, after: "applying the configured list")
+                // Both chrome refreshes rebuild the Bonsplit appearance; each
+                // must carry the configured list through on its own.
+                dock.applyGhosttyChrome(from: GhosttyConfig())
+                Self.expectConfiguredDockButtons(dock, after: "applyGhosttyChrome(from:)")
+                dock.applyGhosttyChrome(
+                    from: GhosttyConfig(),
+                    windowAppearance: .rightSidebarPanelViewTestDefault
+                )
+                Self.expectConfiguredDockButtons(
+                    dock, after: "applyGhosttyChrome(from:windowAppearance:)"
+                )
+            }
+
+            // #27452: going back to `[]` while the Docks are open must clear
+            // the buttons they already draw, and a later refresh must not
+            // bring them back.
+            manager.applySurfaceTabBarButtons(
+                [], sourcePath: nil, globalConfigPath: "/tmp/cmux-dock-buttons.json",
+                terminalCommandSourcePaths: [:], workspaceCommands: [:]
+            )
+            for dock in docks {
+                #expect(
+                    dock.bonsplitController.configuration.appearance.splitButtons.isEmpty,
+                    "configured buttons survived a change back to []"
+                )
+                dock.applyGhosttyChrome(from: GhosttyConfig())
+                dock.applyGhosttyChrome(
+                    from: GhosttyConfig(),
+                    windowAppearance: .rightSidebarPanelViewTestDefault
+                )
+                #expect(
+                    dock.bonsplitController.configuration.appearance.splitButtons.isEmpty,
+                    "a chrome refresh brought cleared buttons back"
+                )
             }
         }
+    }
+
+    private static func expectConfiguredDockButtons(
+        _ dock: DockSplitStore,
+        after stage: String,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        let actual = dock.bonsplitController.configuration.appearance.splitButtons
+        #expect(
+            actual.map(\.id) == ["down", "terminal"],
+            Comment(rawValue: "ids after \(stage)"),
+            sourceLocation: sourceLocation
+        )
+        #expect(
+            actual.map(\.action) == [.splitDown, .newTerminal],
+            Comment(rawValue: "actions after \(stage)"),
+            sourceLocation: sourceLocation
+        )
+        #expect(
+            actual.first?.tooltip == "Split below",
+            Comment(rawValue: "tooltip after \(stage)"),
+            sourceLocation: sourceLocation
+        )
     }
 
     @Test("Conversations reuses a live Dock terminal", arguments: [false, true])
