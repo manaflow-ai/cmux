@@ -136,6 +136,13 @@ pub(super) fn create_resource_effect_schema(transaction: &Transaction<'_>) -> an
          CREATE INDEX IF NOT EXISTS resource_creation_receipts_executing
            ON resource_creation_receipts(execution_kind)
            WHERE state = 'executing';
+         -- The notification ids of committed notification receipts: the local
+         -- feed's start trims its folded set against this list
+         -- (feed_local_store::trim_feed_local_folded) without reading any
+         -- receipt row (0.40 s -> 22 ms cold on a 41.6 GB registry).
+         CREATE INDEX IF NOT EXISTS resource_effect_receipts_notification_ids
+           ON resource_effect_receipts(json_extract(outcome_json, '$.value.id'))
+           WHERE operation = 'notification.create' AND state = 'committed';
          CREATE TABLE IF NOT EXISTS resource_input_receipt_completions (
            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
            idempotency_key TEXT UNIQUE NOT NULL,
