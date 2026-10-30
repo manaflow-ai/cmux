@@ -1,6 +1,5 @@
 public import Foundation
 import CmuxNextCompat
-import CmuxNextWakeups
 
 /// A small JSON state file beside the launch snapshot, written off the main thread (cmux#27749).
 ///
@@ -14,16 +13,17 @@ import CmuxNextWakeups
 /// before it ran is skipped, so a burst costs one write. The caller hands over a value, and the
 /// encoding runs on the queue too; an encoding that throws leaves the file as the last save that
 /// ran left it. ``read()`` waits for the saves already queued for the file, so a store made right
-/// after a save reads it back. At quit ``AgentPaneStateFiles/drained(within:)`` awaits, bounded, the queued saves, holding no
-/// thread. A crash or kill between a save's call and its write loses that save: the window is
+/// after a save reads it back. At quit ``AgentPaneStateFiles/drained()`` awaits the queued saves, holding no
+/// thread, under the quit's deadline. A crash or kill between a save's call and its write loses that save: the window is
 /// the queue's backlog (a few milliseconds idle, up to a second under heavy disk load), the price
 /// of never holding the main thread for the disk. The files hold a new chat's unsent text and
 /// where each transcript was scrolled; the next settled edit or scroll saves again.
 public nonisolated final class AgentPaneStateFile: Sendable {
     public let url: URL
     fileprivate let queue: DispatchQueue
-    /// The newest save's number; a queued save with an older one does nothing.
-    private let newest = Mutex<UInt64>(0)
+    /// The newest save's number (a queued save with an older one does nothing), and the number of
+    /// the last one that ran or was skipped: a save is still queued while they differ.
+    private let numbers = Mutex<(newest: UInt64, ran: UInt64)>((0, 0))
 
     /// Set on this file's queue only, so a read from inside one of its saves does not wait on
     /// itself, and a read of another file from inside a save still waits for that file's saves.
@@ -38,12 +38,13 @@ public nonisolated final class AgentPaneStateFile: Sendable {
     /// Saves what `encode` returns, atomically, on the file's queue; nil removes the file, and a
     /// throw keeps it as the last save that ran left it (a save this one replaced never ran).
     public func write(_ encode: @escaping @Sendable () throws -> Data?) {
-        let number = newest.withLock { value in
-            value += 1
-            return value
+        let number = numbers.withLock { numbers in
+            numbers.newest += 1
+            return numbers.newest
         }
         queue.async { [self] in
-            guard newest.withLock({ $0 == number }) else { return }
+            defer { numbers.withLock { $0.ran = number } }
+            guard numbers.withLock({ $0.newest == number }) else { return }
             let data: Data?
             do { data = try encode() } catch { return }  // a throw keeps the last good file
             guard let data else {
@@ -52,6 +53,16 @@ public nonisolated final class AgentPaneStateFile: Sendable {
             }
             try? data.write(to: url, options: .atomic)
         }
+    }
+
+    /// Whether a save is still queued (or running).
+    public var isSaving: Bool {
+        numbers.withLock { $0.ran != $0.newest }
+    }
+
+    /// Returns, holding no thread, once the saves queued before this call have run.
+    public func saved() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
     }
 
     /// The file's bytes once the saves queued before this call have run; nil when there is none.
@@ -69,7 +80,7 @@ public nonisolated final class AgentPaneStateFiles: Sendable {
     private let files = Mutex<[String: AgentPaneStateFile]>([:])
     private let drainBegan: @Sendable () -> Void
 
-    /// - Parameter drainBegan: Told each time a ``drained(within:)`` begins, before it waits (a test
+    /// - Parameter drainBegan: Told each time a ``drained()`` begins, before it waits (a test
     ///   releases a save it holds there, so only a real drain can let the quit go on).
     public init(drainBegan: @escaping @Sendable () -> Void = {}) {
         self.drainBegan = drainBegan
@@ -86,12 +97,17 @@ public nonisolated final class AgentPaneStateFiles: Sendable {
         }
     }
 
-    /// Waits, holding no thread, `limit` at most for every file's saves queued before this call: the
-    /// app's quit awaits it (`QuitCoordinator`), and the forced quit after its own deadline is armed
-    /// (`ForcedQuitExit`). False when some were still queued at the limit.
-    @discardableResult
-    public func drained(within limit: Duration) async -> Bool {
+    /// Returns, holding no thread, once every file's saves queued before this call have run. It has no
+    /// limit of its own: the quit awaits it only after its deadline is armed (`QuitCoordinator`'s
+    /// engine stop, `ForcedQuitExit`), and that deadline records what was still queued
+    /// (``AgentPaneStateLoss``).
+    public func drained() async {
         drainBegan()
-        return await QueueDrain().drained(files.withLock { $0.values.map(\.queue) }, within: limit)
+        for file in files.withLock({ Array($0.values) }) { await file.saved() }
+    }
+
+    /// The names of the files with a save still queued (no content), sorted.
+    public func savingFileNames() -> [String] {
+        files.withLock { $0.values.filter(\.isSaving).map(\.url.lastPathComponent) }.sorted()
     }
 }

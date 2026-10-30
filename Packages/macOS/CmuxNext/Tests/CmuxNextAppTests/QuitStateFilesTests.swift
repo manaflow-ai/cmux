@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -21,9 +22,9 @@ struct QuitStateFilesTests {
         return directory
     }
 
-    /// The app's services with `gate`'s state files, and a new chat's draft save for `directory` queued
-    /// behind `gate`'s held save; `written()` says whether the draft is on disk.
-    static func queuedDraft(in directory: URL, gate: DrainGate) -> (services: AppServices, written: () -> Bool) {
+    /// The app's services with `gate`'s state files, a quit deadline that never ends the test process,
+    /// and no key window.
+    static func services(_ gate: DrainGate) -> AppServices {
         // The quit steps read `NSApp` (the key window, whether the app is active): make the app object
         // first, as the other AppServices tests do. The root fix of those reads is
         // fix/arch-rise-appservices-no-nsapp-trap.
@@ -31,11 +32,18 @@ struct QuitStateFilesTests {
         let services = AppServices(environment: AppEnvironment.current([:]), agentPaneStateFiles: gate.files)
         // No window is key in a test process.
         services.keyWindowSource = { nil }
+        services.quit.deadline = QuitDeadline(reason: "a quit test", end: {})
+        return services
+    }
+
+    /// A new chat's draft save for `directory` queued behind `gate`'s held save (a busy disk); the
+    /// result says whether the draft is on disk.
+    static func queueDraft(in directory: URL, gate: DrainGate) -> () -> Bool {
         let url = directory.appending(path: AgentUnsentDrafts.fileName)
         let file = gate.files.at(url)
         gate.hold(file)
         file.write { Data("draft".utf8) }
-        return (services, { (try? Data(contentsOf: url)) == Data("draft".utf8) })
+        return { (try? Data(contentsOf: url)) == Data("draft".utf8) }
     }
 
     /// A second quit signal with a draft save queued behind a busy disk: the 160 ms deadline is armed
@@ -46,32 +54,33 @@ struct QuitStateFilesTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let gate = DrainGate()
         defer { gate.releaseHeldSave() }
-        let draft = Self.queuedDraft(in: directory, gate: gate)
+        let services = Self.services(gate)
+        let written = Self.queueDraft(in: directory, gate: gate)
         var onDiskAtEnd: Bool?
-        let exit = AppDelegate.secondSignalExit({ draft.services },
+        let exit = AppDelegate.secondSignalExit({ services },
                                                 armDeadline: { _ in gate.log("deadline armed") },
-                                                end: { onDiskAtEnd = draft.written() })
+                                                end: { onDiskAtEnd = written() })
         await exit.start()?.value
         #expect(gate.events() == ["deadline armed", "drain began"],
                 "the forced quit's order was \(gate.events()); the deadline must be armed before the state files are awaited")
         #expect(onDiskAtEnd == true, "the forced quit ended before the queued draft save")
     }
 
-    /// The quit's wait (QuitCoordinator's save steps) holds no thread: the held save is let go by the
-    /// main actor once the drain began, so a wait that blocked the main thread would reach its limit
-    /// with the draft still queued.
+    /// The quit's wait holds no thread: the main actor lets the held save go once the drain began, so a
+    /// wait that blocked the main thread would never end (the time limit fails the test).
     @Test(.timeLimit(.minutes(1)))
     func theQuitAwaitsAQueuedDraftWithoutBlockingTheMainThread() async throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let gate = DrainGate(releasesOnDrain: false)
         defer { gate.releaseHeldSave() }
-        let draft = Self.queuedDraft(in: directory, gate: gate)
-        let quit = Task { await draft.services.stateFilesDrained() }
+        let services = Self.services(gate)
+        let written = Self.queueDraft(in: directory, gate: gate)
+        let quit = Task { await services.stateFilesDrained() }
         await gate.drainBegan()
         gate.releaseHeldSave()
-        #expect(await quit.value, "the quit's wait reached its limit: the main actor could not run while it waited")
-        #expect(draft.written(), "the quit's wait returned before the queued draft save")
+        await quit.value
+        #expect(written(), "the quit's wait returned before the queued draft save")
     }
 }
 
@@ -80,24 +89,26 @@ struct QuitStateFilesTests {
 nonisolated final class DrainGate: Sendable {
     private let release: DispatchSemaphore
     private let began: FirstOutcome<Bool>
-    private let order: DrainGateLog
+    private let state: DrainGateState
     let files: AgentPaneStateFiles
 
-    /// - Parameter releasesOnDrain: Lets the held save go as the drain begins; false leaves it to the test.
+    /// - Parameter releasesOnDrain: A drain that begins while a save is held lets it go; false leaves
+    ///   that to the test.
     init(releasesOnDrain: Bool = true) {
-        let release = DispatchSemaphore(value: 0), began = FirstOutcome<Bool>(), order = DrainGateLog()
-        (self.release, self.began, self.order) = (release, began, order)
+        let release = DispatchSemaphore(value: 0), began = FirstOutcome<Bool>(), state = DrainGateState()
+        (self.release, self.began, self.state) = (release, began, state)
         files = AgentPaneStateFiles(drainBegan: {
-            order.append("drain began")
+            state.log("drain began")
             began.resolve(true)
-            if releasesOnDrain { release.signal() }
+            if releasesOnDrain, state.endHold() { release.signal() }
         })
     }
 
-    /// Holds `file`'s queue in a save until the drain begins, so the saves after it wait.
+    /// Holds `file`'s queue in a save until a drain begins, so the saves after it wait.
     func hold(_ file: AgentPaneStateFile) {
         let started = DispatchSemaphore(value: 0)
         let release = release
+        state.beginHold()
         file.write {
             started.signal()
             // concurrency-allow: test only; holds the file queue until a drain begins (or the test ends)
@@ -108,17 +119,17 @@ nonisolated final class DrainGate: Sendable {
         _ = started.wait(timeout: .now() + 10)
     }
 
-    /// Lets the held save go (the test's own release, and its end).
+    /// Lets a held save go (the test's own release, and its end); nothing when none is held.
     func releaseHeldSave() {
-        release.signal()
+        if state.endHold() { release.signal() }
     }
 
     func log(_ event: String) {
-        order.append(event)
+        state.log(event)
     }
 
     func events() -> [String] {
-        order.events()
+        state.events()
     }
 
     /// Returns once a drain of the files began.
@@ -127,15 +138,27 @@ nonisolated final class DrainGate: Sendable {
     }
 }
 
-/// The quit steps' order around a ``DrainGate``, from any thread.
-nonisolated final class DrainGateLog: Sendable {
-    private let order = Mutex<[String]>([])
+/// Whether a ``DrainGate`` holds a save, and the quit steps' order around it, from any thread.
+nonisolated final class DrainGateState: Sendable {
+    private let state = Mutex<(held: Bool, events: [String])>((false, []))
 
-    func append(_ event: String) {
-        order.withLock { $0.append(event) }
+    func beginHold() {
+        state.withLock { $0.held = true }
+    }
+
+    /// Ends the hold; whether one was held.
+    func endHold() -> Bool {
+        state.withLock { state in
+            defer { state.held = false }
+            return state.held
+        }
+    }
+
+    func log(_ event: String) {
+        state.withLock { $0.events.append(event) }
     }
 
     func events() -> [String] {
-        order.withLock { $0 }
+        state.withLock { $0.events }
     }
 }

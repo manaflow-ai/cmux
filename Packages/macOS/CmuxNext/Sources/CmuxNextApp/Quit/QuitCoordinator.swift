@@ -33,8 +33,11 @@ final class QuitCoordinator {
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
     /// stops its debug hang assertion.
     weak var watchdog: MainThreadWatchdog?
-    /// Ends the process if the engine stop never returns (cx-ccjnn).
-    let deadline = QuitDeadline()
+    /// Ends the process if the engine stop never returns (cx-ccjnn), recording the agent panes' state
+    /// files still saving then (`AgentPaneStateLoss`). Tests replace it.
+    var deadline: QuitDeadline
+    /// Chromium's close, the quit's last engine step (tests replace it).
+    lazy var closeEngines: @MainActor () async -> Void = { [weak self] in await self?.services.cache.cef.shutdown() }
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
     /// blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn).
@@ -45,6 +48,8 @@ final class QuitCoordinator {
     init(services: AppServices) {
         self.services = services
         unsaved = services.quitUnsaved
+        deadline = QuitDeadline(reason: "the engines began to stop (the agent panes' state files save around them)",
+                                end: services.agentPaneStateLoss.deadlineEnd(files: services.agentPaneStateFiles))
     }
 
     /// Records the origin, then starts AppKit's termination. A second Cmd-Q
@@ -169,19 +174,6 @@ final class QuitCoordinator {
         sender.reply(toApplicationShouldTerminate: true)
     }
 
-    /// The engines' stop, the quit's very last step (tests replace it).
-    lazy var stopEngines: @MainActor () async -> Void = { [weak self, deadline] in
-        // CefShutdown runs on the main thread and can block it for
-        // good: from here the quit ends by a deadline whatever it
-        // does, and a debug build reports that hang, never asserts it.
-        deadline.arm(after: QuitDeadline.engineStopLimit)
-        self?.watchdog?.endHangAssertions()
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
-        #endif
-        await self?.services.cache.cef.shutdown()
-    }
-
     /// The quit's steps after the decision (`QuitCompletion`).
     func steps() -> QuitSteps {
         let services = services
@@ -209,10 +201,8 @@ final class QuitCoordinator {
                 await services.cache.browserTabs.flushRecords()
                 await services.windows.prepareForTermination()
                 await services.sidebarSnapshots.flush()
-                // Home's drafts, scroll places and unsent sends (its cache's last batch), and the
-                // agent panes' and paired phones' state files.
+                // Home's drafts, scroll places and unsent sends (its cache's last batch).
                 await services.home.flushCacheForQuit()
-                await services.stateFilesDrained()
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
@@ -233,10 +223,23 @@ final class QuitCoordinator {
             stopBrowserEngines: { [weak self] in
                 // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
                 // before the engines stop: nothing the user asked for comes after that (QuitSteps).
-                // Nothing is written when nothing changed. The same for the other state files.
+                // Nothing is written when nothing changed.
                 await services.home.flushCacheForQuit()
+                guard let self else { return }
+                // CefShutdown runs on the main thread and can block it for
+                // good: from here the quit ends by a deadline whatever it
+                // does, and a debug build reports that hang, never asserts it.
+                deadline.arm(after: QuitDeadline.engineStopLimit)
+                watchdog?.endHangAssertions()
+                #if DEBUG || CMUX_BENCH_HOOKS
+                if wedgesEngineStop { deadline.wedgeMainThread(watchdog) }
+                #endif
+                // The agent panes' and paired phones' queued saves, before the engines stop (Chromium's
+                // shutdown watchdog can end the process) and after (a page that closes saves its draft).
+                // No limit of their own: the deadline bounds them and records what was still saving.
                 await services.stateFilesDrained()
-                await self?.stopEngines()
+                await closeEngines()
+                await services.stateFilesDrained()
             }
         )
     }

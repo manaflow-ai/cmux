@@ -134,19 +134,20 @@ struct AgentPaneStateFileTests {
         #expect(seen.withLock { $0 } == Data("b".utf8), "read b directly instead of after its queued save")
     }
 
-    @Test func drainedGivesUpAtItsDeadline() async throws {
+    /// A file with a save queued or running is named as saving (the quit deadline records those, by
+    /// name only); once its saves ran it is not.
+    @Test func aFileIsSavingUntilItsQueuedSavesRan() async throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let files = AgentPaneStateFiles()
         let url = directory.appending(path: "d.json")
-        let file = files.at(url)
-        let release = Self.holdQueue(file)
-        file.write { Data("late".utf8) }
-        let started = Date()
-        #expect(await files.drained(within: .milliseconds(200)) == false)
-        #expect(Date().timeIntervalSince(started) < 2)
+        let release = Self.holdQueue(files.at(url))
+        files.at(url).write { Data("late".utf8) }
+        _ = files.at(directory.appending(path: "idle.json"))
+        #expect(files.savingFileNames() == ["d.json"])
         release.signal()
-        #expect(await files.drained(within: .seconds(5)))
+        await files.drained()
+        #expect(files.savingFileNames().isEmpty)
         #expect((try? Data(contentsOf: url)) == Data("late".utf8))
     }
 
@@ -156,25 +157,26 @@ struct AgentPaneStateFileTests {
         let files = AgentPaneStateFiles()
         let url = directory.appending(path: "c.json")
         files.at(url).write { Data("quit".utf8) }
-        #expect(await files.drained(within: .seconds(2)))
+        await files.drained()
         #expect((try? Data(contentsOf: url)) == Data("quit".utf8))
     }
 
-    /// The forced quit awaits the saves after its deadline is armed: the wait holds no thread, and it
-    /// ends once the saves queued before it ran.
-    @Test func drainedAwaitsQueuedSavesWithoutBlocking() async throws {
+    /// The quit awaits the saves after its deadline is armed: the wait holds no thread (the main actor
+    /// lets the held save go once the drain began; a wait that blocked it would never end, and the time
+    /// limit fails the test), and it ends once the saves queued before it ran.
+    @Test(.timeLimit(.minutes(1)))
+    func drainedAwaitsQueuedSavesWithoutBlocking() async throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let files = AgentPaneStateFiles()
+        let began = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        let files = AgentPaneStateFiles(drainBegan: { began.continuation.yield() })
         let url = directory.appending(path: "e.json")
         let release = Self.holdQueue(files.at(url))
         files.at(url).write { Data("forced".utf8) }
-        let drained = Task { await files.drained(within: .seconds(30)) }
-        let started = ContinuousClock.now
-        try await Task.sleep(for: .milliseconds(200))
-        #expect(ContinuousClock.now - started < .seconds(2), "the main actor was held while the saves were queued")
+        let drained = Task { await files.drained() }
+        for await _ in began.stream { break }
         release.signal()
-        #expect(await drained.value)
+        await drained.value
         #expect((try? Data(contentsOf: url)) == Data("forced".utf8))
     }
 

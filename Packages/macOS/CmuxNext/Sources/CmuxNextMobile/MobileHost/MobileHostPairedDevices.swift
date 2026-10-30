@@ -1,6 +1,5 @@
 public import Foundation
 import CmuxNextCompat
-import CmuxNextWakeups
 import CryptoKit
 import os
 
@@ -239,15 +238,10 @@ public final class MobileHostPairedDevicesFile: Sendable {
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.pairing")
 
-    /// The app's quit: waits, holding no thread, `limit` at most for the saves already queued, a
-    /// removal's among them. False when some were still queued at the limit.
-    @discardableResult
-    public func drained(within limit: Duration) async -> Bool {
-        guard await QueueDrain().drained([queue], within: limit) else {
-            Self.logger.error("iPhone pairing: queued saves did not finish before quit")
-            return false
-        }
-        return true
+    /// The app's quit: returns, holding no thread, once the saves already queued ran, a removal's among
+    /// them. No limit of its own: the quit awaits it after its deadline is armed.
+    public func drained() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
     }
 
     /// The stored list when it is the one this app saved last (its digest matches the seal's) and

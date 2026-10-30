@@ -343,7 +343,7 @@ import Testing
         let seal = MobileHostMemoryPairingSeal()
         let (file, _) = try Self.saved(directory, seal: seal)
         file.withdrawTrust()
-        #expect(await file.drained(within: .seconds(5)))
+        await file.drained()
         let reread = Self.reread(file)
         #expect(reread.approvers.isEmpty, "the forgotten phone is still an approver after the flush: \(reread.approvers)")
         let relaunched = Self.relaunched(directory, seal: seal)

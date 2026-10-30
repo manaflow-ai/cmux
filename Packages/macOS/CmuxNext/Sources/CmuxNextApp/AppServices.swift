@@ -472,6 +472,8 @@ final class AppServices {
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
     /// The agent panes' state files (unsent drafts, scroll places): one writer per file; quit waits for them.
     let agentPaneStateFiles: AgentPaneStateFiles
+    /// The state files a quit's deadline ended before they saved, told at the next launch.
+    let agentPaneStateLoss: AgentPaneStateLoss
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -498,6 +500,7 @@ final class AppServices {
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
         self.work = work
         (self.launchImages, self.relaunchWake, self.agentPaneStateFiles) = (launchImages, relaunchWake, agentPaneStateFiles)
+        agentPaneStateLoss = AgentPaneStateLoss(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
@@ -760,15 +763,14 @@ final class AppServices {
         return nil
     }
 
-    /// The quit's last state-file saves (the agent panes' drafts and scroll places, the paired phones' list),
-    /// awaited together under one 2 s limit and holding no thread: no quit blocks the main thread on a disk.
-    /// - Returns: Whether every file's queued saves ran within `limit`.
-    @discardableResult
-    func stateFilesDrained(within limit: Duration = .seconds(2)) async -> Bool {
+    /// The quit's state-file saves (the agent panes' drafts and scroll places, the paired phones' list),
+    /// awaited together holding no thread and with no limit of their own: the quit awaits them after its
+    /// deadline is armed, and that deadline records what was still saving (`AgentPaneStateLoss`).
+    func stateFilesDrained() async {
         let files = agentPaneStateFiles
-        async let panes = files.drained(within: limit)
-        let phones = await iphone.pairedSavesDrained(within: limit)
-        return await panes && phones
+        async let panes: Void = files.drained()
+        await iphone.pairedSavesDrained()
+        await panes
     }
 }
 

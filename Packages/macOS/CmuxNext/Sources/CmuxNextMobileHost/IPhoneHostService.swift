@@ -379,7 +379,7 @@ public final class IPhoneHostService {
     }
 
     /// App quit: hostd ends with the app (closing its stdin ends it too). Called only from
-    /// `applicationWillTerminate`; the quit awaited the paired list's saves before it (``pairedSavesDrained(within:)``).
+    /// `applicationWillTerminate`; the quit awaited the paired list's saves before it (``pairedSavesDrained()``).
     public func stop() {
         wakeObserver = nil
         KeepAwakeService.shared.setIPhoneServing(false)
@@ -397,11 +397,10 @@ public final class IPhoneHostService {
         Task { await supervisor.stop() }
     }
 
-    /// The app's quit: awaits, `limit` at most and holding no thread, the paired list's queued saves
-    /// (a removal's new list among them).
-    @discardableResult
-    public func pairedSavesDrained(within limit: Duration) async -> Bool {
-        await pairedFile?.drained(within: limit) ?? true
+    /// The app's quit: awaits, holding no thread, the paired list's queued saves (a removal's new list
+    /// among them), under the quit's deadline.
+    public func pairedSavesDrained() async {
+        await pairedFile?.drained()
     }
 
     private func reconcile() {

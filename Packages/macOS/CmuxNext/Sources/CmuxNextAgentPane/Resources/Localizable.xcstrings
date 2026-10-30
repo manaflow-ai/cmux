@@ -1704,6 +1704,137 @@
         }
       }
     },
+    "agentPane.stateLoss.unsentDraft": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text typed in a new chat just before cmux quit was not saved."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُحفظ النص الذي كُتب في محادثة جديدة قبل إغلاق cmux مباشرة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst upisan u novi razgovor neposredno prije zatvaranja cmuxa nije sačuvan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst skrevet i en ny chat lige før cmux lukkede, blev ikke gemt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text, der kurz vor dem Beenden von cmux in einen neuen Chat eingegeben wurde, wurde nicht gespeichert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se guardó el texto escrito en un chat nuevo justo antes de que se cerrara cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le texte saisi dans une nouvelle discussion juste avant la fermeture de cmux n’a pas été enregistré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il testo digitato in una nuova chat poco prima della chiusura di cmux non è stato salvato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の終了直前に新しいチャットに入力したテキストは保存されませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អត្ថបទដែលបានវាយក្នុងការជជែកថ្មីមុនពេល cmux បិទបន្តិច មិនត្រូវបានរក្សាទុកទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 종료되기 직전에 새 채팅에 입력한 텍스트가 저장되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst skrevet i en ny chat rett før cmux ble avsluttet, ble ikke lagret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tekst wpisany w nowym czacie tuż przed zamknięciem cmux nie został zapisany."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O texto digitado em um novo chat logo antes de o cmux fechar não foi salvo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст, введённый в новом чате незадолго до закрытия cmux, не был сохранён."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความที่พิมพ์ในแชตใหม่ก่อน cmux ปิดไม่นานไม่ได้รับการบันทึก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kapanmadan hemen önce yeni bir sohbete yazılan metin kaydedilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Текст, введений у новому чаті незадовго до закриття cmux, не збережено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Văn bản đã nhập trong một cuộc trò chuyện mới ngay trước khi cmux thoát chưa được lưu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 退出前刚在新聊天中输入的文字未能保存。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 結束前剛在新聊天中輸入的文字未能儲存。"
+          }
+        }
+      }
+    },
     "agentPane.acpmuxDaemon.title": {
       "extractionState": "manual",
       "localizations": {

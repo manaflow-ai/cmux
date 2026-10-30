@@ -48,10 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services()?.home.applicationWillTerminate()
         }, save: {
             guard let services = services() else { return }
-            async let files = services.stateFilesDrained()
+            async let files: Void = services.stateFilesDrained()
             await services.home.flushCacheForQuit()
-            _ = await files
-        }, armDeadline: armDeadline, end: end)
+            await files
+        }, armDeadline: armDeadline, deadlineEnd: services().map { $0.agentPaneStateLoss.deadlineEnd(files: $0.agentPaneStateFiles) }, end: end)
     }
     private var settings: SettingsController?
     /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
@@ -187,8 +187,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // An App Store request made while no window existed shows in this window (S22).
             if let apps = services?.apps, apps.isStoreWaiting { Task { @MainActor in apps.windowDidShowContent() } }
             // Recovered unsaved changes from a quit, crash or power-off (R96 quit hook).
-            if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts {
-                Task { @MainActor in await RecoveryNotice.show(store: drafts, in: window) }
+            // And a chat's unsent text the last quit's deadline ended before it saved (AgentPaneStateLoss).
+            if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts, let loss = services?.agentPaneStateLoss {
+                Task { @MainActor in
+                    await RecoveryNotice.show(store: drafts, in: window)
+                    await loss.showNotice(in: window)
+                }
             }
             CATransaction.setCompletionBlock { [weak self] in
                 MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
