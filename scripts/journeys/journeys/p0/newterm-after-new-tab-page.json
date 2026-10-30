@@ -1,0 +1,371 @@
+{
+ "id": "newterm-after-new-tab-page",
+ "priority": "P0",
+ "title": "Ctrl-`, Cmd-D and terminal-first Cmd-N right after Cmd-T always give a new terminal that takes the keys; the old terminal gets none of them",
+ "why": "Lawrence on v2.2.9-opt (4 h session): \"at some points I can no longer make new terminals via Ctrl-` or Cmd-D\". Fleet repro 4/4 (cmux17, cmux20, cmux21): the New Tab page's new-conversation-tab held the app's daemon connection, the Ctrl-` new-tab missed the 5 s client start deadline, the app took the stand-in back, and the typed line ran in the OLD terminal. Invariant (principled-audit R3): Ctrl-` and Cmd-D always give a terminal that takes keys, whatever the New Tab spare and the daemon's latency.",
+ "source": "P0 bug (handoff/v229-lawrence-newterm-2026-10-30), fix/p0-new-terminal-always",
+ "budget_seconds": 260,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "as": "t0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "nt"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd-T shows the New Tab page with the keyboard",
+   "since": "nt",
+   "timeout": 20,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "in": [
+       "agentPage",
+       "page",
+       "textField"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "k1"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "t1",
+   "timeout": 30
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo nt1-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "e1"
+  },
+  {
+   "do": "expect",
+   "title": "Ctrl-` gave a new terminal and the typed line runs there",
+   "since": "e1",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "nt1-${nonce}-42"
+    },
+    {
+     "app_text_line": "nt1-${nonce}-42"
+    },
+    {
+     "frame_text": "nt1-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "nt2"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd-T again shows the New Tab page",
+   "since": "nt2",
+   "timeout": 20,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "in": [
+       "agentPage",
+       "page",
+       "textField"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "k2"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "t2",
+   "timeout": 30
+  },
+  {
+   "do": "key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "t3",
+   "timeout": 30
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo nt3-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "e3"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd-D from that terminal gave a split terminal that takes the keys",
+   "since": "e3",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "nt3-${nonce}-42"
+    },
+    {
+     "app_text_line": "nt3-${nonce}-42"
+    },
+    {
+     "frame_text": "nt3-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "nt3"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd-T a third time shows the New Tab page (its new-conversation-tab is in flight)",
+   "since": "nt3",
+   "timeout": 20,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "in": [
+       "agentPage",
+       "page",
+       "textField"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "[",
+   "modifiers": [
+    "cmd",
+    "shift"
+   ],
+   "mark": "back"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd-Shift-[ goes back to the terminal",
+   "since": "back",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "equals": "terminal"
+     }
+    }
+   ]
+  },
+  {
+   "do": "key",
+   "key": "d",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "split2"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "t4",
+   "timeout": 30
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo nt4-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "e4"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd-D right after Cmd-T gave a split terminal that takes the keys",
+   "since": "e4",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "nt4-${nonce}-42"
+    },
+    {
+     "app_text_line": "nt4-${nonce}-42"
+    },
+    {
+     "frame_text": "nt4-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "t",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "nt4"
+  },
+  {
+   "do": "expect",
+   "title": "Cmd-T a fourth time shows the New Tab page (its new-conversation-tab is in flight)",
+   "since": "nt4",
+   "timeout": 20,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.focus",
+      "path": "windows.0.model.resolved",
+      "in": [
+       "agentPage",
+       "page",
+       "textField"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "settings_file",
+   "set": {
+    "tabs": {
+     "terminalFirst": true
+    }
+   }
+  },
+  {
+   "do": "key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "cmdn"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "t5",
+   "timeout": 30
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo nt5-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "e5"
+  },
+  {
+   "do": "expect",
+   "title": "terminal-first Cmd-N right after Cmd-T gave a new workspace whose terminal takes the keys",
+   "since": "e5",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "nt5-${nonce}-42"
+    },
+    {
+     "app_text_line": "nt5-${nonce}-42"
+    },
+    {
+     "frame_text": "nt5-${nonce}-42"
+    }
+   ]
+  },
+  {
+   "do": "use",
+   "name": "t0"
+  },
+  {
+   "do": "expect",
+   "title": "the old terminal got none of the keys typed for the new ones",
+   "timeout": 5,
+   "settle": 1,
+   "all": [
+    {
+     "daemon_lacks": "nt1-${nonce}"
+    },
+    {
+     "daemon_lacks": "nt3-${nonce}"
+    },
+    {
+     "daemon_lacks": "nt4-${nonce}"
+    },
+    {
+     "daemon_lacks": "nt5-${nonce}"
+    },
+    {
+     "daemon_prompt": true
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "settings_file",
+   "unset": [
+    "tabs.terminalFirst"
+   ]
+  }
+ ]
+}

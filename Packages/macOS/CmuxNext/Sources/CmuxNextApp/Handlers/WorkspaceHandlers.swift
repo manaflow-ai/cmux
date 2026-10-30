@@ -91,7 +91,7 @@ enum WorkspaceHandlers {
                     try await homeConnection.pinWorkspace(session: session, key: key, to: room)
                 }
                 _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: services.emptyWorkspaces) { created in
-                    let terminal = try await connection.createTerminal(in: created, cwd: cwd ?? NSHomeDirectory())
+                    let terminal = try await connection.createTerminalWaitingForStart(in: created, cwd: cwd ?? NSHomeDirectory())
                     try await configure?(connection, terminal)
                     return created.rawValue
                 }
