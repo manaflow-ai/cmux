@@ -145,8 +145,8 @@ jobs:
             echo "::warning title=nightly-next canary::build $BUILD is marked checked but has no readable verdict at $url; checking it again"
           fi
 
-      # The commit the build was made from: its signed release notes' head, else (no notes) the
-      # head of its completed nightly-next run (nightly_next_artifact_check.py expected-commit).
+      # The commit the build was made from: its signed release notes' head. Without signed notes
+      # the source is unknown (nightly_next_artifact_check.py expected-commit).
       # Unreadable now prints commit= (empty) and a warning, so the canary job does not run: no
       # verdict, nothing cached, and the next tick tries again. A crash fails the job, also with
       # no verdict.
@@ -219,13 +219,17 @@ jobs:
           # check WHAT REJECTION-PATTERN CMD...: CMD's failure is invalid only
           # when its output names a rejection and no unreachable service. The
           # step's default shell has errexit on, so the status is read in an if.
+          # The runner's own paths are left out of the unreachable scan, since a
+          # word in them ("server", "network") says nothing about Apple.
           check() {
-            local what=$1 rejected=$2 out rc=0
+            local what=$1 rejected=$2 out rc=0 said
             shift 2
             if out="$("$@" 2>&1)"; then :; else rc=$?; fi
             printf '%s\n' "$out"
             (( rc == 0 )) && return 0
-            grep -Eiq "$unreachable" <<<"$out" && cannot "$what could not reach Apple (exit $rc)"
+            said="${out//"$RUNNER_TEMP"/}"
+            said="${said//"${GITHUB_WORKSPACE:-}"/}"
+            grep -Eiq "$unreachable" <<<"$said" && cannot "$what could not reach Apple (exit $rc)"
             grep -Eq "$rejected" <<<"$out" && invalid "$what: $(grep -Em1 "$rejected" <<<"$out")"
             cannot "$what failed without a definite rejection (exit $rc)"
           }
