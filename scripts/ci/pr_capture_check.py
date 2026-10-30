@@ -55,7 +55,7 @@ VISUAL_VERDICT = re.compile(
 )
 VERDICT_PLACEHOLDER = "<one sentence: would Leo accept this next to ChatGPT/Claude?>"
 SENTENCE_BOUNDARY = re.compile(
-    r"(?P<marks>[.!?]+)(?:[\"')\]]*)\s+(?P<next>[A-Za-z])"
+    r"(?P<marks>[.!?]+)(?:[\"')\]]*)\s+(?P<next>[A-Za-z0-9])"
 )
 ABBREVIATIONS = {"dr", "e", "eg", "etc", "g", "i", "ie", "mr", "mrs", "prof", "s", "vs"}
 
@@ -89,7 +89,9 @@ def visual_judgment(body: str) -> bool:
     if not VIEWED_AFTER.search(text) or not verdict:
         return False
     value = verdict.group("verdict").strip()
-    if VERDICT_PLACEHOLDER.casefold() in value.casefold():
+    normalized_value = re.sub(r"\s+", " ", value).casefold()
+    normalized_placeholder = re.sub(r"\s+", " ", VERDICT_PLACEHOLDER).casefold()
+    if normalized_placeholder in normalized_value:
         return False
     for boundary in SENTENCE_BOUNDARY.finditer(value):
         marks = boundary.group("marks")
