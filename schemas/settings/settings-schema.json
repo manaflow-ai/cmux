@@ -14874,7 +14874,8 @@
     {
       "accepts" : [
         "afterCurrent",
-        "bottom"
+        "bottom",
+        "top"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
