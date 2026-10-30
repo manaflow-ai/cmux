@@ -316,6 +316,8 @@ test.serial("a recheck that never resolves still ends recovery at the deadline",
   await act(async () => wake!.click());
   jest.useFakeTimers();
   await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
     jest.advanceTimersByTime(60_000);
     await Promise.resolve();
     await Promise.resolve();
