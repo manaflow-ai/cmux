@@ -51,7 +51,12 @@ enum SurfaceHostReport {
         }
     }
 
-    /// Asks each target's daemon for its host pid (one request per daemon).
+    /// How long `debug.surfaces` waits for a daemon's host pids. A daemon that stopped answering
+    /// (frozen, before the heartbeat marks it gone) leaves the pids out instead of holding every
+    /// report past a watcher's own bound: the restore journey's 1 s sampler saw no report for 53 s.
+    nonisolated static let pidTimeout: Duration = .milliseconds(250)
+
+    /// Asks each target's daemon for its host pid (one request per daemon), each within ``pidTimeout``.
     nonisolated static func identities(_ targets: [Target]) async -> [String: Identity] {
         var result: [String: Identity] = [:]
         var groups: [ObjectIdentifier: (DaemonConnection, [Target])] = [:]
@@ -62,7 +67,7 @@ enum SurfaceHostReport {
         }
         for (connection, members) in groups.values {
             let request = TerminalResourcesRequest(surfaces: members.map(\.surface))
-            guard let response = try? await connection.request(request, timeout: .seconds(1)) else { continue }
+            guard let response = try? await connection.request(request, timeout: pidTimeout) else { continue }
             let hosts = Dictionary(response.terminals.map { ($0.surface, $0.host?.pid) }, uniquingKeysWith: { first, _ in first })
             for member in members { result[member.paneKey]?.hostPID = hosts[member.surface] ?? nil }
         }

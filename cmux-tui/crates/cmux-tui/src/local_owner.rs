@@ -284,8 +284,14 @@ enum Attempt {
     /// back: a stale or dying peer, or a live owner refusing extra clients.
     Unanswered,
     /// A cmux-tui server answered but is not lifecycle-ready yet (its pid
-    /// when its identity carried one).
+    /// when its identity carried one). Also an owner that holds the identify
+    /// unanswered, as one restoring its session does.
     Starting(Option<u64>),
+    /// The identify went unanswered and the process listening on the socket
+    /// is stopped (SIGSTOP, a debugger): it restores nothing until someone
+    /// continues it, so ensure reports it unavailable now instead of waiting
+    /// out `RESTORE_DEADLINE`, and the app offers "Restart cmux-tui".
+    Stopped,
     Ready(ReadyOwner),
 }
 
@@ -331,6 +337,7 @@ pub(crate) fn ensure_owner(
                 std::thread::sleep(POLL_INTERVAL);
                 continue;
             }
+            Attempt::Stopped => return Err(EnsureError::NotReady),
             // The lock is released once the spawn is issued. A redundant
             // owner spawned by a racing ensure finds the socket live at its
             // bind, exits before it restores anything, and every caller
@@ -397,6 +404,7 @@ fn wait_while_starting(
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Gone | Attempt::Unanswered => return Ok(None),
             Attempt::Starting(pid) => progress.restoring(pid),
+            Attempt::Stopped => return Err(EnsureError::NotReady),
         }
         if Instant::now() >= restore_deadline {
             return Err(EnsureError::RestoreTimeout);
@@ -427,6 +435,7 @@ fn wait_until_ready(
                 seen_alive = true;
                 progress.restoring(pid);
             }
+            Attempt::Stopped => return Err(EnsureError::NotReady),
             // Accepted but unanswered: keep what is known about the owner.
             Attempt::Unanswered => {}
             Attempt::Gone => {
@@ -533,10 +542,15 @@ fn attempt(
             Ok(stream) => stream,
             Err(_) => return Ok(Attempt::Gone),
         };
+    let listener = stream.peer_process_key();
     let identity = match identify(stream, deadline) {
         Ok(identity) => identity,
-        // A timeout is a live but busy server; anything else on a fresh
-        // connection is a dying or stale peer (or a full one).
+        // A timeout is a live but busy server (one restoring holds its
+        // connections unanswered), unless its process is stopped; anything
+        // else on a fresh connection is a dying or stale peer (or a full one).
+        Err(IdentifyError::Timeout) if replace::listener_is_stopped(listener.as_deref()) => {
+            return Ok(Attempt::Stopped);
+        }
         Err(IdentifyError::Timeout) => return Ok(Attempt::Starting(None)),
         Err(IdentifyError::Failed) => return Ok(Attempt::Unanswered),
     };

@@ -161,7 +161,7 @@ public nonisolated enum SettingsSchema {
                 TitlebarButtonsSetting.configPath, section: .general, group: window,
                 title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
                 help: SettingsText.keyed("settings.window.titlebarButtons.help",
-                                        "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."),
+                                        "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."),
                 kind: .choice([
                     SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
                     SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
@@ -258,7 +258,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(StripScrollbarMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
                     SettingChoice(StripScrollbarMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
                 ]),
-                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "minimap"]
+                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "column", "visible range", "overview"]
             ),
             SettingDescriptor(
                 CloseFocusSetting.configPath, section: .general, group: columns,
