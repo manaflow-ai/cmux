@@ -431,7 +431,7 @@ enum AgentHandlers {
                 case .workspace, .window:
                     workspace = key
                     surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
-                        try await connection.createTerminalWaitingForStart(in: created, cwd: options.cwd).surface
+                        try await WorkspaceCreation.firstTerminal(in: created, cwd: options.cwd, on: connection).surface
                     }
                 }
                 if let surface { try await connection.send(surface, text: line) }
