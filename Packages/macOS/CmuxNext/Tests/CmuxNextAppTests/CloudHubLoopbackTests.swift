@@ -19,7 +19,8 @@ struct CloudHubLoopbackTests {
     /// (issue #28492).
     @Test func aHubSocketPathPastTheUnixLimitIsRefusedNotATrap() async throws {
         let socket = "/" + String(repeating: "h", count: 200) + "/hub.sock"
-        let opener = try #require(HubLoopbackOpener(hub: { .init(socket: socket, token: FakeHub.token) }, address: "10.0.0.2"))
+        let made = HubLoopbackOpener(hub: { .init(socket: socket, token: FakeHub.token) }, address: "10.0.0.2")
+        let opener = try #require(made)
         await #expect(throws: LoopbackTunnelFailure.unavailable("Cloud tunnel unavailable")) {
             _ = try await opener.openTunnel(host: "127.0.0.1", port: 8080)
         }
