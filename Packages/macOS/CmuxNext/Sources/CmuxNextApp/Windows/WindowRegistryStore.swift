@@ -1,3 +1,4 @@
+import CmuxNextSidebar
 import Observation
 
 /// Observable holder of the app's `WindowRegistry`, so each window's sidebar
@@ -14,6 +15,12 @@ final class WindowRegistryStore {
     /// from the live tree: meanwhile sidebars show their saved rows
     /// (`SidebarSeed`).
     var isLaunching = false
+    /// Which window each sidebar document item belongs to (#26632); its own value, so a pin moves no membership reader.
+    var bands = WindowBandOwnership()
+    /// The window whose sidebar handles an intent now (`SidebarBridge.handle`); nil outside one.
+    @ObservationIgnored var bandEditWindow: String?
+    /// The window the last local sidebar document change was made in (`WindowManager.noteBandEdit`).
+    @ObservationIgnored var actingBandWindow: String?
 
     /// Runs one transition; returns what it changed.
     @discardableResult

@@ -197,6 +197,7 @@ final class WindowRecordSaver {
                                       selectedTabs: selectedTabs(window: window), machines: manager.seenMachine)
             record?.focusedPane = states[window.id].flatMap { $0.focus.state.pane ?? $0.savedFocusedPane }
             record?.focusedPanes = focusedPanes(window: window)
+            record?.bandItems = manager.registry.bands.items(of: window.id)
             return record
         }
     }

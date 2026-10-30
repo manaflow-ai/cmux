@@ -87,6 +87,9 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// The workspace the frame's stage shows while a docked workspace has focus (`workspace_key` names that one);
     /// nil when the stage shows `workspace_key`.
     public var stageKey: WorkspaceKey?
+    /// The sidebar document items this window owns (pins, groups, links; #26632): it lists only these and those of
+    /// the workspaces it lists, so a new window starts clean. Nil in records from older builds (nothing owned yet).
+    public var bandItems: [String]?
 
     public init(id: String, workspaceKey: WorkspaceKey? = nil, workspaceKeys: [WorkspaceKey] = [], machine: String? = nil,
                 screenID: ResourceID? = nil, frame: WindowFrame? = nil, display: String? = nil, isFullScreen: Bool = false,
@@ -132,6 +135,7 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         case docks
         case dockOrientation = "dock_orientation"
         case stageKey = "stage_key"
+        case bandItems = "band_items"
     }
 
     /// Keys only older builds wrote; read for migration, never written.
@@ -169,5 +173,6 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         docks = try c.decodeIfPresent([WindowDockRecord].self, forKey: .docks)
         dockOrientation = try c.decodeIfPresent(String.self, forKey: .dockOrientation)
         stageKey = try c.decodeIfPresent(WorkspaceKey.self, forKey: .stageKey)
+        bandItems = try c.decodeIfPresent([String].self, forKey: .bandItems)
     }
 }

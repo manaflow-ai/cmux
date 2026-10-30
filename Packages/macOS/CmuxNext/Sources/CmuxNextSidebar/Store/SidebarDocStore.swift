@@ -40,6 +40,8 @@ public final class SidebarDocStore {
     @ObservationIgnored private let remote: (any SidebarDocRemote)?
     /// A refusal or failure to show (the refusal HUD).
     @ObservationIgnored public var onRefused: @MainActor (String) -> Void = { _ in }
+    /// A change made here was applied to the mirror (the App notes the window it was made in, #26632).
+    @ObservationIgnored public var onLocalChange: @MainActor () -> Void = {}
     /// Posted when a change was refused (by the mirror or the daemon), with its `key` in userInfo:
     /// a list holding that drop's look lets it go.
     nonisolated public static let refusedNotification = Notification.Name("cmux.sidebar.docRefused")
@@ -377,7 +379,10 @@ public final class SidebarDocStore {
             throw refused(SidebarDocStrings.unavailable)
         }
         if let chief = SidebarPendingChief(ops: intent.ops) { pendingChief.append((intent.idempotencyKey, chief)) }
-        if redraws { bump() }
+        if redraws {
+            bump()
+            onLocalChange() // a fold adds nothing
+        }
         let key = intent.idempotencyKey
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
         let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)

@@ -156,12 +156,15 @@ final class SidebarBridge {
                 harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
-                    SidebarRows.visibleLayout(layout.document, window: windowState.id, profile: windowState.profileID, machines: machines, registry: registry.value, showAppStore: services.settings?.snapshot.previewFeatures == true))
+                    SidebarRows.visibleLayout(layout.document, window: windowState.id, profile: windowState.profileID, machines: machines, registry: registry.value,
+                                              hidden: registry.bands.hidden(in: windowState.id), showAppStore: services.settings?.snapshot.previewFeatures == true),
+                    registry.bands.hidden(in: windowState.id))
         }) { [weak self] value in
-            let ((sections, decorations), launching, failed, profiles, active, shown) = value
+            let ((sections, decorations), launching, failed, profiles, active, shown, hidden) = value
             guard let self else { return }
             self.showProfiles(profiles, active: active, launching: launching)
-            self.show(SidebarSection.decorated(feed.fill(sections), decorations), layout: shown, launching: launching, failed: failed, creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
+            self.show(SidebarSection.decorated(feed.fill(sections), decorations), layout: shown, launching: launching, failed: failed,
+                      creating: PendingWorkspaceRows.shared.rows(in: windowState.id), hidden: hidden)
             // A workspace the window lists shows its own row from here on (cx-9a7wx). No create waits: no walk of every row.
             guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }
             PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
@@ -235,25 +238,40 @@ final class SidebarBridge {
                                                               tabTitle: Self.tabTitle(services),
                                                               groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
                 harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
+        let hidden = windows.registry.bands.hidden(in: state.id)
         show(sections, layout: SidebarRows.visibleLayout(services.sidebarLayout.document, window: state.id, profile: state.profileID, machines: services.machines,
-                                                         registry: windows.registry.value, showAppStore: services.settings?.snapshot.previewFeatures == true), launching: launching, failed: failed)
+                                                         registry: windows.registry.value, hidden: hidden,
+                                                         showAppStore: services.settings?.snapshot.previewFeatures == true),
+             launching: launching, failed: failed, hidden: hidden)
     }
 
     /// Shows `live` with loading sections filled from the seed, and the
     /// band's `layout` in the same turn, then saves it.
     private func show(_ live: [SidebarRowSection], layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>,
-                      creating: [PendingWorkspaceRows.Row] = []) {
+                      creating: [PendingWorkspaceRows.Row] = [], hidden: Set<String> = []) {
         var sections = seed.merge(live, launching: launching, failed: failed)
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         let hadDocDrag = model.docDrag != nil
         model.docDrag = SidebarDocWiring.docMachines(services.machines).drag() // the sidebar document's drag half, nil keeps the older resolver
         if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
+        model.docDrag?.hiddenItems = hidden // another window's groups and links (#26632)
+        if let id = state?.id, let drop = model.docDrag?.drop {
+            // A drop in this sidebar makes or moves its items here, whichever window is key (#26632).
+            let windows = services.windows
+            model.docDrag?.drop = { items, target in
+                windows.registry.bandEditWindow = id
+                defer { windows.registry.bandEditWindow = nil }
+                windows.takeBandItems(items, into: id)
+                drop(items, target)
+            }
+        }
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store
         // snapshot laid over again) sets no sections: no arrange and compare of every row in the main thread's frame.
-        let elsewhere = model.docDrag.flatMap { drag in SidebarDocStore.current?.shown?.bandGroupsListedElsewhere(drag: drag) }
+        // Another window's items too: a change of owners alone shows again (#26632).
+        let elsewhere = model.docDrag.flatMap { drag in SidebarDocStore.current?.shown?.bandGroupsListedElsewhere(drag: drag).union(hidden) }
         rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)), unlessShown: hadDocDrag == (model.docDrag != nil),
                   elsewhere: elsewhere, showAppStore: services.settings?.snapshot.previewFeatures == true)
         selectionHold.flush()

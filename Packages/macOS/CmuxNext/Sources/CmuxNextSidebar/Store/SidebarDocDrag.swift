@@ -21,6 +21,9 @@ public struct SidebarDocDrag {
     /// Whether another window lists this open workspace (the App's window registry): a Pinned or custom group
     /// holding it belongs to that window and is not drawn here (#25776). Without a window: every open one.
     public var listedElsewhere: (SidebarDocWorkspaceRef) -> Bool = { _ in true }
+    /// The document items another window owns (#26632, `WindowBandOwnership`): their group and link rows
+    /// list only there, unless a group holds a workspace this window lists. Empty: every window lists them.
+    public var hiddenItems: Set<String> = []
 
     public init(item: @escaping (SidebarRowKey) -> String?, section: @escaping (SectionID) -> String?,
                 begin: @escaping ([String]) -> [String: SidebarDocAcceptance], drop: @escaping ([String], SidebarDocTarget) -> Void,

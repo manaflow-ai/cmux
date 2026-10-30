@@ -68,15 +68,24 @@ final class SidebarRows {
     }
 
     /// The layout window `windowID` draws: `visibleLayout` without the band's
-    /// workspaces another window owns, so a new window starts clean. Only on
+    /// workspaces another window owns, and without the other items another
+    /// window owns (`hidden`, `WindowBandOwnership`: a closed workspace's pin,
+    /// a tab, a page), so a new window starts clean (#26632). Only on
     /// the sidebar document, whose band moves anchor on a drawn neighbour; the
     /// older owner's index ops count the stored layout; the bridge translates
     /// visible item indexes back to stored indexes before sending edits.
     static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, profile: ProfileID? = nil, machines: MachineRegistry,
-                              registry: WindowRegistry, showAppStore: Bool = true) -> SidebarLayoutDocument {
+                              registry: WindowRegistry, hidden: Set<String> = [], showAppStore: Bool = true) -> SidebarLayoutDocument {
         guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
-        return visibleLayout(document, showAppStore: showAppStore)
-            .scopedToWindow(ownedElsewhere: bandHides(window: windowID, profile: profile, machines: machines, registry: registry))
+        let hides = bandHides(window: windowID, profile: profile, machines: machines, registry: registry)
+        let refs = WorkspaceLayoutRefs(machines: machines)
+        return visibleLayout(document, showAppStore: showAppStore).withoutItems(where: { item in
+            guard item.ref.kind == LayoutItemRef.workspaceKind else { return hidden.contains(item.id.rawValue) }
+            if hides(item.ref.value) { return true }
+            // An open workspace's item follows the window that lists it, wherever it was pinned; a closed one's
+            // stays with the window it was pinned in.
+            return refs.workspaceID(for: item.ref).flatMap(registry.owner(of:)) == nil && hidden.contains(item.id.rawValue)
+        })
     }
 
     /// Whether window `windowID`'s band leaves out the workspace item a layout ref value names: another
