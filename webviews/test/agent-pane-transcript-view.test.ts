@@ -29,7 +29,14 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
   const ANSWER = "All 12 tests in api/client.test.ts pass.";
 
-  const events = replayFixtureEvents();
+  // The recorded thought is a short, quick one, which every view hides (thoughts.ts isQuietThought):
+  // give it the length of a real one so Thinking has a thought to open.
+  const THOUGHT =
+    "Read the retry helper first. The test retries a request that fails twice, so the helper's " +
+    "attempt count and its backoff decide whether the third try lands before the assertion runs.";
+  const events = replayFixtureEvents().map((event) =>
+    JSON.parse(JSON.stringify(event).replace("Read the retry helper first.", THOUGHT)),
+  );
   const summary = {
     sessionId: REPLAY_SESSION,
     cwd: "/home/dev/api",
