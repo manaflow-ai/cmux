@@ -21,7 +21,7 @@ afterAll(() => {
 type Request = { method: string; params: Record<string, any> };
 type Daemon = { answer(method: string, params: Record<string, any>): Promise<unknown> };
 
-async function startFixture(previous: boolean) {
+async function startFixture(previous: boolean, remote = false) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
@@ -37,12 +37,19 @@ async function startFixture(previous: boolean) {
     rejectStart = reject;
   });
   let first = true;
-  daemon.answer = (method, params) => {
+  daemon.answer = async (method, params) => {
     requests.push({ method, params });
     if (method === "session/new" && first) {
       first = false;
       entered({ method, params });
       return pending;
+    }
+    if (method === "initialize" && remote) {
+      const result = (await answer(method, params)) as { _meta: { acpmux: Record<string, unknown> } };
+      return {
+        ...result,
+        _meta: { ...result._meta, acpmux: { ...result._meta.acpmux, origin: "remote", extensions: [] } },
+      };
     }
     return answer(method, params);
   };
@@ -55,6 +62,28 @@ async function startFixture(previous: boolean) {
   if (!previous) client.leave();
   return { client, requests, requested, resolveStart, rejectStart, answer, previousSession: mockHost.sessionId };
 }
+
+test("a retained New Tab start rejects Trust refusal when this remote origin cannot answer it", async () => {
+  const fixture = await startFixture(false, true);
+  const { client, requests } = fixture;
+  try {
+    const start = client.create("claude", undefined, undefined, true, undefined, true);
+    const refused = expect(start).rejects.toThrow("Trust must be answered on the host");
+    await fixture.requested;
+    fixture.rejectStart(
+      Object.assign(new Error("Trust must be answered on the host"), {
+        data: { reason: "trust.pending", cwd: "/tmp/remote-trust" },
+      }),
+    );
+    await refused;
+    expect(client.shownSession()).toBeUndefined();
+    expect(requests.filter((request) => request.method === "session/prompt")).toEqual([]);
+    // Once the host has answered, an explicit retry must be able to start again.
+    expect(await client.create("claude", undefined, undefined, true, undefined, true)).toBeDefined();
+  } finally {
+    client.close();
+  }
+});
 
 for (const previous of [false, true]) {
   for (const preflight of [false, true]) {
