@@ -1,6 +1,6 @@
 //! The link share bridge against a fake room (cmux-platform's `ChatShareRoom` HTTP API):
 //! provisioning, its retry and give-up, a refusal, and revoke's `DELETE`.
-use super::super::{MAX_SHARES, digest, hex};
+use super::super::{MAX_SHARES, ShareTerms, digest, hex};
 use super::*;
 use crate::server::agent_session_attach_tests::{
     Client, FakeAcpmux, SESSION, WAIT, agent_tab, assert_code, mux_with,
