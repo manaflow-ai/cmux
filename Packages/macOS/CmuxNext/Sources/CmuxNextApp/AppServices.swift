@@ -470,6 +470,8 @@ final class AppServices {
     let work: BackgroundWork
     /// The last quit's agent pages and chat composers, read off the main thread since the launch began.
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
+    /// The agent panes' state files (unsent drafts, scroll places): one writer per file; quit waits for them.
+    let agentPaneStateFiles = AgentPaneStateFiles()
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -755,6 +757,15 @@ final class AppServices {
             if let found = controller.content?.pane(for: pane.handle), found.pane === pane { return found }
         }
         return nil
+    }
+
+    /// The quit's last state-file saves (the agent panes' drafts and scroll places, the paired phones' list),
+    /// awaited together under one 2 s limit and holding no thread: no quit blocks the main thread on a disk.
+    func stateFilesDrained(within limit: Duration = .seconds(2)) async {
+        let files = agentPaneStateFiles
+        async let panes = files.drained(within: limit)
+        _ = await iphone.pairedSavesDrained(within: limit)
+        _ = await panes
     }
 }
 

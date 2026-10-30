@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// A small JSON state file beside the launch snapshot, written off the main thread (cmux#27749).
 ///
@@ -13,14 +14,14 @@ import CmuxNextCompat
 /// before it ran is skipped, so a burst costs one write. The caller hands over a value, and the
 /// encoding runs on the queue too; an encoding that throws leaves the file as the last save that
 /// ran left it. ``read()`` waits for the saves already queued for the file, so a store made right
-/// after a save reads it back. At quit ``flushAll(within:)`` waits, bounded, for queued saves, under the app's blocking
-/// allowance. A crash or kill between a save's call and its write loses that save: the window is
+/// after a save reads it back. At quit ``AgentPaneStateFiles/drained(within:)`` awaits, bounded, the queued saves, holding no
+/// thread. A crash or kill between a save's call and its write loses that save: the window is
 /// the queue's backlog (a few milliseconds idle, up to a second under heavy disk load), the price
 /// of never holding the main thread for the disk. The files hold a new chat's unsent text and
 /// where each transcript was scrolled; the next settled edit or scroll saves again.
 public nonisolated final class AgentPaneStateFile: Sendable {
     public let url: URL
-    private let queue: DispatchQueue
+    fileprivate let queue: DispatchQueue
     /// The newest save's number; a queued save with an older one does nothing.
     private let newest = Mutex<UInt64>(0)
 
@@ -28,21 +29,7 @@ public nonisolated final class AgentPaneStateFile: Sendable {
     /// itself, and a read of another file from inside a save still waits for that file's saves.
     private let onQueue = DispatchSpecificKey<Bool>()
 
-    private static let files = Mutex<[String: AgentPaneStateFile]>([:])
-
-    /// The one writer for `url`: two stores of one file (a test's fresh store, a second window)
-    /// share its queue and so its order.
-    public static func at(_ url: URL) -> AgentPaneStateFile {
-        files.withLock { files in
-            let key = url.standardizedFileURL.path
-            if let file = files[key] { return file }
-            let file = AgentPaneStateFile(url: url)
-            files[key] = file
-            return file
-        }
-    }
-
-    private init(url: URL) {
+    fileprivate init(url: URL) {
         self.url = url
         queue = DispatchQueue(label: "com.cmuxterm.app.next.agent-pane.state-file", qos: .utility)
         queue.setSpecific(key: onQueue, value: true)
@@ -73,20 +60,32 @@ public nonisolated final class AgentPaneStateFile: Sendable {
         // concurrency-allow: one small local read per store (at its first use), after this file's queued saves
         return queue.sync { try? Data(contentsOf: url) }
     }
+}
 
-    /// Waits up to `limit` in all for every file's queued saves. App quit only (inside
-    /// `allowBlocking(.terminate)`); false when some were still queued at the deadline.
-    @discardableResult
-    public static func flushAll(within limit: TimeInterval = 2) -> Bool {
-        let all = files.withLock { Array($0.values) }
-        // concurrency-allow: app quit only, inside allowBlocking(.terminate); bounded by `limit` for all files together
-        let drained = DispatchSemaphore(value: 0)
-        for file in all { file.queue.async { drained.signal() } }
-        let deadline = DispatchTime.now() + limit
-        for _ in all {
-            // concurrency-allow: app quit only; one shared deadline for every file
-            if drained.wait(timeout: deadline) == .timedOut { return false }
+/// The app's agent-pane state files, one writer per path (cmux#27749): `AppServices` makes one and
+/// hands it to each store, so two stores of one file (a test's fresh store, a second window) share
+/// its queue and so its order, and the quit waits for exactly the app's files.
+public nonisolated final class AgentPaneStateFiles: Sendable {
+    private let files = Mutex<[String: AgentPaneStateFile]>([:])
+
+    public init() {}
+
+    /// The one writer for `url`.
+    public func at(_ url: URL) -> AgentPaneStateFile {
+        files.withLock { files in
+            let key = url.standardizedFileURL.path
+            if let file = files[key] { return file }
+            let file = AgentPaneStateFile(url: url)
+            files[key] = file
+            return file
         }
-        return true
+    }
+
+    /// Waits, holding no thread, `limit` at most for every file's saves queued before this call: the
+    /// app's quit awaits it (`QuitCoordinator`), and the forced quit after its own deadline is armed
+    /// (`ForcedQuitExit`). False when some were still queued at the limit.
+    @discardableResult
+    public func drained(within limit: Duration) async -> Bool {
+        await QueueDrain().drained(files.withLock { $0.values.map(\.queue) }, within: limit)
     }
 }

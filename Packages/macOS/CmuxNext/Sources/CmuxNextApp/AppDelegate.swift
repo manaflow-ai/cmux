@@ -35,19 +35,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake)
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
-    /// A second quit signal's exit (`QuitSignal`): the Home cache's last write, bounded, then the end.
+    /// A second quit signal's exit (`QuitSignal`): the Home cache's and the state files' last writes, bounded, then the end.
     private lazy var forcedQuitExit = Self.secondSignalExit { [weak self] in self?.services }
 
-    /// The exit's steps (tests inject the deadline and the end).
+    /// The exit's steps: `prepare` waits on no disk, so the deadline is armed at once; the state files' queued
+    /// saves are awaited beside the Home cache's write, after it (tests inject the deadline and the end).
     static func secondSignalExit(_ services: @escaping @MainActor () -> AppServices?, armDeadline: ((Duration) -> Void)? = nil,
                                 end: (@MainActor () -> Void)? = nil) -> ForcedQuitExit {
         ForcedQuitExit(prepare: {
             services()?.crashRecovery.applicationWillTerminate()
             AppProcessRoot.shared.hangReports?.applicationWillTerminate()
-            allowBlocking(.terminate) { AgentPaneStateFile.flushAll() }
             services()?.home.applicationWillTerminate()
         }, save: {
-            await services()?.home.flushCacheForQuit()
+            guard let services = services() else { return }
+            async let files: Void = services.stateFilesDrained()
+            await services.home.flushCacheForQuit()
+            await files
         }, armDeadline: armDeadline, end: end)
     }
     private var settings: SettingsController?
@@ -132,6 +135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake)
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
@@ -516,8 +521,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.editorPages.terminate()
         // Design mode's Home composer files left by cards still in a draft (BrowserDesignModeTempFiles).
         BrowserDesignModeController.tempFiles.removeAll()
-        // The agent panes' state files (unsent drafts, scroll places) save off the main thread.
-        allowBlocking(.terminate) { AgentPaneStateFile.flushAll() }
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
         cloudContext?.cancel()

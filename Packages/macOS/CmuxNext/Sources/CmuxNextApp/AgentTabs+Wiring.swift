@@ -119,7 +119,7 @@ extension AgentTabStore {
             return await services.home.agentPageFace(of: chief, avatars: avatars)
         }
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
-        tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
+        tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         AgentPaneCloudMachines.shared.wire(services)

@@ -189,8 +189,10 @@ final class QuitCoordinator {
                 await services.cache.browserTabs.flushRecords()
                 await services.windows.prepareForTermination()
                 await services.sidebarSnapshots.flush()
-                // Home's drafts, scroll places and unsent sends (its cache's last batch).
+                // Home's drafts, scroll places and unsent sends (its cache's last batch), and the
+                // agent panes' and paired phones' state files.
                 await services.home.flushCacheForQuit()
+                await services.stateFilesDrained()
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
@@ -211,8 +213,9 @@ final class QuitCoordinator {
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
                 // before the engines stop: nothing the user asked for comes after that (QuitSteps).
-                // Nothing is written when nothing changed.
+                // Nothing is written when nothing changed. The same for the other state files.
                 await services.home.flushCacheForQuit()
+                await services.stateFilesDrained()
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it
                 // does, and a debug build reports that hang, never asserts it.

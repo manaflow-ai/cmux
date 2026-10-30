@@ -124,7 +124,16 @@ public final class IPhoneHostService {
     /// the setting off and on, or signing in again. Then it registers as a new device.
     public private(set) var removed = false
     @ObservationIgnored private var signedOutSinceRemoval = false
-    @ObservationIgnored var dependencies: Dependencies?
+    @ObservationIgnored var dependencies: Dependencies? {
+        didSet {
+            guard let directory = dependencies?.stateDirectory,
+                  pairedFile?.file.deletingLastPathComponent().standardizedFileURL.path != directory.standardizedFileURL.path else { return }
+            pairedFile = MobileHostPairedDevicesFile(directory: directory, seal: MobileHostKeychainPairingSeal(
+                bundleID: directory.deletingLastPathComponent().lastPathComponent))
+        }
+    }
+    /// The paired list's one file for the state directory: its queue keeps this host's reads and saves in order.
+    @ObservationIgnored private(set) var pairedFile: MobileHostPairedDevicesFile?
     @ObservationIgnored private var listing: Task<Void, Never>?
     @ObservationIgnored let supervisor = MobileHostSupervisor()
     /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
@@ -370,7 +379,7 @@ public final class IPhoneHostService {
     }
 
     /// App quit: hostd ends with the app (closing its stdin ends it too). Called only from
-    /// `applicationWillTerminate`.
+    /// `applicationWillTerminate`; the quit awaited the paired list's saves before it (``pairedSavesDrained(within:)``).
     public func stop() {
         wakeObserver = nil
         KeepAwakeService.shared.setIPhoneServing(false)
@@ -382,13 +391,17 @@ public final class IPhoneHostService {
         followingFolders?.cancel()
         followingPicks?.cancel()
         approverSync?.stop()
-        // The paired list's queued saves (a removal's new list among them) finish before the app
-        // ends: a bounded wait during termination, the threading model's `terminate` allowance.
-        allowBlocking(.terminate) { MobileHostPairedDevicesFile.flush() }
         quietAttention()
         let supervisor = supervisor
         // task-owner: teardown hop; the supervisor's stop is idempotent
         Task { await supervisor.stop() }
+    }
+
+    /// The app's quit: awaits, `limit` at most and holding no thread, the paired list's queued saves
+    /// (a removal's new list among them).
+    @discardableResult
+    public func pairedSavesDrained(within limit: Duration) async -> Bool {
+        await pairedFile?.drained(within: limit) ?? true
     }
 
     private func reconcile() {

@@ -13,16 +13,17 @@ public final class AgentUnsentDrafts {
     private let store: AgentPaneStateFile?
     private var drafts: [String: String]
 
-    public init(file: URL?) {
+    /// - Parameter files: The app's state files (`AppServices`), so the file has one writer.
+    public init(file: URL?, files: AgentPaneStateFiles) {
         self.file = file
-        store = file.map(AgentPaneStateFile.at)
+        store = file.map(files.at)
         let data = store?.read()
         drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
     }
 
     /// The file in the tag's state directory (beside the launch snapshot).
-    public convenience init(directory: URL?) {
-        self.init(file: directory?.appending(path: Self.fileName))
+    public convenience init(directory: URL?, files: AgentPaneStateFiles) {
+        self.init(file: directory?.appending(path: Self.fileName), files: files)
     }
 
     /// Tab `key`'s kept text as a new chat's seed; nil for a tab whose chat has a session, or

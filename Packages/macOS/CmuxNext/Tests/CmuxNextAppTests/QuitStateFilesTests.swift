@@ -5,7 +5,7 @@ import Testing
 
 /// The quit's last state-file saves (a new chat's unsent draft, scroll places, the paired phones' list)
 /// never block the main thread (rise audit of cmux#27749 and #25535): the forced quit arms its deadline
-/// before it waits for them.
+/// before it waits for them, and the normal quit awaits them with no blocking allowance.
 @MainActor
 @Suite(.serialized)
 struct QuitStateFilesTests {
@@ -38,8 +38,8 @@ struct QuitStateFilesTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let services = AppServices(environment: AppEnvironment.current([:]))
         let url = directory.appending(path: AgentUnsentDrafts.fileName)
-        let release = Self.hold(AgentPaneStateFile.at(url))
-        AgentPaneStateFile.at(url).write { Data("draft".utf8) }
+        let release = Self.hold(services.agentPaneStateFiles.at(url))
+        services.agentPaneStateFiles.at(url).write { Data("draft".utf8) }
         let started = ContinuousClock.now
         var armedAfter: Duration?
         var onDiskAtEnd: Data?
@@ -52,5 +52,25 @@ struct QuitStateFilesTests {
         release.signal()
         await ending?.value
         #expect(onDiskAtEnd == Data("draft".utf8), "the forced quit ended before the queued draft save")
+    }
+
+    /// The quit (QuitCoordinator's save steps) awaits a draft save queued behind a busy disk: the main
+    /// actor keeps running meanwhile, and the draft is on disk when the wait returns.
+    @Test func theQuitAwaitsAQueuedDraftWithoutBlockingTheMainThread() async throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let url = directory.appending(path: AgentUnsentDrafts.fileName)
+        let file = services.agentPaneStateFiles.at(url)
+        let release = Self.hold(file)
+        file.write { Data("draft".utf8) }
+        let quit = Task { await services.stateFilesDrained() }
+        let started = ContinuousClock.now
+        try await Task.sleep(for: .milliseconds(200))
+        let waited = ContinuousClock.now - started
+        #expect(waited < .seconds(1), "the main actor was held \(waited) while the save was queued")
+        release.signal()
+        await quit.value
+        #expect((try? Data(contentsOf: url)) == Data("draft".utf8), "the quit's wait returned before the queued draft save")
     }
 }

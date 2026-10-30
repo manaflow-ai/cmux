@@ -147,13 +147,13 @@ import Testing
     /// The paired list as the app reads it at its next launch (a new file object, the same seal),
     /// and what reaches acpmux (approvers) and hostd (pinned keys) from it.
     static func relaunched(_ directory: URL, seal: any MobileHostPairingSealStore) -> (approvers: [[String: String]], hostd: [[String: String]]) {
-        MobileHostPairedDevicesFile(directory: directory, seal: seal).forgetThisRun()
-        return reread(directory, seal: seal)
+        reread(MobileHostPairedDevicesFile(directory: directory, seal: seal))
     }
 
-    /// The paired list read again in this run (a sign-out and sign-in), and what reaches acpmux and hostd from it.
-    static func reread(_ directory: URL, seal: any MobileHostPairingSealStore) -> (approvers: [[String: String]], hostd: [[String: String]]) {
-        let list = MobileHostPairedDevicesFile(directory: directory, seal: seal).load(userID: "u")
+    /// The paired list read again in this run (a sign-out and sign-in: the iPhone host's one file
+    /// object), and what reaches acpmux and hostd from it.
+    static func reread(_ file: MobileHostPairedDevicesFile) -> (approvers: [[String: String]], hostd: [[String: String]]) {
+        let list = file.load(userID: "u")
         let approvers = list.approversParams(macDevice: "mac-1")["approvers"] as? [[String: String]] ?? []
         let line = (try? JSONSerialization.jsonObject(with: MobileHostLaunch.devicesLine(list))) as? [String: Any]
         return (approvers, line?["devices"] as? [[String: String]] ?? [])
@@ -269,17 +269,15 @@ import Testing
     @Test func aRemovalTakesTheOldDigestAwayAfterTheSavesBeforeIt() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let seal = MobileHostMemoryPairingSeal()
+        let seal = HeldSeal()
         let (file, saved) = try Self.saved(directory, seal: seal)
         let old = try Data(contentsOf: file.file)
         var devices = saved
         devices.remove(Self.request.phoneDeviceID)
-        // A save queued before it holds the queue for a moment.
-        let gated = GatedSeal()
-        let elsewhere = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: elsewhere) }
-        MobileHostPairedDevicesFile(directory: elsewhere, seal: gated).saveInBackground(MobileHostPairedDevices(userID: "x"))
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { gated.gate.signal() }
+        // A save queued before it holds the file's queue for a moment.
+        seal.holdNextClear()
+        file.saveInBackground(saved)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { seal.gate.signal() }
         #expect(await Self.removing(devices, in: file))
         #expect(seal.digest() != MobileHostPairingSeal.digest(old), "the old list still counts after the removal")
         #expect(await file.loadInBackground(userID: "u") == devices)
@@ -290,15 +288,13 @@ import Testing
     @Test func aRemovalNeverWaitsOnTheCallersThread() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let seal = MobileHostMemoryPairingSeal()
+        let seal = HeldSeal()
         let (file, saved) = try Self.saved(directory, seal: seal)
         var devices = saved
         devices.remove(Self.request.phoneDeviceID)
-        let gated = GatedSeal()
-        let elsewhere = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: elsewhere) }
-        MobileHostPairedDevicesFile(directory: elsewhere, seal: gated).saveInBackground(MobileHostPairedDevices(userID: "x"))
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.6) { gated.gate.signal() }
+        seal.holdNextClear()
+        file.saveInBackground(saved)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.6) { seal.gate.signal() }
         let clock = ContinuousClock()
         let started = clock.now
         let done = SavedBox()
@@ -334,7 +330,7 @@ import Testing
         seal.refuseRecords()
         #expect(await Self.removing(devices, in: file) == false, "a refused removal reported saved")
         try copy.write(to: file.file)
-        let reread = Self.reread(directory, seal: seal)
+        let reread = Self.reread(file)
         #expect(reread.approvers.isEmpty, "the revoked phone is an approver again: \(reread.approvers)")
         #expect(reread.hostd.isEmpty, "hostd pins the revoked phone again: \(reread.hostd)")
     }
@@ -347,13 +343,8 @@ import Testing
         let seal = MobileHostMemoryPairingSeal()
         let (file, _) = try Self.saved(directory, seal: seal)
         file.withdrawTrust()
-        await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
-            DispatchQueue.global().async {
-                MobileHostPairedDevicesFile.flush(within: 5)
-                resume.resume()
-            }
-        }
-        let reread = Self.reread(directory, seal: seal)
+        #expect(await file.drained(within: .seconds(5)))
+        let reread = Self.reread(file)
         #expect(reread.approvers.isEmpty, "the forgotten phone is still an approver after the flush: \(reread.approvers)")
         let relaunched = Self.relaunched(directory, seal: seal)
         #expect(relaunched.approvers.isEmpty, "the forgotten phone is an approver after a relaunch: \(relaunched.approvers)")
@@ -389,7 +380,7 @@ import Testing
             #expect(await Self.removing(devices, in: file))
         }
         #expect(file.rememberedDigests() <= 1, "this run remembers \(file.rememberedDigests()) digests for one file")
-        #expect(Self.reread(directory, seal: seal).approvers.map { $0["publicKey"] } == [Self.approval])
+        #expect(Self.reread(file).approvers.map { $0["publicKey"] } == [Self.approval])
     }
 
     /// Review 90 (4): approving new keys for a paired phone replaces its old keys; when the Keychain
@@ -409,7 +400,7 @@ import Testing
         seal.refuseRecords()
         #expect(throws: MobileHostPairingSealError.keychainRefused) { try file.save(devices) }
         try copy.write(to: file.file)
-        let reread = Self.reread(directory, seal: seal)
+        let reread = Self.reread(file)
         #expect(!reread.approvers.contains { $0["publicKey"] == Self.approval }, "the replaced key is an approver again: \(reread.approvers)")
         #expect(reread.hostd.isEmpty, "hostd pins the replaced key again: \(reread.hostd)")
     }
@@ -509,12 +500,22 @@ final class SavedBox: @unchecked Sendable {
 }
 
 /// A seal whose clear waits for `gate`: it holds the shared save queue (tests only).
-final class GatedSeal: MobileHostPairingSealStore, @unchecked Sendable {
+/// A memory seal whose next clear, once ``holdNextClear()`` was called, waits at `gate`: a save
+/// queued before another holds the file's queue for a moment.
+final class HeldSeal: MobileHostPairingSealStore, Sendable {
     let gate = DispatchSemaphore(value: 0)
-    func digest() -> Data? { nil }
-    func setDigest(_ digest: Data) -> Bool { true }
+    private let inner = MobileHostMemoryPairingSeal()
+    /// One token per ``holdNextClear()``: the clear that takes it waits.
+    private let held = DispatchSemaphore(value: 0)
+
+    func holdNextClear() {
+        held.signal()
+    }
+
+    func digest() -> Data? { inner.digest() }
+    func setDigest(_ digest: Data) -> Bool { inner.setDigest(digest) }
     func clearDigest() -> Bool {
-        gate.wait()
-        return true
+        if held.wait(timeout: .now()) == .success { gate.wait() }
+        return inner.clearDigest()
     }
 }

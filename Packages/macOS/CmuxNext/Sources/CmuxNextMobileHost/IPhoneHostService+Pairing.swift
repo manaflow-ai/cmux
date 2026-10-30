@@ -24,14 +24,6 @@ extension IPhoneHostService {
     static let allowButton = "allow"
     static let denyButton = "deny"
 
-    private var pairedFile: MobileHostPairedDevicesFile? {
-        dependencies.map {
-            MobileHostPairedDevicesFile(
-                directory: $0.stateDirectory,
-                seal: MobileHostKeychainPairingSeal(bundleID: $0.stateDirectory.deletingLastPathComponent().lastPathComponent))
-        }
-    }
-
     /// Loads the list of the signed-in user; a sign-out forgets that user's phones. The list is
     /// read off the main actor (its seal is a Keychain item), after every save already queued;
     /// until it is in, no phone is trusted and no pairing is decided (each needs `paired`).
