@@ -49,6 +49,22 @@ fn process_threads() -> usize {
     info.pti_threadnum as usize
 }
 
+/// Thread names of this process with their counts (diagnostic only).
+#[cfg(target_os = "linux")]
+fn thread_names() -> std::collections::BTreeMap<String, usize> {
+    let mut names = std::collections::BTreeMap::new();
+    for entry in std::fs::read_dir("/proc/self/task").expect("/proc/self/task").flatten() {
+        let name = std::fs::read_to_string(entry.path().join("comm")).unwrap_or_default();
+        *names.entry(name.trim().to_string()).or_insert(0) += 1;
+    }
+    names
+}
+
+#[cfg(not(target_os = "linux"))]
+fn thread_names() -> std::collections::BTreeMap<String, usize> {
+    std::collections::BTreeMap::new()
+}
+
 /// The thread count once it held still for 300 ms.
 fn settled_threads() -> usize {
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -114,6 +130,7 @@ fn sixty_idle_connections_add_at_most_two_threads() {
     let mut connections = vec![Connection::open(&socket)];
     connections[0].settle_in();
     let before = settled_threads();
+    let names_before = thread_names();
 
     for _ in 1..CONNECTIONS {
         let mut connection = Connection::open(&socket);
@@ -121,6 +138,15 @@ fn sixty_idle_connections_add_at_most_two_threads() {
         connections.push(connection);
     }
     let after = settled_threads();
+    let names_after = thread_names();
+    std::thread::sleep(Duration::from_secs(3));
+    let names_later = thread_names();
+    let later = process_threads();
+    panic!(
+        "DIAG pass={} before={before} after={after} later={later}\nbefore: {names_before:?}\nafter: {names_after:?}\nlater: {names_later:?}",
+        after <= before + THREAD_BUDGET
+    );
+    #[allow(unreachable_code)]
     assert!(
         after <= before + THREAD_BUDGET,
         "{CONNECTIONS} idle connections took {} threads ({before} -> {after})",
