@@ -414,6 +414,18 @@ class Decide(unittest.TestCase):
             self.assertEqual(lines["owned_jobs"], " cmux-scheme-compile ")
             bot.runners.assert_called_once_with()
 
+    def test_timeout_publishes_default_route_instead_of_hanging(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            output = Path(tmp) / "out"
+            values = env(GITHUB_OUTPUT=str(output), GITHUB_STEP_SUMMARY=str(Path(tmp) / "summary"))
+            with mock.patch.object(placement, "_main", side_effect=TimeoutError("read timeout")):
+                self.assertEqual(placement.main(values), 0)
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(lines["runner"], placement.DEFAULT_PLACEMENT_RUNNER)
+            self.assertEqual(lines["gui_overflow"], placement.DEFAULT_PLACEMENT_RUNNER)
+            self.assertEqual(lines["watch"], "false")
+            self.assertIn(placement.DEFAULT_PLACEMENT_RUNNER, Path(values["GITHUB_STEP_SUMMARY"]).read_text())
+
     def test_main_writes_the_outputs(self):
         # The script's ::warning:: lines stay out of the guard job's log.
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):

@@ -671,6 +671,13 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", expression)
         self.assertIn("needs.macos-placement.outputs.retry_runner", expression)
         self.assertIn("blacksmith-6vcpu-macos-26", expression)
+        # If placement excluded both Blacksmith pools and has no retry label, the job is skipped;
+        # an unconditional vars.MACOS_RUNNER_26/Blacksmith tail would bypass outage and nightly guards.
+        self.assertIn("needs.macos-placement.outputs.placed_attempt != format('{0}', github.run_attempt)", expression)
+        self.assertIn("github.triggering_actor", expression)
+        fast_if = str(fast.get("if") or "")
+        self.assertIn("needs.macos-placement.outputs.fast_runner != ''", fast_if)
+        self.assertIn("needs.macos-placement.outputs.retry_runner != ''", fast_if)
 
     def test_the_role_label_rule_catches_what_it_is_for(self) -> None:
         here = ".github/workflows/x.yml"

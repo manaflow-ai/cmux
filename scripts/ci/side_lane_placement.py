@@ -108,6 +108,7 @@ import importlib.util
 import math
 import os
 import sys
+import signal
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -123,6 +124,10 @@ def _picker():
 
 pool = _picker()
 SIDE_RETRY_CAP_SECONDS = 5.0
+# Keep the placement step below its workflow timeout. A timed-out read must
+# leave a concrete default route, not strand the dependent Mac jobs.
+PLACEMENT_DEADLINE_SECONDS = 90
+DEFAULT_PLACEMENT_RUNNER = "blacksmith-6vcpu-macos-26"
 
 
 def _cascade():
@@ -622,7 +627,7 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     return 0
 
 
-def main(env: Mapping[str, str] = os.environ) -> int:
+def _main(env: Mapping[str, str] = os.environ) -> int:
     runners = None
     repo = env.get("GITHUB_REPOSITORY", "")
     # The routing App first, then cmux-bot (ROUTE_TOKEN_FALLBACK) when the first read is refused.
@@ -742,6 +747,43 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
     return 0
+
+
+def _timeout_fallback(env: Mapping[str, str]) -> int:
+    """Publish a safe ephemeral Mac route when placement reads exceed the deadline."""
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(
+                f"owned_jobs=\nfallback_jobs=\nrunner={DEFAULT_PLACEMENT_RUNNER}\n"
+                f"gui_runner=\nsession_runner=\nfree_gui_runner=\nfree_session_runner=\n"
+                f"gui_overflow={DEFAULT_PLACEMENT_RUNNER}\nsession_lane_runner=\n"
+                f"nightly_runner_ready=\nfast_runner=\nfresh_runner=\nfresh_jobs=\n"
+                f"gateway_runner=\ngateway_attempt=\nwatch=false\n"
+            )
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write("### macOS placement\n\nPlacement exceeded its read deadline; using "
+                         f"{DEFAULT_PLACEMENT_RUNNER}.\n")
+    print(f"::warning title=side-lane placement::read deadline exceeded; using {DEFAULT_PLACEMENT_RUNNER}")
+    return 0
+
+
+def main(env: Mapping[str, str] = os.environ) -> int:
+    """Run placement with a hard deadline and a deterministic default route."""
+    previous = signal.getsignal(signal.SIGALRM)
+    def timeout(_signum: int, _frame: Any) -> None:
+        raise TimeoutError("side-lane placement read deadline exceeded")
+    try:
+        signal.signal(signal.SIGALRM, timeout)
+        signal.setitimer(signal.ITIMER_REAL, PLACEMENT_DEADLINE_SECONDS)
+        return _main(env)
+    except TimeoutError:
+        return _timeout_fallback(env)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 if __name__ == "__main__":
