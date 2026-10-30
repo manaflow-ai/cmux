@@ -46,7 +46,7 @@ pub(super) fn stopped_before_prompt() -> RpcError {
 
 /// Whether `e` is [`stopped_before_prompt`]: the turn it ends is the Stop's, cancelled, not failed.
 fn is_stopped_before_prompt(e: &RpcError) -> bool {
-    e.data.as_ref().is_some_and(|d| d["reason"] == "stopped")
+    e.data.as_ref().is_some_and(|d| d.get("reason").and_then(Value::as_str) == Some("stopped"))
 }
 
 /// What a turn a Stop ended before its prompt reached the agent answers in its `turn_result`.
@@ -1355,7 +1355,7 @@ impl Hub {
         self.requeue_joined(session, joined, false);
         let stopped_early = is_stopped_before_prompt(e);
         if stopped_early || was_stopping {
-            let stop = stopped_answer()["stopReason"].clone();
+            let stop = stopped_answer().get("stopReason").cloned().unwrap_or_default();
             self.append(
                 session,
                 "mux",

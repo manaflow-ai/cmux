@@ -12,6 +12,7 @@ mod agent_pairs;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
+mod atomic_json;
 pub(crate) mod auto_resume;
 mod bg_tasks;
 mod bounded;
@@ -124,6 +125,7 @@ mod steer_end;
 mod store_load;
 mod stream;
 mod tags;
+mod tailnet_controller;
 mod tap;
 mod titles;
 mod tool_paths;
@@ -184,6 +186,7 @@ pub mod rules;
 mod stop_settles_tests;
 mod transcript;
 mod transfer;
+mod transfer_authority;
 mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
@@ -214,6 +217,7 @@ use crate::rpc::{Id, Message, RpcError, method};
 use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// True when a permission request is an agent's question (`questions.rs`): what tells the
@@ -887,18 +891,6 @@ impl Hub {
         &self.mailbox
     }
 
-    #[cfg(all(unix, feature = "tailnet"))]
-    pub(crate) fn tailnet_controller(&self) -> Arc<crate::tailnet::embedded::Controller> {
-        self.tailnet_controller
-            .get_or_init(|| {
-                crate::tailnet::embedded::Controller::new(
-                    crate::tailnet::embedded::state_dir(&crate::config::home()),
-                    crate::hand::pair::hostname(),
-                )
-            })
-            .clone()
-    }
-
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
         // A bounded debug seam for slow-filesystem startup tests; absent in release builds.
         #[cfg(debug_assertions)]
@@ -980,6 +972,7 @@ impl Hub {
         }
         let session = self.make_session(meta);
         session.caught_up.store(false, Ordering::SeqCst);
+        *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
         // Its log is read after the ready line (`log_load.rs`).
         *session.log_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
         session.log_loaded.store(false, Ordering::SeqCst);
@@ -1101,6 +1094,7 @@ impl Hub {
             team_information: Default::default(),
             queue_moved: Notify::new(),
             moving: StdMutex::new(moving),
+            transfer_authority: StdMutex::new(Some((0, false))),
             restored: StdMutex::new(Vec::new()),
             inbox_digests: StdMutex::new(HashMap::new()),
             stream: StdMutex::new(StreamState::default()),
@@ -1407,9 +1401,9 @@ impl Hub {
             "messageId": message_id,
         });
         if let Some(target) = target_scope {
-            msg["_acpmuxTarget"] = json!(target);
+            msg.set("_acpmuxTarget", json!(target));
             if let Some(peer) = target_peer {
-                msg["_acpmuxTargetPeer"] = json!(peer);
+                msg.set("_acpmuxTargetPeer", json!(peer));
             }
         }
         tool_paths::add_canonical_paths(session, "_acpmux/message", &mut msg);
@@ -1586,6 +1580,9 @@ impl Hub {
                 false
             }
         };
+        if stored {
+            session.note_transfer_event(&record);
+        }
         // A closed session's log is not held open: its last records (`status`,
         // then the agent's `stopped`) each close it again (`store.rs` Writers).
         if session.status() == SessionStatus::Closed {

@@ -7,10 +7,13 @@ use crate::no_panic::LockExt;
 mod briefs;
 mod composer;
 mod events;
+mod info;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
 pub(super) mod person_stop;
 mod presets;
+mod session_open;
+pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 mod successor;
 mod turn_opener;
 #[path = "watches.rs"]
@@ -143,6 +146,7 @@ pub(super) async fn handle_notification(
                     device.as_deref(),
                     m,
                     &mut params,
+                    false,
                 )
                 .await
             {
@@ -440,6 +444,7 @@ async fn dispatch_brief(
             None,
             method::SESSION_NEW,
             &mut new_params,
+            false,
         )
         .await?;
     }
@@ -641,11 +646,34 @@ pub(super) async fn handle_request(
     // boundary, runs under the Web's rules from here on (`hub/vm_boundary.rs`).
     let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
+    // A policy raise the person proved in another machine's app, for a chat here: counted and
+    // its challenge spent once, before any check reads it, and the change goes to that very
+    // chat (`hub/person/policy_grant.rs`).
+    let proved_chat = hub.take_person_policy(m, &params);
+    let policy_proved = proved_chat.is_some();
+    // A refused raise of a chat here carries a challenge the person's app can prove.
+    let challenge = |e: RpcError, params: &Value| {
+        hub.with_policy_challenge(
+            m,
+            params,
+            &[super::remote_guard::POLICY_REFUSED, crate::hub::person::REASON],
+            e,
+        )
+    };
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         let device = super::remote_guard::full_access_device(hub, conn, &params);
-        super::remote_guard::check(hub, conn.origin, conn.auth, device.as_deref(), m, &mut params)
-            .await?;
+        super::remote_guard::check(
+            hub,
+            conn.origin,
+            conn.auth,
+            device.as_deref(),
+            m,
+            &mut params,
+            policy_proved,
+        )
+        .await
+        .map_err(|e| challenge(e, &params))?;
     }
     caller_sends_no_files(hub, conn, m, &params)?;
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
@@ -657,17 +685,19 @@ pub(super) async fn handle_request(
             == crate::hub::Control::Web;
     let verdict = hub
         .person_check(
-            conn.is_person(),
+            conn.is_person() || policy_proved,
             remote_authenticated,
             conn.caller(),
             !conn.origin.web_class(),
             m,
             &params,
         )
-        .await?;
+        .await
+        .map_err(|e| challenge(e, &params))?;
     // Again after the guard's awaits: a session that took the name meanwhile (`hub/vm_boundary.rs`).
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
-    let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
+    let resolved = proved_chat
+        .or_else(|| super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok()));
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     // A message's class is checked here, before a peer's prompt is forwarded: an older peer
     // ignores the field, and a send queued for later would fail only once it is delivered.
@@ -792,7 +822,7 @@ async fn dispatch_request(
                 "agentCapabilities": {
                     "loadSession": true,
                     "promptCapabilities": {"image": true, "audio": false, "embeddedContext": true},
-                    "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
+                    "sessionCapabilities": {"list": {}, "fork": {}, "resume": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
                 "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "capabilities": crate::capabilities::ids(),
@@ -816,7 +846,7 @@ async fn dispatch_request(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, SESSION_RESUME_FEATURE], "trustGate": true}}
             });
             // Only a local client can use the app launcher's bundled CLI.
             if conn.origin == Origin::Local
@@ -1183,63 +1213,9 @@ async fn dispatch_request(
                 "_meta": {"acpmux": summary},
             }))
         }
-        method::SESSION_LOAD | method::SESSION_RESUME => {
-            let s = resolved_session(hub, resolved.as_ref(), &params)?;
-            // Before the attach: a message the live stream sends during the replay is not
-            // replayed again, nor one replayed sent live (`MessageNotices`).
-            conn.message_notices.lock().unwrap_or_else(|e| e.into_inner()).reopen(None, &s.id);
-            attach(hub, conn, &s.id);
-            // Replay history as ACP updates, then answer.
-            // One record at a time, the first 100,000 as before: the log is never held whole.
-            let mut left = 100_000usize;
-            hub.scan_events(&s.id, 0, &mut |rec| {
-                left -= 1;
-                if rec.dir == "mux" && rec.kind == "user_message" {
-                    let text = rec.msg.get("text").and_then(Value::as_str).unwrap_or("");
-                    conn.send(&Message::notification(
-                        method::SESSION_UPDATE,
-                        json!({"sessionId": s.id, "update": {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}}, "_meta": {"acpmux": {"seq": rec.seq, "at": rec.at, "replay": true}}}),
-                    ));
-                } else if rec.dir == "mux" && rec.kind == "_acpmux/message" {
-                    // Once, whether the live stream or this replay sends it first.
-                    let fresh = conn
-                        .message_notices
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .replay(None, &s.id, rec.seq);
-                    // Another daemon's link, served as Peer or added with the dashboard token
-                    // (`view::a_link`), takes the event envelope, so its hub keeps the sequence
-                    // and replays it after a reconnect: its hub reads no compact notice.
-                    // Person/app clients keep the compact notice they already consume.
-                    if fresh && super::view::a_link(conn) {
-                        conn.send(&Message::notification(
-                            method::MUX_EVENT,
-                            super::event_value(&s.id, &rec),
-                        ));
-                    } else if fresh {
-                        conn.send(&Message::notification(method::MUX_MESSAGE, rec.msg.clone()));
-                    }
-                } else if rec.dir == "in"
-                    && !rec.kind.ends_with(".replay")
-                    && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
-                {
-                    let mut p = rec.msg.get("params").cloned().unwrap_or(json!({}));
-                    p.set("sessionId", Value::String(s.id.clone()));
-                    crate::hub::merge_mux_meta(
-                        &mut p,
-                        json!({"seq": rec.seq, "at": rec.at, "kind": rec.kind, "replay": true}),
-                    );
-                    conn.send(&Message::notification(method::SESSION_UPDATE, p));
-                }
-                left > 0
-            })
-            .map_err(|e| RpcError::internal(e.to_string()))?;
-            let meta = s.meta();
-            Ok(
-                json!({"modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&s)}}),
-            )
-        }
-        method::SESSION_LIST => super::list_reply::acp_list(hub, conn).await,
+        method::SESSION_LOAD => session_open::load(hub, conn, resolved.as_ref(), &params),
+        method::SESSION_RESUME => session_open::resume(hub, conn, resolved.as_ref(), &params),
+        method::SESSION_LIST => super::list_reply::acp_list(hub, conn, &params).await,
         method::SESSION_PROMPT => {
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             attach(hub, conn, &s.id);
@@ -1819,34 +1795,7 @@ async fn dispatch_request(
         }
         // Read or change presets (`requests/presets.rs`).
         method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
-        method::MUX_INFO => {
-            let s = hub.resolve_told(session_key(&params)?, conn.origin == Origin::Local)?;
-            // After a restart the chat logs are read after the ready line; until
-            // then the queue, the turn and the status are the session list's. Info
-            // waits for this chat's (#22916; read now if the background pass has not
-            // reached it, `hub/log_load.rs`), unless a caller that reads only what the
-            // session list holds (its id, env, policy, rules, modes) asks with
-            // `waitLogs: false`: it answers at once, with `logsLoading`.
-            if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
-                hub.session_log(&s).await;
-            }
-            let mut detail = hub.session_detail(&s);
-            if let Some(obj) = detail.as_object_mut() {
-                obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));
-            }
-            // The session env reaches the unix socket only: no summary or
-            // event carries it, so a key added to the allowlist later never
-            // reaches another origin by default (session_env.rs).
-            if conn.origin == Origin::Local
-                && let Some(obj) = detail.as_object_mut()
-            {
-                obj.insert(
-                    "sessionEnv".into(),
-                    json!(crate::session_env::shown(&s.meta().session_env)),
-                );
-            }
-            Ok(detail)
-        }
+        method::MUX_INFO => info::info(hub, conn, &params).await,
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;
             let s = hub.resolve(session_key(&params)?)?;
@@ -2233,7 +2182,8 @@ async fn dispatch_request(
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {
-            let s = hub.resolve(session_key(&params)?)?;
+            // The chat a proved raise was checked for (`hub/person/policy_grant.rs`).
+            let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let policy: PermissionPolicy = str_param(&params, "policy")
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()

@@ -229,7 +229,8 @@ pub(super) async fn remember_forward(
 /// Find a receiver projection across every page, including messages still queued
 /// there. Only a locally recorded intent can name the source journal to repair.
 async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value, (String, Next)> {
-    let intent = &delivery.request["_meta"]["acpmux"]["forwardProjection"];
+    let intent =
+        delivery.request.pointer("/_meta/acpmux/forwardProjection").unwrap_or(&Value::Null);
     let caller = delivery.caller.as_deref().unwrap_or_default();
     // A restart resumes the outbox before the saved sessions load (`daemon.rs`): the sender is
     // read on demand, or after the load, before its absence counts.
@@ -280,7 +281,7 @@ async fn reconcile_forward(hub: &Arc<Hub>, delivery: &Delivery) -> Result<Value,
             if event["kind"] == "_acpmux/message"
                 && msg["messageId"] == intent["messageId"]
                 && msg["sessionId"] == target
-                && msg["sender"]["sessionId"] == caller
+                && msg.pointer("/sender/sessionId").and_then(Value::as_str) == Some(caller)
             {
                 if !hub.append_sender_message_event(
                     &source.id,

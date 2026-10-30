@@ -100,7 +100,7 @@ impl Hub {
         for (route, r) in
             self.remote_sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter()
         {
-            let name = r.summary["name"].as_str().unwrap_or_default();
+            let name = r.summary.get("name").and_then(Value::as_str).unwrap_or_default();
             let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name);
             let tier = if bare == key || r.receipt.mux_session_id.starts_with(key) {
                 &mut named
@@ -113,7 +113,7 @@ impl Hub {
                 host: r.peer.clone(),
                 name: bare.to_owned(),
                 route: route.clone(),
-                closed: r.summary["status"] == "closed",
+                closed: r.summary.get("status").and_then(Value::as_str) == Some("closed"),
             });
         }
         [named, prefixed, short]
