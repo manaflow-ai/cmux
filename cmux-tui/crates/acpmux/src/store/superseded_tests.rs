@@ -176,7 +176,7 @@ fn a_sealed_segment_loses_only_content_a_later_update_in_it_supersedes() {
     let before = segments(&store, "c");
     assert!(before.len() > 4, "the log spans several segments: {}", before.len());
     let events = store.dir("c").join("events");
-    let stats = compact_sealed(&events).unwrap();
+    let stats = compact_sealed(&events, &store.writers).unwrap().stats;
     let after = segments(&store, "c");
     assert_eq!(after.len(), before.len());
     assert!(stats.trimmed > 0 && stats.bytes_after * 3 < stats.bytes_before, "{stats:?}");
@@ -210,7 +210,7 @@ fn a_sealed_segment_loses_only_content_a_later_update_in_it_supersedes() {
     assert_eq!(fold(&all), fold(&log), "every call ends as logged");
     // Done once: the marker holds the newest sealed segment, and a second pass reads nothing.
     assert_eq!(read_marker(&events).through as usize, after.len() - 1);
-    assert_eq!(compact_sealed(&events).unwrap(), Compaction::default());
+    assert_eq!(compact_sealed(&events, &store.writers).unwrap(), Pass::default());
     assert!(!waiting(&events).unwrap());
 }
 
@@ -239,4 +239,87 @@ fn the_daemon_store_compacts_a_segment_once_it_is_sealed() {
     let all: Vec<EventRecord> = segments(&store, "c").into_iter().flat_map(|(_, _, r)| r).collect();
     assert_eq!(all.len(), log.len());
     assert_eq!(fold(&all), fold(&log));
+}
+
+/// A call id names a call within its prompt only: an adapter that numbers calls per process reuses
+/// one in a later prompt (cx-jzhka). The later call never takes the earlier one's output away.
+#[test]
+fn a_call_id_a_later_prompt_reuses_supersedes_nothing_before_that_prompt() {
+    let prompt = |seq| EventRecord {
+        seq,
+        at: seq,
+        dir: "mux".into(),
+        kind: "user_message".into(),
+        msg: json!({"text": "again"}),
+        host_seq: None,
+    };
+    let call = |seq, text: &str| {
+        update(
+            seq,
+            "tool_call_update",
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "0", "status": "completed", "content": [{"type": "text", "text": text}]}),
+        )
+    };
+    let log = vec![
+        prompt(1),
+        call(2, "first prompt's output"),
+        prompt(3),
+        call(4, "second prompt's output"),
+    ];
+    // Read newest first, as a page.
+    let mut superseded = Superseded::default();
+    let kept: Vec<EventRecord> = log
+        .iter()
+        .rev()
+        .cloned()
+        .filter_map(|mut rec| superseded.keep(&mut rec).then_some(rec))
+        .collect();
+    assert_eq!(kept.into_iter().rev().collect::<Vec<_>>(), log, "both calls keep their output");
+    // In a sealed segment.
+    let (_home, root) = Home::new();
+    let store = LocalStore::new(root, 64 * 1024).unwrap();
+    for rec in &log {
+        store.append("c", rec).unwrap();
+    }
+    let filler = "f".repeat(70 * 1024);
+    store
+        .append(
+            "c",
+            &EventRecord {
+                seq: 5,
+                at: 5,
+                dir: "mux".into(),
+                kind: "note".into(),
+                msg: json!({"text": filler}),
+                host_seq: None,
+            },
+        )
+        .unwrap();
+    store.append("c", &prompt(6)).unwrap();
+    let events = store.dir("c").join("events");
+    assert_eq!(segments(&store, "c").len(), 2, "the first segment is sealed");
+    let before = std::fs::read(&segments(&store, "c")[0].0).unwrap();
+    let pass = compact_sealed(&events, &store.writers).unwrap();
+    assert_eq!(pass.stats.trimmed, 0, "{pass:?}");
+    assert_eq!(std::fs::read(&segments(&store, "c")[0].0).unwrap(), before);
+}
+
+#[test]
+fn a_copy_a_crash_left_beside_a_segment_is_removed_by_the_next_pass() {
+    let (_home, root) = Home::new();
+    let store = LocalStore::new(root, 64 * 1024).unwrap();
+    for rec in &codex_chat(2, 40, 90) {
+        store.append("c", rec).unwrap();
+    }
+    let events = store.dir("c").join("events");
+    let first = segments(&store, "c")[0].0.clone();
+    let left = copy_path(&first);
+    std::fs::write(&left, "half a copy").unwrap();
+    compact_sealed(&events, &store.writers).unwrap();
+    assert!(!left.exists());
+    let names: Vec<String> = std::fs::read_dir(&events)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(names.iter().all(|n| !n.ends_with(".superseded")), "{names:?}");
 }

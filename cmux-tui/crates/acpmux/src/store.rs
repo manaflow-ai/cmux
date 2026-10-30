@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
@@ -932,7 +932,8 @@ impl Store for MemoryStore {
 pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
-    writers: Mutex<Writers>,
+    /// Shared with the thread that puts a sealed segment's compacted copy in place.
+    writers: Arc<Mutex<Writers>>,
     /// Compacts each sealed segment (`store/superseded.rs`); None: never.
     sealing: Option<superseded::Sealing>,
 }
@@ -977,7 +978,7 @@ impl LocalStore {
         Ok(Self {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
-            writers: Mutex::new(Writers::default()),
+            writers: Arc::new(Mutex::new(Writers::default())),
             sealing: None,
         })
     }

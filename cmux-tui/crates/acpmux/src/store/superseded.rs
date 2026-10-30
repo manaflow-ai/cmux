@@ -8,6 +8,12 @@
 //! that way (the web client's `mergeToolItem`, `transcript.rs`). So an update's `content` is moot
 //! once a later update of the same call carries its own. No reader folds the deltas.
 //!
+//! A call id names a call within one prompt only (an adapter that numbers calls per process
+//! reuses one in a later prompt; the web client clears its calls at each prompt, cx-jzhka), so an
+//! update is only ever superseded by one of the same prompt: a `user_message` or `turn_started`
+//! between them keeps both. A read cut at a prompt (a fork through a turn, an export) sees every
+//! call as logged.
+//!
 //! It is left out in two places, and the final state of every call stays as logged:
 //! - A page read newest first for a client that bounds it by bytes (`hub/paging.rs`). An update
 //!   whose every field a newer update of its call in the same scan carries again is left out
@@ -15,7 +21,8 @@
 //!   `content`. The page's byte and record bounds then go to the transcript, not to snapshots: a
 //!   Codex chat's newest page used to hold a few records of one running command.
 //! - A sealed segment of a live chat's log ([`LocalStore::sealed`]). Each record keeps its `seq`;
-//!   a content-bearing update that a later one in the same segment supersedes loses its `content`;
+//!   a content-bearing update that a later one in the same segment and prompt supersedes loses its
+//!   `content`;
 //!   the deltas, each call's last content in the segment and every other record stay as written.
 //!   The note `_meta.acpmux.supersededContent` (bytes) marks an update whose content was left out.
 //!
@@ -35,6 +42,11 @@ const MARKER: &str = "superseded.json";
 const NOTE: &str = "supersededContent";
 /// `_meta` keys no reader folds: Codex's output increments, which the call's content holds too.
 const UNREAD_META: &[&str] = &["terminal_output_delta"];
+
+/// Whether a record with this `dir` and `kind` starts a prompt: no call id carries across it.
+fn starts_prompt(dir: &[u8], kind: &[u8]) -> bool {
+    dir == b"mux" && matches!(kind, b"user_message" | b"turn_started")
+}
 
 /// The update of a `tool_call_update` record, if it is one.
 fn update_of(rec: &mut EventRecord) -> Option<&mut Map<String, Value>> {
@@ -102,6 +114,11 @@ impl Superseded {
     /// update of its call carries content. An update whose every field a newer one of its call
     /// carries goes whole, unless it ends the call. Every other record stays as it is.
     pub fn keep(&mut self, rec: &mut EventRecord) -> bool {
+        // Older than a prompt: no newer update of this read is of the same call.
+        if starts_prompt(rec.dir.as_bytes(), rec.kind.as_bytes()) {
+            self.calls.clear();
+            return true;
+        }
         let Some(update) = update_of(rec) else { return true };
         let Some(id) = update.get("toolCallId").and_then(Value::as_str).map(str::to_owned) else {
             return true;
@@ -183,38 +200,87 @@ fn waiting(events: &Path) -> Result<bool> {
     Ok(segments.split_last().is_some_and(|(_, sealed)| sealed.iter().any(|(i, _)| *i > through)))
 }
 
+/// A pass over a log's sealed segments.
+#[derive(Debug, Default, PartialEq)]
+pub(super) struct Pass {
+    pub stats: Compaction,
+    /// A segment changed under the pass (a retention rewrite, a delete, a move): it stopped there
+    /// and left the marker before it, and nothing more is done until the next seal.
+    pub stopped: bool,
+}
+
+/// The copy a rewrite writes beside a segment.
+fn copy_path(segment: &Path) -> PathBuf {
+    segment.with_extension("ndjson.superseded")
+}
+
+/// Removes the copy unless it was put in place.
+struct Copy(Option<PathBuf>);
+
+impl Drop for Copy {
+    fn drop(&mut self) {
+        if let Some(path) = self.0.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// A file's identity: a segment replaced since it was read (a delete and a new chat of the same
+/// id, a move's replacement) is another file even at the same length.
+#[cfg(unix)]
+fn identity(meta: &std::fs::Metadata) -> (u64, u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    (meta.dev(), meta.ino(), meta.len())
+}
+
+#[cfg(not(unix))]
+fn identity(meta: &std::fs::Metadata) -> (u64, u64, u64) {
+    (0, 0, meta.len())
+}
+
 /// Leaves superseded content out of each sealed segment of the log in `events` past the marker,
 /// oldest first, and moves the marker past each. The newest segment, the one appends go to, is
-/// never read.
-pub(super) fn compact_sealed(events: &Path) -> Result<Compaction> {
+/// never read. Each copy goes in under `writers`, the lock a retention commit holds from its
+/// length check to its last rename (`compact.rs`), and only over the very file it was read from.
+pub(super) fn compact_sealed(events: &Path, writers: &Mutex<Writers>) -> Result<Pass> {
     let segments = segments_in(events)?;
-    let mut stats = Compaction::default();
-    let Some(((_, _), sealed)) = segments.split_last() else { return Ok(stats) };
+    let mut pass = Pass::default();
+    let Some(((_, _), sealed)) = segments.split_last() else { return Ok(pass) };
+    // A copy a crash left (one thread per chat at a time: none is being written now).
+    for (_, path) in &segments {
+        let _ = std::fs::remove_file(copy_path(path));
+    }
     let mut marker = read_marker(events);
     for (index, path) in sealed {
         if *index <= marker.through {
             continue;
         }
-        let done = compact_segment(path)?;
-        stats.bytes_before += done.bytes_before;
-        stats.bytes_after += done.bytes_after;
-        stats.trimmed += done.trimmed;
+        let Some(done) = compact_segment(path, writers)? else {
+            pass.stopped = true;
+            return Ok(pass);
+        };
+        pass.stats.bytes_before += done.bytes_before;
+        pass.stats.bytes_after += done.bytes_after;
+        pass.stats.trimmed += done.trimmed;
         marker.through = *index;
         write_atomic(&events.join(MARKER), &serde_json::to_vec(&marker)?)?;
     }
-    Ok(stats)
+    Ok(pass)
 }
 
 /// Rewrites one sealed segment beside itself without the content a later update of the same call
-/// in it supersedes, and renames the copy over it. Nothing appends to a sealed segment; one whose
-/// length changed meanwhile (a retention pass rewrote it, `compact.rs`) is left as it is.
-fn compact_segment(path: &Path) -> Result<Compaction> {
+/// and prompt in it supersedes, and renames the copy over it. Nothing appends to a sealed segment;
+/// one that is not the file it read any more (a retention pass rewrote it, the chat was deleted or
+/// replaced) is left as it is now: None.
+fn compact_segment(path: &Path, writers: &Mutex<Writers>) -> Result<Option<Compaction>> {
     let file = crate::config::private_state_file(path)?;
-    let len = file.metadata()?.len();
+    let read = identity(&file.metadata()?);
+    let len = read.2;
     let mut stats = Compaction { bytes_before: len, bytes_after: len, ..Compaction::default() };
-    // First read: each content-bearing update, and each call's last one.
-    let mut bearing: Vec<(u64, String)> = Vec::new();
-    let mut last: HashMap<String, u64> = HashMap::new();
+    // First read: each content-bearing update, and each call's last one, by prompt.
+    let mut bearing: Vec<(u64, (u64, String))> = Vec::new();
+    let mut last: HashMap<(u64, String), u64> = HashMap::new();
+    let mut prompt = 0u64;
     let mut line = Vec::new();
     let mut reader = BufReader::with_capacity(256 * 1024, (&file).take(len));
     loop {
@@ -222,8 +288,13 @@ fn compact_segment(path: &Path) -> Result<Compaction> {
         if reader.read_until(b'\n', &mut line)? == 0 {
             break;
         }
+        if let (Some(dir), Some(kind)) = (record_dir(&line), record_kind(&line))
+            && starts_prompt(dir, kind)
+        {
+            prompt += 1;
+        }
         if let Some(seq) = record_seq(&line)
-            && let Some(call) = content_call(&line)
+            && let Some(call) = content_call(&line).map(|call| (prompt, call))
         {
             last.insert(call.clone(), seq);
             bearing.push((seq, call));
@@ -236,10 +307,11 @@ fn compact_segment(path: &Path) -> Result<Compaction> {
         .collect();
     if moot.is_empty() {
         drop_cache(&file);
-        return Ok(stats);
+        return Ok(Some(stats));
     }
-    let tmp = path.with_extension("ndjson.superseded");
+    let tmp = copy_path(path);
     let _ = std::fs::remove_file(&tmp);
+    let mut copy = Copy(Some(tmp.clone()));
     let mut out = std::io::BufWriter::with_capacity(256 * 1024, open_private_append(&tmp)?);
     let mut after = 0u64;
     std::io::Seek::seek(&mut &file, std::io::SeekFrom::Start(0))?;
@@ -273,16 +345,19 @@ fn compact_segment(path: &Path) -> Result<Compaction> {
     out.sync_all()?;
     drop_cache(&out);
     drop_cache(&file);
-    if std::fs::symlink_metadata(path).map(|m| m.len()).ok() != Some(len) {
-        let _ = std::fs::remove_file(&tmp);
-        return Ok(Compaction { bytes_before: len, bytes_after: len, ..Compaction::default() });
+    {
+        let _writers = writers.lock_or_recover();
+        if std::fs::symlink_metadata(path).map(|m| identity(&m)).ok() != Some(read) {
+            return Ok(None);
+        }
+        std::fs::rename(&tmp, path)?;
+        copy.0 = None;
     }
-    std::fs::rename(&tmp, path)?;
     if let Some(dir) = path.parent() {
         sync_directory(dir)?;
     }
     stats.bytes_after = after;
-    Ok(stats)
+    Ok(Some(stats))
 }
 
 /// The chats whose sealed segments a thread is compacting now.
@@ -296,29 +371,40 @@ impl LocalStore {
     }
 
     /// A segment of chat `id` was sealed (`append` opened its next one): its superseded content
-    /// goes on a thread of its own, never under the writers' lock. One thread per chat at a time;
+    /// goes on a thread of its own, which takes the writers' lock only for each rename (appends
+    /// never wait on a rewrite). One thread per chat at a time;
     /// its stop condition is that no sealed segment past the marker waits, checked under the lock
     /// a new seal takes, so a segment sealed while it runs is compacted by it or by the next one.
-    /// On an error it logs and ends; the next seal tries again from the marker.
+    /// On an error, or a segment that changed under it, it ends; the next seal tries again from
+    /// the marker. A copy it leaves (a crash) is removed by the next pass.
     pub(super) fn sealed(&self, id: &str) {
         let Some(sealing) = &self.sealing else { return };
         if !sealing.lock_or_recover().insert(id.to_owned()) {
             return;
         }
         let events = self.dir(id).join("events");
+        let writers = self.writers.clone();
         let (thread_sealing, thread_id) = (sealing.clone(), id.to_owned());
         let spawned =
             std::thread::Builder::new().name("acpmux-sealed-log".into()).spawn(move || {
                 let (sealing, id) = (thread_sealing, thread_id);
                 loop {
-                    match compact_sealed(&events) {
-                        Ok(stats) if stats.trimmed > 0 => tracing::info!(
-                            session = %id,
-                            "sealed log segments: {} of {} bytes were superseded tool output",
-                            stats.bytes_before.saturating_sub(stats.bytes_after),
-                            stats.bytes_before
-                        ),
-                        Ok(_) => {}
+                    match compact_sealed(&events, &writers) {
+                        Ok(pass) => {
+                            let stats = pass.stats;
+                            if stats.trimmed > 0 {
+                                tracing::info!(
+                                    session = %id,
+                                    "sealed log segments: {} of {} bytes were superseded tool output",
+                                    stats.bytes_before.saturating_sub(stats.bytes_after),
+                                    stats.bytes_before
+                                );
+                            }
+                            if pass.stopped {
+                                sealing.lock_or_recover().remove(&id);
+                                return;
+                            }
+                        }
                         Err(e) => {
                             tracing::warn!(session = %id, "sealed log segments: {e:#}");
                             sealing.lock_or_recover().remove(&id);
@@ -340,7 +426,7 @@ impl LocalStore {
     /// Compacts chat `id`'s sealed segments now, on this thread.
     #[cfg(test)]
     pub(crate) fn compact_sealed_log(&self, id: &str) -> Result<Compaction> {
-        compact_sealed(&self.dir(id).join("events"))
+        Ok(compact_sealed(&self.dir(id).join("events"), &self.writers)?.stats)
     }
 
     /// Whether a thread compacts a sealed segment of chat `id` now.
