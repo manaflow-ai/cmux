@@ -57,24 +57,17 @@ fn text(args: &[String]) -> Option<String> {
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
         ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
         ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),
-        ["cloud", "exec"] => {
+        ["cloud", verb] => {
+            let japanese = crate::localization::catalog().is_japanese();
             return Some(
-                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
-                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
-                } else {
-                    "使い方: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
-                }
-                .into(),
+                super::super::cloud_help::verb_help(verb, japanese)
+                    .unwrap_or_else(|| super::super::cloud_help::overview(japanese)),
             );
         }
         ["cloud", ..] => {
-            return Some(
-                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
-                    super::super::CLOUD_HELP.to_owned()
-                } else {
-                    super::super::CLOUD_HELP_JA.to_owned()
-                },
-            );
+            return Some(super::super::cloud_help::overview(
+                crate::localization::catalog().is_japanese(),
+            ));
         }
         // The classic `cmux identify|ping|capabilities` are `cmux app …`.
         ["identify" | "ping" | "capabilities"] => {
