@@ -451,7 +451,10 @@ async fn pooled_sessions_end_with_the_daemon_and_after_a_crash() {
     assert!(daemon.pool_records().is_empty());
     assert_eq!(daemon.stored_sessions(), 0, "an untaken pooled session leaves no trace");
 
-    // A crash leaves the pooled host running; the next daemon ends it.
+    // A crash: no daemon can use a pooled host nobody took, so the host ends its harness
+    // and itself as its daemon's link closes (`agent_host/host.rs` `on_frame`), with no
+    // next daemon. Whether it is still alive right after the SIGKILL is a race with that
+    // end, so the test never asks it.
     daemon.start();
     {
         let mut rpc = daemon.rpc().await;
@@ -459,11 +462,13 @@ async fn pooled_sessions_end_with_the_daemon_and_after_a_crash() {
         wait_pool_ready(&mut rpc, "fakeb").await;
     }
     let r = daemon.pool_records().pop().expect("a pooled host");
-    let harness = r["harness_pid"].as_i64().unwrap();
+    let (host, harness) = (r["host_pid"].as_i64().unwrap(), r["harness_pid"].as_i64().unwrap());
     daemon.sigkill();
-    assert!(alive(harness), "a crashed daemon cannot end it");
+    assert!(gone_within(harness, Duration::from_secs(15)), "pooled harness outlived a crash");
+    assert!(gone_within(host, Duration::from_secs(15)), "pooled host outlived a crash");
+    assert!(daemon.pool_records().is_empty(), "the ended host left its record");
+    // The next daemon starts clean: nothing listed, nothing stored.
     daemon.start();
-    assert!(gone_within(harness, Duration::from_secs(15)), "the next daemon ended it");
     let mut rpc = daemon.rpc().await;
     let listed = rpc.call("_acpmux/sessions", json!({})).await;
     assert!(listed["sessions"].as_array().unwrap().is_empty(), "{listed}");
