@@ -612,6 +612,19 @@ pub fn derive_family(name: &str, profile: &HarnessProfile) -> String {
     name.split(['-', '_', '.']).next().unwrap_or(name).to_lowercase()
 }
 
+/// The harness store a profile's conversations live in, which adopt reads (`adopt::find`):
+/// its family when that names one, else `claude` for any Claude Code profile (`claude-sr2`,
+/// a router's), whatever family it declares. All of those run Claude Code on one store layout.
+pub fn store_family(name: &str, profile: &HarnessProfile) -> String {
+    let family = derive_family(name, profile);
+    if !matches!(family.as_str(), "claude" | "codex" | "opencode")
+        && profile.kind == HarnessKind::ClaudeStdio
+    {
+        return "claude".into();
+    }
+    family
+}
+
 /// Which agent store a fork through an earlier turn copies (`hub/fork_at.rs`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TurnCut {

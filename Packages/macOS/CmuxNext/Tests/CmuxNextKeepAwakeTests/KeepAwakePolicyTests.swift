@@ -41,6 +41,25 @@ struct KeepAwakePolicyTests {
         #expect(KeepAwakePolicy(phoneServing: true, phone: choice, onBattery: onBattery).holds == holds)
     }
 
+    @Test(arguments: [false, true])
+    func eitherPhoneHostHoldsIndependently(onBattery: Bool) {
+        var policy = KeepAwakePolicy(phoneServing: true, iPhoneServing: true, phone: .always, onBattery: onBattery)
+        #expect(policy.holds)
+        policy.phoneServing = false
+        #expect(policy.holds)
+        policy.phoneServing = true
+        policy.iPhoneServing = false
+        #expect(policy.holds)
+        policy.phoneServing = false
+        #expect(!policy.holds)
+    }
+
+    @Test func nextPhoneRespectsPowerChoice() {
+        #expect(!KeepAwakePolicy(iPhoneServing: true, phone: .off).holds)
+        #expect(KeepAwakePolicy(iPhoneServing: true, phone: .pluggedIn).holds)
+        #expect(!KeepAwakePolicy(iPhoneServing: true, phone: .pluggedIn, onBattery: true).holds)
+    }
+
     @Test func phoneAccessOffNeverHolds() {
         #expect(!KeepAwakePolicy(phoneServing: false, phone: .always).holds)
     }

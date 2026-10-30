@@ -33,6 +33,9 @@ const COLUMNS: Record<ChatWidth, ChatColumn> = {
 const isChatWidth = (value: unknown): value is ChatWidth =>
   value === "standard" || value === "wide" || value === "wideBlocks";
 
+/// A pane changed its overlay shift without resizing the transcript. Scoped to its shell.
+export const CHAT_LAYOUT_EVENT = "cmux-chat-layout";
+
 let current: ChatWidth = "standard";
 const listeners = new Set<() => void>();
 
