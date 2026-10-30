@@ -458,3 +458,31 @@ async fn a_review_box_takes_no_inbox_message_and_no_steer_during_its_review() {
     assert_eq!(accepted["inbox"], true, "{accepted}");
     let _ = std::fs::remove_file(gate);
 }
+
+/// A review box's first prompt is the task `lane-place new --review` sends it as another agent
+/// (`acpmux new --prompt-file`): it runs as that prompt, never as an inbox notice in its place,
+/// and the sender gets that turn's answer.
+#[tokio::test]
+async fn a_review_box_runs_its_first_prompt_from_another_agent_as_its_task() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    {
+        let mut config = hub.config.write().await;
+        let fake = config.harnesses["fake"].clone();
+        config.harnesses.insert("fake-review-box".to_owned(), fake);
+    }
+    let new = json!({"cwd": cwd(), "mcpServers": [],
+                     "_meta": {"acpmux": {"name": "review-2", "harness": "fake-review-box"}}});
+    let id = c.request(method::SESSION_NEW, new).await.unwrap()["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let task =
+        from_agent(&id, "task-1", "lane-place", "Review #9 and end with SHIP or BLOCK", json!({}));
+    let reply = c.request(method::SESSION_PROMPT, task).await.unwrap();
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    assert_ne!(reply["_meta"]["acpmux"]["inbox"], true, "{reply}");
+    let all = prompts(&hub, &id);
+    assert!(notices(&hub, &id).is_empty(), "no notice in place of the task: {all:?}");
+    assert_eq!(all.len(), 1, "{all:?}");
+    assert_eq!(all[0]["promptId"], "task-1", "{all:?}");
+}
