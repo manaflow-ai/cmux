@@ -21,12 +21,11 @@ exits 1, so the scheduled run is red rather than green (a stall from 01:44Z on
 2026-10-21 sat behind green runs for four hours). A promotion stall quotes the
 latest nightly-next tick's refusal tally (nightly-next-tick.yml).
 
-The alarm is the lesser half. The starvation guards below are the part that
-heals: past 20 minutes (cmux NEXT; 25 for classic) without a publication they
-start a build of the current tip when no started build carries it. They run before
-the alarm and each inside its own boundary, because they are three cheap calls
-each while the alarm pages through runs and jobs and is the first thing a tight
-installation budget refuses.
+The NEXT starvation guard heals before the alarm: past 20 minutes without a
+publication it starts a build of the current tip when no started build carries
+it. It runs inside its own boundary so an alarm failure cannot prevent recovery.
+Classic NIGHTLY is retired; the legacy NEXT identity still has its own feed
+comparison and repair below.
 
 usage: nightly_next_feed_watch.py --repo OWNER/NAME [--max-lag-hours 0.5] [--dry-run]
 Needs GH_TOKEN with actions: read and issues: write.
@@ -60,7 +59,6 @@ FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"  # 
 # build that reached one path and not the other still counts as behind.
 BARE_FEED_URL = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 NEXT_FEED_URLS = (BARE_FEED_URL, FEED_URL)
-CLASSIC_FEED_URL = "https://files.cmux.com/nightly/appcast-arm64.xml"
 # The old feed, nightly.yml's NIGHTLY_NEXT_LEGACY_FEED_BASE: cmux NIGHTLY (com.cmuxterm.app.nightly,
 # Leo's daily driver) has it as SUFeedURL. Only publish-nightly-identity-legacy writes it, re-signing
 # each cmux NEXT Nightly build, so a failed legacy job leaves it behind while FEED_URL looks current
@@ -84,6 +82,10 @@ GATE_QUEUED_MINUTES = 10.0
 GATE_RUNS_READ = 5  # queued or in-progress runs read per workflow, newest first
 TICK_ANNOTATION = "nightly-next tick"  # the tick's refusal tally
 PUBLISHED_MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.IGNORECASE)
+# nightly.yml's run-name for an unsigned resume (nightly_next_unsigned_run): it
+# signs and publishes an older run's saved app, so it never carries the tip
+# (scripts/ci/nightly_next_unsigned_resume.py dispatches and counts these).
+RESUME_TITLE = re.compile(r"^Resume nightly-next run ([1-9][0-9]*) attempt ([1-9][0-9]?)$")
 
 
 @dataclass(frozen=True)
@@ -417,20 +419,14 @@ def next_delivery_workflows(train: str) -> list[tuple[str, str]]:
     return flows
 
 
-def published_commit_for_release(gh: GitHub, tag: str) -> str:
-    try:
-        body = gh.call("GET", f"/releases/tags/{tag}").get("body") or ""
-    except TRANSPORT:
-        return ""
-    match = PUBLISHED_MARKER.search(body)
-    return match.group(1).lower() if match else ""
-
-
 def next_carries_tip(gh: "GitHub", run: dict, tip: str, tip_landed: dt.datetime | None = None) -> bool:
     """Whether a cmux NEXT delivery run builds `tip` or a commit that contains it, judged by the
     run's head_sha against the compare API, never by when the run was created. A run with no
     head_sha, or a compare that fails, does not carry it (the dispatch then asks the tick, and the
-    promotion ignores a request that does not move nightly-next forward)."""
+    promotion ignores a request that does not move nightly-next forward). An unsigned resume never
+    carries it: it is dispatched on nightly-next's head but signs an older run's saved app."""
+    if RESUME_TITLE.match(str(run.get("display_title") or "")):
+        return False
     head = (run.get("head_sha") or "").lower()
     if not head:
         return False
@@ -451,7 +447,11 @@ def carries_tip(run: dict, tip: str, tip_landed: dt.datetime | None) -> bool:
     landed: a tick, a train and a promotion all read the branch tip themselves
     when they dispatch, so anything that started later may be carrying it. A
     run that started earlier is building something older by construction.
+    An unsigned resume never carries it: it signs an older run's saved app,
+    so a newer tip still builds beside it.
     """
+    if RESUME_TITLE.match(str(run.get("display_title") or "")):
+        return False
     if (run.get("head_sha") or "").lower() == tip.lower():
         return True
     created = run.get("created_at")
@@ -721,7 +721,6 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--max-lag-hours", type=float, default=0.5)
     parser.add_argument("--feed-url", dest="feed_urls", action="append",
                         help="a cmux NEXT appcast; repeatable, and defaults to both NEXT feeds")
-    parser.add_argument("--classic-feed-url", default=CLASSIC_FEED_URL)
     parser.add_argument("--legacy-feed-url", default=LEGACY_FEED_URL)
     parser.add_argument("--legacy-identity", default="on",
                         help="repository variable NIGHTLY_NEXT_LEGACY_IDENTITY; off stops the legacy jobs, so their feed is not watched")
@@ -735,40 +734,34 @@ def main(argv: list[str]) -> int:
         print("GH_TOKEN is required", file=sys.stderr)
         return 2
     newest, missing = read_feeds(args.feed_urls or list(NEXT_FEED_URLS))
-    classic_newest, classic_missing = read_feeds([args.classic_feed_url])
-    for note in missing + classic_missing:
+    for note in missing:
         print(f"::warning::could not read {note}")
     if newest is None:
-        # The alarm needs a timestamp, but the classic guard does not: it
-        # watches a different feed and must still run.
+        # The alarm needs a timestamp; NEXT recovery can still use tip age.
         print("::warning::no cmux NEXT feed had a dated item")
     gh = GitHub(args.repo, token, args.dry_run)
     now = dt.datetime.now(dt.timezone.utc)
 
-    # Read each release marker once, inside whichever boundary asks for it
+    # Read the NEXT release marker once, inside whichever boundary asks for it
     # first. Reading them up here instead is what made the 2026-10-26 stall
     # invisible: one 403 on a release lookup raised before any guard ran, and
     # the run still reported success.
-    seen: dict[str, str] = {}
+    published_sha: str | None = None
 
-    def published(tag: str = "") -> str:
-        if tag not in seen:
-            seen[tag] = published_commit_for_release(gh, tag) if tag else published_commit(gh)
-        return seen[tag]
+    def published() -> str:
+        nonlocal published_sha
+        if published_sha is None:
+            published_sha = published_commit(gh)
+        return published_sha
 
-    # Heal first, and each guard inside its own boundary: a failure in one, or
-    # in the alarm below, must never cost the other its dispatch.
+    # Heal first, inside its own boundary so a failure cannot skip the legacy
+    # NEXT feed repair or alarm below.
     heal("next", lambda: starvation_dispatch(
         gh, now, feed=newest, published_sha=published(), minutes=NEXT_STARVATION_MINUTES, by_tip_age=True,
         branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main", tip_input="sha",
         feed_unknown=bool(missing),
         active_workflows=next_delivery_workflows(args.train),
         carries=lambda run, tip, landed: next_carries_tip(gh, run, tip, landed)))
-    heal("classic", lambda: starvation_dispatch(
-        gh, now, feed=classic_newest, published_sha=published("nightly"),
-        branch="main", workflow="nightly.yml", ref="main", inputs={"force": "false"},
-        feed_unknown=bool(classic_missing)))
-
     # cmux NIGHTLY's feed on its own: its staleness comes from the two feeds, so neither a failed
     # re-run nor an API error elsewhere can turn a stale feed green.
     try:

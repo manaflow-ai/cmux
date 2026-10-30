@@ -19,9 +19,10 @@ permissions:
 jobs:
   validate:
     # This end-to-end validation is expensive and is run only on explicit
-    # dispatch. It wants the image the iOS simulator tests use, so it reads the
-    # variable that names that pool rather than one named after this lane; the
-    # selector below picks its Xcode 26 toolchain.
+    # dispatch. It wants the image the iOS simulator tests use (macOS 26); the
+    # selector below picks its Xcode 26 toolchain. The label is literal: it holds
+    # CLAUDE_CODE_OAUTH_TOKEN and the dogfood login, and MACOS_RUNNER_IOS, which
+    # it read before, can name an owned Mac (tests/test_ci_fork_runner_routing.py).
     #
     # It stays on an ephemeral Blacksmith machine and never takes an owned Mac
     # (scripts/ci/ios_runner_pool.py): it changes the whole login session, not
@@ -31,7 +32,7 @@ jobs:
     # dark-mode default, symlinks into /usr/local/bin, launches the Mac app
     # through launchd, and leaves Postgres and a Next.js server on fixed ports.
     # On a reused runner every later job would inherit that.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 120
     env:
       CMUX_PORT: "3000"

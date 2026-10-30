@@ -153,7 +153,7 @@ class Wiring(unittest.TestCase):
         self.assertIn("CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}", text)
         self.assertIn("CI_NEXT_DAEMON_POOL: ${{ vars.CI_NEXT_DAEMON_POOL }}", text)
         self.assertIn("CI_PIN_DAEMON_POOL: ${{ vars.CI_PIN_DAEMON_POOL }}", text)
-        self.assertIn("run: python3 scripts/ci/check_repo_variables.py", text)
+        self.assertIn("run: bash scripts/ci/python-with-yaml.sh scripts/ci/check_repo_variables.py", text)
 
 
 if __name__ == "__main__":
