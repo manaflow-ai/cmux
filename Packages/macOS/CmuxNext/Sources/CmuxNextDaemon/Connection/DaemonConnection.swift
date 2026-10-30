@@ -233,8 +233,13 @@ public actor DaemonConnection {
     // MARK: - Connect / reconnect
 
     private func connectOnce() async throws -> DaemonIdentity {
-        guard case .idle = phase else {
-            throw DaemonError.connectionClosed(reason: "initial connect cancelled")
+        guard {
+            switch phase {
+            case .idle, .waiting: return true
+            case .connecting, .ready, .closed: return false
+            }
+        }() else {
+            throw DaemonError.connectionClosed(reason: "connection is not accepting a new attempt")
         }
         phase = .connecting
         serial += 1
