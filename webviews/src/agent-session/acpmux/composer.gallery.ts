@@ -1460,6 +1460,11 @@ export default agentPaneEntry({
         ).cmuxAcpmuxBridge;
         if (!bridge) throw new Error("gallery pane bridge is unavailable");
         bridge.receive(chat(historyPageOlderRows));
+        // Prove the prepend arrived before exercising recall. Without this wait, a dropped bridge
+        // update would leave the original B,C snapshot in place and still make the next ↑ return B.
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(`[data-row-id="${historyPageOlderRows[0]!.id}"]`),
+        );
         await ctx.press("ArrowUp");
         await ctx.waitFor(() => prompt() === "B: update the retry helper");
       },
