@@ -180,13 +180,10 @@ fn ask_bounded(client: &RpcClient, method: &str, params: Value) -> Result<Value,
 
 /// `_acpmux/sessions`, bounded.
 fn sessions_bounded(client: &RpcClient) -> Result<Vec<SessionSummary>, String> {
-    Ok(ask_bounded(client, "_acpmux/sessions", json!({}))?
-        .get("sessions")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|s| serde_json::from_value(s.clone()).ok())
-        .collect())
+    Ok(
+        crate::acpmux::session_rows(&ask_bounded(client, "_acpmux/sessions", json!({}))?)
+            .unwrap_or_default(),
+    )
 }
 
 /// How long [`end_own_sessions`] waits for all its kills.
