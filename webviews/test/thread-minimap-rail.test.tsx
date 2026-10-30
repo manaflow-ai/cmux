@@ -370,7 +370,9 @@ test("a wheel over a rail that scrolls itself is not the reader's: the transcrip
     expect(input).not.toHaveBeenCalled();
     // The same wheel over the transcript is the reader's.
     await act(async () => {
-      view.scroller.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true }));
+      view.scroller.dispatchEvent(
+        new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true }),
+      );
     });
     expect(input).toHaveBeenCalledTimes(1);
   } finally {
