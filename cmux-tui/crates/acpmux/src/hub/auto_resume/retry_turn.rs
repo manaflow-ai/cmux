@@ -253,6 +253,10 @@ impl Hub {
             return Err(busy());
         }
         pending.insert(session.id.clone(), Mark::Firing(cut_turn.clone()));
+        drop(pending);
+        // The manual takeover must survive a daemon restart even before its replacement turn
+        // writes `turn_started`; otherwise restoration can replay the old automatic retry too.
+        self.settled_unretried(session, &cut_turn, "manual");
         Ok((cut_turn, failed, field("errorText").unwrap_or_default()))
     }
 
