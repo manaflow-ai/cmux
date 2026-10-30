@@ -324,6 +324,11 @@ nonisolated enum AcpmuxStatusClient {
                 }
             }
             connection.start(queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-status"))
+            // A cancel that landed after the check above, before the handler was in place, tore the
+            // connection down where no handler saw it: answer it here. A later one reaches the
+            // handler as `.cancelled`. The task's flag is set before its teardown runs, so one of
+            // the two always sees it.
+            if Task.isCancelled { gate.run { continuation.resume(throwing: CancellationError()) } }
         }
     }
 
