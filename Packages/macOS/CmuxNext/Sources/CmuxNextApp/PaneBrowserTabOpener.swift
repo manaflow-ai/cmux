@@ -96,6 +96,10 @@ struct PaneBrowserTabOpener {
             // moves to a column on its right, as the daemon reroutes it for a dock closed to tabs. A caller's
             // `then` places it itself (LinkOpener, AgentBesidePlacement, a script's HomeDockOpens.placing).
             let beside = then == nil && controller.isOpenPinnedDockPane
+            // A direct browser open aimed at Home's pinned dock has no caller placement callback.
+            // Hold its tab out of Home's strip until the daemon move completes, just like the
+            // terminal and page creators do through HomeDockOpens.
+            let outbound = beside ? OutboundTab.begin(in: controller, holdSelectionUntilLanded: true) : nil
             // A person's foreground tab: shown with its page in this turn (openStandIn). Not one aimed
             // at Home: the stand-in selects it in Home's dock, and its strip would come back (Lawrence
             // 2026-10-29: "chief in home should not have horizontal tabbar").
@@ -118,7 +122,8 @@ struct PaneBrowserTabOpener {
                     }
                     if let child { pageRequests.adopt(child, surface: surface) }
                     if beside {
-                        linkOpener.moveBeside(surface, from: controller, focus: !background, target: url == nil ? .addressBar : .content)
+                        linkOpener.moveBeside(surface, from: controller, focus: !background,
+                                              target: url == nil ? .addressBar : .content, outbound: outbound)
                         return nil
                     }
                     then?(surface)
@@ -127,6 +132,7 @@ struct PaneBrowserTabOpener {
                     controller.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
                     return nil
                 } catch {
+                    outbound?.finish(moved: false)
                     child?.close()
                     controller.daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
                     return "new-frontend-browser-tab: \(error)"

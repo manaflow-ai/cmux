@@ -95,6 +95,9 @@ struct HomeDockOpensTests {
             }
             let right = try await Self.untilBeside(home, dock.pane, via)
             #expect(right.tabs.contains { $0.kind == .browser })
+            try await PasswordManagerRouteTests.until({ OutboundTab.count(in: dock) == 0 }, report: {
+                "\\(via): Home's browser open left \\(OutboundTab.count(in: dock)) outbound hold(s)"
+            })
             #expect(dock.view.hidesStrip, "Home's dock shows a tab bar")
         }
     }
