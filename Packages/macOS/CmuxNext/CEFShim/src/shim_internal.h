@@ -107,6 +107,9 @@ struct ForkApi {
   // API version 22: the chrome.bookmarks bridge (shim_bookmarks.mm).
   int (*bookmarks_observe)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*bookmarks_sync)(const char*, const char*) = nullptr;
+  // API version 25: the app's own Safe Storage keychain item, before
+  // CefInitialize (shim_process.mm).
+  int (*set_keychain_item)(const char*, const char*) = nullptr;
   // API version 30: the helper-app browser process (shim_helper_host.mm).
   int (*browser_set_detached_hosting)(int, int) = nullptr;
   int (*browser_set_embedder_active)(int, int) = nullptr;

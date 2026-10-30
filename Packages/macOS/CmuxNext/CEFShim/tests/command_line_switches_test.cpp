@@ -9,6 +9,7 @@
 
 using cmux_shim::IsFeatureListSwitch;
 using cmux_shim::MergeFeatureList;
+using cmux_shim::SafeStorageItemFor;
 
 static int failures = 0;
 static int cases = 0;
@@ -38,6 +39,20 @@ int main() {
   Check(MergeFeatureList("A,B", "B,C") == "A,B,C", "duplicates appear once");
   Check(MergeFeatureList(" A , ,B,", "C, A") == "A,B,C", "blanks and spaces dropped");
   Check(MergeFeatureList("A<Trial", "A") == "A<Trial,A", "only exact entries deduplicate");
+
+  // Each channel owns its keychain item; a shared one prompted on every
+  // launch of every channel but the one that created it.
+  auto nightly = SafeStorageItemFor("com.cmuxterm.app.nightly", {"disable-notifications"});
+  Check(nightly.service == "cmux Safe Storage" && nightly.account == "com.cmuxterm.app.nightly",
+        "nightly owns its item");
+  auto next = SafeStorageItemFor("com.cmuxterm.app.nightly.cmux-next", {});
+  Check(next.service == nightly.service && next.account != nightly.account,
+        "two channels never share an item");
+  Check(SafeStorageItemFor("com.cmuxterm.app.nightly", {"use-mock-keychain"}).service.empty(),
+        "mock keychain reads no item");
+  Check(SafeStorageItemFor("  ", {}).service.empty(), "no identifier keeps Chromium's item");
+  Check(SafeStorageItemFor(" com.cmuxterm.app ", {}).account == "com.cmuxterm.app",
+        "surrounding spaces dropped");
 
   std::printf("%d/%d command line switch cases passed\n", cases - failures, cases);
   return failures == 0 ? 0 : 1;
