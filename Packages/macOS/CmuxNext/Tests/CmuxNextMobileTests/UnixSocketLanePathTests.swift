@@ -8,7 +8,7 @@ import Testing
 struct UnixSocketLanePathTests {
     @Test func aSocketPathPastTheUnixLimitIsRefusedNotATrap() async {
         let path = "/" + String(repeating: "p", count: 200) + "/daemon.sock"
-        await #expect(throws: UnixSocketLane.Failure.self) {
+        await #expect(throws: UnixSocketLane.Failure.pathTooLong(path: path)) {
             _ = try await UnixSocketLane.connect(path: path, deadline: .seconds(2))
         }
     }

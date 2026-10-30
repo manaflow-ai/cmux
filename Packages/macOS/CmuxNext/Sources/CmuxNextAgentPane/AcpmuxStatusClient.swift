@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Network
 
@@ -20,13 +21,11 @@ nonisolated enum AcpmuxStatusClient {
         case socketPathTooLong(String)
     }
 
-    /// The Network endpoint of the Unix socket `path`, or ``Failure/socketPathTooLong(_:)`` for a
-    /// path past ``AcpmuxEnvironment/maxSocketPathBytes``, where `NWEndpoint.unix` traps (the
-    /// page's `_acpmux/status` read with a long TMPDIR crashed the process, #28492). Every acpmux
-    /// socket client in this module connects through it.
+    /// The Network endpoint of the Unix socket `path` (``NWEndpoint/unixSocket(path:)``), or
+    /// ``Failure/socketPathTooLong(_:)`` for a path that does not fit one, where `NWEndpoint.unix`
+    /// traps (the page's `_acpmux/status` read with a long TMPDIR crashed the process, #28492).
     static func unixEndpoint(_ path: String) throws -> NWEndpoint {
-        guard path.utf8.count <= AcpmuxEnvironment.maxSocketPathBytes else { throw Failure.socketPathTooLong(path) }
-        return .unix(path: path)
+        do { return try NWEndpoint.unixSocket(path: path) } catch { throw Failure.socketPathTooLong(error.path) }
     }
 
     /// The endpoint of the daemon listening on `socketPath`. Throws
