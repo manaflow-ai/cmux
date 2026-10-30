@@ -579,8 +579,9 @@ impl Hub {
             (blocks, text)
         };
         let mut blocks = blocks;
-        let draft_cleared = {
+        let (draft_cleared, draft_before) = {
             let mut m = session.meta.lock().unwrap();
+            let draft_before = (m.composer_draft.clone(), m.composer_draft_generation);
             // Another agent's message leaves its sender and words, not its envelope (`prompt_line.rs`).
             let line = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
             m.last_prompt = Some(short_text(&line, 200));
@@ -588,7 +589,7 @@ impl Hub {
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             m.turn_count += 1;
-            draft_cleared
+            (draft_cleared, draft_before)
         };
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
         self.lane_turn_started(session, provenance.as_ref());
@@ -610,6 +611,13 @@ impl Hub {
         // failed save leaves a journaled prompt paired with the old draft on restart. A failed
         // save refuses the prompt before it reaches the journal.
         if draft_cleared && let Err(error) = self.save_meta_result(session) {
+            // Restore the in-memory draft before failure handling saves metadata again. A
+            // refused prompt must never turn a transient tombstone-save error into data loss.
+            {
+                let mut m = session.meta.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                m.composer_draft = draft_before.0;
+                m.composer_draft_generation = draft_before.1;
+            }
             let e = RpcError::internal(format!("save sent composer draft failed: {error}"));
             self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e, joined);
             drop(guard);
