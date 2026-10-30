@@ -223,10 +223,47 @@ struct EventSourceProcessesTests {
         let queue = DispatchQueue(label: "com.cmuxterm.next.event-source-processes", qos: .userInitiated)
         let exited = AsyncStream<Void>.makeStream()
         let cancel = EventSourceProcesses.kernelExit(child.processIdentifier, queue) { exited.continuation.yield() }
-        #expect(cancel != nil, "a child of this test")
+        defer { child.terminate() }
+        _ = try #require(cancel, "a child of this test")
         child.terminate()
-        var iterator = exited.stream.makeAsyncIterator()
-        await iterator.next()
+        #expect(await Self.fires(exited.stream), "the child's exit reaches the handler")
+    }
+
+    /// SECURITY: an entry names one image, not only one process: a process that keeps its pid and its start
+    /// time but runs a new program (exec) must leave the table, as an exit does. The watch fires on exec.
+    @Test func theKernelWatchFiresOnExec() async throws {
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/sh")
+        // Waits for one line on stdin, then becomes /bin/sleep (same pid, same start time, new image).
+        child.arguments = ["-c", "read line; exec /bin/sleep 30"]
+        let input = Pipe()
+        child.standardInput = input
+        try child.run()
+        defer { child.terminate() }
+        let queue = DispatchQueue(label: "com.cmuxterm.next.event-source-processes", qos: .userInitiated)
+        let fired = AsyncStream<Void>.makeStream()
+        _ = try #require(EventSourceProcesses.kernelExit(child.processIdentifier, queue) { fired.continuation.yield() },
+                         "a child of this test")
+        input.fileHandleForWriting.write(Data("go\n".utf8))
+        #expect(await Self.fires(fired.stream), "the exec reaches the handler")
+    }
+
+    /// Whether `stream` yields within 10 s. The deadline only turns a missed event into a failure instead of a
+    /// hung test; it decides nothing in the product.
+    static func fires(_ stream: AsyncStream<Void>) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return await iterator.next() != nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(10))
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
     }
 
     /// The pid launchd names for system service `label`, nil when it is not running.
@@ -245,5 +282,39 @@ struct EventSourceProcessesTests {
             if parts.count == 2, parts[0] == "pid", let pid = pid_t(parts[1]) { return pid }
         }
         return nil
+    }
+
+    /// Measurement (R10; prints, asserts nothing about time): the main-thread cost per event on this Mac of
+    /// - the ledger's new work on the person's own mouse moves (pid 0: one CGEvent field read, no table),
+    /// - a posted event whose process the table holds (the table read, the verdict),
+    /// - the base's per-event read (`proc_pidpath` of a live process), which the table replaces.
+    /// Lines start with `person-input-cost:` and give the mean in nanoseconds over `rounds` events.
+    @Test func perEventMainThreadCost() async throws {
+        let fake = FakeProcesses()
+        fake.set(4242, EventSourceProcess(start: 100, path: Self.screenSharing))
+        let table = fake.table()
+        let ledger = PersonInputLedger(check: { _ in false }, sources: table)
+        let personMove = try Self.move(pid: 0)
+        let postedMove = try Self.move(pid: 4242)
+        let postedClick = try Self.event(pid: 4242)
+        _ = AgentPanePersonInput.isPerson(postedClick, sources: table)
+        await table.settled()
+        let rounds = 20_000
+        func mean(_ body: () -> Void) -> Int {
+            for _ in 0..<1_000 { body() } // warm
+            let clock = ContinuousClock()
+            let elapsed = clock.measure { for _ in 0..<rounds { body() } }
+            return Int((elapsed / rounds).components.attoseconds / 1_000_000_000)
+        }
+        let moveCost = mean { ledger.observe(personMove) }
+        let primeCost = mean { ledger.observe(postedMove) }
+        let verdictCost = mean { _ = AgentPanePersonInput.isPerson(postedClick, sources: table) }
+        let ownPID = getpid()
+        let baseCost = mean { _ = AgentPanePersonInput.executablePath(ownPID) }
+        print("person-input-cost: ledger.observe, person's mouse move (pid 0): \(moveCost) ns/event (new main-thread work)")
+        print("person-input-cost: ledger.observe, posted mouse move, pid in table: \(primeCost) ns/event")
+        print("person-input-cost: isPerson, posted click, pid in table: \(verdictCost) ns/event (after)")
+        print("person-input-cost: proc_pidpath per posted event (the base's key path): \(baseCost) ns/event (before)")
+        #expect(fake.reads.count == 1, "the measured loops read no process")
     }
 }
