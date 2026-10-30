@@ -149,6 +149,26 @@ fn dev_orphan_exit_stops_a_dev_daemon_whose_bundle_is_deleted() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A rebuild replaced this build's binary while an app (a same-tag DEV built
+/// elsewhere) still listens on the socket: the old daemon stops anyway.
+#[cfg(target_os = "macos")]
+#[test]
+fn dev_orphan_exit_stops_a_dev_daemon_whose_binary_is_replaced() {
+    let dir = scratch("orpr");
+    let bundle = bundle(&dir, "cmux DEV orphan-rebuilt", "com.cmuxterm.app.debug.orphan.rebuilt");
+    let app = start_app(&dir);
+    let mut daemon = start_daemon(&dir, &bundle);
+    let acpmux = bundle.join("Contents/Resources/bin/acpmux");
+    let next = bundle.join("Contents/Resources/bin/acpmux.next");
+    std::fs::copy(daemon_env::bin(), &next).unwrap();
+    std::fs::rename(&next, &acpmux).unwrap();
+    let stopped = exits_within(&mut daemon, STOPS_WITHIN);
+    stop(&mut daemon);
+    drop(app);
+    assert!(stopped, "the DEV daemon kept running {STOPS_WITHIN:?} after its binary was replaced");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Socket control off: the app runs but never listens. The daemon keeps it.
 #[cfg(target_os = "macos")]
 #[test]

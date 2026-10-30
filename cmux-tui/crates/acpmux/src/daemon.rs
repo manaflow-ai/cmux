@@ -589,7 +589,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
                 // No app is left to adopt its agents: they end with it.
-                _ = dev_orphan => {},
+                _ = dev_orphan => {
+                    let _ = hub.end_agents_at_shutdown(Default::default());
+                },
             }
         }
         #[cfg(not(unix))]
@@ -598,7 +600,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
                 // No app is left to adopt its agents: they end with it.
-                _ = dev_orphan => {},
+                _ = dev_orphan => {
+                    let _ = hub.end_agents_at_shutdown(Default::default());
+                },
             }
         }
     };
