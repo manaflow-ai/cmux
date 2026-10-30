@@ -135,7 +135,7 @@ export function useRowDisclosure(): [boolean, (open: boolean) => void] {
 export function resetTranscriptDisclosure(sessionId?: string): void {
   if (sessionId) {
     // With the views' own toggles (`session#view`).
-    for (const id of [...load().keys()]) if (id === sessionId || id.startsWith(`${sessionId}#`)) load().delete(id);
+    for (const id of load().keys()) if (id === sessionId || id.startsWith(`${sessionId}#`)) load().delete(id);
   } else choices = new Map();
   try {
     if (sessionId) globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(storageValue()));
