@@ -9,7 +9,7 @@ it keys the cache by this instead. The key covers:
 - every local crate the binary links (the path-dependency closure of
   Native/OptChat/optchat-chief, through `workspace = true` entries too), as
   its committed tree plus the content of any file that differs from it
-  (build-web-bundles.sh regenerates the tracked inspector page in place);
+  (the inspector page is committed; build-web-bundles.sh only checks it);
 - the Cargo.toml of each workspace those crates inherit from, and every
   .cargo/config(.toml) cargo reads from the crate or those workspaces;
 - every file those crates compile in with include_str!/include_bytes! from
@@ -49,9 +49,9 @@ SCRIPTS = ("scripts/cmux-next/build-optchat-chief.sh", "scripts/cmux-next/optcha
 ENV_EXACT = ("CC", "CXX", "AR", "CFLAGS", "CXXFLAGS", "LDFLAGS", "CPPFLAGS", "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC", "RUSTC_WRAPPER", "MACOSX_DEPLOYMENT_TARGET", "SDKROOT", "DEVELOPER_DIR")
 ENV_PREFIXES = ("CC_", "CXX_", "AR_", "CFLAGS_", "CXXFLAGS_", "TARGET_CC", "TARGET_CFLAGS", "CARGO_PROFILE_", "CARGO_BUILD_", "CARGO_TARGET_AARCH64_APPLE_DARWIN_", "CARGO_TARGET_X86_64_APPLE_DARWIN_")
 ENV_SKIP_PREFIX = ("OPTCHAT_BUILD_COMMIT", "OPTCHAT_REQUIRE_INSPECTOR_PAGE")
-# The generated inspector page is deliberately omitted from the portable key:
-# Linux computes that key before the Mac job regenerates the page.  These are
-# the sources which produce it, so a change to the page's inputs still misses.
+# The committed inspector page is left out of the portable key, which keys its
+# generator's sources instead, so a change to the page's inputs still misses.
+# The exact Mac key hashes the page bytes themselves (environment_lines).
 PORTABLE_PATHS = (
     "webviews/src/optchat-inspector",
     "webviews/package.json",
@@ -260,9 +260,11 @@ def environment_lines(archs: str, toolchain: str) -> list[str]:
         except (OSError, subprocess.CalledProcessError):
             value = "none"
         lines.append(f"{label} {value}")
-    # The portable source key intentionally omits this generated file because
-    # the Mac web-bundle step rewrites it before Chief starts. Include the
-    # resulting bytes in the exact artifact identity instead.
+    # The bytes build.rs compiles in. They are the checkout's: the page is
+    # committed and no nightly step rewrites it in-tree (build-web-bundles.sh
+    # and its --from install only compare it), so hashing it before the web
+    # bundle step records what the binary embeds. tests/test_nightly_chief_cache_repair.py
+    # keeps that true.
     lines.append(f"inspector {file_digest(GENERATED_INSPECTOR)}")
     for name in sorted(os.environ):
         if name.startswith(ENV_SKIP_PREFIX):

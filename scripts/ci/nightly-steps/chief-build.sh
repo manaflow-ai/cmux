@@ -13,7 +13,7 @@ set -euo pipefail
 chief_bin="$RUNNER_TEMP/cmux-next-optchat-chief/optchat-chief"
 # A trusted NEXT worker keeps Chief binaries keyed by their inputs
 # (optchat-chief-input-key.py: the path-dependency closure, the
-# regenerated inspector page, toolchain, SDK and cargo settings), so
+# committed inspector page, toolchain, SDK and cargo settings), so
 # a push that changes none of them skips cargo. The step took 90-114 s
 # on every build (runs 39349353760 to 39374887542); about 6 in 10
 # consecutive promotions on 2026-10-19/20 left these inputs unchanged.
