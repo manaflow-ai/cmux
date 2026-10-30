@@ -675,7 +675,7 @@ fn a_hook_that_queues_while_the_queue_is_deleted_still_gets_sent() {
     let late_hook = Arc::new(Mutex::new(None));
     {
         let (socket, late_id, late_hook) = (socket.clone(), late_id.clone(), late_hook.clone());
-        super::super::hook_spool::between_unlinks_for_test(Box::new(move || {
+        hook_spool::between_unlinks_for_test(Box::new(move || {
             *late_hook.lock().unwrap() = Some(std::thread::spawn(move || {
                 append_with_receipt(&socket, &late_id, &late, &|| {}).map_err(|e| format!("{e:#}"))
             }));
