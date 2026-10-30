@@ -97,6 +97,52 @@ fn one_terminal_opening_many_connections_cannot_starve_another() {
     );
 }
 
+/// Takes every byte of `service`'s outbound budgets, as session-socket
+/// clients that stopped reading hold them until their queues overflow.
+#[cfg(unix)]
+fn exhaust(service: &RenderService) {
+    for budget in [&service.outbound_budget, &service.control_budget] {
+        let free = budget.max_bytes - budget.retained_bytes.load(Ordering::Acquire);
+        assert!(budget.try_retain(free));
+    }
+}
+
+/// Sends `identify` on a connection the session serves on `lane`; the reply,
+/// or `Value::Null` once the daemon closed it. The read deadline only ends a
+/// red run (R5): a served reply comes at once.
+#[cfg(unix)]
+fn identify_on(session: &listen::ServedSession, lane: ConnectionLane) -> Value {
+    let (daemon_side, client) = std::os::unix::net::UnixStream::pair().unwrap();
+    session.serve(Box::new(daemon_side), lane);
+    client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut writer = client.try_clone().unwrap();
+    writeln!(writer, "{}", json!({"id": 1, "cmd": "identify"})).unwrap();
+    let mut line = String::new();
+    match BufReader::new(client).read_line(&mut line) {
+        Ok(0) | Err(_) => Value::Null,
+        Ok(_) => serde_json::from_str(&line).unwrap(),
+    }
+}
+
+/// Review of 6aaecf6a9207: with no write deadline, a session-socket client
+/// that stops reading keeps its queued reply bytes until its queue
+/// overflows. Those bytes come from its socket's outbound budgets; the app's
+/// replies come from budgets of their own, so they are still answered when
+/// the session socket's are spent.
+#[cfg(unix)]
+#[test]
+fn the_apps_replies_never_wait_for_the_session_sockets_outbound_bytes() {
+    let session = listen::ServedSession::new(test_mux());
+    exhaust(&session.render_service);
+    assert_ne!(
+        identify_on(&session, ConnectionLane::Shared)["ok"],
+        true,
+        "the session socket's budgets are not spent: this test proves nothing"
+    );
+    let reply = identify_on(&session, ConnectionLane::App);
+    assert_eq!(reply["ok"], true, "the app's reply waited for the session socket's bytes: {reply}");
+}
+
 /// Set in the child run: the soft open-file limit to run with.
 #[cfg(unix)]
 const SOFT_LIMIT_CHILD: &str = "CMUX_TEST_CONNECTION_BUDGET_SOFT_LIMIT";
@@ -143,7 +189,7 @@ fn the_connection_budget_follows_the_open_file_limit() {
         println!("\nconnection-budget={}", ConnectionBudget::of_process().total());
         return;
     }
-    let hard = limit.rlim_max as u64;
+    let hard = limit.rlim_max;
     let (low, high) = (512, 4096.min(hard));
     assert!(high > low, "hard open-file limit {hard} is too low for this test");
     let (small, large) = (budget_with_soft_limit(low), budget_with_soft_limit(high));
@@ -167,7 +213,7 @@ fn the_connection_budget_follows_the_open_file_limit() {
 /// (`EAGAIN`) when a write deadline is set on the socket; with none it keeps
 /// waiting.
 struct StalledSocket {
-    state: std::sync::Mutex<StalledState>,
+    state: Mutex<StalledState>,
     changed: std::sync::Condvar,
     capacity: usize,
 }
@@ -175,9 +221,9 @@ struct StalledSocket {
 #[derive(Default)]
 struct StalledState {
     /// Request bytes the client wrote, for the daemon's reader.
-    inbound: std::collections::VecDeque<u8>,
+    inbound: VecDeque<u8>,
     /// Reply bytes the daemon wrote, for the client.
-    outbound: std::collections::VecDeque<u8>,
+    outbound: VecDeque<u8>,
     write_timeout: Option<Duration>,
     /// A daemon write waits for room in `outbound`.
     writer_waiting: bool,
@@ -193,7 +239,7 @@ struct StalledState {
 impl StalledSocket {
     fn new(capacity: usize) -> Arc<Self> {
         Arc::new(Self {
-            state: std::sync::Mutex::new(StalledState::default()),
+            state: Mutex::new(StalledState::default()),
             changed: std::sync::Condvar::new(),
             capacity,
         })
@@ -346,9 +392,8 @@ fn a_client_that_stops_reading_for_a_while_keeps_its_connection() {
     let mux = test_mux();
     // Smaller than the replies below: the daemon's writer waits on the client.
     let socket = StalledSocket::new(8 * 1024);
-    let server_mux = mux.clone();
     let server = StalledEnd(socket.clone());
-    let handler = std::thread::spawn(move || handle_connection(server_mux, Box::new(server)));
+    let handler = std::thread::spawn(move || handle_connection(mux, Box::new(server)));
 
     const REQUESTS: u64 = 64;
     for id in 1..=REQUESTS {

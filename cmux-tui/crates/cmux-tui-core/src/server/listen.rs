@@ -450,6 +450,12 @@ pub(super) struct ServedSession {
 }
 
 impl ServedSession {
+    /// Red-proof seam: the session serves both sockets from one set of
+    /// outbound byte budgets, as at 6aaecf6a9207.
+    pub(super) fn new(mux: Arc<Mux>) -> Self {
+        Self { mux, render_service: Arc::new(RenderService::new()) }
+    }
+
     /// Serve one connection accepted on `lane` on its own thread, bounded by
     /// the lane's budget and, on the session socket, by its client's fair
     /// share (`diagnostics::ConnectionBudget`).
