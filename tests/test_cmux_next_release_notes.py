@@ -172,6 +172,35 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual([line["title"] for line in notes["summary"]], ["Tabs keep their position after restart"])
         self.assertEqual(notes["whatsNew"]["entries"][0]["summary"]["en"], "Tabs keep their position after restart.")
 
+    def test_issue_reference_descriptions_fall_back_without_dropping_the_change(self):
+        since = self.head
+        title = "Tabs keep their position after restart"
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", f"fix: {title} (#123)")
+        head = git(self.repo, "rev-parse", "HEAD")
+        fixture = os.path.join(self.repo, "issue-reference-fixture.json")
+        notes_dir = os.path.join(self.repo, "issue-reference-notes")
+        for reference in ("#12345", "issue 12345", "PR #12345", "pull request 12345", "cx-abc123"):
+            for section in ("## Summary\n", "## Changelog\nFixed: "):
+                with self.subTest(reference=reference, section=section):
+                    with open(fixture, "w") as out:
+                        json.dump({"bodies": {"123": f"{section}Resolves {reference}."}}, out)
+                    subprocess.run(
+                        [sys.executable, SCRIPT, "build", "--build", "9", "--short", "1.0.0-nightly.9",
+                         "--date", "2026-10-30", "--head", head, "--since", since, "--out", notes_dir,
+                         "--pr-descriptions"], cwd=self.repo,
+                        env={**os.environ, "CMUX_RELEASE_NOTES_PR_FIXTURE": fixture},
+                        capture_output=True, text=True, check=True,
+                    )
+                    with open(os.path.join(notes_dir, "9.json")) as source:
+                        notes = json.load(source)
+                    expected = title + "."
+                    self.assertEqual(notes["items"][0]["description"], expected)
+                    self.assertEqual(notes["summary"][0]["description"], expected)
+                    entries = notes["whatsNew"]["entries"]
+                    self.assertEqual(len(entries), 1)
+                    self.assertEqual(entries[0]["id"], "summary-0")
+                    self.assertEqual(entries[0]["summary"]["en"], expected)
+
     def test_digest_titles_are_unique_when_long_lines_share_a_first_clause(self):
         # Review of #22099: short_title cuts both lines to "Sidebar rows keep their order",
         # and the pre-publish check rejects a digest that shows one title twice.

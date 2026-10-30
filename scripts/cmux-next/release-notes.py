@@ -220,7 +220,14 @@ def _first_sentence(text):
 
 
 def _safe_description(text):
-    return bool(text) and not UNSAFE_DESCRIPTION.search(text)
+    # Use the release gate's own internal-text rules before storing descriptions in items or
+    # summary lines. Otherwise an issue reference can also make the digest drop a valid change.
+    validator_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new")
+    if validator_path not in sys.path:
+        sys.path.insert(0, validator_path)
+    import validate
+    return (bool(text) and not UNSAFE_DESCRIPTION.search(text)
+            and not any(pattern.search(text) for pattern, _ in validate.INTERNAL))
 
 
 def _plain_line(text):
