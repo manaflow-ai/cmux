@@ -5,8 +5,6 @@ use super::*;
 use cmux_json::JsonSet as _;
 use std::sync::Mutex;
 
-/// True when `id` is a single plain path component, so it can name a
-/// directory under the sessions root (no separator, `.`, `..` or root).
 static HARNESS_STATE_LOCK: Mutex<()> = Mutex::new(());
 
 /// Durable markers are made, rolled back and swept under one lock (`HARNESS_STATE_LOCK`), so a
@@ -15,7 +13,7 @@ pub(super) fn harness_state_lock() -> std::sync::MutexGuard<'static, ()> {
     HARNESS_STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-pub(super) use super::atomic_json::write_json_atomic;
+pub(super) use super::atomic_json::{is_plain_id, write_json_atomic};
 
 /// Whether the durable marker at `marker` stands for the chat `outer_id`.
 fn marker_names(marker: &Path, outer_id: &str) -> bool {
@@ -23,14 +21,6 @@ fn marker_names(marker: &Path, outer_id: &str) -> bool {
         .ok()
         .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
         .is_some_and(|v| v.get("outerId").and_then(Value::as_str) == Some(outer_id))
-}
-
-pub(super) fn is_plain_id(id: &str) -> bool {
-    let mut parts = Path::new(id).components();
-    matches!(
-        (parts.next(), parts.next()),
-        (Some(std::path::Component::Normal(c)), None) if c.to_str() == Some(id)
-    )
 }
 
 /// Releases an import's claim on its session id however the import ends.
