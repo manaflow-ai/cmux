@@ -112,7 +112,7 @@ extension SidebarListViewComponents {
     override func mouseUp(with event: NSEvent) {
         defer { press = nil }
         if drag != nil {
-            finishDrag()
+            finishDrag(at: event.locationInWindow)
             return
         }
         guard let press, !press.cancelled else { return syncRowStates() }
