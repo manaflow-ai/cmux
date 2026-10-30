@@ -1719,12 +1719,13 @@ const RowFrame = React.memo(function RowFrame({
   const [entering] = useState(enter);
   // Prompts and replies get the message-specific entrance. Tool/status rows keep the existing
   // generic rise, while the row's reserved height and absolute placement stay unchanged.
-  // Hidden user rows intentionally render no content and must keep the empty-row geometry.  Do not
-  // add a presentation wrapper to them, or `article.acpmux-row:empty` can no longer collapse them.
+  // Hidden user rows render no content and keep the empty-row geometry. Notice rows are user-kind
+  // status lines whose `.cv-tools` strip row CSS targets as the article's direct child, so they keep
+  // the generic entrance too. Only real prompts and replies get the presentation wrapper.
   const messageEntering =
     entering &&
-    (row.kind === "user" || row.kind === "assistant") &&
-    !(row.kind === "user" && row.incoming?.kind === "hidden");
+    (row.kind === "assistant" ||
+      (row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice"));
   const [olderFade] = useState(older);
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => onRowKeyDown(index, event),
