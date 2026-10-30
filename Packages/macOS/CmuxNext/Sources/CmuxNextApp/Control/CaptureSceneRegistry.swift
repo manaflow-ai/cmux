@@ -25,8 +25,6 @@ final class CaptureSceneRegistry {
     var blockedTerminal: String?
     /// The terminals `home-chief` opened, closed after its snapshot.
     var openedTerminals: [String] = []
-    /// The grouping setting before a cloud-machine-disconnected render turned it on; nil while none is shown.
-    var disconnectedMachinesGroupedBefore: Bool?
 
     /// Creates a registry bound to the running app services.
     init(services: AppServices) {
@@ -516,7 +514,6 @@ extension CaptureSceneRegistry {
         // A saved hidden or collapsed sidebar would keep its rows mounted but out of the picture.
         controller.sidebar.restore(width: 300, hidden: false)
         endCloudMachineDisconnected()
-        disconnectedMachinesGroupedBefore = DesignSettings.shared.sidebarSections.groupsByComputer
         var shown = false
         defer { if !shown { endCloudMachineDisconnected() } }
         // Machine headers draw only with a section per computer.
@@ -561,8 +558,8 @@ extension CaptureSceneRegistry {
         var snapshotParams = params
         snapshotParams["window"] = .string(windowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
-        guard case .object(var result) = snapshot, result["error"] == nil else { return snapshot }
-        shown = true
+        guard case .object(var result) = snapshot else { return snapshot }
+        shown = result["error"] == nil
         result["scene"] = .string(definition.name)
         result["description"] = .string(definition.description)
         result["settled_ms"] = settled.map(CmuxNextSettings.JSONValue.number) ?? .null
@@ -571,14 +568,16 @@ extension CaptureSceneRegistry {
         return .object(result)
     }
 
-    /// Takes a shown cloud-machine-disconnected picture away: the machines, and the grouping setting it changed.
+    /// Takes a shown cloud-machine-disconnected picture away: the machines, and the grouping setting
+    /// it turned on, back to the settings' own value (as `DebugCloudMachineFixture` derives it). No
+    /// saved state: `debug.scene.render` makes a new registry each call, so a picture is shown while
+    /// its machines are listed.
     func endCloudMachineDisconnected() {
-        for id in Self.endedLinkMachines.map(\.id) { services.machines.remove(id)?.disconnect() }
+        let ids = Self.endedLinkMachines.map(\.id)
+        guard ids.contains(where: { services.machines.session($0) != nil }) else { return }
+        for id in ids { services.machines.remove(id)?.disconnect() }
         services.windows.reconcileMembership()
-        if let grouped = disconnectedMachinesGroupedBefore {
-            DesignSettings.shared.sidebarSections.groupsByComputer = grouped
-            disconnectedMachinesGroupedBefore = nil
-        }
+        DesignSettings.shared.sidebarSections.groupsByComputer = (services.settings?.snapshot.sidebarSections ?? .defaults).groupsByComputer
     }
 
     /// Machine `id`'s header row in `windowID`'s sidebar list, as the list laid it out (drawn or
