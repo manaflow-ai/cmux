@@ -270,15 +270,21 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
   }
   const live = groups.filter(isLive).sort(byStart);
   const ended = groups
-    .filter((group) => !isLive(group) && !dismissed?.has(group.id))
+    .filter((group) => !isLive(group) && !dismissed?.has(clearKey(group)))
     .sort((a, b) => (b.endedAt ?? b.startedAt ?? 0) - (a.endedAt ?? a.startedAt ?? 0) || a.id.localeCompare(b.id));
   return [...live, ...ended];
 }
 
-/// What Clear finished clears: every group with nothing left running (one whose agent ended while
-/// a nested agent or command of it still runs stays).
+/// What Clear finished records for a group: its id with what it ended as (its end, its task count).
+/// Ids are stable (`agent:<id>`, `commands`), so a group that runs again and ends again, or gains a
+/// task, reads as new and shows again instead of staying cleared for good.
+export const clearKey = (group: BackgroundGroup): string =>
+  `${group.id}@${group.endedAt ?? group.startedAt ?? ""}#${group.total}`;
+
+/// What Clear finished clears (their `clearKey`s): every group with nothing left running (one whose
+/// agent ended while a nested agent or command of it still runs stays).
 export const finishedGroupIds = (groups: readonly BackgroundGroup[]): string[] =>
-  groups.filter((group) => !isLive(group)).map((group) => group.id);
+  groups.filter((group) => !isLive(group)).map(clearKey);
 
 /// Whether anything runs: the panel's clock ticks only then (SubagentGroup.tsx `useNow`).
 export const anyRunning = (groups: readonly BackgroundGroup[]): boolean => groups.some(isLive);

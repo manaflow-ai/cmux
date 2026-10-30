@@ -3,7 +3,7 @@ import type { AcpmuxRow } from "../model";
 import type { BackgroundCommand } from "../inspector/processes";
 import type { StartedSession } from "../started/startedSessions";
 import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
-import { anyRunning, backgroundGroups, finishedGroupIds, type TaskCache } from "./backgroundTasks";
+import { anyRunning, backgroundGroups, clearKey, finishedGroupIds, type TaskCache } from "./backgroundTasks";
 
 const agent = (id: string, fields: Partial<Subagent> = {}): Subagent => ({
   id,
@@ -119,9 +119,10 @@ describe("backgroundGroups", () => {
     const views = { parent: [group([agent("child", { parent: "parent", startedAt: 600 })])] };
     const groups = backgroundGroups(input(rows, views));
     expect(groups.map((g) => g.id)).toEqual(["agent:parent", "agent:busy", "agent:done"]);
-    expect(finishedGroupIds(groups)).toEqual(["agent:done"]);
+    expect(finishedGroupIds(groups)).toEqual([clearKey(groups.find((g) => g.id === "agent:done")!)]);
     expect(anyRunning(groups)).toBe(true);
-    const cleared = backgroundGroups(input(rows, views, { dismissed: new Set(["agent:parent", "agent:done"]) }));
+    const dismissed = new Set(groups.filter((g) => g.id !== "agent:busy").map(clearKey));
+    const cleared = backgroundGroups(input(rows, views, { dismissed }));
     expect(cleared.map((g) => g.id)).toEqual(["agent:parent", "agent:busy"]);
   });
 
@@ -156,6 +157,14 @@ describe("backgroundGroups", () => {
       input(rows, {}, { dismissed: new Set(finishedGroupIds(backgroundGroups(input(rows)))) }),
     );
     expect(cleared.map((g) => g.id)).toEqual(["agent:early", "agent:late"]);
+  });
+
+  test("a cleared group that runs again and ends again shows again", () => {
+    const first = [group([agent("a", { state: "completed", startedAt: 1_000, endedAt: 2_000 })])];
+    const dismissed = new Set(finishedGroupIds(backgroundGroups(input(first))));
+    expect(backgroundGroups(input(first, {}, { dismissed }))).toEqual([]);
+    const again = [group([agent("a", { state: "completed", startedAt: 5_000, endedAt: 6_000 })])];
+    expect(backgroundGroups(input(again, {}, { dismissed })).map((g) => g.id)).toEqual(["agent:a"]);
   });
 
   test("the chat's background commands are one group under the chat's name, a registry command stoppable", () => {
