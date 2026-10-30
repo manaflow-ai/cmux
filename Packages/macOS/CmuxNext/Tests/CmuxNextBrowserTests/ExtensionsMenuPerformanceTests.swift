@@ -158,6 +158,7 @@ import Testing
         defer { window.close() }
         let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
         let controller = ExtensionsMenuController()
+        defer { controller.closePanel() }
         var calibration = FrameBudgetCalibration()
         calibration.checkpoint()
         // The toolbar prepares the rows and the panel when a tab binds, off the click's path.
@@ -185,6 +186,7 @@ import Testing
         defer { window.close() }
         let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
         let controller = ExtensionsMenuController()
+        defer { controller.closePanel() }
         controller.show(host: tab, handler: handler, anchor: anchor)
         try #require(controller.isShown, "\(Self.environment(window))")
         #expect(controller.icons.loads == Self.count)
@@ -200,6 +202,7 @@ import Testing
         let (window, anchor) = Self.window()
         defer { window.close() }
         let controller = ExtensionsMenuController()
+        defer { controller.closePanel() }
         controller.show(host: tab, handler: ExtensionsMenu.DirectHandler(host: tab) { _ in }, anchor: anchor)
         try #require(controller.isShown, "\(Self.environment(window))")
         var calibration = FrameBudgetCalibration()
@@ -233,6 +236,7 @@ import Testing
         defer { window.close() }
         let before = tab.extensionBackend.snapshots
         let controller = ExtensionsMenuController()
+        defer { controller.closePanel() }
         controller.show(host: tab, handler: ExtensionsMenu.DirectHandler(host: tab) { _ in }, anchor: anchor)
         try #require(controller.isShown, "\(Self.environment(window))")
         #expect(tab.extensionBackend.snapshots == before, "the open asked Chromium for the list before it showed")

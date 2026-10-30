@@ -69,9 +69,11 @@ import CmuxNextTestSupport
         }
 
         func close() {
+            let popup = card.hoverCards()?.cardWindow
             card.hideNotes()
             feed.cancel()
             window.close()
+            popup?.closeAfterTest()
         }
     }
 

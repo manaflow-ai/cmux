@@ -87,6 +87,7 @@ import Testing
         let chrome = BrowserChromeView(tab: tab)
         let window = Self.window(chrome)
         defer { window.close() }
+        defer { chrome.closePopupPanels() }
         await Self.settle()
         let leaving = try #require(chrome.extensionToolbar.button(for: "b"))
         tab.extensionActions = [Self.action("a", pinned: true), Self.action("b", pinned: false)]
@@ -105,6 +106,7 @@ import Testing
         let chrome = BrowserChromeView(tab: tab)
         let window = Self.window(chrome)
         defer { window.close() }
+        defer { chrome.closePopupPanels() }
         await Self.settle()
         let toolbar = chrome.extensionToolbar
         toolbar.showMenu()
@@ -128,6 +130,7 @@ import Testing
         let chrome = BrowserChromeView(tab: tab)
         let window = Self.window(chrome)
         defer { window.close() }
+        defer { chrome.closePopupPanels() }
         await Self.settle()
         #expect(chrome.extensionToolbar.lastPinAnimation == nil, "a tab's first icons appeared with an animation")
         tab.extensionActions = [Self.action("a", pinned: true), Self.action("b", pinned: true)]
@@ -143,6 +146,7 @@ import Testing
         let chrome = BrowserChromeView(tab: tab)
         let window = Self.window(chrome)
         defer { window.close() }
+        defer { chrome.closePopupPanels() }
         await Self.settle()
         let leaving = try #require(chrome.extensionToolbar.button(for: "b"))
         tab.extensionActions = [Self.action("a", pinned: true), Self.action("b", pinned: false)]
@@ -158,6 +162,7 @@ import Testing
         let chrome = BrowserChromeView(tab: tab)
         let window = Self.window(chrome)
         defer { window.close() }
+        defer { chrome.closePopupPanels() }
         await Self.settle()
         let clock = ContinuousClock()
         var toggles: [Duration] = []

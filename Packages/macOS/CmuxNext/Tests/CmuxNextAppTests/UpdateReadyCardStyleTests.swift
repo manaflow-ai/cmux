@@ -49,8 +49,10 @@ import CmuxNextTestSupport
     @Test func aClickPinsThePreviewOpenAndTallerUntilTheNextClick() async throws {
         let (card, window, _) = try await make()
         defer {
+            let popup = card.hoverCards()?.cardWindow
             card.hideNotes()
             window.close()
+            popup?.closeAfterTest()
         }
         try #require(!card.isHidden, "the staged update shows no card")
         window.orderFront(nil)

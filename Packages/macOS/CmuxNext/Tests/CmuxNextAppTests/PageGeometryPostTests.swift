@@ -53,10 +53,19 @@ import CmuxNextTestSupport
             // global-notice-allow: CEFHostView observes its window's page update request on the default center (the production path)
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
+
+        /// Closes the window and the overlay panel its `WindowOverlayHost` keeps (closing the window
+        /// only orders that panel out).
+        func tearDown() {
+            let panel = WindowOverlayHost.existingHost(for: window)?.panel
+            window.closeAfterTest()
+            panel?.close()
+        }
     }
 
     @Test func aPageUpdateWithNothingChangedPostsNothing() {
         let pages = TwoPages()
+        defer { pages.tearDown() }
         pages.forkReads()
         let posted = pages.posts { pages.requestPageUpdate() }
         #expect(posted == 0, "nothing moved since the fork read the pages: \(posted) posts")
@@ -64,6 +73,7 @@ import CmuxNextTestSupport
 
     @Test func aPageUpdatePostsOnlyForThePageThatMoved() {
         let pages = TwoPages()
+        defer { pages.tearDown() }
         pages.forkReads()
         // A motion frame: the left page's pane narrows, the right page stays.
         pages.left.frame = CGRect(x: 0, y: 0, width: 360, height: 500)
@@ -77,6 +87,7 @@ import CmuxNextTestSupport
     /// server's on a host with a display, and the screen rect is what changes either way.
     @Test func aMoveOfBothPagesReachesEveryPage() {
         let pages = TwoPages()
+        defer { pages.tearDown() }
         pages.forkReads()
         pages.stage.setFrameOrigin(CGPoint(x: 40, y: 0))
         let posted = pages.posts { pages.requestPageUpdate() }
@@ -85,6 +96,7 @@ import CmuxNextTestSupport
 
     @Test func aHiddenPagePostsOnceNotOnEveryRequest() {
         let pages = TwoPages()
+        defer { pages.tearDown() }
         pages.forkReads()
         // The fork hides the page window and reads nothing from a hidden host.
         pages.left.isHidden = true

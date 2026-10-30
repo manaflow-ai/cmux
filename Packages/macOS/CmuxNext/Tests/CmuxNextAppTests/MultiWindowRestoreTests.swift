@@ -196,7 +196,7 @@ struct MultiWindowRestoreTests {
     /// Ends this launch: its windows and connection, and when `endingDaemon` the daemon with its
     /// terminals (else the next launch reconnects to it, as after Quit and Keep Sessions).
     private static func quit(_ services: AppServices, endingDaemon: Bool) async {
-        for controller in services.windows.controllers { controller.window?.close() }
+        services.closeWindowsForTest()
         guard let connection = services.daemon.connection else { return }
         services.daemon.shutdownConnection()
         await connection.close()

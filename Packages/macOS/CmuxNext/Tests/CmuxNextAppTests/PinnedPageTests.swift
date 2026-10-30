@@ -78,7 +78,7 @@ struct PinnedPageTests {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil, sessionEvents: true), endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
-        defer { for controller in services.windows.controllers { controller.window?.close() } }
+        defer { services.closeWindowsForTest() }
         let result: Result<Void, any Error>
         do {
             try await until({ services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }, within: .seconds(90))

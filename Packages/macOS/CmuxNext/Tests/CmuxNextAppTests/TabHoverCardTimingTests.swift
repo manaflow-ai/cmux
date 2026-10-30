@@ -37,6 +37,7 @@ import CmuxNextWakeupsTestSupport
 
         func tearDown() {
             coordinator.dismiss(.action)
+            coordinator.panel?.closeAfterTest()
             window.contentView = nil
             window.close()
         }

@@ -1,9 +1,10 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
-@MainActor @Suite(.serialized) struct SidebarEmptyWorkspaceHintTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarEmptyWorkspaceHintTests {
     @Test(arguments: SidebarDensity.allCases, [false, true])
     func emptyWorkspaceShowsCreationHintBelowTitle(_ density: SidebarDensity, _ minimal: Bool) throws {
         _ = NSApplication.shared
