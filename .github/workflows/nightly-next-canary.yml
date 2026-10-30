@@ -29,6 +29,7 @@ on:
       - .github/workflows/nightly-next-canary.yml
       - scripts/ci/verify-dmg-artifact.sh
       - scripts/ci/nightly_next_canary_mode.py
+      - scripts/ci/nightly_next_artifact_check.py
 
 permissions: {}
 
@@ -53,13 +54,20 @@ jobs:
       build: ${{ steps.feed.outputs.build }}
       url: ${{ steps.feed.outputs.url }}
       length: ${{ steps.feed.outputs.length }}
+      # The item's sparkle:edSignature, which the downloaded DMG's bytes must verify against.
+      ed_signature: ${{ steps.feed.outputs.ed_signature }}
+      # The head of the build's nightly-next run, which the app's CMUXCommit must name.
+      source_commit: ${{ steps.source.outputs.commit }}
       checked: ${{ steps.seen.outputs.cache-hit }}
       mode: ${{ steps.mode.outputs.mode }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/nightly_next_canary_mode.py
+          sparse-checkout: |
+            scripts/ci/nightly_next_canary_mode.py
+            scripts/ci/nightly_next_artifact_check.py
+            scripts/ci/nightly_next_fix_forward.py
           sparse-checkout-cone-mode: false
 
       # Resolve the compatibility mode; this workflow only performs static checks.
@@ -86,19 +94,21 @@ jobs:
           items = []
           for item in re.findall(r"<item>.*?</item>", text, re.S):
               version = re.search(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", item)
-              enclosure = re.search(r'<enclosure\s[^>]*?url="([^"]+\.dmg)"[^>]*?length="(\d+)"', item)
+              enclosure = re.search(r'<enclosure\s[^>]*?url="([^"]+\.dmg)"[^>]*?length="(\d+)"[^>]*>', item)
               if version and enclosure:
-                  items.append((int(version.group(1)), enclosure.group(1), enclosure.group(2)))
+                  signature = re.search(r'\ssparkle:edSignature="([^"]*)"', enclosure.group(0))
+                  items.append((int(version.group(1)), enclosure.group(1), enclosure.group(2),
+                                signature.group(1) if signature else ""))
           if wanted:
               items = [i for i in items if str(i[0]) == wanted]
           if not items:
               sys.exit(f"no feed item {'for build ' + wanted if wanted else 'with a DMG'}")
-          build, url, length = max(items)
+          build, url, length, signature = max(items)
           # The release copy, or the feed's own R2 base (publish-nightly-next-r2.py).
           if not url.startswith(("https://github.com/manaflow-ai/cmux/releases/download/nightly-next/",
                                  "https://files-next.cmux.com/nightly-next/next/")):
               sys.exit(f"{url} is not a nightly-next download")
-          print(f"build={build}\nurl={url}\nlength={length}")
+          print(f"build={build}\nurl={url}\nlength={length}\ned_signature={signature}")
           PY
           cat "$GITHUB_OUTPUT"
 
@@ -112,6 +122,17 @@ jobs:
           path: canary-verdict
           key: ${{ env.CANARY_CACHE_PREFIX }}${{ steps.feed.outputs.build }}
           lookup-only: true
+
+      # The commit the durable verdict will name for this build (nightly_next_train.py
+      # checked_verdict reads the same run head). A read that fails fails this job: no
+      # canary runs, so no verdict, and the next tick tries again.
+      - name: Resolve the build's source commit
+        id: source
+        if: steps.seen.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ steps.feed.outputs.build }}
+        run: python3 -I scripts/ci/nightly_next_artifact_check.py expected-commit --repo "$GITHUB_REPOSITORY" --build "$BUILD" | tee -a "$GITHUB_OUTPUT"
 
   canary:
     name: canary ${{ needs.pick.outputs.build }}
@@ -135,6 +156,8 @@ jobs:
       BUILD: ${{ needs.pick.outputs.build }}
       DMG_URL: ${{ needs.pick.outputs.url }}
       DMG_LENGTH: ${{ needs.pick.outputs.length }}
+      DMG_ED_SIGNATURE: ${{ needs.pick.outputs.ed_signature }}
+      SOURCE_COMMIT: ${{ needs.pick.outputs.source_commit }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -167,7 +190,14 @@ jobs:
           version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
           [ "$version" = "$BUILD" ] || { echo "the DMG holds build $version, the feed says $BUILD" >&2; exit 1; }
           echo "app=$app" >> "$GITHUB_OUTPUT"
-          echo "commit=$(/usr/libexec/PlistBuddy -c 'Print :CMUXCommit' "$app/Contents/Info.plist")" >> "$GITHUB_OUTPUT"
+          # The bytes and the source, not only the length and build number: the feed's
+          # edSignature must verify over the downloaded DMG with the pinned key, and the
+          # app's CMUXCommit must name the head of the build's nightly-next run. Either
+          # mismatch fails this step, so the verdict is fail.
+          python3 -I scripts/ci/nightly_next_artifact_check.py dmg --dmg "$RUNNER_TEMP/canary.dmg" \
+            --length "$DMG_LENGTH" --ed-signature "$DMG_ED_SIGNATURE" >> "$GITHUB_OUTPUT"
+          python3 -I scripts/ci/nightly_next_artifact_check.py commit --plist "$app/Contents/Info.plist" \
+            --expected "$SOURCE_COMMIT" >> "$GITHUB_OUTPUT"
 
       - name: Detach the DMG
         if: always()
