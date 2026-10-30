@@ -161,6 +161,10 @@ public final class ConversationStore {
     var indexByID: ConversationMessagePositions = [:]
     private var eventTask: Task<Void, Never>?
     private var olderTask: Task<Void, Never>?
+    /// Bumps on each lagged reconnect. An older page asked for before it
+    /// carries what the server had then, below the window recovery refreshes,
+    /// so its reply is dropped and the page is asked for again.
+    private var olderGeneration = 0
     private var newestTask: Task<Void, Never>?
     private var typingExpiry: [String: Task<Void, Never>] = [:]
     private var olderWanted = false
@@ -568,6 +572,19 @@ public final class ConversationStore {
             ? Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) }) : nil
         let overlap = retained?.values.compactMap(\.seq).min()
         recoveryBaseline = retained
+        if rebase {
+            olderGeneration += 1
+            olderTask?.cancel()
+            olderTask = nil
+            // Still wanted (olderWanted is kept): recovery asks for the page
+            // again once it lands, or a scroll asks for it sooner.
+            switch older {
+            case .loading, .retrying:
+                older = .idle
+                notify(.older)
+            case .idle, .exhausted: break
+            }
+        }
         newestTask = Task { [weak self] in
             var attempt = 0
             while !Task.isCancelled {
@@ -629,6 +646,10 @@ public final class ConversationStore {
                         // message revision. Let history refresh its text/unsend;
                         // merged(existing:incoming:) preserves a useful card.
                         current.linkPreview = retained[message.id]?.linkPreview
+                        // A receipt is not a newer revision either: delivery
+                        // only moves forward, and merged(existing:incoming:)
+                        // keeps the furthest of the live and history values.
+                        current.delivery = retained[message.id]?.delivery
                         // A reaction made since (an optimistic one here, which
                         // may yet fail, or a live one) is newer than this page
                         // for reactions only: it keeps them, and the page still
@@ -697,19 +718,23 @@ public final class ConversationStore {
         }
         older = .loading
         notify(.older)
+        let generation = olderGeneration
         olderTask = Task { [weak self] in
             var attempt = 0
             while !Task.isCancelled {
                 guard let self else { return }
                 do {
                     let page = try await self.backend.history(beforeSeq: oldestSeq, limit: self.pageSize)
+                    guard self.olderGeneration == generation else { return }
                     self.applyOlder(page, expectedOldest: oldestSeq)
                     return
                 } catch {
+                    guard self.olderGeneration == generation else { return }
                     attempt += 1
                     self.older = .retrying(attempt: attempt)
                     self.notify(.older)
                     try? await self.clock.sleep(for: Self.backoff(attempt))
+                    guard self.olderGeneration == generation else { return }
                     guard self.olderWanted else {
                         self.older = .idle
                         self.notify(.older)
