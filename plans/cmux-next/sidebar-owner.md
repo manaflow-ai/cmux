@@ -1,7 +1,7 @@
 # cmux-next sidebar: owner note
 
 - 2026-10-29: a Cloud machine's header names a change cmux Cloud accepted and has not finished:
-  Pausing…, Resuming… or Deleting…, in the attention tone (as Connecting… and Installing…), never
+  Pausing…, Resuming… or Deleting…, with the working spinner (as Connecting… and Installing…), never
   Paused while it still pauses and never gone while it is deleted. When the server's pause, resume or
   resize failed after it answered, the header's tooltip adds "The last change to this machine failed:
   <reason>". Nothing else about the header changes. Leo: "let's just get the cloud and its respective
@@ -624,3 +624,12 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## A hover control stays lit while its menu is open, and lights alone (2026-10-29)
 
 - Leo 2026-10-26: "If it's a toggle, if it's something like that, then you keep it on when you click the context menu, when you click the top, the drop-down, the popover, whatever the fucking. We say we keep it." Leo 2026-10-27: "why are you giving it the entire row when it's only this small little section? Just don't do that. Don't ever do that." Before (sw-sidebar audit): a workspace row's ⋮, ✕ and chevron followed `isHovered` alone, so they vanished as the pointer moved onto the row's open ⋮ menu; a group header's ⋮ was not lit while the group editor it opened was up, and the editor painted the hover step over the whole bar; a workspace tile's menu used the profile control's `showsMenu`, the selected fill over the whole pill. Now `OverflowButton.showsMenu` holds the button pressed (lit) while its menu or editor is open: `SidebarRowMenu` sets `WorkspaceRowView.showsMenu` for the synchronous `popUp` (the hover controls hold, the row's fill does not change), a workspace tile's more button holds its controls and lights alone (the pill keeps the selected step for the profile control only, whose pill is the control), and a group header's open editor lights its ⋮ instead of the bar. No position, size or slot changes. Test: `SidebarMenuHeldControlsTests`.
+
+## Cloud transition carry on current sidebar rendering (2026-10-30)
+
+- Carry of #28037, commit "Map Cloud transitions through current sidebar link states":
+  route Pausing…, Resuming… and Deleting… through `MachineLinkState.connecting`, preserving
+  current base's working spinner and its other status tones. This completes the original
+  transition-state mapping after the base merge; it keeps the existing geometry and colors.
+  Leo: "let's just get the cloud and its respective ui up to snuff".
+  Regression coverage: `MachineLinkStateTests` checks all three mappings and header spinners.

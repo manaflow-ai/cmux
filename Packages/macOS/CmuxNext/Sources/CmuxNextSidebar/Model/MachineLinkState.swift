@@ -34,7 +34,7 @@ extension SidebarMachine.Status {
     public var linkState: MachineLinkState {
         switch self {
         case .connected, .updateAvailable: .connected
-        case .connecting, .reconnecting, .installing: .connecting
+        case .connecting, .reconnecting, .installing, .pausing, .resuming, .deleting: .connecting
         case .offline, .unreachable, .authFailed, .failed, .updateRequired: .offline
         case .paused, .pausedIdle: .paused
         case .installRequired: .attention
