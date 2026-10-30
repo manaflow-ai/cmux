@@ -78,8 +78,12 @@ daemon/app integration tests.
 
 `nightly-next-canary.yml` runs from `main` every 15 minutes. Each feed build is
 checked once through an Actions cache; `workflow_dispatch -f build=N` checks a
-specific build. A scheduled pass is written through
-`nightly-next-verdict.yml` for the existing train and release-ring machinery.
+specific build. A scheduled verdict is written through
+`nightly-next-verdict.yml` for the existing train and release-ring machinery,
+and the build is marked checked only after that dispatch is accepted: a failed
+dispatch fails the run, and the next tick checks the build again. Only the
+artifact check itself decides `pass` or `fail`; a runner or download error
+records no verdict, so it is retried rather than kept as a failure.
 A failed static check remains a visible failed workflow; rollback remains a
 manual operator action through `nightly-next-rollback.yml`.
 

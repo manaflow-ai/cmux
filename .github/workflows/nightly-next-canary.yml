@@ -102,8 +102,9 @@ jobs:
           PY
           cat "$GITHUB_OUTPUT"
 
-      # One verdict per build: a scheduled tick skips a build an earlier
-      # tick checked (pass or fail). A dispatch or a pull request always runs.
+      # One verdict per build: a scheduled tick skips a build whose pass or
+      # fail an earlier tick wrote durably (the verdict job saves this marker
+      # only after its dispatch). A dispatch or a pull request always runs.
       - name: Skip a build already checked
         id: seen
         if: github.event_name == 'schedule'
@@ -126,8 +127,9 @@ jobs:
     permissions:
       contents: read
     outputs:
-      # pass or fail; every download, Gatekeeper, ticket or build-number error
-      # is recorded as fail so the scheduled verdict cannot disappear.
+      # pass or fail; `fail` only when the feed's DMG fails its length,
+      # Gatekeeper, ticket or build-number check. A runner or download error
+      # is none, so the next scheduled tick checks the build again.
       verdict: ${{ steps.run.outputs.verdict }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -148,14 +150,14 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/canary.dmg" "$DMG_URL"
-          actual="$(stat -f %z "$RUNNER_TEMP/canary.dmg")"
-          [ "$actual" = "$DMG_LENGTH" ] || { echo "downloaded $actual bytes, the feed says $DMG_LENGTH" >&2; exit 1; }
           shasum -a 256 "$RUNNER_TEMP/canary.dmg"
 
       - name: Check Gatekeeper and the notary tickets
         id: app
         run: |
           set -euo pipefail
+          actual="$(stat -f %z "$RUNNER_TEMP/canary.dmg")"
+          [ "$actual" = "$DMG_LENGTH" ] || { echo "downloaded $actual bytes, the feed says $DMG_LENGTH" >&2; exit 1; }
           xcrun stapler validate "$RUNNER_TEMP/canary.dmg"
           mount="$RUNNER_TEMP/canary-mount"
           mkdir -p "$mount"
@@ -173,31 +175,30 @@ jobs:
         if: always()
         run: hdiutil detach "$RUNNER_TEMP/canary-mount" -force >/dev/null 2>&1 || true
 
+      # Only the artifact step's own result is a verdict. When it never ran
+      # (Select Xcode or the download failed, or the job was cancelled), the
+      # build has no verdict and the next scheduled tick checks it again.
       - name: Record the static artifact verdict
         id: run
         if: always()
+        env:
+          APP_OUTCOME: ${{ steps.app.outcome }}
         run: |
           set -euo pipefail
-          if [ "${{ steps.app.outcome }}" = success ]; then
-            echo "verdict=pass" >> "$GITHUB_OUTPUT"
-            echo "### cmux NEXT build $BUILD passed static artifact verification" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "verdict=fail" >> "$GITHUB_OUTPUT"
-            echo "### cmux NEXT build $BUILD failed static artifact verification" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Record the scheduled verdict
-        if: always() && github.event_name == 'schedule' && steps.run.outputs.verdict != ''
-        run: |
-          mkdir -p canary-verdict
-          echo "${{ steps.run.outputs.verdict }}" > canary-verdict/verdict
-
-      - name: Save the scheduled verdict
-        if: always() && github.event_name == 'schedule' && steps.run.outputs.verdict != ''
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: canary-verdict
-          key: ${{ env.CANARY_CACHE_PREFIX }}${{ env.BUILD }}
+          case "$APP_OUTCOME" in
+            success)
+              echo "verdict=pass" >> "$GITHUB_OUTPUT"
+              echo "### cmux NEXT build $BUILD passed static artifact verification" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            failure)
+              echo "verdict=fail" >> "$GITHUB_OUTPUT"
+              echo "### cmux NEXT build $BUILD failed static artifact verification" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo "::warning title=nightly-next canary::build $BUILD could not be checked (artifact step $APP_OUTCOME); no verdict, the next tick checks it again"
+              echo "### cmux NEXT build $BUILD could not be checked; no verdict recorded" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+          esac
 
   verdict:
     # The name carries the static-artifact verdict.
@@ -216,11 +217,51 @@ jobs:
           VERDICT: ${{ needs.canary.outputs.verdict }}
         run: |
           set -euo pipefail
-          # Until nightly-next carries nightly-next-verdict.yml (the next
-          # promotion after it lands), the dispatch fails: warn, keep the canary green.
-          if gh workflow run nightly-next-verdict.yml -R "$GITHUB_REPOSITORY" --ref nightly-next \
-            -f build="$BUILD" -f verdict="$VERDICT" -f canary_run="$GITHUB_RUN_ID"; then
-            echo "requested the $VERDICT static-artifact verdict of build $BUILD"
-          else
-            echo "::warning title=nightly-next verdict::could not dispatch nightly-next-verdict.yml on nightly-next; build $BUILD has no durable static-artifact verdict"
-          fi
+          # A canary's checked marker is durable only after this dispatch is
+          # accepted, so a failed dispatch fails the run and the next tick
+          # checks the build again. GitHub occasionally answers 403/429 when the
+          # Actions installation quota is exhausted; retry those transient
+          # responses without turning a permission or workflow error into a retry storm.
+          request=(workflow run nightly-next-verdict.yml -R "$GITHUB_REPOSITORY" --ref nightly-next
+            -f build="$BUILD" -f verdict="$VERDICT" -f canary_run="$GITHUB_RUN_ID")
+          for attempt in 1 2 3; do
+            error="$(mktemp)"
+            if gh "${request[@]}" >"$error" 2>&1; then
+              rm -f "$error"
+              echo "requested the $VERDICT static-artifact verdict of build $BUILD (attempt $attempt)"
+              exit 0
+            else
+              rc=$?
+            fi
+            output="$(cat "$error")"
+            rm -f "$error"
+            printf '%s\n' "$output" >&2
+            if ! grep -Eiq 'HTTP (403|429)|API rate limit exceeded|secondary rate limit|rate limit' <<<"$output"; then
+              echo "::error title=nightly-next verdict::dispatch failed with a non-retryable error; build $BUILD remains unchecked"
+              exit "$rc"
+            fi
+            if (( attempt < 3 )); then
+              delay=$((attempt * 15))
+              echo "::warning title=nightly-next verdict::dispatch was rate limited; retrying in ${delay}s (attempt $((attempt + 1))/3)"
+              sleep "$delay"
+            fi
+          done
+          echo "::error title=nightly-next verdict::could not dispatch nightly-next-verdict.yml after three rate-limit retries; build $BUILD remains unchecked"
+          exit 1
+
+      # Do not mark the build checked before the durable verdict dispatch.
+      - name: Record the checked verdict
+        if: success()
+        env:
+          VERDICT: ${{ needs.canary.outputs.verdict }}
+        run: |
+          set -euo pipefail
+          mkdir -p canary-verdict
+          printf '%s\n' "$VERDICT" > canary-verdict/verdict
+
+      - name: Save the checked marker
+        if: success()
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: canary-verdict
+          key: ${{ env.CANARY_CACHE_PREFIX }}${{ needs.pick.outputs.build }}
