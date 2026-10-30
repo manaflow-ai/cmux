@@ -1981,7 +1981,7 @@ export class AcpmuxDirectClient {
       throw error;
     } finally {
       // An attach asked with a list that never answered (a failed handshake) is no one's.
-      if (early && this.earlyAttach === early) this.dropEarly(early);
+      if (early && this.earlyAttach === early) this.dropEarly(early, true);
       this.opening = false;
       this.releaseSnapshots(hold);
     }
@@ -3239,16 +3239,23 @@ export class AcpmuxDirectClient {
   }
 
   /// The attach asked with the list is not the open's: another chat opens, or this one attaches
-  /// again as a chat on another machine does. Its records are in that attach's page; its reads
-  /// start over with it; a chat no longer shown is detached.
-  private dropEarly(early: EarlyAttach): void {
-    if (this.earlyAttach === early) this.earlyAttach = undefined;
+  /// again as a chat on another machine does. A chat no longer shown is detached. One still shown
+  /// keeps its live records held (acpmux streams them from that attach on) until its next attach
+  /// takes them (`attachWatched`), so none applies before the rows the open draws first (a kept
+  /// tail, the Mac's copy); its reads start over with that attach. `final`: the open ended, so
+  /// nothing takes them.
+  private dropEarly(early: EarlyAttach, final = false): void {
     if (this.attachWatch === early.watch) this.attachWatch = undefined;
-    early.live.length = 0;
+    const shown = early.sessionId === this.selectedSessionId && early.generation === this.selectionGeneration;
+    if (final || !shown) {
+      if (this.earlyAttach === early) this.earlyAttach = undefined;
+      early.live.length = 0;
+    }
     if (early.sessionId !== this.selectedSessionId) {
       void this.typed("_acpmux/detach", { sessionId: early.sessionId }).catch(() => undefined);
       return;
     }
+    if (final) return;
     // Unread again, so a read asked with the dropped attach changes nothing (each client ignores a
     // read of a selection before its last).
     this.permissions.select(undefined);
@@ -3321,10 +3328,13 @@ export class AcpmuxDirectClient {
     // An attach asked with the list went out before the row was read: it is held to the row as the
     // list names it, and its reply to that row's session (`recreated`, below).
     watch.asked = { createdAt: askedGen, peer: askedOf };
-    if (early) this.takeEarly(early);
     // A chat on another machine reads its asks and handoff once its attach answers, as before:
     // its machine may be down, and the Mac's copy shown then has none to read.
     const sent = early?.sent ?? this.sendAttach(sessionId, generation, typeof askedOf !== "string");
+    // What came live of the chat since an attach asked with the list (this one, or one the open
+    // dropped and attaches again here) applies now, once its rows are drawn and held (`copyLive`).
+    const held = early ?? (this.earlyAttach?.sessionId === sessionId ? this.earlyAttach : undefined);
+    if (held) this.takeEarly(held);
     const result = await sent.attaching;
     this.syncView();
     if (!current()) return [];
@@ -3653,7 +3663,7 @@ export class AcpmuxDirectClient {
     if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
     // Came before the open took the attach asked with the list: applied when it does (`takeEarly`).
     const early = this.earlyAttach;
-    if (early?.sessionId === event.sessionId) {
+    if (early && early.sessionId === event.sessionId) {
       early.live.push(event);
       return;
     }
