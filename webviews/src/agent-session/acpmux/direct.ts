@@ -572,8 +572,10 @@ function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromp
 }
 
 /// How long a send waits for acpmux before its row says it is still sending, and before it fails
-/// (plans/cmux-next/composer-delivery-DESIGN.md). Tests shorten them.
-export const deliveryTiming = { slowMs: 10_000, failMs: 60_000 };
+/// (plans/cmux-next/composer-delivery-DESIGN.md): `failMs` on a connection with no native relay
+/// journal, `localFailMs` on one to this Mac's acpmux (a busy session's acknowledgement may be slow,
+/// and the page cannot see whether the journal kept the prompt). Tests shorten them.
+export const deliveryTiming = { slowMs: 10_000, failMs: 60_000, localFailMs: 300_000 };
 
 const DELIVERY_RANK: Record<PromptDelivery["state"], number> = {
   sending: 0,
@@ -5061,20 +5063,21 @@ export class AcpmuxDirectClient {
     // No answer for a while: the row says it is still sending, and then that it failed, with Retry
     // (the same prompt id, so a copy acpmux did take runs once). A late acceptance still lands.
     const timers = this.deliveries.get(promptId)!.timers;
-    // On a connection to this Mac's acpmux, a delayed acknowledgement is still an in-flight prompt:
-    // the native relay journals the approved frame and retries it with this same promptId, so
-    // failing the row here would drop its attachments and invite a second user-initiated send. Only
-    // an explicit RPC refusal below is a failure there. Other connections have no relay journal, so
-    // a send nobody answers still fails after `failMs`, with Retry. Both keep the slow marker.
+    // On a connection to this Mac's acpmux, a delayed acknowledgement is usually an in-flight prompt
+    // (a busy session; the native relay journals the approved frame for the same promptId), so it
+    // fails only after the longer `localFailMs`: the journal may not have kept it (too large,
+    // evicted, no journal), and the page cannot tell, so it never stays sending forever. Other
+    // connections have no relay journal and fail after `failMs`. Both fail with Retry under the
+    // same promptId and keep the slow marker; an explicit RPC refusal below fails at once.
     timers.push(
       setTimeout(() => {
         if (this.deliveries.get(promptId)?.delivery.state === "sending" && this.setDelivery(promptId, { slow: true }))
           this.emit();
       }, deliveryTiming.slowMs),
     );
-    if (!this.localOrigin)
-      timers.push(
-        setTimeout(() => {
+    timers.push(
+      setTimeout(
+        () => {
           if (this.deliveries.get(promptId)?.delivery.state !== "sending") return;
           // A sender that still holds the prompt (a new chat's composer) keeps it there: no second
           // copy as a failed row.
@@ -5107,8 +5110,10 @@ export class AcpmuxDirectClient {
             error: translate("prompt.delivery.noAnswer"),
           });
           this.emit();
-        }, deliveryTiming.failMs),
-      );
+        },
+        this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs,
+      ),
+    );
     this.emit();
     try {
       await this.request("session/prompt", {

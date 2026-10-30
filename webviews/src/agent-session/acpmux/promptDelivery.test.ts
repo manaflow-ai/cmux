@@ -1,7 +1,8 @@
 // Each prompt the pane sends carries where it is on its way (plans/cmux-next/composer-delivery-DESIGN.md):
 // sending, then delivered once acpmux took it, read once the agent started on it, or failed with the
-// hop it stopped at. A send with no answer stays pending; the native relay retries its approved
-// original with the same prompt id, and a late acceptance still lands. Every prompt's
+// hop it stopped at. A send with no answer stays pending well past a slow acknowledgement (longer on
+// this Mac's acpmux, whose native relay journals it), then fails with Retry under the same prompt
+// id, and a late acceptance still lands. Every prompt's
 // `_meta.acpmux` holds only keys the host lets through (policy.json `known_params`): Retry once
 // sent `resend`, which only the host may set, and the host refused every Retry.
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
