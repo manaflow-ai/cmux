@@ -107,15 +107,28 @@ struct ConversationHeaderPresentationTests {
         #expect(controller.detailsController == nil)
     }
 
-    @Test func hostMaterialCoversReplyCopiesWithoutClippingOrBlurringComposer() {
+    @Test(.timeLimit(.minutes(1))) func hostMaterialCoversReplyCopiesWithoutClippingOrBlurringComposer() async throws {
         for edge in [ConversationHeaderPresentation.ScrollEdge.messages, .system] {
-            let controller = makeController(header: .init(scrollEdge: edge))
+            let message = ConversationMessage(id: "reply-root", seq: 1, clientMessageID: nil, senderID: "agent", sentAt: Date(), text: "A long thread")
+            let controller = makeController(header: .init(scrollEdge: edge), history: [message])
             defer { controller.store.stop() }
+            // Seed through the real newest-page path. Live messages arriving
+            // before that page are buffered and cannot open a reply thread.
+            let (loaded, continuation) = AsyncStream<Void>.makeStream()
+            controller.store.addObserver { change in
+                if change == .reset { continuation.yield(()); continuation.finish() }
+            }
+            controller.store.apply(.connected(
+                info: .init(id: "demo", title: "Chief", kind: .group, participants: []),
+                meID: "me", lagged: false
+            ))
+            var pages = loaded.makeAsyncIterator()
+            _ = await pages.next()
+            try #require(controller.store.hasLoadedNewest)
+            try #require(controller.store.message(id: message.id) != nil)
             controller.additionalSafeAreaInsets.top = 62
             controller.view.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
             controller.view.layoutIfNeeded()
-            let message = ConversationMessage(id: "reply-root", seq: 1, clientMessageID: nil, senderID: "agent", sentAt: Date(), text: "A long thread")
-            controller.store.apply(.message(message, eventSeq: 1))
             controller.enterReplyMode(for: message)
             guard let overlay = controller.replyOverlay else {
                 Issue.record("Reply thread did not open")
@@ -141,8 +154,8 @@ struct ConversationHeaderPresentationTests {
         }
     }
 
-    private func makeController(header: ConversationHeaderPresentation = .init()) -> ConversationViewController {
-        let store = ConversationStore(backend: HeaderBackend())
+    private func makeController(header: ConversationHeaderPresentation = .init(), history: [ConversationMessage] = []) -> ConversationViewController {
+        let store = ConversationStore(backend: HeaderBackend(messages: history))
         let controller = ConversationViewController(store: store, options: .init(header: header))
         controller.loadViewIfNeeded()
         return controller
@@ -150,9 +163,11 @@ struct ConversationHeaderPresentationTests {
 }
 
 private final class HeaderBackend: ConversationBackend, Sendable {
+    let messages: [ConversationMessage]
+    init(messages: [ConversationMessage]) { self.messages = messages }
     func events() -> AsyncStream<ConversationBackendEvent> { AsyncStream { $0.finish() } }
     func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
-        .init(messages: [], hasMore: false)
+        .init(messages: messages, hasMore: false)
     }
     private var unsupported: ConversationBackendError { .init(code: -1, message: "No writes in header tests") }
     func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage { throw unsupported }
