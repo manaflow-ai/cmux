@@ -17,6 +17,9 @@ Real capture, any one of:
     the label is taken on trust, the tour reports itself);
   - a line saying why none applies: `No capture: <reason>` (a refactor with no visible change).
 
+When a capture is required, the description must also say that the after image was viewed and
+include a one-sentence visual verdict.
+
 A capture of an older commit passes with a warning. Prints GitHub annotations; exits 1 when the
 change is native UI and none of the above is there, 0 otherwise (2 on bad input).
 """
@@ -42,6 +45,14 @@ FENCE = re.compile(r"^\s{0,3}(```|~~~).*?(?:^\s{0,3}\1|\Z)", re.DOTALL | re.MULT
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 INLINE_CODE = re.compile(r"`[^`\n]+`")
 COMMAND = "cmux-ci capture {sha} --state tour:{tour} --pr {pr}"
+VIEWED_AFTER = re.compile(
+    r"^\s*(?:>\s*)*(?:[-*]\s+)?(?:\*\*)?Viewed after image(?:\*\*)?[ \t]*:[ \t]*yes[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+VISUAL_VERDICT = re.compile(
+    r"^\s*(?:>\s*)*(?:[-*]\s+)?(?:\*\*)?Visual verdict(?:\*\*)?[ \t]*:[ \t]*(?P<verdict>\S(?:.*\S)?)[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def ui_tours(paths: list[str]) -> list[str]:
@@ -65,6 +76,13 @@ def evidence(body: str, labels: set[str], pr: str = "") -> tuple[str, str | None
     return "", None
 
 
+def visual_judgment(body: str) -> bool:
+    """Whether the body records that its after image was viewed and judged."""
+    text = FENCE.sub("", body or "")
+    text = COMMENT.sub("", text)
+    return bool(VIEWED_AFTER.search(text) and VISUAL_VERDICT.search(text))
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--body-file", type=Path, required=True)
@@ -85,6 +103,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     how, sha = evidence(body, {l.strip() for l in a.labels.split(",") if l.strip()}, a.pr)
     if how:
+        if how in {"capture", "media tour label"} and not visual_judgment(body):
+            print("::error title=After image review required::This capture is missing the required review proof. "
+                  "Add these body lines exactly:\n"
+                  "Viewed after image: yes\n"
+                  "Visual verdict: <one sentence: would Leo accept this next to ChatGPT/Claude?>")
+            return 1
         print(f"Native UI change ({', '.join(tours)}); shown by: {how}.")
         if sha and a.head_sha and sha != a.head_sha:
             print(f"::warning::The capture is of {sha[:12]}, not the head {a.head_sha[:12]}. "
