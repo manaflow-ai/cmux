@@ -186,6 +186,20 @@ function App() {
         <div className="acpmux-row fixture-received" data-retryable data-received-row="retryable">
           <ReceivedActions row={row} text="Latest peer message" />
         </div>
+        <div className="acpmux-row" data-action-row="turn">
+          <TurnFooter
+            row={{
+              ...row,
+              id: "glyph-failed-turn",
+              kind: "turnSummary",
+              status: "failed",
+              error: "The model stopped before it finished.",
+              text: "A partial answer.",
+              retryRowId: row.id,
+              prompt: row.text,
+            }}
+          />
+        </div>
       </TurnActionsContext.Provider>
     </main>
   );
