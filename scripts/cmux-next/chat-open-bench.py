@@ -77,7 +77,7 @@ parser.add_argument("--sessions", type=int, default=1500)
 parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
 parser.add_argument("--cases", default="sidebar,reopen,subagent,big,bloated,restore")
 parser.add_argument("--settle", type=float, default=6, help="seconds a load runs before the first open under it")
-parser.add_argument("--config", default="{}", help="cmux.json for the app (JSON), over the bench's own")
+parser.add_argument("--config", default="{}", help="cmux.json for the app (JSON); workspaces.newPlacement stays bottom")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
@@ -86,8 +86,8 @@ CONDITIONS = [c.strip() for c in opts.conditions.split(",") if c.strip()]
 CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
 SUBAGENTS = opts.subagents or opts.runs + 1
 # A new workspace goes last, so `workspace.selectLast` shows the one an open just made (the default
-# placement is the top of the list).
-CONFIG = bm.merged({"workspaces": {"newPlacement": "bottom"}}, json.loads(opts.config))
+# placement is the top of the list). Over --config: another placement would show the wrong workspace.
+CONFIG = bm.merged(json.loads(opts.config), {"workspaces": {"newPlacement": "bottom"}})
 AGENT = os.path.join(HERE, "chat_open_agent.py")
 NCPU = os.cpu_count() or 8
 

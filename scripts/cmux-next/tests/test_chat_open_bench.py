@@ -16,7 +16,7 @@ sys.path.insert(0, str(HERE))
 import chat_open_summary as cos  # noqa: E402
 
 
-def load_bench():
+def load_bench(*args):
     """chat-open-bench.py with its macOS-only helpers stubbed (bench_memory loads libproc), so its
     open and diagnostics run on any host."""
     def merged(base, extra):
@@ -29,7 +29,7 @@ def load_bench():
              "idle_cost_load": types.SimpleNamespace(), "bench_power": types.SimpleNamespace(wipe_state=None)}
     spec = importlib.util.spec_from_file_location("chat_open_bench", HERE / "chat-open-bench.py")
     module = importlib.util.module_from_spec(spec)
-    with mock.patch.dict(sys.modules, stubs), mock.patch.object(sys, "argv", ["chat-open-bench.py", "--app", "/x.app"]):
+    with mock.patch.dict(sys.modules, stubs), mock.patch.object(sys, "argv", ["chat-open-bench.py", "--app", "/x.app", *args]):
         spec.loader.exec_module(module)
     return module
 
@@ -108,6 +108,9 @@ class OpenTests(unittest.TestCase):
     def test_new_workspaces_go_last(self):
         # selectLast shows the open's workspace only when new ones go to the bottom (default: top).
         self.assertEqual(self.bench.CONFIG["workspaces"]["newPlacement"], "bottom")
+        # A --config placement would make selectLast show another workspace: bottom wins, the rest applies.
+        bench = load_bench("--config", '{"workspaces": {"newPlacement": "top", "autoName": false}}')
+        self.assertEqual(bench.CONFIG["workspaces"], {"newPlacement": "bottom", "autoName": False})
 
     def test_why_names_the_marks_that_ran(self):
         # marks_ms names every mark (null when it did not run): only `order` says which ran.
