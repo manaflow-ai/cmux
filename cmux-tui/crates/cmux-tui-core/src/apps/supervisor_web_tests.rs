@@ -48,7 +48,7 @@ fn web_call(f: &Fixture, app: &str, op: &str, params: Value) -> Result<Value, Ap
         params,
         None,
         Box::new(move |result| {
-            let _ = tx.send(result.map_err(|e| ApiErrorView { code: e.code, message: e.message }));
+            let _ = tx.send(result.map_err(|e| ApiErrorView { code: e.code }));
         }),
     );
     rx.recv_timeout(Duration::from_secs(10)).expect("web call answered")
@@ -57,7 +57,6 @@ fn web_call(f: &Fixture, app: &str, op: &str, params: Value) -> Result<Value, Ap
 #[derive(Debug)]
 struct ApiErrorView {
     code: String,
-    message: String,
 }
 
 fn code(result: Result<Value, ApiErrorView>) -> String {

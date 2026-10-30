@@ -572,7 +572,7 @@ mod tests {
         }
         let (agent_app, agent_out) = connection(&mux, Some("app"), true);
         verify(&mux, agent_app);
-        for request in [call.clone(), log.clone()] {
+        for request in [call, log.clone()] {
             assert_eq!(error_code(&mux, agent_app, &agent_out, request).as_deref(), WEB_FORBIDDEN);
         }
         // The hosting app passes the gate (the line then reaches the
