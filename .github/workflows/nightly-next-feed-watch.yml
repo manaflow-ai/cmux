@@ -77,6 +77,10 @@ jobs:
           MAX_RESUMES: ${{ vars.NIGHTLY_NEXT_MAX_UNSIGNED_RESUMES || '2' }}
         run: python3 scripts/ci/nightly_next_unsigned_resume.py --repo "$REPOSITORY" --max-resumes "$MAX_RESUMES"
 
+      # Exit 1: a feed is behind. Exit 3: release health unknown -- a GitHub
+      # read still failed after a bounded retry, so the lag measurement or the
+      # starvation guard was skipped; the step summary names what. Both fail
+      # the run, so a skipped check never passes for a healthy feed.
       - name: Check how long feat-cmux-next pushes have waited for the feed
         env:
           GH_TOKEN: ${{ github.token }}

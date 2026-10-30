@@ -18,7 +18,10 @@ published build ran still counts. Past --max-lag-hours it keeps ONE open
 commit and the stage that is stuck; it comments only when that reason changes,
 and closes the issue once nothing has waited that long. While stale it also
 exits 1, so the scheduled run is red rather than green (a stall from 01:44Z on
-2026-10-21 sat behind green runs for four hours). A promotion stall quotes the
+2026-10-21 sat behind green runs for four hours). When the GitHub API still
+fails after a bounded retry, the measurement or a recovery guard was skipped:
+it exits 3 (release health unknown) with a step-summary line saying so, never
+0, because a skipped check is not a healthy feed. A promotion stall quotes the
 latest nightly-next tick's refusal tally (nightly-next-tick.yml).
 
 The NEXT starvation guard heals before the alarm: past 20 minutes without a
@@ -42,6 +45,8 @@ import json
 import os
 import re
 import sys
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -51,6 +56,16 @@ import urllib.request
 # one of those on 2026-10-26 was two guards away from taking the whole check
 # down. A read that fails in transit is always a warning, never a traceback.
 TRANSPORT = (OSError, http.client.HTTPException)
+# A GitHub read is retried this many times in all, after these pauses, when it
+# fails in transit or with a status that can clear (a 403 or 429 rate limit, a
+# 5xx). Writes are never retried: a dispatch that failed in transit may have
+# landed. Once one read has used every attempt, later reads try once, so a
+# GitHub outage still ends the run well inside its 5-minute timeout.
+API_ATTEMPTS = 3
+API_RETRY_PAUSES = (2.0, 5.0)
+RETRYABLE_STATUS = {403, 408, 429, 500, 502, 503, 504}
+# Exit status when the GitHub API failed and a measurement or guard was skipped.
+RELEASE_HEALTH_UNKNOWN = 3
 
 FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"  # cmux NEXT (cx-x7hwx)
 # nightly-next writes two appcasts: the bare path an installed app polls and
@@ -222,18 +237,31 @@ class GitHub:
         self.base = f"https://api.github.com/repos/{repo}"
         self.token = token
         self.dry_run = dry_run
+        self.unavailable = False  # a read already failed every attempt
 
     def call(self, method: str, path: str, body: dict | None = None):
         if self.dry_run and method != "GET":
             print(f"dry run: {method} {path} {json.dumps(body)[:200] if body else ''}")
             return {}
-        request = urllib.request.Request(
-            self.base + path, method=method, data=json.dumps(body).encode() if body is not None else None,
-            headers={"Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
-                     "X-GitHub-Api-Version": "2022-11-28"})
-        with urllib.request.urlopen(request, timeout=30) as response:
-            data = response.read()
-        return json.loads(data) if data else None
+        attempts = API_ATTEMPTS if method == "GET" and not self.unavailable else 1
+        for attempt in range(1, attempts + 1):
+            request = urllib.request.Request(
+                self.base + path, method=method, data=json.dumps(body).encode() if body is not None else None,
+                headers={"Authorization": f"Bearer {self.token}", "Accept": "application/vnd.github+json",
+                         "X-GitHub-Api-Version": "2022-11-28"})
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    data = response.read()
+                return json.loads(data) if data else None
+            except TRANSPORT as error:
+                if isinstance(error, urllib.error.HTTPError) and error.code not in RETRYABLE_STATUS:
+                    raise
+                if attempt == attempts:
+                    if method == "GET":
+                        self.unavailable = True
+                    raise
+                print(f"::notice::GitHub {method} {path} failed ({error}); retry {attempt} of {attempts - 1}")
+                time.sleep(API_RETRY_PAUSES[min(attempt, len(API_RETRY_PAUSES)) - 1])
 
     def runs_page(self, workflow: str, branch: str, created: str | None = None, per_page: int = 100, page: int = 1, **extra) -> dict:
         query = {"branch": branch, "event": "push", "per_page": per_page, "page": page, **extra}
@@ -675,7 +703,7 @@ def read_feeds(urls) -> tuple[dt.datetime | None, list[str]]:
     return newest, missing
 
 
-def heal(label: str, guard) -> None:
+def heal(label: str, guard) -> str | None:
     """Run one starvation guard inside its own boundary.
 
     No guard may be skipped because another call failed. On 2026-10-26 every
@@ -685,12 +713,29 @@ def heal(label: str, guard) -> None:
 
     Every exception is caught, not just OSError: the guards run before the
     alarm now, so a malformed response (a KeyError or a JSONDecodeError, not
-    only a transport error) must not take the alarm down with it.
+    only a transport error) must not take the alarm down with it. A skipped
+    guard returns its error, so the run can report release health unknown.
     """
     try:
         print(f"{label} starvation: {guard()}")
     except Exception as error:  # noqa: BLE001 - a guard never takes the check down
         print(f"::warning::{label} starvation guard skipped: {error!r}")
+        return repr(error)
+    return None
+
+
+def report_unknown(skipped: list[str]) -> None:
+    """Name every skipped measurement in an error annotation and the step summary."""
+    line = ("nightly-next release health unknown: the GitHub API failed after retries, so this "
+            "measurement was skipped: " + "; ".join(skipped) + ". The next scheduled check runs in 10 minutes.")
+    print(f"::error title=nightly-next release health unknown::{line}")
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        try:
+            with open(summary, "a", encoding="utf-8") as out:
+                out.write(f"**{line}**\n")
+        except OSError as error:
+            print(f"::warning::could not write the step summary: {error}")
 
 
 def sync_issue(gh: GitHub, stage: Stage, body: str, max_lag_hours: float, run_url: str) -> str:
@@ -754,14 +799,20 @@ def main(argv: list[str]) -> int:
             published_sha = published_commit(gh)
         return published_sha
 
+    # What the GitHub API kept us from checking; any entry makes the run exit
+    # RELEASE_HEALTH_UNKNOWN (or 1 when something is known to be behind).
+    skipped: list[str] = []
+
     # Heal first, inside its own boundary so a failure cannot skip the legacy
     # NEXT feed repair or alarm below.
-    heal("next", lambda: starvation_dispatch(
+    guard_error = heal("next", lambda: starvation_dispatch(
         gh, now, feed=newest, published_sha=published(), minutes=NEXT_STARVATION_MINUTES, by_tip_age=True,
         branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main", tip_input="sha",
         feed_unknown=bool(missing),
         active_workflows=next_delivery_workflows(args.train),
         carries=lambda run, tip, landed: next_carries_tip(gh, run, tip, landed)))
+    if guard_error:
+        skipped.append(f"the NEXT starvation guard ({guard_error})")
     # cmux NIGHTLY's feed on its own: its staleness comes from the two feeds, so neither a failed
     # re-run nor an API error elsewhere can turn a stale feed green.
     try:
@@ -781,50 +832,46 @@ def main(argv: list[str]) -> int:
     if legacy:
         print("cmux NIGHTLY feed: " + legacy)
 
-    if newest is None:
-        if legacy_stale:
-            print(f"::error title=cmux NIGHTLY feed behind::{legacy}")
-            return 1
-        return 0
-    try:
-        published_sha = published()
-        oldest = oldest_waiting_push(gh, published_sha, newest)
-        stage = assess(
-            now, newest,
-            pushes=[oldest] if oldest else [],
-            nightly=gh.runs("nightly.yml", "nightly-next", newest),
-            jobs_of=gh.jobs,
-            artifacts=gh.runs("cmux-tui-artifacts.yml", "feat-cmux-next", per_page=1),
-            compiles=gh.runs("cmux-next.yml", "feat-cmux-next", per_page=5),
-            max_lag_hours=args.max_lag_hours,
-            tick_refusal=gh.tick_refusal,
-        )
-        if stage.stale:
-            # Only a stale feed pays for these reads (four listings, at most
-            # GATE_RUNS_READ job lists each), and a failed read never hides the alarm.
-            try:
-                gates = queued_gates(now, [(name, gh.queued_runs(name, branch)) for name, branch in GATE_RUNS], gh.jobs)
-            except (*TRANSPORT, KeyError, TypeError) as error:
-                gates = ""
-                print(f"::warning::could not read queued gate jobs: {error}")
-            if gates:
-                stage = dataclasses.replace(stage, detail=" ".join(filter(None, [f"Waiting for a runner: {gates}.", stage.detail])))
-        print(f"feed newest {newest.isoformat()}, waited {stage.waited_hours:.1f}h: {stage.reason}")
-        print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
-    except TRANSPORT as error:  # the next check runs in 10 minutes
-        print(f"::warning::GitHub API error, skipped this check: {error}")
-        if legacy_stale:
-            print(f"::error title=cmux NIGHTLY feed behind::{legacy}")
-            return 1
-        return 0
-    if stage.stale:
+    stage: Stage | None = None
+    if newest is not None:
+        try:
+            published_sha = published()
+            oldest = oldest_waiting_push(gh, published_sha, newest)
+            stage = assess(
+                now, newest,
+                pushes=[oldest] if oldest else [],
+                nightly=gh.runs("nightly.yml", "nightly-next", newest),
+                jobs_of=gh.jobs,
+                artifacts=gh.runs("cmux-tui-artifacts.yml", "feat-cmux-next", per_page=1),
+                compiles=gh.runs("cmux-next.yml", "feat-cmux-next", per_page=5),
+                max_lag_hours=args.max_lag_hours,
+                tick_refusal=gh.tick_refusal,
+            )
+            if stage.stale:
+                # Only a stale feed pays for these reads (four listings, at most
+                # GATE_RUNS_READ job lists each), and a failed read never hides the alarm.
+                try:
+                    gates = queued_gates(now, [(name, gh.queued_runs(name, branch)) for name, branch in GATE_RUNS], gh.jobs)
+                except (*TRANSPORT, KeyError, TypeError) as error:
+                    gates = ""
+                    print(f"::warning::could not read queued gate jobs: {error}")
+                if gates:
+                    stage = dataclasses.replace(stage, detail=" ".join(filter(None, [f"Waiting for a runner: {gates}.", stage.detail])))
+            print(f"feed newest {newest.isoformat()}, waited {stage.waited_hours:.1f}h: {stage.reason}")
+            print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
+        except TRANSPORT as error:  # retried in GitHub.call; the next check runs in 10 minutes
+            skipped.append(f"the feed-lag alarm or its stale issue ({error})")
+    if skipped:
+        report_unknown(skipped)
+    if stage is not None and stage.stale:
         print(f"::error title=nightly-next feed stale::feat-cmux-next pushes have waited {stage.waited_hours:.1f}h "
               f"(limit {args.max_lag_hours:g}h). {' '.join(filter(None, [stage.reason, stage.detail]))}")
         return 1
     if legacy_stale:
         print(f"::error title=cmux NIGHTLY feed behind::{legacy}")
         return 1
-    return 0
+    # An unreadable feed alone stays a warning above; a skipped GitHub read never passes as healthy.
+    return RELEASE_HEALTH_UNKNOWN if skipped else 0
 
 
 if __name__ == "__main__":

@@ -8,9 +8,11 @@ every 30 minutes and measures how long feat-cmux-next pushes have waited.
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import http.client
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sys
@@ -157,7 +159,8 @@ class MainTests(unittest.TestCase):
             with unittest.mock.patch.object(watch, "fetch_feed", lambda url: NEWEST_FEED), \
                     unittest.mock.patch.object(watch.urllib.request, "urlopen", urlopen), \
                     unittest.mock.patch("time.sleep") as sleep, \
-                    unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t", "GITHUB_STEP_SUMMARY": str(summary)}):
+                    unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t", "GITHUB_STEP_SUMMARY": str(summary)}), \
+                    contextlib.redirect_stdout(io.StringIO()):  # its ::error lines would annotate this PR's run
                 code = watch.main(["--repo", "o/r", "--dry-run"])
             return code, summary.read_text() if summary.exists() else "", sleep
 
@@ -210,7 +213,7 @@ class RetryTests(unittest.TestCase):
             return Response(b'{"ok": true}')
         gh = watch.GitHub("o/r", "t", dry_run=False)
         with unittest.mock.patch.object(watch.urllib.request, "urlopen", urlopen), \
-                unittest.mock.patch("time.sleep") as sleep:
+                unittest.mock.patch("time.sleep") as sleep, contextlib.redirect_stdout(io.StringIO()):
             try:
                 result = gh.call(method, "/x", {"a": 1} if method != "GET" else None)
             except watch.TRANSPORT as error:
@@ -542,7 +545,8 @@ class LegacyFeedTests(unittest.TestCase):
 
     def test_the_off_switch_stops_the_watch(self):
         # NIGHTLY_NEXT_LEGACY_IDENTITY=off stops every legacy job; nothing can catch the feed up.
-        self.assertEqual(self.run_main(True, "--legacy-identity", "off"), 0)
+        # Every API call fails here: release health unknown (3), never cmux NIGHTLY behind (1).
+        self.assertEqual(self.run_main(True, "--legacy-identity", "off"), watch.RELEASE_HEALTH_UNKNOWN)
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
         self.assertIn("LEGACY_IDENTITY: ${{ vars.NIGHTLY_NEXT_LEGACY_IDENTITY == 'off' && 'off' || 'on' }}", workflow)
         self.assertIn('--legacy-identity "$LEGACY_IDENTITY"', workflow)
@@ -1073,7 +1077,7 @@ class HealBeforeAlarmTests(unittest.TestCase):
         def forbidden(self, method, path, body=None):
             raise urllib.error.HTTPError("u", 403, "rate limit exceeded", {}, None)
         code, seen = self.run_main(forbidden)
-        self.assertEqual(code, 0)
+        self.assertEqual(code, watch.RELEASE_HEALTH_UNKNOWN)
         self.assertEqual(seen, ["feat-cmux-next"])
 
     def test_a_failing_next_guard_never_skips_legacy_feed_repair(self):
@@ -1093,7 +1097,7 @@ class HealBeforeAlarmTests(unittest.TestCase):
                 unittest.mock.patch.object(watch, "starvation_dispatch", guard), \
                 unittest.mock.patch.object(watch, "legacy_lag", return_value=(None, "current")) as legacy, \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
-            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), watch.RELEASE_HEALTH_UNKNOWN)
         self.assertEqual(calls, ["feat-cmux-next"])
         legacy.assert_called_once()
 
@@ -1112,7 +1116,7 @@ class HealBeforeAlarmTests(unittest.TestCase):
                     lambda *a, **k: seen.append(k.get("branch")) or "dispatched"), \
                 unittest.mock.patch.object(watch, "legacy_lag", return_value=(None, "current")) as legacy, \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
-            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), watch.RELEASE_HEALTH_UNKNOWN)
         # The NEXT guard cannot run without its marker, but legacy repair still does.
         self.assertEqual(seen, [])
         legacy.assert_called_once()
