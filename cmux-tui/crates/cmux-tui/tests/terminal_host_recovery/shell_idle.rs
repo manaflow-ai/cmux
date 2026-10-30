@@ -42,6 +42,7 @@ fn start_bash(name: &str) -> Option<(RecoveryHarness, u64)> {
 /// [`start_bash`] with `rc` first in its rc file (`set +m`).
 fn start_bash_with(name: &str, rc_prefix: &str) -> Option<(RecoveryHarness, u64)> {
     let Some(bash) = find(&["/bin/bash", "/usr/bin/bash", "/opt/homebrew/bin/bash"]) else {
+        // skip-owner: PL-daemon; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
         eprintln!("skipped: bash is not installed");
         return None;
     };
@@ -217,6 +218,7 @@ fn shell_idle_a_program_execed_in_the_shells_place_is_not_idle() {
         "/bin/ksh",
         "/usr/bin/ksh",
     ]) else {
+        // skip-owner: PL-daemon; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
         eprintln!("skipped: no shell other than bash is installed");
         return;
     };
@@ -250,6 +252,7 @@ fn shell_idle_a_program_execed_under_the_shells_name_is_not_idle() {
         "/bin/ksh",
         "/usr/bin/ksh",
     ]) else {
+        // skip-owner: PL-daemon; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
         eprintln!("skipped: no shell other than bash is installed");
         return;
     };

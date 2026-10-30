@@ -980,6 +980,7 @@ class PinnedToolTests(unittest.TestCase):
 
     def test_a_read_only_cache_still_runs_a_binary_whose_hash_matched(self):
         if os.geteuid() == 0:
+            # skip-owner: PL-guardrails; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
             self.skipTest("root writes into a read-only folder")
         folder = self.place_unrecorded().parent
         with self.urlopen():

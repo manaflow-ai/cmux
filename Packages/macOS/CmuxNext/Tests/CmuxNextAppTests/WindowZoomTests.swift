@@ -112,6 +112,7 @@ import Testing
 
     /// Feature `windowFrameAnimationHoldsContent` on: the zoom itself holds its window from the
     /// press to its landing, and no longer.
+    /// skip-owner: PL-rendering; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func aZoomHoldsItsWindowsContentUntilItLands() throws {
         let (window, start) = try shownWindow()
         defer { window.close() }
@@ -125,6 +126,7 @@ import Testing
 
     /// Feature `windowFrameAnimationHoldsContent` off (its default): a zoom holds nothing, so each
     /// step's terminal grid goes to the daemon on the next frame, as before the hold existed.
+    /// skip-owner: PL-rendering; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
     @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func withTheHoldOffAZoomResizesTerminalsLive() throws {
         let (window, start) = try shownWindow()
         defer { window.close() }

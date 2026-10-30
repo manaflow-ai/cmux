@@ -10,6 +10,7 @@ import Testing
 /// behind Close Window on v2.2.4-opt), so "within one frame" was never measured. The show record keeps,
 /// per surface, when its pause ended (main) and when its layer next got a frame (the `setContents:`
 /// hook, any thread): record only, read by `debug.surfaces`.
+/// skip-owner: PL-ghostty; expiry: 2026-11-06; tracking: handoff/followups.md "skips audit 2026-10-30"
 @MainActor @Suite(.serialized, .enabled(if: TypingFrameProbe.hooksEveryLayer, "renderer-owned frames set no layer contents"))
 struct TerminalShowRecordTests {
     nonisolated final class ShownLayer: CALayer {}

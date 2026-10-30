@@ -63,6 +63,7 @@ import Testing
     /// pass and puts the value it found back after (Chrome's `ScopedCrashKeyString`).
     @Test func aPassSetsInCEFPumpAndPutsTheValueBefore() {
         let trace = Self.pumpTrace()
+        // skip-owner: PL-telemetry; expiry: 2026-11-06; tracking: chrome-parity-design/followups.md 2026-10-27T08:00Z w3 leftovers
         withKnownIssue("078 crash-key page: a runtime with no page keeps no key") {
             trace.setCrashKey(.inCEFPump, 9) // a value an outer scope set
             var during: [UInt64] = []
@@ -81,6 +82,7 @@ import Testing
     /// pass leaves it there once it returns.
     @Test func aNestedRunLoopInsideAPassPutsInCEFPumpBack() {
         let trace = Self.pumpTrace()
+        // skip-owner: PL-telemetry; expiry: 2026-11-06; tracking: chrome-parity-design/followups.md 2026-10-27T08:00Z w3 leftovers
         withKnownIssue("078 crash-key page: a runtime with no page keeps no key") {
             trace.setCrashKey(.inCEFPump, 0)
             let keys = CrashKeySlots()
