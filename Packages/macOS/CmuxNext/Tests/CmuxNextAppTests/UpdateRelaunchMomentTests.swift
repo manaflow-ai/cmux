@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 @testable import CmuxNextUpdater
 import CmuxNextWakeupsTestSupport
 import Testing
@@ -56,6 +57,31 @@ import Testing
         center.post(name: NSWindow.didEndSheetNotification, object: nil)
         await settle()
         #expect(installs == 1)
+    }
+
+    /// While an update waits, an event-loop pass costs nothing. AppKit posts
+    /// `NSApplication.didUpdateNotification` after every event, and the hold started a main-actor
+    /// Task that read the moment on each one (#25910): the wait is one 1 s recheck, nothing per pass.
+    @Test func eventLoopPassesDoNoWorkWhileAnUpdateWaits() async {
+        let moment = Moment()
+        moment.now.sheet = true
+        var reads = 0
+        let hold = UpdateRelaunchMomentHold(moment: {
+            reads += 1
+            return moment.now
+        }, clock: ManualClock())
+        #expect(hold.hold {})
+        let readsToHold = reads
+        // The control: each pass really announces itself, as AppKit's event loop does after each event.
+        var announced = 0
+        let passes = MainActorObservation(NSApplication.didUpdateNotification) { announced += 1 }
+        defer { passes.cancel() }
+
+        for _ in 0..<100 { NSApplication.shared.updateWindows() }
+        await settle()
+        #expect(announced >= 100, "updateWindows() announced \(announced) of 100 passes")
+        #expect(reads == readsToHold, "100 event-loop passes read the moment \(reads - readsToHold) times")
+        hold.cancel()
     }
 
     @Test func compositionThatEndsWithoutAnEventIsCaughtWithinASecond() async throws {
