@@ -287,17 +287,21 @@ test("the reflow watch follows the output node it shows now, and holds nothing i
     },
   });
   const lines = (n: number) => Array.from({ length: n }, (_, at) => `case ${at + 1}`).join("\n");
-  const follower = () => observers.find((entry) => entry.targets.includes(container.querySelector(".cv-shell__body")!));
   // Streaming: one follow observer, on the box and the output it shows, however many chunks arrive.
   for (let n = 10; n <= 30; n++) await act(async () => root!.render(<ShellBlock command="bun test" output={lines(n)} live />));
   const body = container.querySelector(".cv-shell__body")!;
-  expect(follower()?.targets).toEqual([body, container.querySelector(".cv-shell__output")!]);
+  const first = container.querySelector(".cv-shell__output")!;
+  // The sideways edge watch (sideways.ts) observes the box too; the follow watch is the one that
+  // observes exactly the box and its output.
+  const follow = observers.filter((entry) => entry.targets.length === 2 && entry.targets[0] === body && entry.targets[1] === first);
+  expect(follow.length).toBe(1);
   // The output empties (a cleared screen) and comes back: the new node is the one watched.
   await act(async () => root!.render(<ShellBlock command="bun test" output="" live />));
   await act(async () => root!.render(<ShellBlock command="bun test" output={lines(40)} live />));
   const output = container.querySelector(".cv-shell__output")!;
-  expect(follower()?.targets).toEqual([body, output]);
-  // The command ends: nothing is watched any more.
+  expect(output).not.toBe(first);
+  expect(follow[0]!.targets).toEqual([body, output]);
+  // The command ends: the follow watch lets go of everything.
   await act(async () => root!.render(<ShellBlock command="bun test" output={lines(40)} />));
-  expect(observers.every((entry) => !entry.targets.includes(body))).toBe(true);
+  expect(follow[0]!.targets).toEqual([]);
 });
