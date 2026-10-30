@@ -51,11 +51,11 @@ import WebKit
         ])).get()
 
         #expect(try await page.read("document.getElementById('upload').files[0].size") == .number(Double(count)))
-        // A string result: a JS boolean from callAsyncJavaScript does not bridge to `Bool` here,
-        // while strings do (as `contents()` below relies on).
+        // `contentWorld:` is the async overload the app uses; the `in:in:` bridge of the completion
+        // handler returned nil here and crashed the next test (signal 11) on the fleet.
         let mismatches = try await page.webView.callAsyncJavaScript(
             "const bytes = new Uint8Array(await document.getElementById('upload').files[0].arrayBuffer()); let bad = 0; for (let i = 0; i < bytes.length; i++) if (bytes[i] !== i % 251) bad++; return bytes.length + ':' + bad;",
-            arguments: [:], in: nil, in: .page
+            arguments: [:], in: nil, contentWorld: .page
         ) as? String
         #expect(mismatches == "\(count):0", "the original file must arrive byte-for-byte")
     }
@@ -78,7 +78,7 @@ import WebKit
         func contents() async throws -> String? {
             try await page.webView.callAsyncJavaScript(
                 "return await document.getElementById('upload').files[0].text();",
-                arguments: [:], in: nil, in: .page
+                arguments: [:], in: nil, contentWorld: .page
             ) as? String
         }
 
