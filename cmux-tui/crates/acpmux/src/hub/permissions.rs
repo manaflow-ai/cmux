@@ -1522,9 +1522,25 @@ pub(super) fn settle_full_access_report(session: &Session) {
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
 }
 
+/// How much of an unterminated string control's payload one stderr tail entry keeps.
+const STDERR_PAYLOAD_CAP: usize = 64 * 1024;
+
 // Keep raw lines for diagnosis, but terminal resets alone must not evict an explanation.
 fn remember_stderr(tail: &mut std::collections::VecDeque<String>, line: &str) {
-    if crate::stderr::clean_stderr_line(line).is_empty() {
+    // A line inside a string control's payload (DCS, OSC, ...) joins the line that opened it, so the
+    // two are cleaned and evicted together and none of the payload reads as an explanation.
+    if let Some(last) = tail.back_mut()
+        && crate::stderr::ends_inside_string_control(last)
+    {
+        if last.len() < STDERR_PAYLOAD_CAP {
+            last.push('\n');
+            last.push_str(line);
+        }
+        return;
+    }
+    if crate::stderr::clean_stderr_line(line).is_empty()
+        && !crate::stderr::ends_inside_string_control(line)
+    {
         return;
     }
     if tail.len() >= 6 {
@@ -1535,6 +1551,21 @@ fn remember_stderr(tail: &mut std::collections::VecDeque<String>, line: &str) {
 
 #[cfg(test)]
 mod stderr_tests {
+    #[test]
+    fn a_string_control_payload_never_reaches_the_cleaned_tail() {
+        let mut tail = std::collections::VecDeque::new();
+        super::remember_stderr(&mut tail, "\x1bPsecret");
+        super::remember_stderr(&mut tail, "leaked payload");
+        super::remember_stderr(&mut tail, "more\x1b\\");
+        super::remember_stderr(&mut tail, "error: request timed out");
+        assert_eq!(tail.len(), 2, "{tail:?}");
+        let cleaned: Vec<String> = crate::stderr::clean_stderr_tail(tail.iter())
+            .into_iter()
+            .filter(|line| !line.is_empty())
+            .collect();
+        assert_eq!(cleaned, vec!["error: request timed out"]);
+    }
+
     #[test]
     fn stderr_resets_do_not_evict_the_raw_explanation() {
         let raw = "\x1b[31mERROR failed to refresh models\x1b[0m";

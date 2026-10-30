@@ -24,7 +24,19 @@ fn clean_stripped_line(line: &str) -> String {
     strip_tracing_prefix(line.trim()).trim().to_owned()
 }
 
+/// Whether `text` ends inside a string control (DCS, OSC, SOS, PM, APC) that has not reached its
+/// ST or BEL yet: the lines after it are still that control's payload.
+pub(crate) fn ends_inside_string_control(text: &str) -> bool {
+    strip(text).1
+}
+
 fn strip_ansi(input: &str) -> String {
+    strip(input).0
+}
+
+/// The text without control sequences, and whether it ends inside an unterminated string control.
+fn strip(input: &str) -> (String, bool) {
+    let mut open = false;
     let mut output = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
 
@@ -42,7 +54,7 @@ fn strip_ansi(input: &str) -> String {
                 // OSC, and the string controls DCS, SOS, PM and APC: their payload runs to ST or BEL.
                 Some(']' | 'P' | 'X' | '^' | '_') => {
                     chars.next();
-                    skip_string(&mut chars);
+                    open = !skip_string(&mut chars);
                 }
                 Some(next) if ('0'..='~').contains(&next) => {
                     // A two-byte escape sequence (for example, ESC 7 or ESC c).
@@ -69,24 +81,26 @@ fn strip_ansi(input: &str) -> String {
                 }
             }
             '\u{009d}' | '\u{0090}' | '\u{0098}' | '\u{009e}' | '\u{009f}' => {
-                skip_string(&mut chars)
+                open = !skip_string(&mut chars);
             }
             '\u{009c}' | '\r' => {}
             _ => output.push(ch),
         }
     }
 
-    output
+    (output, open)
 }
 
-/// Skips a string control's payload through its terminator: ST (ESC \\ or C1 ST) or BEL.
-fn skip_string(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
+/// Skips a string control's payload through its terminator: ST (ESC \\ or C1 ST) or BEL. False
+/// when the text ended first.
+fn skip_string(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> bool {
     loop {
         match chars.next() {
-            None | Some('\x07') | Some('\u{009c}') => break,
+            None => return false,
+            Some('\x07') | Some('\u{009c}') => return true,
             Some('\x1b') if chars.peek() == Some(&'\\') => {
                 chars.next();
-                break;
+                return true;
             }
             Some(_) => {}
         }
@@ -178,15 +192,19 @@ mod tests {
 
     #[test]
     fn a_string_control_spanning_lines_leaks_nothing() {
-        use super::{clean_stderr_lines, clean_stderr_tail};
+        use super::{clean_stderr_lines, clean_stderr_tail, ends_inside_string_control};
+        // The payload's newlines go with it.
         assert_eq!(
             clean_stderr_lines("\x1bPsecret\nleaked \x1b\\visible error"),
-            vec!["", "visible error"]
+            vec!["visible error"]
         );
-        assert_eq!(clean_stderr_lines("\x1b]8;;https://x\ny\x07ok\nnext"), vec!["", "ok", "next"]);
+        assert_eq!(clean_stderr_lines("\x1b]8;;https://x\ny\x07ok\nnext"), vec!["ok", "next"]);
         let tail =
             vec!["\x1b_Gpayload".to_owned(), "more payload\x1b\\request timed out".to_owned()];
-        assert_eq!(clean_stderr_tail(&tail), vec!["", "request timed out"]);
+        assert_eq!(clean_stderr_tail(&tail), vec!["request timed out"]);
+        assert!(ends_inside_string_control("ok \x1bPsecret"));
+        assert!(!ends_inside_string_control("\x1bPsecret\x1b\\ok"));
+        assert!(!ends_inside_string_control("\x1b[31mplain"));
     }
 
     #[test]
