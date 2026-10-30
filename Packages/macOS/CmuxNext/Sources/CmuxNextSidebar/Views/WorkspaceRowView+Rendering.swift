@@ -108,9 +108,11 @@ extension WorkspaceRowView {
         // A custom workspace icon or favicon takes the leading slot; without one the title starts
         // at the leading inset (no default kind glyph).
         let leading = SidebarStyle.horizontalInset + indent
+        // A `leftRail` row keeps its dot's slot empty, so its title stays clear of the rail, where the dot style has it.
+        let railSlot = iconKind == nil && rowColor?.style == .leftRail
         let side: CGFloat
         switch iconKind {
-        case nil: side = 0 // text only: no kind glyph or agent brand (WORKSPACE-ROWS-NO-DEFAULT-ICON)
+        case nil: side = railSlot ? SidebarStyle.dotSize + Metrics.space1 : 0 // text only: no kind glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON)
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
         case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
@@ -214,7 +216,7 @@ extension WorkspaceRowView {
         }
 
         // Without an icon the title starts at the leading inset; with one, after it (`titleTextX`).
-        let swatch: Bool = if case .swatch? = iconKind { true } else { false }
+        let swatch: Bool = if case .swatch? = iconKind { true } else { railSlot }
         var textX = SidebarStyle.titleTextX(leading: leading, iconSide: side, swatch: swatch) - Self.labelInset
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)

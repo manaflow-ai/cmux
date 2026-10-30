@@ -157,6 +157,17 @@ struct WorkspaceColorFillTests {
         window.close()
     }
 
+    /// Visual review of https://github.com/manaflow-ai/cmux/pull/25705: the rail ended a point or two before the
+    /// title's first letter. A rail row's title sits where the dot style puts it, past the dot's slot.
+    @Test func aLeftRailRowsTitleStaysWhereTheDotStylePutsIt() {
+        let ws = SidebarWorkspace(id: WorkspaceID("ws"), title: "PR ready", icon: .swatch(.green), color: .green)
+        let (dot, dotWindow) = Self.rowView(ws, style: "dot")
+        let (rail, railWindow) = Self.rowView(ws, style: "leftRail")
+        #expect(rail.title.frame.minX == dot.title.frame.minX)
+        #expect(rail.title.frame.minX - rail.colorRail.frame.maxX >= Metrics.space3, "clear of the rail")
+        [dotWindow, railWindow].forEach { $0.close() }
+    }
+
     @Test func aStartedWorkspacesRailMovesInWithItsContent() {
         let ws = SidebarWorkspace(id: WorkspaceID("ws"), title: "child", color: .blue)
         let (top, topWindow) = Self.rowView(ws, style: "leftRail")
