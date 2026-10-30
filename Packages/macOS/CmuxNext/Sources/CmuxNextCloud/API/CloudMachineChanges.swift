@@ -31,6 +31,7 @@ public final class CloudMachineChanges {
     private struct Mutation {
         let id: UUID
         let status: CloudMachine.Status
+        let baselineUpdatedAt: Date?
         var baselineFailure: CloudMachine.ChangeFailure?
         /// The ordered read ticket issued when the accepted request returned.
         var requestReturnedRead: Int?
@@ -86,6 +87,7 @@ public final class CloudMachineChanges {
                     _ call: () async throws -> Void) async throws {
         let id = UUID()
         mutations[machineID, default: []].append(Mutation(id: id, status: change,
+            baselineUpdatedAt: holder()?.machine.updatedAt,
             baselineFailure: holder()?.machine.lastChangeFailure, requestReturnedRead: nil))
         showPending(machineID, on: holder())
         do {
@@ -147,11 +149,21 @@ public final class CloudMachineChanges {
         }
         outstanding.removeAll { mutation in
             guard let returnedRead = mutation.requestReturnedRead else { return false }
+            let readIsAfterAcceptance = read == nil || read! > returnedRead
+            let isNewerServerRevision: Bool = {
+                guard let recordRevision = record.updatedAt else { return false }
+                guard let baseline = mutation.baselineUpdatedAt else { return true }
+                return recordRevision > baseline
+            }()
+            // A direct pendingStatus inspection has no transport read and retains the old
+            // compatibility behavior. A real read must be newer than acceptance *and* carry
+            // a newer server row revision; a same-shaped stale response cannot retire it.
+            let authoritative = read == nil ? true : (readIsAfterAcceptance && isNewerServerRevision)
             switch mutation.status {
             case .pausing:
-                return record.status == .paused || (record.status == .running && (read ?? 0) > returnedRead)
+                return authoritative && (record.status == .paused || record.status == .running)
             case .starting:
-                return record.status == .running || (record.status == .paused && (read ?? 0) > returnedRead)
+                return authoritative && (record.status == .running || record.status == .paused)
             default: return false
             }
         }

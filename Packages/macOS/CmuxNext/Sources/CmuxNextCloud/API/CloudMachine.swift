@@ -251,6 +251,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// Nil when the server has no rate for it (a size not measured yet, an
     /// older server).
     public var hourlyRateUsd: Double?
+    /// The server's row revision. Status records with a newer value supersede an older
+    /// local mutation; stale responses retain the optimistic overlay.
+    public var updatedAt: Date?
     /// When the machine last started running (`runningSince`, epoch ms).
     /// Nil while it is paused, so a paused machine shows no running cost.
     public var runningSince: Date?
@@ -298,14 +301,14 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     enum CodingKeys: String, CodingKey {
         case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, createdByUserId, address, size, capabilities
         case pauseReason, idlePauseMinutes, idlePause
-        case hourlyRateUsd, runningSince, sizePick
+        case hourlyRateUsd, updatedAt, runningSince, sizePick
         case lastChangeFailure = "error"
     }
 
     public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
                 slug: String? = nil, address: Address? = nil, capabilities: Capabilities? = nil,
                 pauseReason: PauseReason? = nil, idlePauseMinutes: Int? = nil,
-                idlePause: IdlePauseDiagnostics? = nil, lastChangeFailure: ChangeFailure? = nil) {
+                idlePause: IdlePauseDiagnostics? = nil, updatedAt: Date? = nil, lastChangeFailure: ChangeFailure? = nil) {
         self.id = id
         self.provider = provider
         self.status = status
@@ -317,6 +320,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         self.pauseReason = pauseReason
         self.idlePauseMinutes = idlePauseMinutes
         self.idlePause = idlePause
+        self.updatedAt = updatedAt
         self.lastChangeFailure = lastChangeFailure
     }
 
@@ -359,6 +363,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         // Diagnostics are best effort: older or partially deployed servers
         // may omit the object (or send a shape this client does not know).
         idlePause = try? c.decodeIfPresent(IdlePauseDiagnostics.self, forKey: .idlePause)
+        updatedAt = ((try? c.decodeIfPresent(Double.self, forKey: .updatedAt)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }
         // Display facts: a malformed value drops the cost line, never the machine.
         hourlyRateUsd = (try? c.decodeIfPresent(Double.self, forKey: .hourlyRateUsd)) ?? nil
         runningSince = ((try? c.decodeIfPresent(Double.self, forKey: .runningSince)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }

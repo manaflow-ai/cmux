@@ -118,7 +118,8 @@ struct CloudMachineChangeStateTests {
             localIdentity: { nil }, mainWork: services.mainWork)
         services.machines.add(session)
         defer { cloud.changes.stop(); session.disconnect() }
-        let running = CloudMachine(id: session.machineID, status: .running)
+        let running = CloudMachine(id: session.machineID, status: .running,
+            updatedAt: Date(timeIntervalSince1970: 2))
         try await cloud.changes.run(.starting, machineID: session.machineID, of: { session }) {
             cloud.apply(running, to: session, read: cloud.beginRecordRead(machineID: session.machineID))
             #expect(session.machine.status == .running)
@@ -339,7 +340,8 @@ struct CloudMachineChangeStateTests {
         #expect(stale.pendingChange == .pausing)
         // Read 2 is the authoritative later revision: another client paused then resumed
         // the machine before this app ever observed the paused record.
-        let superseding = changes.applyingPending(to: CloudMachine(id: session.machineID, status: .running), read: 2)
+        let superseding = changes.applyingPending(to: CloudMachine(id: session.machineID, status: .running,
+            updatedAt: Date(timeIntervalSince1970: 2)), read: 2)
         #expect(superseding.pendingChange == nil)
         #expect(changes.pendingStatus(for: CloudMachine(id: session.machineID, status: .running)) == nil)
     }
