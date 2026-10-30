@@ -283,17 +283,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return try await AcpmuxStatusClient.sessionFolder(socketPath: environment.socketPath, sessionId: sessionId)
     }
 
-    /// The daemon on this host's socket resolves `sessionId` exactly; when it does not answer, a
-    /// session it keeps on disk (`<ACPMUX_HOME>/sessions/<id>`) is still its own.
+    /// The daemon on this host's socket resolves `sessionId` exactly; when it does not answer, or
+    /// is too old to say, a session it keeps on disk (`<ACPMUX_HOME>/sessions/<id>`) is still its own.
     public func runsSession(_ sessionId: String) async -> Bool? {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else { return nil }
-        if FileManager.checked.fileExists(atPath: environment.socketPath) {
-            do {
-                return try await AcpmuxStatusClient.sessionSummary(socketPath: environment.socketPath, sessionId: sessionId) != nil
-            } catch {
-                // No answer: the disk says.
-            }
+        // `try?` flattens: no answer and "cannot say" both fall through to the disk.
+        if FileManager.checked.fileExists(atPath: environment.socketPath),
+           let answer = try? await AcpmuxStatusClient.runsSession(socketPath: environment.socketPath, sessionId: sessionId) {
+            return answer
         }
         return AcpmuxChiefSessionRouter.keeps(session: sessionId, home: environment.home) ? true : nil
     }

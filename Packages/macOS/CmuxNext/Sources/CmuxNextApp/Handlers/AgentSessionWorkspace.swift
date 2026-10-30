@@ -77,18 +77,18 @@ enum AgentSessionWorkspace {
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
         // the named `group`.
-        var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
-        if let group {
-            join = { id, sidebar in
+        let join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = group.map { group in
+            { id, sidebar in
                 guard let sidebar = sidebar as? SidebarBridge else { return }
                 AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
             }
         }
-        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
-                                      then: join, windows: windows)
         return Task { @MainActor in
             do {
                 let host = try await resolvedHost(host, of: session, tabs: services.agentTabs)
+                // Expected only once the workspace will be made (a refusal above makes none).
+                NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
+                                              then: join, windows: windows)
                 // The session's chat is the workspace's first tab: a workspace store tab bound to
                 // the session (agent-session-tabs-v1), saved and restored with the workspace like any
                 // tab. No terminal first: one running `acpmux attach` landed as a bare "~" shell

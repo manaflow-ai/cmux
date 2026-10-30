@@ -72,9 +72,13 @@ enum AgentSessionTab {
             } else {
                 do {
                     let running = try await services.agentTabs.hostRunning(session)
-                    if let running, let shown = services.agentTabs.tab(showing: session, host: running) {
+                    // Another run may have shown it, or the pane closed, while the daemons answered.
+                    if let shown = services.agentTabs.tab(showing: session, host: running) {
                         if shows { _ = services.revealTab(shown) }
                         return .success(["session": .string(session), "tab": .string(daemon.store.tab(id: shown)?.resourceID?.rawValue ?? shown)])
+                    }
+                    guard daemon.store.workspaces.contains(where: { $0.screens.contains { $0.panes.contains { $0 === pane } } }) else {
+                        return .failure(ActionWorkFailure(refusal: .notFound, reason: RefusalStrings.noPaneID(pane.id)))
                     }
                     pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: running)
                 } catch let refusal as AgentTabRefusal {

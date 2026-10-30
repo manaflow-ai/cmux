@@ -269,11 +269,13 @@ pub(in crate::cli) fn required_app_acpmux(global: &GlobalArgs) -> Result<Option<
     let answer =
         mcp::agent_app(global, "agent.acpmux", json!({}), super::super::app::READ_TIMEOUT, None)
             .map_err(|error| {
+                // An app too old to know `agent.acpmux` answers the same on a retry.
+                let retryable = error["code"] != "method_not_found";
                 json!({"code": "chat.app_acpmux_unavailable",
                        "message": format!("cannot read the cmux app's acpmux (agent.acpmux); \
                                            no chat was started, try again: {}",
                                           error["message"].as_str().unwrap_or("no answer")),
-                       "details": {"cause": error}, "retryable": true})
+                       "details": {"cause": error}, "retryable": retryable})
             })?;
     other_acpmux(&answer, &acp::own_socket())
 }
@@ -812,7 +814,11 @@ pub(super) mod acp {
     }
 
     /// Sends `method` (`session/set_model`, `session/set_mode`) with `params` to the session.
-    pub(in crate::cli) fn set(method: &str, params: Value, socket: Option<&Path>) -> Result<Value, String> {
+    pub(in crate::cli) fn set(
+        method: &str,
+        params: Value,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
         block_on(async { client(socket).await?.request(method, params).await })
     }
 

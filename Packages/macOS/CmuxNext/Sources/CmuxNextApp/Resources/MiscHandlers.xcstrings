@@ -18894,127 +18894,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No acpmux on this Mac runs the chat %@."
+            "value": "Neither this app’s acpmux nor its Chief’s runs the chat %@."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يوجد acpmux على هذا الـ Mac يشغّل المحادثة %@."
+            "value": "لا يشغّل acpmux الخاص بهذا التطبيق ولا الخاص بـ Chief المحادثة %@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nijedan acpmux na ovom Macu ne pokreće chat %@."
+            "value": "Ni acpmux ove aplikacije ni acpmux njenog Chiefa ne pokreće chat %@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen acpmux på denne Mac kører chatten %@."
+            "value": "Hverken denne apps acpmux eller dens Chiefs kører chatten %@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kein acpmux auf diesem Mac führt den Chat %@ aus."
+            "value": "Weder der acpmux dieser App noch der ihres Chiefs führt den Chat %@ aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ningún acpmux de este Mac ejecuta el chat %@."
+            "value": "Ni el acpmux de esta app ni el de su Chief ejecutan el chat %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun acpmux de ce Mac n’exécute la discussion %@."
+            "value": "Ni l’acpmux de cette app ni celui de son Chief n’exécutent la discussion %@."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessun acpmux su questo Mac esegue la chat %@."
+            "value": "Né l’acpmux di questa app né quello del suo Chief eseguono la chat %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac の acpmux はチャット %@ を実行していません。"
+            "value": "このアプリの acpmux もその Chief の acpmux もチャット %@ を実行していません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "គ្មាន acpmux នៅលើ Mac នេះដំណើរការការជជែក %@ ទេ។"
+            "value": "ទាំង acpmux របស់កម្មវិធីនេះ និងរបស់ Chief មិនដំណើរការការជជែក %@ ទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac의 acpmux 중 채팅 %@을(를) 실행하는 것이 없습니다."
+            "value": "이 앱의 acpmux도, 그 Chief의 acpmux도 채팅 %@을(를) 실행하지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen acpmux på denne Macen kjører chatten %@."
+            "value": "Verken denne appens acpmux eller dens Chiefs kjører chatten %@."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Żaden acpmux na tym Macu nie uruchamia czatu %@."
+            "value": "Ani acpmux tej aplikacji, ani acpmux jej Chiefa nie uruchamia czatu %@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nenhum acpmux deste Mac executa o chat %@."
+            "value": "Nem o acpmux deste app nem o do seu Chief executam o chat %@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ни один acpmux на этом Mac не запускает чат %@."
+            "value": "Ни acpmux этого приложения, ни acpmux его Chief не запускает чат %@."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่มี acpmux บน Mac เครื่องนี้ที่เรียกใช้แชท %@"
+            "value": "ทั้ง acpmux ของแอปนี้และของ Chief ไม่ได้เรียกใช้แชท %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Mac’teki hiçbir acpmux %@ sohbetini çalıştırmıyor."
+            "value": "Ne bu uygulamanın acpmux’u ne de Chief’inki %@ sohbetini çalıştırıyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Жоден acpmux на цьому Mac не запускає чат %@."
+            "value": "Ні acpmux цього застосунку, ні acpmux його Chief не запускає чат %@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không có acpmux nào trên máy Mac này chạy cuộc trò chuyện %@."
+            "value": "Cả acpmux của ứng dụng này lẫn của Chief đều không chạy cuộc trò chuyện %@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Mac 上没有 acpmux 运行聊天 %@。"
+            "value": "此应用的 acpmux 及其 Chief 的 acpmux 都没有运行聊天 %@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 Mac 上沒有 acpmux 執行聊天 %@。"
+            "value": "此 App 的 acpmux 及其 Chief 的 acpmux 都沒有執行聊天 %@。"
           }
         }
       }
