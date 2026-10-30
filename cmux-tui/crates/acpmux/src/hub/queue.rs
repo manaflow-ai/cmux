@@ -96,6 +96,9 @@ pub(super) struct PromptRun {
     /// The paired machine whose Full-access setting covered its sender (`PromptOptions`); an
     /// edit keeps it only from that machine.
     pub(super) full_access_device: Option<String>,
+    /// Delivery metadata normalized before queueing or recovered from a durable queued record.
+    pub(super) message_id: Option<String>,
+    pub(super) message_sender: Option<Value>,
 }
 
 /// A prompt asking for its turn (`queue_slot`).
@@ -288,6 +291,11 @@ impl Hub {
                 } else {
                     match self.take_run_slot(session, p.provenance) {
                         Ok(slot) => {
+                            let mut message_opts = PromptOptions::default();
+                            super::message_events::restore_message_options(
+                                &mut message_opts,
+                                p.provenance,
+                            );
                             let run = PromptRun {
                                 blocks: p.blocks.to_vec(),
                                 display_parts: p.display_parts.cloned(),
@@ -298,6 +306,8 @@ impl Hub {
                                 class: p.class,
                                 supersede: p.supersede.map(str::to_owned),
                                 full_access_device: p.full_access_device.map(str::to_owned),
+                                message_id: message_opts.message_id,
+                                message_sender: message_opts.message_sender,
                             };
                             return Ok((
                                 turn_id,
@@ -414,12 +424,14 @@ impl Hub {
         let (prompt_id, provenance) = (Some(prompt_id.to_owned()), run.provenance.clone());
         let opts = PromptOptions {
             prompt_id,
+            message_id: run.message_id.clone(),
             control,
             trust_gate,
             // An inbox digest whose turn ended first waits behind the person's prompts
             // (`enqueue`), and stops no turn.
             interrupt: !digest,
             provenance,
+            message_sender: run.message_sender.clone(),
             agent: run.agent.clone(),
             class: run.class,
             display_parts: run.display_parts.clone(),
@@ -491,6 +503,8 @@ impl Hub {
             None => queue.iter().position(|q| q.held || (q.run.agent.is_some() && !q.sent_now)),
         };
         let at = at.unwrap_or(queue.len());
+        let mut message_opts = PromptOptions::default();
+        super::message_events::restore_message_options(&mut message_opts, p.provenance);
         queue.insert(
             at,
             QueuedPrompt {
@@ -510,6 +524,8 @@ impl Hub {
                     class: p.class,
                     supersede: p.supersede.map(str::to_owned),
                     full_access_device: p.full_access_device.map(str::to_owned),
+                    message_id: message_opts.message_id,
+                    message_sender: message_opts.message_sender,
                 }),
                 restored: false,
                 resume: false,
@@ -708,22 +724,28 @@ impl Hub {
     /// continuation's end) never ends that hold; only the person's next turn or a resume does.
     /// Read under the queue's lock, where the hold begins and ends.
     pub(super) fn resume_held(&self, session: &Arc<Session>, ids: &[String]) -> bool {
-        let mut resumed = false;
+        let mut released = Vec::new();
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
         for q in queue.iter_mut() {
-            if ids.contains(&q.prompt_id) && !(stop_held && q.run.agent.is_some()) {
-                resumed |= std::mem::take(&mut q.held);
+            if ids.contains(&q.prompt_id)
+                && !(stop_held && q.run.agent.is_some())
+                && std::mem::take(&mut q.held)
+            {
+                released.push(q.prompt_id.clone());
             }
         }
         drop(queue);
+        let resumed = !released.is_empty();
         if resumed {
             session.queue_moved.notify_waiters();
+            // Only those it let go: one the Stop still holds stays held, in a client and after a
+            // restart (`restore_queue`).
             self.append(
                 session,
                 "mux",
                 "queue_resumed",
-                json!({"queued": session.queued(), "promptIds": ids}),
+                json!({"queued": session.queued(), "promptIds": released}),
             );
         }
         resumed
@@ -913,6 +935,9 @@ impl Hub {
     /// They run once `resume_restored` starts them; a client that resends one meanwhile waits for
     /// that run (the ledger entry made here).
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
+        // Other agents' messages are in its inbox, apart from the queue (`inbox.rs`); a closed
+        // chat's threads stay readable.
+        self.restore_inbox(session);
         if session.meta().status == SessionStatus::Closed {
             return;
         }
@@ -1022,6 +1047,8 @@ impl Hub {
                                 q.msg.get_mut("_meta").and_then(Value::as_object_mut)
                             {
                                 meta.remove("provenance");
+                                // The person rewrote it: no longer another session's message.
+                                meta.remove(crate::prompt_provenance::MESSAGE_META);
                             }
                             if let Some(p) = e.msg.pointer("/_meta/provenance") {
                                 let kept = json!({"provenance": p});
@@ -1107,7 +1134,16 @@ impl Hub {
             };
             let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
             let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
-            let provenance = e.msg.pointer("/_meta/provenance").filter(|p| p.is_object()).cloned();
+            let provenance = crate::prompt_provenance::recorded(&e.msg).filter(|p| p.is_object());
+            // An inbox notice is never run again: what it carried is new again (`inbox.rs`).
+            if super::inbox::is_notice(provenance.as_ref()) {
+                continue;
+            }
+            let mut restored_message_opts = PromptOptions::default();
+            super::message_events::restore_message_options(
+                &mut restored_message_opts,
+                provenance.as_ref(),
+            );
             // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
             let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
             let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
@@ -1137,6 +1173,8 @@ impl Hub {
                     // A restored prompt names no machine: it does not run a chat out of its
                     // policy's mode (`Hub::full_access_hold`).
                     full_access_device: None,
+                    message_id: restored_message_opts.message_id,
+                    message_sender: restored_message_opts.message_sender,
                 }),
                 restored: true,
                 resume: true,
@@ -1172,6 +1210,14 @@ impl Hub {
     /// Runs `sessions`' restored prompts not started yet (each once: its `resume` mark).
     pub(super) fn resume_restored(self: &Arc<Self>, sessions: &[Arc<Session>]) {
         for session in sessions {
+            // What the restored inbox holds new goes in as it may (`inbox.rs`).
+            {
+                let (hub, session) = (self.clone(), session.clone());
+                tokio::spawn(async move {
+                    hub.wait_startup().await;
+                    hub.inbox_review(&session);
+                });
+            }
             // Agent messages a failed turn held before the restart go in again by themselves.
             self.retry_held_agent_messages(session);
             let restored: Vec<QueuedPrompt> = session
@@ -1189,10 +1235,12 @@ impl Hub {
                     hub.wait_startup().await;
                     let opts = PromptOptions {
                         prompt_id: Some(q.prompt_id.clone()),
+                        message_id: q.run.message_id.clone(),
                         control: q.run.control,
                         trust_gate: q.run.trust_gate,
                         // Who sent it: a queued agent message stays that agent's after a restart.
                         provenance: q.run.provenance.clone(),
+                        message_sender: q.run.message_sender.clone(),
                         agent: q.run.agent.clone(),
                         class: q.run.class,
                         display_parts: q.run.display_parts.clone(),
@@ -1239,7 +1287,7 @@ pub(super) fn refuses_closing_run(session: &Session, provenance: Option<&Value>)
 }
 
 /// Whether `session`'s close has begun (`kill` marks it before anything else) or it is closed.
-fn closing(session: &Session) -> bool {
+pub(super) fn closing(session: &Session) -> bool {
     session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed
 }
 

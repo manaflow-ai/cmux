@@ -934,7 +934,11 @@ impl Hub {
             let accepted = tx.clone();
             let took = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let took_it = took.clone();
-            let opts = PromptOptions {
+            // A held prompt's durable provenance carries the original outbox
+            // delivery id. Releasing it must reuse that id so the receiver's
+            // and sender's message projections remain one delivery after a
+            // pause, restart, and retry.
+            let mut opts = PromptOptions {
                 prompt_id: Some(h.prompt_id.clone()),
                 on_accepted: Some(Box::new(move |_| {
                     took_it.store(true, Ordering::SeqCst);
@@ -952,6 +956,9 @@ impl Hub {
                 class: h.class,
                 ..PromptOptions::default()
             };
+            // Held provenance is durable state, so restore the original delivery id and (for a
+            // peer-origin message) its sender identity before retrying the prompt.
+            super::message_events::restore_message_options(&mut opts, Some(&h.provenance));
             let hub = self.clone();
             let (blocks, client, steer) = (h.blocks.clone(), h.client.clone(), false);
             let target = session.clone();
