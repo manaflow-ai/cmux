@@ -1096,6 +1096,20 @@ mod codex_tests {
         assert_eq!(tree.parents.get(child), Some(&None));
         assert_eq!(tree.parents.get(unseen), Some(&None));
     }
+
+    #[test]
+    fn learning_the_root_promotes_its_pending_children() {
+        let mut tree = SubagentTree::default();
+        let root = "root-native-thread";
+        let child = "child-thread";
+        tree.parents.insert(child.to_owned(), Some("stale-parent".to_owned()));
+        tree.pending.entry(root.to_owned()).or_default().insert(child.to_owned());
+
+        tree.set_root(root);
+
+        assert_eq!(tree.parents.get(child), Some(&None));
+        assert!(!tree.pending.contains_key(root));
+    }
 }
 
 #[cfg(test)]
