@@ -491,9 +491,11 @@ if ! awk '
   exit 1
 fi
 
-# Nightly distribution verification launches no app or CLI. The signed-app and
-# final-DMG jobs retain deterministic artifact and sidecar protocol checks and
-# gate publication, while app behavior stays in the path-routed integration lane.
+# The signed-app and final-DMG jobs retain deterministic artifact and sidecar
+# protocol checks and gate publication. The only app they launch is the cmux NEXT
+# fresh-home launch smoke of the final DMG (launch-smoke-gate.sh, in the secret-free
+# final-DMG job; tests/test_nightly_next_launch_smoke.py); other app behavior stays
+# in the path-routed integration lane.
 if ! awk '
   /^  verify-signed-nightly:/ { job="verify"; next }
   /^  verify-final-dmg-nightly:/ { job="verify-dmg"; dmg_job=1; next }
@@ -508,7 +510,7 @@ if ! awk '
   job == "publish" && /needs: .*verify-signed-nightly/ { gated=1 }
   END { exit !(sidecar && static_dmg && gated && dmg_job && dmg && dmg_gated && !verify_env && !verify_secret) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must use secret-free static verification jobs that gate publication, with no runtime smoke"
+  echo "FAIL: nightly must use secret-free verification jobs that gate publication"
   exit 1
 fi
 
@@ -597,8 +599,10 @@ done
 
 # The commit is resolved in its own job BEFORE the Xcode compile (the app builds
 # at the resolved commit: tests/test_nightly_cmux_tui_resolve.py), never in
-# build-nightly-app; build-nightly-app installs that one commit before it
-# archives the app, and every sign variant requires it before thinning.
+# build-nightly-app; build-nightly-app installs that one commit (or, while the
+# tip's tree publishes, the one await-tree-client.sh finds) before it archives
+# the app, and every sign variant requires the commit build-nightly-app bundled
+# before thinning.
 if ! awk '
   /^  prepare-nightly-variant-primary:/ { job="prepare-nightly-variant-primary:" }
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
@@ -611,7 +615,7 @@ if ! awk '
   job == "build-nightly-app:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { app_commit=1 }
   job == "prepare-nightly-variant-primary:" && /name: Require the cmux-tui client build-nightly-app bundled$/ { require_line=NR }
   job == "prepare-nightly-variant-primary:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
-  job == "prepare-nightly-variant-primary:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { sign_commit=1 }
+  job == "prepare-nightly-variant-primary:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.build-nightly-app\.outputs\.cmux_tui_commit \|\| needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { sign_commit=1 }
   job == "report-nightly-failure:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { reported=1 }
   END { exit !(!in_app && resolver_needs && resolver && sign_needs && sign_commit && app_commit && install_line && archive_line && install_line < archive_line && require_line && thin_line && require_line < thin_line && reported) }
 ' "$WORKFLOW_FILE"; then
@@ -909,7 +913,7 @@ if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build
   || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $BUILD_GATE" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
+  || [ "$(job_if publish-nightly)" != "    if: \"always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && (((needs.build-sign-notarize-nightly.result == 'success' || needs.signer-dmg.result == 'success') && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && (needs.signer-dmg.result == 'success' || needs.verify-signed-nightly.result == 'success') && needs.verify-final-dmg-nightly.result == 'success' && needs.visual-gate-nightly-verdict.outputs.blocks != 'true' && needs.route-visual-gate-nightly.outputs.mode != 'invalid') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi
