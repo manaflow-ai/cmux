@@ -1366,6 +1366,9 @@ export class AcpmuxDirectClient {
   private turnPrompt?: string;
   private lastSeq = 0;
   private turnOpen = false;
+  /// The daemon identity and start time of the turn currently shown as running.
+  private turnId?: string;
+  private turnStartedAtMs?: number;
   /// The open turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
   /// (`turn_silent`, hub/silent_turn.rs): the line says the model has not answered. acpmux hearing
   /// the model (`turn_heard`), or the turn's end, clears it; the agent's own bookkeeping does not.
@@ -1970,6 +1973,8 @@ export class AcpmuxDirectClient {
     this.queue = [];
     this.queueWithdrawn = [];
     this.turnOpen = false;
+    this.turnId = undefined;
+    this.turnStartedAtMs = undefined;
     this.silentTurn = false;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
@@ -3297,6 +3302,8 @@ export class AcpmuxDirectClient {
         ? result.lastSeq
         : undefined;
     this.summary = detail;
+    this.turnId = typeof detail.turn?.turnId === "string" ? detail.turn.turnId : undefined;
+    this.turnStartedAtMs = typeof detail.turn?.startedAt === "number" ? detail.turn.startedAt : undefined;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.limitsSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.limitsVersion += 1;
@@ -3430,6 +3437,13 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
+      const turn = session.turn;
+      if (turn && typeof turn.startedAt === "number") {
+        if (this.turnStartedAtMs === undefined || turn.startedAt >= this.turnStartedAtMs) {
+          this.turnStartedAtMs = turn.startedAt;
+          this.turnId = typeof turn.turnId === "string" ? turn.turnId : this.turnId;
+        }
+      }
       this.learnChatThread();
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) this.queue = mergeQueue(this.queue, session.queue, this.queueAuthors);
@@ -3644,6 +3658,8 @@ export class AcpmuxDirectClient {
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
+    this.turnId = undefined;
+    this.turnStartedAtMs = undefined;
     this.turnPrompt = undefined;
     this.silentTurn = false;
     this.turnTokens = undefined;
@@ -3682,6 +3698,8 @@ export class AcpmuxDirectClient {
   /// permission; events after replayAfterSeq are then reapplied on top of them.
   private rebuildKeepingLiveState(replayAfterSeq?: number): void {
     const summary = this.summary;
+    const turnId = this.turnId;
+    const turnStartedAtMs = this.turnStartedAtMs;
     // The summary's running limit goes back with it, so the seq it was read at must too: else the
     // rebuild's own pass leaves limitsSeq past a missed `limits` record and its reapply below is
     // refused, keeping the old limit.
@@ -3693,6 +3711,8 @@ export class AcpmuxDirectClient {
     const secret = this.pendingSecret;
     this.rebuild();
     this.summary = summary;
+    this.turnId = turnId;
+    this.turnStartedAtMs = turnStartedAtMs;
     this.limitsSeq = limitsSeq;
     this.limitsVersion = limitsVersion;
     this.queue = queue;
@@ -4330,6 +4350,8 @@ export class AcpmuxDirectClient {
         // A turn that does not name its prompt is no known one's: never the turn before's.
         this.turnPrompt = typeof msg.promptId === "string" && msg.promptId ? promptRoot(msg.promptId) : undefined;
         this.turnOpen = true;
+        this.turnId = typeof msg.turnId === "string" ? msg.turnId : undefined;
+        this.turnStartedAtMs = event.at;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
         this.turnTokenSplit = this.turnTokens === undefined ? undefined : NO_TOKENS;
@@ -4358,6 +4380,11 @@ export class AcpmuxDirectClient {
           this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== rowId);
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
+        const endedTurnId = typeof msg.turnId === "string" ? msg.turnId : undefined;
+        if (endedTurnId === undefined || this.turnId === undefined || endedTurnId === this.turnId) {
+          this.turnId = undefined;
+          this.turnStartedAtMs = undefined;
+        }
         this.turnOpen = false;
         this.turnPrompt = undefined;
         this.silentTurn = false;
@@ -4897,6 +4924,7 @@ export class AcpmuxDirectClient {
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking: working,
+      ...(working && this.turnStartedAtMs !== undefined ? { turnStartedAtMs: this.turnStartedAtMs } : {}),
       // A Stop whose turn has not ended yet (`stoppingAfterSeq`).
       ...(working && this.stoppingAfterSeq !== undefined ? { stopping: true as const } : {}),
       ...(working && this.turnPrompt ? { turnPrompt: this.turnPrompt } : {}),
