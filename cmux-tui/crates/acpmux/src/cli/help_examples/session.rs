@@ -70,6 +70,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ),
             ("Stop a session and delete its log", "acpmux session stop review-27310 --purge"),
             (
+                "Stop it only if it is idle and still at the lastSeq you read (exit 6 if not)",
+                "acpmux session stop review-27310 --if-idle --expect-revision 418",
+            ),
+            (
                 "Stop a session by id through the mesh hub",
                 "acpmux session stop 3f2a9c1e-8b4d-4e2a-9f1c-7d6e5b4a3c21 --mesh --id",
             ),
