@@ -87,6 +87,26 @@ import Testing
     }
 }
 
+
+@MainActor @Suite(.serialized) struct BrowserToolbarCollapseDiagnostics {
+    @Test func report() {
+        for position in [ToolbarPosition.top, .bottom] {
+            let view = BrowserToolbarCollapsedHostTests.Hosted(position: position)
+            defer { view.tearDown() }
+            let full = view.host.frame
+            view.host.frame.size.height = 0
+            view.window.contentView?.layoutSubtreeIfNeeded()
+            print("DIAG \(position) h0 chrome=\(view.chrome.frame) toolbar=\(view.chrome.toolbar.frame) page=\(view.chrome.contentContainer.frame) error=\(view.chrome.pageStatus.errorView.frame) conflicts=\(view.window.conflicts.count)")
+            view.host.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+            view.window.contentView?.layoutSubtreeIfNeeded()
+            print("DIAG \(position) w0h0 conflicts=\(view.window.conflicts.count) vertical=\(view.window.verticalConflicts.count)")
+            view.host.frame = full
+            view.window.contentView?.layoutSubtreeIfNeeded()
+            print("DIAG \(position) back toolbar=\(view.chrome.toolbar.frame) page=\(view.chrome.contentContainer.frame) conflicts=\(view.window.conflicts.count)")
+        }
+    }
+}
+
 /// A window that keeps the constraint sets AppKit reports as unsatisfiable. AppKit hands each set to
 /// `visualizeConstraints(_:)` when `NSConstraintBasedLayoutVisualizeMutuallyExclusiveConstraints` is on
 /// (registered here, in memory only).
