@@ -200,8 +200,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
-  /// The host-made chips (attachLater) whose `make` has not answered yet, each with what stops it.
-  const making = useRef(new Map<string, () => void>());
+  /// The host-made chips (attachLater) whose `make` has not answered yet, each with what stops it
+  /// on the host, if anything does.
+  const making = useRef(new Map<string, (() => void) | undefined>());
   /// The staged chips now, for an upload to see that its chip was removed (its x, or a send).
   const stagedNow = useRef<readonly ComposerAttachment[]>([]);
   stagedNow.current = attachments;
@@ -352,7 +353,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const batch = { scope: live.current.options.scope, bound: true };
       const chip: PendingAttachment = { id: crypto.randomUUID(), name, image: false, scope: batch.scope, bound: true };
       sources.current.set(chip.id, { make, name, failure, stop });
-      if (stop) making.current.set(chip.id, stop);
+      making.current.set(chip.id, stop);
       batches.current.add(batch);
       flushSync(() => setPending((chips) => [...chips, chip]));
       void make()
@@ -383,7 +384,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     () => () => {
       for (const [id, stop] of making.current) {
         sources.current.delete(id);
-        stop();
+        stop?.();
       }
       making.current.clear();
     },
