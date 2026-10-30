@@ -141,6 +141,8 @@ public nonisolated struct ContextMenuLayout: Sendable, Hashable {
         var hiddenSeen: Set<String> = []
         let hidden = self.hidden.filter { (known.contains($0) || Self.isGroup($0) && seen.contains($0)) && hiddenSeen.insert($0).inserted }
         let order = Self.generatedOrder(entries)
+        // Submenus before their rows (`units` is in menu order), so a submenu the layout does not
+        // name exists before its rows go into it, and each row brings its section's divider.
         for unit in units where !seen.contains(unit.key) {
             seen.insert(unit.key)
             let node: Node = folders.contains(unit.key) ? .folder(key: unit.key, title: nil, items: []) : .item(unit.key)
@@ -151,19 +153,35 @@ public nonisolated struct ContextMenuLayout: Sendable, Hashable {
         return ContextMenuLayout(items: tree, hidden: hidden)
     }
 
-    /// Inserts `node` into the submenu `container` (nil: the top level) of `tree`, at the index
-    /// `position` picks from that container's keys (`-` for a separator). False when the tree has
-    /// no such submenu.
+    /// Where a generated row goes among a container's keys: the index, and whether it starts or ends
+    /// a section of its own there (a divider goes before or after it).
+    struct Insertion: Equatable {
+        var index: Int
+        var dividerBefore = false
+        var dividerAfter = false
+    }
+
+    /// Inserts `node` into the submenu `container` (nil: the top level) of `tree`, where `position`
+    /// picks from that container's keys (`-` for a separator), with the dividers it asks for. False
+    /// when the tree has no such submenu.
     @discardableResult
-    static func insert(_ node: Node, into container: String?, in tree: inout [Node], at position: ([String]) -> Int) -> Bool {
+    static func insert(_ node: Node, into container: String?, in tree: inout [Node], at position: ([String]) -> Insertion) -> Bool {
+        func place(_ items: inout [Node]) {
+            let spot = position(items.map { $0.key ?? separator })
+            let at = min(max(0, spot.index), items.count)
+            var nodes = [node]
+            if spot.dividerBefore, at > 0, items[at - 1] != .separator { nodes.insert(.separator, at: 0) }
+            if spot.dividerAfter, at < items.count, items[at] != .separator { nodes.append(.separator) }
+            items.insert(contentsOf: nodes, at: at)
+        }
         guard let container else {
-            tree.insert(node, at: min(max(0, position(tree.map { $0.key ?? separator })), tree.count))
+            place(&tree)
             return true
         }
         for index in tree.indices {
             guard case .folder(let key, let title, var items) = tree[index] else { continue }
             if key == container {
-                items.insert(node, at: min(max(0, position(items.map { $0.key ?? separator })), items.count))
+                place(&items)
                 tree[index] = .folder(key: key, title: title, items: items)
                 return true
             }
@@ -176,17 +194,31 @@ public nonisolated struct ContextMenuLayout: Sendable, Hashable {
     }
 
     /// Where a generated row (at `index` of its container's generated keys, separators included)
-    /// goes among `keys`: after the row it follows in its generated section, else before the row
-    /// that follows it there, else after the nearest earlier row, else first. A row added to a
-    /// section stays in it.
-    static func insertion(of index: Int, generated: [String], in keys: [String]) -> Int {
+    /// goes among `keys`:
+    /// 1. after the row it follows in its generated section, else
+    /// 2. before the row that follows it there (a divider before it when a section comes before),
+    ///    else (its section has no row here yet)
+    /// 3. after the nearest earlier row, with a divider before it, else
+    /// 4. before the nearest later row, with a divider after it, else
+    /// 5. at the end (the container holds none of its generated rows: the person's own rows stay first).
+    /// A row added to a section stays in it, and a section the app adds keeps its dividers.
+    static func insertion(of index: Int, generated: [String], in keys: [String]) -> Insertion {
         let before = generated[..<index], after = generated[(index + 1)...]
         let sectionStart = before.lastIndex(of: separator).map { $0 + 1 } ?? before.startIndex
-        if let anchor = before[sectionStart...].last(where: keys.contains), let at = keys.firstIndex(of: anchor) { return at + 1 }
+        if let anchor = before[sectionStart...].last(where: keys.contains), let at = keys.firstIndex(of: anchor) { return Insertion(index: at + 1) }
         let sectionEnd = after.firstIndex(of: separator) ?? after.endIndex
-        if let next = after[..<sectionEnd].first(where: keys.contains), let at = keys.firstIndex(of: next) { return at }
-        if let anchor = before.last(where: { $0 != separator && keys.contains($0) }), let at = keys.firstIndex(of: anchor) { return at + 1 }
-        return 0
+        // The first of its section here: a divider before it when the app makes a section above.
+        if let next = after[..<sectionEnd].first(where: keys.contains), let at = keys.firstIndex(of: next) {
+            return Insertion(index: at, dividerBefore: sectionStart > before.startIndex)
+        }
+        let present = { (key: String) in key != separator && keys.contains(key) }
+        if let anchor = before.last(where: present), let at = keys.firstIndex(of: anchor) {
+            return Insertion(index: at + 1, dividerBefore: true)
+        }
+        if let next = after.first(where: present), let at = keys.firstIndex(of: next) {
+            return Insertion(index: at, dividerAfter: true)
+        }
+        return Insertion(index: keys.count, dividerBefore: true)
     }
 
     /// The menu `entries` arranged by this layout (``normalized(against:)`` first). A submenu left

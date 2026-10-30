@@ -61,6 +61,8 @@ type Dragging = {
   target: DropTarget | null;
   /** How far each other row slides, by its drawn index. */
   slide: Map<number, number>;
+  /** The layout the drag began on: a drop onto a layout that changed under it does nothing. */
+  layout: MenuLayout;
 };
 
 const pathKey = (path: Path) => path.join(".");
@@ -133,6 +135,10 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
   // Move to… without the app's menu (the dev server, tests): the page draws the list.
   const [picker, setPicker] = useState<{ path: Path } | null>(null);
   const list = useRef<HTMLOListElement>(null);
+  // The drag as the pointer events see it, ahead of React's render: a release that follows a move
+  // before that move rendered drops where the pointer is, not where the last render had it.
+  const drag = useRef<Dragging | null>(null);
+  const renameDone = useRef(false);
   if (!state || state.menus.length === 0) return null;
 
   // The chosen menu is the route's focus: Customize Menu… opens `?focus=<menu>`, and picking a menu
@@ -203,12 +209,31 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
 
   // MARK: Dragging
 
+  const setDrag = (next: Dragging | null) => {
+    drag.current = next;
+    setDragging(next);
+  };
+  /** The drag after the pointer moved to (`x`, `y`): it starts past `DRAG_THRESHOLD`, measuring the
+   * rows once, before any row slides (a slid row would move the target under the pointer). */
+  const follow = (current: Dragging, x: number, y: number): Dragging => {
+    const dy = y - current.startY;
+    const element = list.current;
+    if ((!current.active && Math.abs(dy) < DRAG_THRESHOLD) || !element) return current;
+    const rows = current.active ? current.rows : rowBoxes(element);
+    const { first, last } = current.active ? current : block(rows, current.path);
+    // jsdom has no layout: a row is 24 px there, as the page draws it.
+    const measured = (rows[last]?.bottom ?? 0) - (rows[first]?.top ?? 0);
+    const height = current.active ? current.height : measured > 0 ? measured : 24 * (last - first + 1);
+    const target = dropTarget(rows, current.path, height, y, x - current.startX);
+    const slide = shifts(rows, first, last, height, target ? target.slot : undefined);
+    return { ...current, dy, active: true, rows, first, last, height, target, slide };
+  };
   const grip = (path: Path, depth: number) => ({
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
       if (event.button !== 0) return;
       event.preventDefault();
       event.currentTarget.setPointerCapture?.(event.pointerId);
-      setDragging({
+      setDrag({
         path,
         depth,
         startX: event.clientX,
@@ -221,32 +246,29 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
         height: 0,
         target: null,
         slide: new Map(),
+        layout,
       });
     },
     onPointerMove: (event: PointerEvent<HTMLElement>) => {
-      const element = list.current;
-      if (!dragging || !samePath(dragging.path, path) || !element) return;
-      const dy = event.clientY - dragging.startY;
-      if (!dragging.active && Math.abs(dy) < DRAG_THRESHOLD) return;
-      // Measured once, before any row slides (a slid row would move the target under the pointer).
-      const rows = dragging.active ? dragging.rows : rowBoxes(element);
-      const { first, last } = dragging.active ? dragging : block(rows, path);
-      // jsdom has no layout: a row is 24 px there, as the page draws it.
-      const measured = (rows[last]?.bottom ?? 0) - (rows[first]?.top ?? 0);
-      const height = dragging.active ? dragging.height : measured > 0 ? measured : 24 * (last - first + 1);
-      const target = dropTarget(rows, path, height, event.clientY, event.clientX - dragging.startX);
-      const slide = shifts(rows, first, last, height, target ? target.slot : undefined);
-      setDragging({ ...dragging, dy, active: true, rows, first, last, height, target, slide });
+      const current = drag.current;
+      if (!current || !samePath(current.path, path)) return;
+      const next = follow(current, event.clientX, event.clientY);
+      if (next !== current) setDrag(next);
     },
-    onPointerUp: () => {
-      const done = dragging;
-      setDragging(null);
-      if (!done?.active || !done.target) return;
+    onPointerUp: (event: PointerEvent<HTMLElement>) => {
+      const current = drag.current;
+      setDrag(null);
+      if (!current || !samePath(current.path, path)) return;
+      // Where the release is, not where the last render was.
+      const done = follow(current, event.clientX, event.clientY);
+      // The host re-sent the menu mid-drag (another window, a cmux.json edit): the paths measured
+      // at the start may name other rows now, so nothing moves.
+      if (!done.active || !done.target || done.layout !== layout) return;
       save(move(layout, done.path, done.target.parent, done.target.index));
       const into = done.target.into && nodeAt(layout.items, done.target.into);
       if (into) openFolder(keyOf(into));
     },
-    onPointerCancel: () => setDragging(null),
+    onPointerCancel: () => setDrag(null),
   });
   /** A dragged row (and what an open submenu shows under it) follows the pointer, moving sideways
    * to the depth it will land at; the rows it passes slide to open the gap. Transforms only. */
@@ -262,11 +284,19 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
 
   // MARK: Rows
 
-  const commitRename = (path: Path) => {
-    if (!renaming) return;
+  /** Saves the name field's title on the submenu it names (found by key, wherever it is now),
+   * once: Enter commits and unmounts the field, whose blur then does nothing. */
+  const commitRename = () => {
+    if (!renaming || renameDone.current) return;
+    renameDone.current = true;
     const title = renaming.title.trim();
     setRenaming(null);
-    if (title) save(renameGroup(layout, path, title));
+    const at = visibleRows(layout, new Set(folderKeys(layout.items))).find((row) => keyOf(row.node) === renaming.key)?.path;
+    if (title && at) save(renameGroup(layout, at, title));
+  };
+  const startRename = (key: string, title: string) => {
+    renameDone.current = false;
+    setRenaming({ key, title });
   };
 
   const rowMenuItems = (path: Path, node: MenuNode, hidden: boolean): ContextMenuItem[] => {
@@ -288,7 +318,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
       items.push({ id: "remove", label: t("settingsWindow.menus.removeSeparator"), separatorBefore: true, onSelect: () => save(removeSeparator(layout, path)) });
     } else if (isFolder(node) && isGroup(node.key)) {
       items.push(
-        { id: "rename", label: t("settingsWindow.menus.rename"), separatorBefore: true, onSelect: () => setRenaming({ key: node.key, title: node.title ?? "" }) },
+        { id: "rename", label: t("settingsWindow.menus.rename"), separatorBefore: true, onSelect: () => startRename(node.key, node.title ?? "") },
         { id: "delete", label: t("settingsWindow.menus.deleteSubmenu"), destructive: true, onSelect: () => save(deleteGroup(layout, path)) },
       );
     } else {
@@ -325,7 +355,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
           <ActionButton icon="xmark" action={t("settingsWindow.menus.removeSeparator")} data="remove" onClick={() => save(removeSeparator(layout, path))} />
         ) : group ? (
           <>
-            <ActionButton icon="square.and.pencil" action={t("settingsWindow.menus.rename")} row={title} data="rename" onClick={() => setRenaming({ key, title: node.title ?? "" })} />
+            <ActionButton icon="square.and.pencil" action={t("settingsWindow.menus.rename")} row={title} data="rename" onClick={() => startRename(key, node.title ?? "")} />
             <ActionButton icon="xmark" action={t("settingsWindow.menus.deleteSubmenu")} row={title} data="delete" onClick={() => save(deleteGroup(layout, path))} />
           </>
         ) : (
@@ -348,10 +378,13 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
           // biome-ignore lint/a11y/noAutofocus: the person asked to rename this submenu
           autoFocus
           onChange={(event) => setRenaming({ key, title: event.currentTarget.value })}
-          onBlur={() => commitRename(path)}
+          onBlur={commitRename}
           onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-            if (event.key === "Enter") commitRename(path);
-            if (event.key === "Escape") setRenaming(null);
+            if (event.key === "Enter") commitRename();
+            if (event.key === "Escape") {
+              renameDone.current = true;
+              setRenaming(null);
+            }
           }}
         />
       ) : folder ? (
@@ -472,7 +505,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
               onClick={() => {
                 const made = addGroup(layout, t("settingsWindow.menus.newSubmenu"), newID());
                 save(made.layout);
-                setRenaming({ key: made.key, title: t("settingsWindow.menus.newSubmenu") });
+                startRename(made.key, t("settingsWindow.menus.newSubmenu"));
               }}
             >
               {t("settingsWindow.menus.newSubmenu")}

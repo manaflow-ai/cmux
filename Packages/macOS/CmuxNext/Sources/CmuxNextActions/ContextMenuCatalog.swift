@@ -113,10 +113,10 @@ public nonisolated struct ContextMenuCatalog: Sendable {
         Self.afterEngineMenu(entries(for: .browserPage))
     }
 
-    /// A page menu (`entries`) without the navigation rows an engine's own menu lists.
+    /// A page menu (`entries`) without the navigation rows an engine's own menu lists, wherever the
+    /// person put them (Settings > Menus can move them into a submenu).
     static func afterEngineMenu(_ entries: [ContextMenuEntry]) -> [ContextMenuEntry] {
-        let navigation: Set<ActionID> = ["browserBack", "browserForward", "browserReload"]
-        var entries = entries.filter { if case .action(let id) = $0 { !navigation.contains(id) } else { true } }
+        var entries = removing(["browserBack", "browserForward", "browserReload"], from: entries)
         while case .separator? = entries.first { entries.removeFirst() }
         return entries
     }

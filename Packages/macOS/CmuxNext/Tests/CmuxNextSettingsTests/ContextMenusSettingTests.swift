@@ -56,6 +56,21 @@ import Testing
         #expect(try Self.file(home)?["contextMenus"] == nil)
     }
 
+    /// The Customize Menu… switch is a schema row (palette, `cmux settings`, MCP), agents may set it
+    /// (looks only), and the Settings page leaves it to the Menus card's own switch.
+    @Test func theCustomizeMenuSwitchIsASettingOnEverySurface() async throws {
+        let row = try #require(SettingsSchema.descriptor(for: ContextMenusSetting.showCustomizeItemPath))
+        #expect(row.kind == .toggle)
+        #expect(row.isPaletteExposed)
+        #expect(!row.isShownOnSettingsPage)
+        #expect(SettingsSchema.agentSettableKeys.contains(row.id))
+        let (settings, registry, home) = try Self.settings()
+        defer { try? FileManager.default.removeItem(at: home) }
+        await settings.reload()
+        try await settings.setSetting(at: ContextMenusSetting.showCustomizeItemPath, to: .bool(false), by: .caller("mcp"))
+        #expect(!registry.showsCustomizeMenuItem)
+    }
+
     @Test func aBadEntryIsReportedAndTheOthersApply() {
         var diagnostics: [SettingsDiagnostic] = []
         let root: JSONValue = ["contextMenus": [

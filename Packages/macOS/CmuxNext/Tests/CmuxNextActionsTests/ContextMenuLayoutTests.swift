@@ -165,6 +165,29 @@ struct ContextMenuLayoutTests {
         #expect(saved.normalized(against: generated).items == [.item("a"), .separator, .item("n"), .item("b")])
     }
 
+    @Test func aSubmenuTheLayoutDoesNotFillGetsItsRowsBackWithTheirDividers() {
+        // A hand-written layout naming More with no rows, and an app update that adds a section:
+        // the rows come back where the app puts them, with the dividers between their sections.
+        let generated: [ContextMenuEntry] = [
+            .action("a"), .separator, .action("n1"), .action("n2"),
+            .folder(.more, [.action("m1"), .separator, .action("m2"), .action("m3"), .separator, .action("m4")]),
+        ]
+        let more = ContextMenuLayout.moreKey
+        let saved = ContextMenuLayout(items: [.item("a"), .folder(key: more, title: nil, items: [])])
+        let normalized = saved.normalized(against: generated)
+        #expect(normalized.items == [
+            .item("a"), .separator, .item("n1"), .item("n2"),
+            .folder(key: more, title: nil, items: [.item("m1"), .separator, .item("m2"), .item("m3"), .separator, .item("m4")]),
+        ])
+        // A whole submenu the layout does not name at all keeps its dividers too.
+        let without = ContextMenuLayout(items: [.item("a"), .separator, .item("n1"), .item("n2")]).normalized(against: generated)
+        #expect(without.items.last == .folder(key: more, title: nil, items: [.item("m1"), .separator, .item("m2"), .item("m3"), .separator, .item("m4")]))
+        // Rows the person moved into More stay first in it; the app's rows follow, with their dividers.
+        let moved = ContextMenuLayout(items: [.item("n1"), .item("n2"), .folder(key: more, title: nil, items: [.item("a"), .separator])])
+        guard case .folder(_, _, let rows)? = moved.normalized(against: generated).items.last else { Issue.record("no More"); return }
+        #expect(rows == [.item("a"), .separator, .item("m1"), .separator, .item("m2"), .item("m3"), .separator, .item("m4")])
+    }
+
     @Test func eachRowShowsOnceHoweverOftenItIsNamed() {
         let more = ContextMenuLayout.moreKey
         let generated: [ContextMenuEntry] = [.action("a"), .folder(.more, [.action("b")])]
