@@ -832,6 +832,17 @@ pub struct SessionResourceConfig {
     /// Per-session swap ceiling in MiB. Unset uses one quarter of host swap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub swap_mb: Option<u64>,
+    /// `tasksMax`: each session scope's cap on processes and threads
+    /// together; 0 is no cap. Wins over `ACPMUX_SESSION_TASKS_MAX`. Unset:
+    /// that env, else 4096.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tasks_max: Option<u64>,
+    /// `sessionsTasksMax`: the cap on processes and threads of all sessions
+    /// together (`acpmuxsessions.slice`); 0 is no cap. Wins over
+    /// `ACPMUX_SESSIONS_TASKS_MAX`. Unset: that env, else a quarter of the
+    /// kernel's `threads-max`, between 16384 and 262144.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sessions_tasks_max: Option<u64>,
 }
 
 impl SessionResourceConfig {
@@ -1085,15 +1096,30 @@ impl Config {
             "session.swap_mb" | "session.swapmb" | "swap_mb" | "swapmb" => {
                 &mut self.session.swap_mb
             }
+            "session.tasks_max" | "session.tasksmax" | "tasks_max" | "tasksmax" => {
+                &mut self.session.tasks_max
+            }
+            "session.sessions_tasks_max"
+            | "session.sessionstasksmax"
+            | "sessions_tasks_max"
+            | "sessionstasksmax" => &mut self.session.sessions_tasks_max,
             _ => anyhow::bail!(
-                "unknown session resource setting `{key}` (use session.memory_mb or session.swap_mb)"
+                "unknown session resource setting `{key}` (use session.memory_mb, \
+                 session.swap_mb, session.tasks_max or session.sessions_tasks_max)"
             ),
         };
+        let tasks = key.contains("tasks");
         let value = value.trim();
         *slot = match value.to_ascii_lowercase().as_str() {
             "" | "default" | "none" | "clear" => None,
+            // A task cap of 0 is no cap; `infinity` says the same.
+            "infinity" if tasks => Some(0),
             _ => Some(value.parse::<u64>().with_context(|| {
-                format!("{key} must be a non-negative integer MiB or `default`")
+                if tasks {
+                    format!("{key} must be a non-negative integer count, `infinity` or `default`")
+                } else {
+                    format!("{key} must be a non-negative integer MiB or `default`")
+                }
             })?),
         };
         Ok(())
