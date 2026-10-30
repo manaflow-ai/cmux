@@ -3,6 +3,7 @@ import type { AcpmuxRow } from "../model";
 import type { BackgroundCommand } from "../inspector/processes";
 import type { StartedSession } from "../started/startedSessions";
 import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
+import { workflowPaneId } from "../summary/workflowTranscript";
 import { anyRunning, backgroundGroups, clearKey, finishedGroupIds, type TaskCache } from "./backgroundTasks";
 
 const agent = (id: string, fields: Partial<Subagent> = {}): Subagent => ({
@@ -106,6 +107,37 @@ describe("backgroundGroups", () => {
     expect(groups.map((g) => g.id)).toEqual(["agent:a"]);
     expect(groups[0]!.running.map((task) => task.id)).toEqual(["b", "c"]);
     expect(groups[0]!.running[1]).toMatchObject({ agentId: "c", title: "Grep", stop: { kind: "agent", id: "c" } });
+  });
+
+  test("a workflow nested under an agent lists its started agents, each opening its transcript", () => {
+    const workflow = agent("wf", {
+      parent: "a",
+      kind: "workflow",
+      runId: "wf_run",
+      startedAt: 1_300,
+      workflowAgents: new Map([
+        [1, { index: 1, label: "critic", agentId: "crit", state: "running", startedAt: 1_400 }],
+        [2, { index: 2, label: "later", state: "queued" }],
+      ]),
+    });
+    const groups = backgroundGroups(input([group([agent("a")])], { a: [group([workflow])] }, { sessionId: "chat" }));
+    expect(groups.map((g) => g.id)).toEqual(["agent:a"]);
+    const critic = groups[0]!.running.find((task) => task.title === "critic");
+    expect(critic?.workflow?.pane).toBe(workflowPaneId({ sessionId: "chat", runId: "wf_run", agentId: "crit" }));
+    // The nested workflow's own line stops the whole run, as the workflow pane's Stop does.
+    expect(groups[0]!.running.find((task) => task.id === "wf")).toMatchObject({ stop: { kind: "agent", id: "wf" } });
+  });
+
+  test("a workflow's agents carry no stop of their own; the workflow's line stops the run", () => {
+    const workflow = agent("wf", {
+      kind: "workflow",
+      runId: "wf_run",
+      workflowAgents: new Map([[1, { index: 1, label: "critic", agentId: "crit", state: "running", startedAt: 1_400 }]]),
+    });
+    const [only] = backgroundGroups(input([group([workflow])], {}, { sessionId: "chat" }));
+    expect(only).toMatchObject({ stop: { kind: "agent", id: "wf" } });
+    expect(only!.agentId).toBeUndefined();
+    expect(only!.running.map((task) => task.stop)).toEqual([undefined]);
   });
 
   test("an agent that ended while a nested agent still runs stays live: ordered with the running, never cleared", () => {
