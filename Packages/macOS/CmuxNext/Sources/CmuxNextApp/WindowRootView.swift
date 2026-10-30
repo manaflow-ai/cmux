@@ -272,6 +272,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        let normalHit = super.hitTest(point)
         if !sidebar.isHidden, sidebar.visualPaneReach > 0 {
             let sidebarFrame = sidebar.convert(sidebar.bounds, to: self)
             var expanded = sidebarFrame
@@ -281,12 +282,14 @@ final class WindowRootView: NSView, WindowSurfacePainting {
                 expanded.origin.x -= sidebar.visualPaneReach
                 expanded.size.width += sidebar.visualPaneReach
             }
-            if expanded.contains(point), !sidebarFrame.contains(point) {
+            // Root siblings such as the resize handle keep their z-order. Only an otherwise
+            // unclaimed point in the added band is forwarded into the sidebar's extended panel.
+            if normalHit === self, expanded.contains(point), !sidebarFrame.contains(point) {
                 let sidebarPoint = sidebar.convert(point, from: self)
                 if let hit = sidebar.hitTest(sidebarPoint) { return hit }
             }
         }
-        return super.hitTest(point)
+        return normalHit
     }
 
     override func layout() {
