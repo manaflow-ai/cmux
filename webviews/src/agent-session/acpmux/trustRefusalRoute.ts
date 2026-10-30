@@ -49,8 +49,8 @@ export function routeOwnedTrustRefusal<Client>(
   pending: { current: PendingTrustRefusal<Client> | undefined },
   error: unknown,
   again: (() => void) | undefined,
-  declined: (() => void) | undefined,
   deliver: () => boolean,
+  declined?: () => void,
 ): boolean {
   if (!sameOwner(owner, current)) return false;
   const held = pending.current;

@@ -8476,8 +8476,8 @@ function AcpmuxPane() {
             pendingTrustRefusal,
             error,
             again,
-            declined,
             () => trustRefused.current?.(error, again, declined) ?? false,
+            declined,
           );
         };
         // A failed row's Retry that acpmux refuses for the folder's trust shows the Trust question,
