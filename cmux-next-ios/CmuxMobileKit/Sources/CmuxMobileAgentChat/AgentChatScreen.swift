@@ -53,6 +53,8 @@ public final class AgentChatSurface {
     public var showArtifacts = false
     /// Find in Chat while its bar is up (nil: closed).
     public var find: AgentChatFind?
+    /// Geometry anchors for searchable transcript blocks.
+    var findAnchors: [String: (CGFloat, CGFloat)] = [:]
     /// Asks the find bar's field for the keyboard (it takes it when the bar opens).
     var findFieldFocused = false
 
@@ -842,7 +844,9 @@ struct TurnView: View {
             if call.isRunning {
                 ToolRowView(call: call)
             } else {
-                DiffSnippet(call: call, changeSet: turn.changeSet ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: []))
+                DiffSnippet(call: call, previews: store.diffs.files(for: call)) {
+                    await store.diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
+                }
             }
         case .plan(_, let entries):
             PlanCard(entries: entries)
