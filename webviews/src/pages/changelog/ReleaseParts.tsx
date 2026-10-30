@@ -144,10 +144,9 @@ function MediaLightbox({
 }
 
 export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
-  if (!item.action && !item.docs && !item.pr) return null;
+  if (!item.action && !item.docs) return null;
   return (
     <div className="cl-actions">
-      {item.pr && <ChangePullRequest pr={item.pr} title={item.title} />}
       {item.action && (
         <button type="button" className="cl-button" onClick={() => ctx.onTry(item.action!.id)}>
           {item.action.title || ctx.strings.t("changelog.page.tryIt")}
