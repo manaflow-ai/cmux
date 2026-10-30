@@ -28,16 +28,10 @@ struct ScreenInputTests {
 
     // MARK: Host capabilities and scrolling
 
-    @Test func capsMessageListsTheHostsCapabilities() throws {
-        let caps = try JSONDecoder().decode(ScreenHostMessage.self, from: Data(#"{"t":"caps","s":"scroll-px, other,,"}"#.utf8))
-        #expect(ScreenStreamViewer.capabilities(in: caps) == ["scroll-px", "other"])
-        let empty = try JSONDecoder().decode(ScreenHostMessage.self, from: Data(#"{"t":"caps"}"#.utf8))
-        #expect(ScreenStreamViewer.capabilities(in: empty) == [])
-        // The displays message is not a caps message: it still goes to onDisplays.
-        let displays = try JSONDecoder().decode(ScreenHostMessage.self,
-                                                from: Data(#"{"t":"displays","displays":[{"w":1920,"h":1080}],"current":0}"#.utf8))
-        #expect(ScreenStreamViewer.capabilities(in: displays) == nil)
-        #expect(ScreenStreamViewer.pixelScrollCapability == "scroll-px")
+    @Test func capsMessageCarriesTheHostsCapabilities() throws {
+        let caps = try JSONDecoder().decode(ScreenHostMessage.self, from: Data(#"{"t":"caps","s":"scroll-px,mods"}"#.utf8))
+        #expect(caps.t == ScreenHostMessage.capabilitiesType && caps.s == "scroll-px,mods")
+        #expect(ScreenHostMessage.pixelScrollCapability == "scroll-px" && ScreenInput.pixelUnit == "px")
     }
 
     @Test func pixelScrollCarriesItsUnitAndLineScrollDoesNot() throws {
@@ -53,13 +47,18 @@ struct ScreenInputTests {
         #expect(decoded.u == "px" && decoded.dy == 2)
     }
 
-    /// A session to an older host (no caps) or RFB never sends pixel scrolls.
+    /// A session to an older host (no caps) or RFB never sends pixel scrolls;
+    /// a host's `caps` turns them on.
     @MainActor @Test func pixelScrollNeedsTheHostsCapability() throws {
         let stream = try #require(VNCPairing(link: VNCPairing.generate(name: "Mac", kind: "stream").link))
         let session = ScreenSession(title: "Mac", pairing: stream)
         #expect(session.hostCapabilities.isEmpty)
         #expect(!session.supportsPixelScroll)
         session.scrollPixels(dx: 10, dy: 10) // not connected, no caps: nothing to send, no crash
+        session.receiveCapabilities(["mods"])
+        #expect(!session.supportsPixelScroll)
+        session.receiveCapabilities(["scroll-px", "mods"])
+        #expect(session.supportsPixelScroll && session.hostCapabilities == ["scroll-px", "mods"])
     }
 
     private func object(_ input: ScreenInput) throws -> [String: Any] {

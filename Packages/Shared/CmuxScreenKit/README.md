@@ -98,7 +98,9 @@ a touch inside that time continues the press as a drag (as on a Mac
 trackpad). Display paging there is by the page dots.
 
 Sticky ⌃ ⌥ ⌘ (the keyboard bar) also apply to the next click or drag: the
-keys go down before it and up after it (`session.click(_:modifiers:)`).
+keys go down before it and up after it (`session.click(_:modifiers:)`); a
+host that lists `mods` applies held modifiers to every mouse event until
+their key up.
 
 On iPad with a mouse or trackpad: hover moves the remote pointer, the
 primary button clicks and drags at once, the secondary button right-clicks,
@@ -107,8 +109,9 @@ hides over the screen. Buttons need `UIApplicationSupportsIndirectInputEvents`
 = YES in the app's Info.plist (without it a click arrives as a touch).
 
 Scrolling is smooth (pixels) when the Mac says it takes it: a newer host
-sends `{"t":"caps","s":"scroll-px"}` (a comma list) when the input channel
-opens, `session.hostCapabilities` holds it and `session.supportsPixelScroll`
+sends `{"t":"caps","s":"scroll-px,mods"}` (a comma list, on the ordered
+channel before the first `displays`) when the input channel opens
+(`ScreenStreamViewer.onCapabilities`); `session.hostCapabilities` holds it and `session.supportsPixelScroll`
 reads it, and scrolls then go as `{"t":"scroll","x":..,"y":..,"dx":..,"dy":..,"u":"px"}`
 (`dx`/`dy` in pixels of the streamed video frame, positive where the
 content moves right and down; the host turns them into its own scroll

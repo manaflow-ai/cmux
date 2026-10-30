@@ -88,8 +88,13 @@ public final class ScreenSession {
     /// its `caps` message (empty for an older host, RFB and the demo);
     /// cleared on each connect.
     public private(set) var hostCapabilities: Set<String> = []
+    /// The host's `caps` list, from the running stream's viewer.
+    package func receiveCapabilities(_ capabilities: [String]) {
+        hostCapabilities = Set(capabilities)
+    }
+
     /// The Mac takes pixel scrolling (``scrollPixels(dx:dy:)``).
-    public var supportsPixelScroll: Bool { hostCapabilities.contains(ScreenStreamViewer.pixelScrollCapability) }
+    public var supportsPixelScroll: Bool { hostCapabilities.contains(ScreenHostMessage.pixelScrollCapability) }
     /// The stream dropped and is coming back on its own.
     public private(set) var isReconnecting = false
     /// The connection stalled (ICE disconnected): no picture is coming,
@@ -264,7 +269,7 @@ public final class ScreenSession {
         viewer.onCapabilities = { [weak self, weak viewer] capabilities in
             Task { @MainActor in
                 guard let self, self.stream === viewer else { return }
-                self.hostCapabilities = capabilities
+                self.receiveCapabilities(capabilities)
             }
         }
         viewer.onStall = { [weak self, weak viewer] stalled in
@@ -584,7 +589,7 @@ public final class ScreenSession {
 
     /// A scroll message: wheel lines, or pixels (`u: "px"`).
     public nonisolated static func scrollInput(x: Double, y: Double, dx: Int, dy: Int, pixels: Bool) -> ScreenInput {
-        ScreenInput(t: "scroll", x: x, y: y, dx: dx, dy: dy, u: pixels ? ScreenStreamViewer.pixelScrollUnit : nil)
+        ScreenInput(t: "scroll", x: x, y: y, dx: dx, dy: dy, u: pixels ? ScreenInput.pixelUnit : nil)
     }
 
     public func type(_ text: String, modifiers: [VNCKeysym] = []) {
