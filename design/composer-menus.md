@@ -11,10 +11,13 @@ same controls.
 > "project and cloudness at the top. make them open away from teh chat, which is obviously up if
 > it's up, down if it's down. and stop making them take up so much space."
 
-- **Where they sit:** the folder and machine controls head the composer, over the box, in every
-  look and on every page (chat pane and New Tab). The quiet row under the box keeps only the mode,
-  the model and the context ring. They never sit in the quiet row.
-- **Which way a menu opens:** away from the conversation, read from where the composer sits in
+- **Where they sit:** on the New Tab page, the folder and machine controls head the composer,
+  over the box, in every New Tab look; the quiet row under the box keeps only the mode, the model
+  and the context ring. Leo, 2026-10-29: "we'll be wanting to put the project/machine (cloud)
+  picker thing above the composer again (the is obv relevant for the new tab page and not really
+  the in-agent-chat page)". The composer inside an agent chat keeps its own row as it is (a new
+  chat's strip over its card, gone after the first send); this rule does not move it.
+- **Which way a menu opens** (wherever the pickers appear): away from the conversation, read from where the composer sits in
   the window when the menu opens (`sideAwayFromChat`), never from which page it is. A composer
   whose middle is in the lower half of the window has the chat above it: its menus open down. One
   in the upper half (New Tab, with the chats under it) opens them up.
@@ -28,7 +31,7 @@ same controls.
 
 ## Size
 
-- Content-sized pills side by side, folder first, then machine: never spread across the row.
+- Wherever the pickers appear: content-sized pills side by side, folder first, then machine: never spread across the row.
 - One strip height for both composers: 24 px for the strip, 6 px to the box.
 - 4 px between the controls (`--acpmux-location-gap`); the ghost buttons' own insets do the rest.
 - The strip's first icon stands on the quiet row's icon column (New Tab) or the prompt's first
@@ -56,6 +59,6 @@ box. The bump, the tray and the plus-edge alignment stay Debug choices
 
 ## Never
 
-- A location control in the quiet row under the box.
+- A location control in New Tab's quiet row under the box.
 - A location menu that opens onto the conversation because the other side had more room.
 - Pills stretched to fill the row, or a gap that grows with the pane.
