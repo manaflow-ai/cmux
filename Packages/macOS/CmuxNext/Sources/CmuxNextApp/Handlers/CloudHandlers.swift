@@ -162,9 +162,14 @@ enum CloudHandlers {
     static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
         let daemon = session.daemon
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
-        if let first = daemon.store.workspaces.first { return first.id }
+        if let first = await existingWorkspace(in: daemon.store) { return first }
         guard let id = await context.services.windows.createWorkspace(on: daemon) else { throw ActionFailure(message: CloudStrings.notConnected) }
         return id
+    }
+
+    /// The first workspace `store` lists, nil when it lists none.
+    static func existingWorkspace(in store: DaemonStore, within limit: Duration = .seconds(10)) async -> String? {
+        store.workspaces.first?.id
     }
 
     /// Open Desktop (`cloud open-desktop`): the machine's desktop, as cmux Classic shows it, in a
