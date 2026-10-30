@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// tabs it searches once the user types are read after the first frame, so
 /// the open costs the same with 10 workspaces or 5,000 tabs.
 @MainActor
-@Suite(.paletteRanker, .serialized)
+@Suite(.paletteRanker, .serialized, .closesItsWindows)
 struct PaletteOpenLatencyTests {
     /// Counts reads of its lists: each read is the App walking every
     /// workspace and tab of every machine.
@@ -84,7 +85,7 @@ struct PaletteOpenLatencyTests {
     @Test func firstFrameReadsNoWorkspaceOrTabList() async {
         let store = Store(workspaces: 40, tabsPerWorkspace: 4)
         let palette = Self.palette(store)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         store.workspaceReads = 0
         store.tabReads = 0
         palette.show(.commands)
@@ -103,7 +104,7 @@ struct PaletteOpenLatencyTests {
     @Test func warmOpenCostDoesNotScaleWithWorkspacesAndTabs() async {
         func openCost(_ store: Store) async -> Double {
             let palette = Self.palette(store)
-            defer { palette.hide() }
+            defer { palette.closeForTest() }
             var samples: [Double] = []
             for _ in 0..<7 {
                 samples.append(Self.milliseconds(Self.mainThreadCPU { palette.show(.commands) }))
@@ -116,6 +117,7 @@ struct PaletteOpenLatencyTests {
         /// The model stage alone (the page's rows, no panel): what the open costs before AppKit.
         func modelCost(_ store: Store) async -> Double {
             let palette = Self.palette(store)
+            defer { palette.closeForTest() }
             var samples: [Double] = []
             for _ in 0..<7 {
                 samples.append(Self.milliseconds(Self.mainThreadCPU { palette.model.reset(to: palette.commandsPage()) }))

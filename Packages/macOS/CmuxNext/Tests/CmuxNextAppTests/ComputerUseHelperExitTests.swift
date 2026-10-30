@@ -1,6 +1,8 @@
 import CmuxNextAgentActivity
+@testable import CmuxNextApp
 import CmuxNextCompat
 @testable import CmuxNextComputerUse
+import CmuxNextSettings
 import CmuxNextWakeupsTestSupport
 import Darwin
 import Foundation
@@ -40,6 +42,43 @@ struct ComputerUseHelperExitTests {
         await daemon.apply(enabled: true)
         #expect(daemon.state == .running(602))
         #expect(launcher.terminated.isEmpty, "the exited helper needs no stop")
+    }
+
+    /// The user's case (2026-10-27, nightly cc0d757): System Settings quit the
+    /// helper after a grant, the app still said `.running`, and Stop / Focus
+    /// Computer Use answered "The Computer Use helper did not answer." until
+    /// cmux restarted. When the exit is missed, the first request that finds
+    /// no listener notices that the process is gone, starts the helper again
+    /// and says so.
+    @Test func aRequestToAHelperThatIsGoneStartsItAgain() async throws {
+        let launcher = ExitingHelperLauncher()
+        let (daemon, root) = makeDaemon(launcher)
+        defer { try? FileManager.default.removeItem(at: root) }
+        await daemon.apply(enabled: true)
+        try #require(daemon.state == .running(601))
+
+        // No listener answers at the socket, and no exit event comes.
+        launcher.vanish(601)
+        let sessions = CuaComputerUseSessions(configuration: { daemon.configuration }, phase: { .ready },
+                                              confirmRunning: { daemon.confirmRunning() })
+        await #expect(throws: ComputerUseSessionError.notRunning(ComputerUseSessionStrings.helperRestarting)) {
+            try await sessions.liveSessions()
+        }
+        #expect(daemon.state != .running(601), "the app must notice that its helper is gone")
+        #expect(daemon.configuration == nil, "no reader gets the gone helper's tokens")
+        #expect(launcher.cancelled == [601], "the missed exit's watch ends")
+
+        await launcher.waitForLaunches(2)
+        await daemon.apply(enabled: true)
+        #expect(daemon.state == .running(602))
+        #expect(launcher.terminated.isEmpty, "the gone helper needs no stop")
+
+        // A live helper that does not answer keeps the old reason, and nothing restarts.
+        await #expect(throws: ComputerUseSessionError.failed(ComputerUseSessionStrings.hostUnreachable)) {
+            try await sessions.liveSessions()
+        }
+        #expect(daemon.state == .running(602))
+        #expect(launcher.launched == [601, 602])
     }
 
     @Test func anExitLoopStopsTheRestartsUntilTheHelperIsRestarted() async throws {
@@ -139,6 +178,45 @@ struct ComputerUseHelperExitTests {
 
     // MARK: Helper v2
 
+    /// NIGHTLY builds carry no helper v2. With driver "upstream" nothing started: the
+    /// legacy helper was stopped, the helper v2 was "unavailable", every agent's computer use
+    /// found no socket, and setup said "starting" forever (2026-10-29). The legacy helper runs
+    /// in its place, agents get its socket, and the stored setting is not touched.
+    @Test func upstreamWithoutTheHelperV2InThisBuildRunsTheLegacyHelper() async throws {
+        let launcher = ExitingHelperLauncher()
+        let spawner = ExitingV2Spawner()
+        let root = FileManager.default.temporaryDirectory.appending(path: "cua-fallback-\(UUID().uuidString.prefix(8))")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let upstream = ComputerUseHelperV2(directory: root.appending(path: "v2").path, helperApp: { nil },
+                                           staging: .passing(root: root), spawner: spawner, clock: ManualClock(), exitGrace: .zero)
+        let daemon = ComputerUseHelperDaemon(identity: CuaHelperIdentity(isSigned: { _ in true }),
+                                             candidates: { [root.appending(path: "missing/cmux Computer Use.app")] },
+                                             launcher: launcher, staging: .passing(root: root),
+                                             socketPath: root.appending(path: "s/cua.sock").path,
+                                             stateDirectory: root.appending(path: "state"), upstream: upstream)
+        try #require(!upstream.isInBuild)
+        var settings = ComputerUseSettings()
+        settings.enabled = true
+        settings.driver = .upstream
+
+        let route = ComputerUseHelperDaemon.route(settings, disabledByPolicy: false, upstreamInBuild: false)
+        #expect(route.legacy && !route.upstream)
+        let inBuild = ComputerUseHelperDaemon.route(settings, disabledByPolicy: false, upstreamInBuild: true)
+        #expect(!inBuild.legacy && inBuild.upstream, "a build with the helper v2 still runs it")
+        #expect(daemon.effectiveDriver(.upstream) == .legacy)
+        #expect(daemon.effectiveDriver(.legacy) == .legacy)
+
+        await daemon.apply(settings, disabledByPolicy: false)
+        #expect(daemon.state == .running(601), "the legacy helper runs in place of the missing helper v2")
+        #expect(spawner.spawned.isEmpty, "the missing helper v2 never starts")
+        #expect(!daemon.childEnvironment.isEmpty, "agents get the legacy helper's socket and token")
+
+        settings.enabled = false
+        await daemon.apply(settings, disabledByPolicy: false)
+        #expect(daemon.state == .off)
+        #expect(launcher.terminated == [601])
+    }
+
     private func makeV2(_ spawner: ExitingV2Spawner) -> (ComputerUseHelperV2, URL) {
         let root = FileManager.default.temporaryDirectory.appending(path: "cua-v2-exit-\(UUID().uuidString.prefix(8))")
         let helper = ComputerUseHelperV2(directory: root.appending(path: "scope").path,
@@ -204,10 +282,18 @@ private final class ExitingHelperLauncher: ComputerUseHelperLaunching {
 
     func terminate(_ pid: pid_t) { terminated.append(pid) }
 
+    /// Helpers that are gone without an exit event (``vanish(_:)``).
+    private var gone: Set<pid_t> = []
+
+    func isRunning(_ pid: pid_t) -> Bool { !gone.contains(pid) }
+
     func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
         exitHandlers[pid] = onExit
         return { [weak self] in self?.cancelled.append(pid) }
     }
+
+    /// The helper `pid` is gone, and its exit event never comes.
+    func vanish(_ pid: pid_t) { gone.insert(pid) }
 
     /// The helper `pid` exits. The handler runs even after a cancel: the
     /// kernel event can already be queued when the daemon cancels its watch.

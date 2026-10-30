@@ -143,6 +143,7 @@ Columns: lines, App types it names outside itself (from a type cross-reference s
 | IconAssets | 291 | 0 | CmuxNextIcons (ui) |
 | ServerUpdates | 159 | 0 | CmuxNextDaemonService (presenter seam) |
 | LinkHints, Refusals | 190 | 0 | CmuxNextBrowser UI / FocusUI |
+| VoiceRoom | 40 | 1 (AppServices only) | the logic is already in CmuxNextDictation/VoiceRoom (VoiceRoomHost, VoiceRoomSession); the App keeps the two action binds and their refusal strings, which need AppServices (settings snapshot, front pane) |
 | Router, Process | 180 | 0 | CmuxNextHomeEngine / CmuxNextCompat |
 | GlobalSearch | 490 | 1 | CmuxNextPalette |
 | ErrorJournal, Crash | 1,363 | 1-2 | CmuxNextErrorJournal, CmuxNextCrashReporting (+ a small UI file to Design) |

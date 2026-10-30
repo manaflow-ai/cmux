@@ -77,12 +77,18 @@ export async function showSubagent(
   call: Call,
   id: string,
   focus: boolean,
-  options: { panes: boolean; inSubagentPane: boolean; here: (id: string) => void },
+  options: {
+    panes: boolean;
+    inSubagentPane: boolean;
+    here: (id: string) => void;
+    beforeOpen?: () => void;
+  },
 ): Promise<void> {
   if (options.inSubagentPane || !options.panes) {
     if (focus || options.inSubagentPane) options.here(id);
     return;
   }
+  options.beforeOpen?.();
   const opened = await openSubagentPane(call, id, focus);
   if (!opened && focus) options.here(id);
 }

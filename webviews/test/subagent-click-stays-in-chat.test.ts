@@ -16,7 +16,12 @@ async function show(options: { panes: boolean; inSubagentPane?: boolean; focus?:
     },
     "reviewer",
     options.focus ?? true,
-    { panes: options.panes, inSubagentPane: options.inSubagentPane ?? false, here: (id) => here.push(id) },
+    {
+      panes: options.panes,
+      inSubagentPane: options.inSubagentPane ?? false,
+      here: (id) => here.push(id),
+      beforeOpen: () => calls.push("tail.handover"),
+    },
   );
   return { calls, here };
 }
@@ -26,13 +31,27 @@ test("with the switch off, a click shows the subagent in the chat and opens no p
 });
 
 test("with the switch on, a click asks the app for the subagent's pane", async () => {
-  expect(await show({ panes: true })).toEqual({ calls: ["chat.subagentPane"], here: [] });
+  expect(await show({ panes: true })).toEqual({ calls: ["tail.handover", "chat.subagentPane"], here: [] });
 });
 
 test("with the switch on and a host that opens none, a click shows it in the chat", async () => {
-  expect(await show({ panes: true, opened: false })).toEqual({ calls: ["chat.subagentPane"], here: ["reviewer"] });
+  expect(await show({ panes: true, opened: false })).toEqual({
+    calls: ["tail.handover", "chat.subagentPane"],
+    here: ["reviewer"],
+  });
 });
 
 test("a subagent's own pane shows other subagents in place, never in more panes", async () => {
   expect(await show({ panes: true, inSubagentPane: true })).toEqual({ calls: [], here: ["reviewer"] });
+});
+
+test("background discovery with panes off opens no pane and leaves the shown chat alone", async () => {
+  expect(await show({ panes: false, focus: false })).toEqual({ calls: [], here: [] });
+});
+
+test("background discovery with panes on hands over the tail before opening its pane", async () => {
+  expect(await show({ panes: true, focus: false })).toEqual({
+    calls: ["tail.handover", "chat.subagentPane"],
+    here: [],
+  });
 });
