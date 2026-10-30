@@ -180,7 +180,7 @@ nonisolated enum AcpmuxServerPeer {
         guard !owners.isEmpty else { return .noPeer }
         let wanted = executable.resolvingSymlinksInPath().path
         for pid in Set(owners) {
-            if foreign[pid] != nil { continue }
+            if let daemon = foreign[pid], let now = process(pid), now == daemon { continue }
             guard let found = path(pid) else { return .noPeer }
             let resolved = URL(fileURLWithPath: found).resolvingSymlinksInPath().path
             if resolved != wanted { return .otherExecutable(resolved) }
