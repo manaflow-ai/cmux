@@ -412,6 +412,42 @@ test("an undone cancel's chip is settled by its new read, never by the cancelled
   expect(intake.attachments.map((chip) => [chip.id, chip.path])).toEqual([[id, "/tmp/notes.bin"]]);
 });
 
+// Review (Codex): a huge paste's file is made a slice per task (pastedText.ts pastedTextFile), so its
+// chip can be cancelled before its bytes exist. An undo then brings it back and reads it once they
+// are, rather than leaving the text with nothing.
+test("an undone cancel of a file still being made reads it once its bytes are made", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  let intake!: ReturnType<typeof useAttachmentIntake>;
+  function Field() {
+    intake = useAttachmentIntake({
+      allowImages: true,
+      pasteTarget: () => undefined,
+      upload: async (files) => ({ paths: files.map((file) => `/tmp/${file.name}`) }),
+    });
+    return null;
+  }
+  root ??= createRoot(host);
+  await act(async () => root!.render(<Field />));
+  let made!: (file: File) => void;
+  const bytes = new Promise<File>((resolve) => {
+    made = resolve;
+  });
+  await act(async () => void intake.attach([{ name: "Pasted text.txt", type: "text/plain", file: bytes }], true));
+  const id = intake.pending[0]!.id;
+  await act(async () => intake.cancel(id));
+  let revived = false;
+  await act(async () => {
+    revived = intake.revive(id);
+  });
+  expect(revived).toBe(true);
+  expect(intake.pending.map((chip) => [chip.id, chip.name])).toEqual([[id, "Pasted text.txt"]]);
+  await act(async () => made(new File(["a".repeat(64)], "Pasted text.txt", { type: "text/plain" })));
+  await until(() => intake.attachments.length === 1, "the revived attachment");
+  expect(intake.pending).toEqual([]);
+  expect(intake.attachments.map((chip) => [chip.id, chip.path])).toEqual([[id, "/tmp/Pasted text.txt"]]);
+});
+
 test("an image copied as HTML into a plain text field comes in as a chip and the text still goes in", async () => {
   const { createRoot } = await import("react-dom/client");
   const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");

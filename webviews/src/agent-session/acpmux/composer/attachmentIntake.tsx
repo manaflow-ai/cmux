@@ -166,8 +166,12 @@ const PARKED_MAX = 16;
 /// `file`: a promise while its bytes are still being made (MadeFile). `make`: a chip the host makes
 /// (attachLater), with the note its failure shows.
 type PendingSource =
-  | { file: File | Promise<File>; uploads: boolean }
+  | FileSource
   | { make: () => Promise<ComposerAttachment | undefined>; name: string; failure: string; stop?: () => void };
+
+/// A file chip's source. `name` and `type` too, for a file whose bytes are still being made (a
+/// promise): an undo can read it again as the MadeFile it came as (`revive`).
+type FileSource = { file: File | Promise<File>; uploads: boolean; name: string; type: string };
 
 /// A file whose bytes are still being made (pastedText.ts pastedTextFile): its tile shows at once,
 /// by its name and type, and it is read once `file` settles.
@@ -250,9 +254,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // This read's own source for each chip: a chip cancelled and brought back (undo, `revive`) or
     // read again (Retry) under the same id has a new one, and only the read that owns the id's
     // source now settles it, so an older read still running never takes or drops the newer one's.
-    const owned = shown.map((chip, index): { file: File | Promise<File>; uploads: boolean } => {
+    const owned = shown.map((chip, index): FileSource => {
       const file = files[index]!;
-      const source = { file: isMadeFile(file) ? file.file : file, uploads };
+      const source = { file: isMadeFile(file) ? file.file : file, uploads, name: file.name, type: file.type };
       sources.current.set(chip.id, source);
       return source;
     });
@@ -428,14 +432,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     setPending((chips) => chips.filter((chip) => chip.id !== id));
   });
   /// A cancelled loading chip's node came back (undo): its file is read again under its id, so the
-  /// node draws it loading and then what the read makes. False when its file is not kept.
+  /// node draws it loading and then what the read makes. A file whose bytes were still being made
+  /// goes as the MadeFile it came as, read once they are. False when its file is not kept.
   const [revive] = useState(() => (id: string): boolean => {
     const source = parked.current.get(id);
     if (!source || "make" in source) return false;
-    const file = source.file;
-    if ("then" in file) return false;
     parked.current.delete(id);
-    void intake([file], source.uploads, undefined, id);
+    const { file, name, type } = source;
+    void intake(["then" in file ? { name, type, file } : file], source.uploads, undefined, id);
     return true;
   });
   /// A failed chip's Retry: its file is read again (and uploaded again when it was) as the same chip,
