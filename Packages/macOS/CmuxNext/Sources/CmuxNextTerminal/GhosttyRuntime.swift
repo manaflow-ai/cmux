@@ -35,6 +35,10 @@ public final class GhosttyRuntime {
     @safe private(set) var config: ghostty_config_t?
     /// Whether the app was started (``start(with:)``), with or without success.
     private(set) var isStarted = false
+    /// A terminal view had no surface and said so (``TerminalSurfaceView/showSurfaceUnavailable()``): logged once per process.
+    var loggedSurfaceUnavailable = false
+    /// Who waits for the start to end (``whenStarted(_:)``): terminal views made before it.
+    private var startWaiters: [@MainActor (_ started: Bool) -> Void] = []
     /// Where config builds run (``start(loadingOn:then:)``, or a test's); nil: no reload or theme build runs.
     var configLoader: (any GhosttyConfigLoading)?
     /// `background-opacity` from the user's config with cmux.json's
@@ -129,6 +133,8 @@ public final class GhosttyRuntime {
             return
         }
         isStarted = true
+        // Every exit below ends the start: the views that waited for it get their surface, or learn there is none.
+        defer { endStart() }
         var phase = ContinuousClock.now
         func mark(_ name: String) {
             let now = ContinuousClock.now
@@ -188,6 +194,21 @@ public final class GhosttyRuntime {
         energySaver?.refresh()
         traceHook.refreshDemand()
         installObservers()
+    }
+
+    /// Runs `body` once the start (``start(with:)``) ended, with whether libghostty's app runs: now when it already ended,
+    /// else when it ends. A terminal view made before the start (a test host, or a launch that makes a terminal before
+    /// its first config build lands) makes its surface then, instead of keeping none for its life.
+    func whenStarted(_ body: @escaping @MainActor (_ started: Bool) -> Void) {
+        guard isStarted else { return startWaiters.append(body) }
+        body(app != nil)
+    }
+
+    private func endStart() {
+        let waiters = startWaiters
+        startWaiters = []
+        let started = app != nil
+        for waiter in waiters { waiter(started) }
     }
 
     // MARK: Config
