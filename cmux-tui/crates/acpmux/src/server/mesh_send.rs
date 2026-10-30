@@ -42,6 +42,21 @@ fn recipient(target: &str) -> Target {
     }
 }
 
+/// Whether the hub can carry `request` as asked: text only, no supersede key, no class but the
+/// default result. [`send`] refuses anything else with the reason.
+pub(super) fn carries(request: &Value) -> bool {
+    let text_only =
+        request.get("prompt").and_then(Value::as_array).into_iter().flatten().all(|block| {
+            block.get("type").and_then(Value::as_str) == Some("text")
+                && block.get("text").and_then(Value::as_str).is_some()
+        });
+    let mux = request.pointer("/_meta/acpmux");
+    let keyed = mux.and_then(|m| m.get("supersede")).is_some_and(|k| !k.is_null());
+    let classed = crate::prompt_class::declared(request)
+        .map_or(true, |c| c.is_some_and(|c| c != PromptClass::Result));
+    text_only && !keyed && !classed
+}
+
 pub(super) async fn send(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
