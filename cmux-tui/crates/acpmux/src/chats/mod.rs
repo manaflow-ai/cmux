@@ -352,7 +352,11 @@ impl ChatService {
     }
 
     fn save(&self, index: &ChatIndex) {
-        if let Err(e) = index.save(&cache_path(&self.sources)) {
+        let path = cache_path(&self.sources);
+        // Not under a lost home (`config::mark_home_lost`): it may be another daemon's now.
+        let saved = crate::config::refuse_lost_home(&path)
+            .and_then(|()| index.save(&path).map_err(anyhow::Error::from));
+        if let Err(e) = saved {
             tracing::warn!("chat index cache: {e}");
         }
     }
