@@ -266,3 +266,45 @@ test("while it runs, a reflow that grows the output keeps the newest line in vie
   for (const entry of watching) entry.run([{ target: lines }]);
   expect(body.scrollTop).toBe(520);
 });
+
+test("one reflow watch per running block, on the output it shows, let go when the command ends", async () => {
+  const observers: { targets: Element[] }[] = [];
+  Object.assign(dom!.window, {
+    ResizeObserver: class {
+      entry = { targets: [] as Element[] };
+      constructor() {
+        observers.push(this.entry);
+      }
+      observe(target: Element) {
+        if (!this.entry.targets.includes(target)) this.entry.targets.push(target);
+      }
+      unobserve(target: Element) {
+        this.entry.targets = this.entry.targets.filter((watched) => watched !== target);
+      }
+      disconnect() {
+        this.entry.targets = [];
+      }
+    },
+  });
+  const lines = (n: number) => Array.from({ length: n }, (_, at) => `case ${at + 1}`).join("\n");
+  // Elements, compared by identity (a DOM node does not print).
+  const watches = (entry: { targets: Element[] }, ...elements: Element[]) =>
+    entry.targets.length === elements.length && entry.targets.every((target, at) => target === elements[at]);
+  // The same output, first finished, then running: the one observer that start makes is the
+  // follow watch (the sideways and fade watches observe the box too, and already did).
+  await act(async () => root!.render(<ShellBlock command="bun test" output={lines(30)} />));
+  const before = observers.length;
+  await act(async () => root!.render(<ShellBlock command="bun test" output={lines(30)} live />));
+  const follow = observers.slice(before);
+  expect(follow.length).toBe(1);
+  const body = container.querySelector(".cv-shell__body")!;
+  const first = container.querySelector(".cv-shell__output")!;
+  expect(watches(follow[0]!, body, first)).toBe(true);
+  // Streaming keeps that one observer on the box and the output it shows.
+  for (let n = 31; n <= 50; n++)
+    await act(async () => root!.render(<ShellBlock command="bun test" output={lines(n)} live />));
+  expect(watches(follow[0]!, body, first)).toBe(true);
+  // The command ends: the follow watch lets go of the box and the output.
+  await act(async () => root!.render(<ShellBlock command="bun test" output={lines(50)} />));
+  expect(follow[0]!.targets.length).toBe(0);
+});
