@@ -52,7 +52,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
@@ -754,23 +754,37 @@ fn agent_socket() -> PathBuf {
 }
 
 /// Whether this machine has a Cloud agent to report to: its reports wait in memory, so a daemon
-/// here never stops for being unused (`unused_exit.rs`, which asks at each census).
+/// here never stops for being unused (`unused_exit.rs`, which asks at each census). Once seen, for
+/// the rest of the daemon's life: the agent's restart removes its socket for a while, and the
+/// reports wait for it (`handoff_loop`).
 pub(super) fn reports_here() -> bool {
-    reports_to(&agent_socket())
+    static SEEN: AtomicBool = AtomicBool::new(false);
+    reports_to(&agent_socket(), &SEEN)
 }
 
-fn reports_to(socket: &std::path::Path) -> bool {
-    cfg!(target_os = "linux") && socket.exists()
+fn reports_to(socket: &std::path::Path, seen: &AtomicBool) -> bool {
+    if seen.load(Ordering::SeqCst) {
+        return true;
+    }
+    let here = cfg!(target_os = "linux") && socket.exists();
+    if here {
+        seen.store(true, Ordering::SeqCst);
+    }
+    here
 }
 
 #[cfg(test)]
 #[test]
-fn a_cloud_agent_socket_made_after_the_start_is_seen() {
+fn a_cloud_agent_socket_is_seen_when_made_later_and_kept_once_gone() {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("agent.sock");
-    assert!(!reports_to(&socket), "no socket yet");
+    let seen = AtomicBool::new(false);
+    assert!(!reports_to(&socket, &seen), "no socket yet");
     std::fs::write(&socket, "").unwrap();
-    assert_eq!(reports_to(&socket), cfg!(target_os = "linux"), "the socket made later");
+    let linux = cfg!(target_os = "linux");
+    assert_eq!(reports_to(&socket, &seen), linux, "the socket made later");
+    std::fs::remove_file(&socket).unwrap();
+    assert_eq!(reports_to(&socket, &seen), linux, "the agent restarting");
 }
 
 pub(super) async fn handoff_loop(hub: Arc<Hub>) {
