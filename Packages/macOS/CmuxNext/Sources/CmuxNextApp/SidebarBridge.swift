@@ -40,7 +40,7 @@ final class SidebarBridge {
     /// The saved space bar, shown until the local daemon reports its spaces.
     private var seededProfiles: (profiles: [SidebarProfile], active: SidebarProfileKey?)?
     /// Saves what the sidebar shows (`SidebarSnapshotStore`).
-    private var snapshotRecorder = SidebarSnapshotRecorder()
+    var snapshotRecorder = SidebarSnapshotRecorder()
     /// Organization intents waiting for the home session's personal state.
     let organizationQueue = SidebarOrganizationQueue()
     /// Group name editors waiting for their group, and groups made empty (cx-rcby).
@@ -143,7 +143,7 @@ final class SidebarBridge {
         // one slide, not a slide of the old rows and then a row reload.
         // The band's layout comes with the rows it projects too (cx-odqn):
         // a pinned workspace leaves the list in the turn it joins the band.
-        sameTurn.observe(listsRows: true, {
+        sameTurn.observe(listsRows: true, { [weak self] in
             // Rows come from the feed: this pass reads no row's status; a row reads its tab selection itself.
             let pages = Self.newTabPages(agentTabs, in: machines.local.store), muted = notifications.preferences.mutedWorkspaces
             feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable])
@@ -154,8 +154,11 @@ final class SidebarBridge {
                 tabTitle: Self.tabTitle(services), rows: feed.laneRowSource,
                 groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
                 harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
+            // Kept Cloud workspaces no machine lists (P-AUSTIN B7) show under their machine, saying why.
+            let absent = self?.absentCloudRows(windowState) ?? (rows: [], headers: [:])
+            let withAbsent = SidebarRowSection.adding(absent: absent.rows, header: { absent.headers[$0] ?? SidebarMachine(id: $0, name: "", kind: .cloud) }, to: listed)
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
-            return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
+            return ((PendingWorkspaceRows.shared.listing(withAbsent, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
                     SidebarRows.visibleLayout(layout.document, window: windowState.id, profile: windowState.profileID, machines: machines, registry: registry.value, showAppStore: services.settings?.snapshot.previewFeatures == true))
         }) { [weak self] value in
             let ((sections, decorations), launching, failed, profiles, active, shown) = value

@@ -1,4 +1,6 @@
 import CmuxNextBridge
+import CmuxNextCloudUI
+import CmuxNextDaemon
 import CmuxNextSidebar
 
 // The sidebar side of window membership: positions in this window's
@@ -58,5 +60,86 @@ extension SidebarBridge {
     var memberIDs: [SidebarWorkspaceID] {
         guard let state else { return [] }
         return services.windows.registry.members(of: state.id).map(SidebarWorkspaceID.init)
+    }
+}
+
+// Kept Cloud workspaces that no machine lists (P-AUSTIN B7): signed out of cmux Cloud, Cloud off,
+// their machine paused or not loaded. The window keeps them; its sidebar lists each under its machine.
+extension SidebarBridge {
+    /// This window's kept Cloud workspaces as rows, with the headers of machines that have no section:
+    /// the name and look each row last had (this window's saved sidebar), the reason as its second line.
+    /// Only in the window's default space: the space of a kept workspace is not saved, and a row in
+    /// every space would be noise in each.
+    func absentCloudRows(_ state: WindowState) -> (rows: [SidebarWorkspace], headers: [MachineID: SidebarMachine]) {
+        guard state.profileID == .defaultProfile else { return ([], [:]) }
+        let windows = services.windows
+        let absent = windows.registry.members(of: state.id).compactMap { id in services.cloudAbsences.absence(of: id).map { (id, $0) } }
+        guard !absent.isEmpty else { return ([], [:]) }
+        let saved = savedRows(state.id)
+        var headers: [MachineID: SidebarMachine] = [:]
+        let rows = absent.map { id, absence in
+            let machine = MachineID(windows.seenMachine[id] ?? "")
+            var row = saved.rows[SidebarWorkspaceID(id)]
+                ?? SidebarWorkspace(id: SidebarWorkspaceID(id), machineID: machine, title: CloudWorkspaceAbsence.untitledWorkspace)
+            row.machineID = machine
+            row.rowState = .stale
+            row.isClosable = false
+            row.progress = nil
+            row.stage = absence.rowStatus
+            if headers[machine] == nil {
+                headers[machine] = SidebarMachine(id: machine, name: absentMachineName(id, saved: saved.machineNames), kind: .cloud,
+                                                  status: absence == .paused ? .paused : absence == .connecting ? .connecting : .offline)
+            }
+            return row
+        }
+        return (rows, headers)
+    }
+
+    /// The name a kept Cloud workspace's row shows (its window's title and card say the same).
+    func absentRowTitle(_ id: String) -> String {
+        guard let state else { return CloudWorkspaceAbsence.untitledWorkspace }
+        return model.workspace(SidebarWorkspaceID(id))?.title ?? savedRows(state.id).rows[SidebarWorkspaceID(id)]?.title
+            ?? CloudWorkspaceAbsence.untitledWorkspace
+    }
+
+    /// The name of kept Cloud workspace `id`'s machine: the machine list's, else the one this window's sidebar saved.
+    func absentMachineName(_ id: String, saved: [MachineID: String]? = nil) -> String {
+        let machine = services.windows.seenMachine[id] ?? ""
+        let names = saved ?? state.map { savedRows($0.id).machineNames } ?? [:]
+        return services.machines.session(machine)?.machine.title ?? names[MachineID(machine)] ?? CloudWorkspaceAbsence.unnamedMachine
+    }
+
+    /// The rows and machine names this window's sidebar last saved: this run's last save, else the launch's.
+    private func savedRows(_ window: String) -> (rows: [SidebarWorkspaceID: SidebarWorkspace], machineNames: [MachineID: String]) {
+        let saved = snapshotRecorder.lastSnapshot ?? services.sidebarSnapshots.launchDocument.snapshot(for: window, fallback: false)
+        let sections = saved?.sidebarSections ?? []
+        let rows = Dictionary(sections.flatMap(\.workspaces).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let names = Dictionary(sections.compactMap { $0.machine.map { ($0.id, $0.name) } }.filter { !$0.1.isEmpty }, uniquingKeysWith: { first, _ in first })
+        return (rows, names)
+    }
+
+    /// A gesture on a kept Cloud workspace's row: a click shows it (why it is not connected) in this
+    /// window without claiming it again; a close, drag or rename waits for its machine (the row snaps
+    /// back). False for intents on other rows.
+    func handleAbsent(_ intent: SidebarIntent, state: WindowState) -> Bool {
+        let windows = services.windows
+        func isAbsent(_ id: SidebarWorkspaceID) -> Bool { services.cloudAbsences.absence(of: id.rawValue) != nil }
+        switch intent {
+        case .select(let id) where isAbsent(id):
+            model.apply(intent)
+            windows.select(id.rawValue, in: state)
+            windows.controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
+            return true
+        case .close(let ids) where ids.contains(where: isAbsent),
+             .reorder(let ids, _) where ids.contains(where: isAbsent),
+             .move(let ids, _) where ids.contains(where: isAbsent):
+            resync()
+            return true
+        case .rename(let id, _) where isAbsent(id):
+            resync()
+            return true
+        default:
+            return false
+        }
     }
 }

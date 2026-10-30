@@ -614,3 +614,16 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## A hover control stays lit while its menu is open, and lights alone (2026-10-29)
 
 - Leo 2026-10-26: "If it's a toggle, if it's something like that, then you keep it on when you click the context menu, when you click the top, the drop-down, the popover, whatever the fucking. We say we keep it." Leo 2026-10-27: "why are you giving it the entire row when it's only this small little section? Just don't do that. Don't ever do that." Before (sw-sidebar audit): a workspace row's ⋮, ✕ and chevron followed `isHovered` alone, so they vanished as the pointer moved onto the row's open ⋮ menu; a group header's ⋮ was not lit while the group editor it opened was up, and the editor painted the hover step over the whole bar; a workspace tile's menu used the profile control's `showsMenu`, the selected fill over the whole pill. Now `OverflowButton.showsMenu` holds the button pressed (lit) while its menu or editor is open: `SidebarRowMenu` sets `WorkspaceRowView.showsMenu` for the synchronous `popUp` (the hover controls hold, the row's fill does not change), a workspace tile's more button holds its controls and lights alone (the pill keeps the selected step for the profile control only, whose pill is the control), and a group header's open editor lights its ⋮ instead of the bar. No position, size or slot changes. Test: `SidebarMenuHeldControlsTests`.
+
+## Disconnected Cloud workspace rows (2026-10-30, P-AUSTIN B7, waiting for the owner's words)
+
+A Cloud workspace that a window keeps while no machine lists it (signed out of cmux Cloud, Cloud off,
+its machine paused or not loaded) is listed under its machine's section, in the existing row style:
+its last saved name, `rowState` `.stale` (dimmed as saved rows are), no close button, and the reason
+as the row's stage line ("Signed out of cmux Cloud", "cmux Cloud is off", "Machine paused",
+"Connecting…"). A machine with no section gets one, headed by its saved name ("Cloud machine" when none
+was saved). Only in the window's default space (the space of a kept workspace is not saved yet: B7d).
+Code: `SidebarSection.adding(absent:header:to:)` (`CmuxNextSidebar/Model/SidebarSection+AbsentRows.swift`)
+and `SidebarBridge.absentCloudRows` (App). The earlier commits c24282cb1e1 and 56974631fba carried
+`Sidebar-Look: no visual change`, which was not true: these are new rows. The owner (a590) is asked
+for their words in the PR.

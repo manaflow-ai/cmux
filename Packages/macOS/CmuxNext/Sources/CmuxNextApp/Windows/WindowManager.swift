@@ -392,9 +392,9 @@ final class WindowManager {
         return controller
     }
 
-    /// True when a machine reports at least one of `window`'s workspaces.
+    /// True when a machine reports at least one of `window`'s workspaces, or the window keeps a Cloud workspace that is not connected (it shows why).
     func hasMirroredWorkspace(_ window: WindowRegistry.Window) -> Bool {
-        window.workspaceIDs.contains { services.machines.workspace(id: $0) != nil }
+        window.workspaceIDs.contains { services.machines.workspace(id: $0) != nil || services.cloudAbsences.absence(of: $0) != nil }
     }
 
     /// Runs `body` once `controller` next shows a workspace, if that is

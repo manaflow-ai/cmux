@@ -38,7 +38,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var pendingDocks: [String: DockEdge] = [:]
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
-    private var titleObservation: Task<Void, Never>?
+    private(set) var titleObservation: Task<Void, Never>?
     private var startupObservation: Task<Void, Never>?
     private var previewFeaturesObservation: Task<Void, Never>?
     /// The room theme: every workspace without its own theme. The window's
@@ -204,6 +204,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
     private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
         _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines, multiViewEnabled, LayoutTunables.dockedWorkspaces.value)
+        _ = (cloud.isSignedIn, cloud.auth.isRestoring, machines.cloud.map(\.machine.status)) // a kept Cloud workspace's state (P-AUSTIN B7)
         _ = creationKey(state, cloud, machines)
         _ = windows.registry.members(of: state.id)
         for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }
@@ -229,11 +230,16 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
         }
+        // A kept Cloud workspace that is not connected says why, never a blank pane (P-AUSTIN B7).
+        if let requested, let absence = services.cloudAbsences.absence(of: requested) { return showAbsent(requested, absence) }
         if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) { return }
         let members = services.windows.registry.members(of: state.id)
         if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
+        }
+        if let (id, absence) = members.lazy.compactMap({ id in self.services.cloudAbsences.absence(of: id).map { (id, $0) } }).first {
+            return showAbsent(id, absence)
         }
         // Keep what is shown (the old content stays until the manager
         // closes or refills this window); a window with nothing yet waits.
