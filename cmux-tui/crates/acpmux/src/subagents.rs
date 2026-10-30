@@ -903,6 +903,65 @@ mod codex_tests {
         assert_eq!(tree.background_running(), 0, "the root is not background work");
     }
 
+    /// The tree lives as long as the hub session, but a harness restart or a new
+    /// Codex conversation gives the session a new native root id. The new root
+    /// must be treated as a root too, not as an ordinary subagent; an echo of it
+    /// recorded before the restart was known stops counting as background work.
+    #[test]
+    fn a_root_learned_after_a_restart_is_also_a_root() {
+        let mut tree = SubagentTree::default();
+        let first_root = "root-before-restart";
+        let root = "root-after-restart";
+        let review = "review-thread";
+        let prior_art = "prior-art-thread";
+        tree.set_root(first_root);
+
+        // After the restart, the new root is echoed before the session metadata
+        // names it, so it reads as running background work.
+        let early = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "echo-early",
+                   "_meta": {"codex": {"subagent": {"threadId": root,
+                     "path": "/root", "activity": "working"}}}}),
+        );
+        assert_eq!(early[0]["background"], json!(true));
+        tree.set_root(root);
+        assert_eq!(tree.background_running(), 0, "the new root is not background work");
+
+        let first = subagents_for(
+            &mut tree,
+            "acp-root",
+            json!({"sessionUpdate": "tool_call", "toolCallId": "spawn-review",
+                   "rawInput": {"prompt": "Review", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": root, "receiverThreadIds": [review]}}}}),
+        );
+        assert_eq!(first[0]["id"], review);
+        assert_eq!(first[0]["parent"], Value::Null);
+
+        let echoed = subagents_for(
+            &mut tree,
+            review,
+            json!({"sessionUpdate": "tool_call_update", "toolCallId": "echo-root",
+                   "_meta": {"codex": {"subagent": {"threadId": root,
+                     "path": "/root", "activity": "working"}}}}),
+        );
+        assert!(echoed.is_empty(), "the new root's echo became a child: {echoed:?}");
+
+        let second = subagents_for(
+            &mut tree,
+            root,
+            json!({"sessionUpdate": "tool_call", "toolCallId": "spawn-prior-art",
+                   "rawInput": {"prompt": "Prior art", "agentsStates": {}},
+                   "_meta": {"codex": {"collaboration": {"tool": "spawnAgent",
+                     "senderThreadId": root, "receiverThreadIds": [prior_art]}}}}),
+        );
+        assert_eq!(second[0]["id"], prior_art);
+        assert_eq!(second[0]["parent"], Value::Null);
+        assert!(!tree.owns(root), "the new root is not a subagent");
+    }
+
     #[test]
     fn codex_child_sender_remains_the_parent_of_a_grandchild() {
         let mut tree = SubagentTree::default();
