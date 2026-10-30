@@ -39,8 +39,11 @@ export function inThisVisit(
   sessionId: string | undefined,
   visit: unknown,
 ): boolean {
-  if (!held) return false;
-  return held.sessionId === sessionId && (held.visit === undefined || held.visit === visit);
+  if (!held || held.sessionId !== sessionId) return false;
+  // An established chat is its own scope across visits (A → B → A keeps its question); only fresh
+  // chats, which share no session id, are told apart by the visit.
+  if (sessionId !== undefined) return true;
+  return held.visit === undefined || held.visit === visit;
 }
 
 /// The visit to record on a held folder question or retry. No client (a gallery frame) records none,
@@ -52,9 +55,10 @@ export function visitOf(visit: unknown): { visit?: string } {
   return {};
 }
 
-/// A held Trust retry's key: its chat and the client visit it was refused in (none: unbound).
+/// A held Trust retry's key: an established chat's session id, or for a fresh chat (no id) the client
+/// visit it was refused in (none: unbound). A → B → A finds A's retry again.
 function retryKey(chat: string | undefined, visit: unknown): string {
-  return JSON.stringify([chat ?? null, typeof visit === "string" ? visit : null]);
+  return JSON.stringify(chat !== undefined ? [chat] : [null, typeof visit === "string" ? visit : null]);
 }
 
 /// Why Send is off; an empty block only reports a trust read in flight. `shownAbove`: the
@@ -236,7 +240,9 @@ export function useFolderTrustAsk(
   /// The keys a chat's held retry may sit under: its visit's, then the unbound one (a New Tab's first
   /// render has no client visit yet, and its retry stays its own once the visit binds).
   const retryKeys = (chat: string | undefined, visit: unknown) =>
-    typeof visit === "string" ? [retryKey(chat, visit), retryKey(chat, undefined)] : [retryKey(chat, undefined)];
+    chat === undefined && typeof visit === "string"
+      ? [retryKey(chat, visit), retryKey(chat, undefined)]
+      : [retryKey(chat, undefined)];
   const heldRetry = (chat: string | undefined, visit: unknown) => {
     for (const key of retryKeys(chat, visit)) {
       const held = resend.current.get(key);
