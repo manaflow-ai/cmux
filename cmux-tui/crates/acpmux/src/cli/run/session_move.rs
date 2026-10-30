@@ -479,9 +479,9 @@ impl Targets {
             if let Some(why) = row.and_then(|h| h["reserved"].as_str()) {
                 return Some(why.to_owned());
             }
-            let holds = crate::cli::host_hold::Holds::read(&crate::cli::host_hold::holds_path());
+            let holds = crate::cli::hosts::host_hold::Holds::read(&crate::cli::hosts::host_hold::holds_path());
             match holds {
-                Ok(h) => h.why(name, name, crate::cli::host_hold::now_ms()),
+                Ok(h) => h.why(name, name, crate::cli::hosts::host_hold::now_ms()),
                 Err(e) => Some(format!("its holds cannot be read ({e:#})")),
             }
         };
