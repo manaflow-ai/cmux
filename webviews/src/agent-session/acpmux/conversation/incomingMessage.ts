@@ -24,6 +24,7 @@
 // acpmux TUI, so it is a message only when its sender is a listed chat, or its receiver is this
 // chat and its sender reads as an agent's name (`IncomingContext`). A watched chat (`client: "watch"`, hub/watch.rs) records its
 // prompts from the transcript as an adopted one does, Claude Code's envelopes in them.
+import { clipMessagePreview as clip } from "./clipMessagePreview";
 
 /// Who a family message's sender is to this chat (acpmux `fromRole`, subsession_send.rs
 /// `family_role`): the chat that started it, one it started, one further up, or another below or
@@ -217,11 +218,6 @@ function linkEnd(line: string, from: number): number {
     else if (char === ")" && --depth === 0) return index + 1;
   }
   return -1;
-}
-
-/// A preview's spaces collapsed, at most 240 characters.
-function clip(line: string): string {
-  return line.replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
 /// `text` without a signature naming `name` first (`[coord-deputy] Merged`, `From coord-deputy:

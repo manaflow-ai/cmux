@@ -3,7 +3,9 @@
 //! coordinator, a chat on a peer) and read the sessions, instead of piping text into `acpmux
 //! send` in a shell, which a chat draws as a command block. Behind the `cmux` server its tools
 //! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the Labs-gated
-//! team mailbox tools (`team_send`, `team_inbox`, `team_ack`).
+//! team mailbox tools (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
+//! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
+//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent.
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
 //! the session's caller token from this server's env (`hub/person.rs` (a)), on this daemon's
@@ -29,10 +31,28 @@ pub const SESSION_ENV: &str = "ACPMUX_SESSION_ID";
 /// The daemon's outbox (`server/outbox.rs`) goes on delivering after that, retrying a peer that
 /// is down and across a restart; nothing in this server waits on it.
 const STATUS_WAIT: Duration = Duration::from_secs(5);
+/// What every chat with this server is told about background work: the Codex steer (its
+/// unified exec background terminals end when the agent hibernates, and only the whole feature
+/// can be turned off), and Claude Code's, behind the PreToolUse hook (`bg_hook.rs`).
+const BG_STEER: &str = "Long-running commands (a dev server, a watcher, a long build or test \
+run): start them with bg_start, not as a background shell or terminal of your own. This chat's \
+agent hibernates after 2 idle minutes and its own background shells end with it; a bg_start task \
+keeps running, and bg_list and bg_output read it later by its id.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 
+#[path = "acpmux_mcp_bg.rs"]
+mod bg;
+
 fn tools() -> Value {
+    let mut all = base_tools();
+    if let Some(list) = all.as_array_mut() {
+        list.extend(bg::tools());
+    }
+    all
+}
+
+fn base_tools() -> Value {
     json!([
         {
             "name": "send",
@@ -122,8 +142,15 @@ pub async fn run() -> Result<()> {
         SERVER_NAME,
         SESSION_ENV,
         tools(),
-        None,
-        |daemon, _session, params| async move { call(&daemon, &params).await },
+        Some(BG_STEER.to_owned()),
+        |daemon, session, params| async move {
+            let name = params["name"].as_str().unwrap_or_default();
+            if bg::TOOLS.contains(&name) {
+                let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+                return bg::call(&daemon, &session, name, &args).await;
+            }
+            call(&daemon, &params).await
+        },
     )
     .await
 }

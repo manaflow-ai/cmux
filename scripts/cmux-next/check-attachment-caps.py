@@ -16,35 +16,58 @@ from pathlib import Path
 # Protocol frames/ranges, filename validation and terminal ACK buffers do not reject an
 # original: transfer loops split files at these boundaries. Never exempt a file/total cap.
 TRANSPORT_BOUNDS = {"MAX_CHUNK_BYTES", "MAX_RANGE_BYTES", "MAX_FRAME_BYTES", "MAX_MESSAGE_BYTES", "MAX_NAME_BYTES", "MAX_PENDING_INPUT_ACK_BYTES", "maximumUploadStageChunk", "maximumChunkBytes", "maximumFrameBytes", "maximumRangeBytes"}
-FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:BYTES|SIZE)|maximum\w*(?:File|Bytes|Stage)\w*|max\w*(?:File|Bytes|Size))\b")
-EXCLUDED = {".git", ".build", "node_modules", "dist", "fixtures", "generated", "tests", "test", "__tests__", "vendor", "target", "build", "third_party"}
-SOURCE_SUFFIXES = {".swift", ".rs", ".ts", ".tsx", ".js", ".mjs"}
-# Scan only Home's admission paths. Other attachment/upload files intentionally contain
-# independent transport, preview, draft and mobile budgets; they are audited by their
-# own policy and must not make this admission guard report false positives.
-ADMISSION_PATHS = {
-    "backend/apps/api/src/home-attachment-gc.ts",
-    "backend/apps/api/src/home-attachment-quota.ts",
-    "backend/apps/api/src/home-attachments.ts",
-    "backend/packages/home-core/src/conversation/attachments.ts",
-    "webviews/src/pages/home-channels/attachmentService.ts",
-    "webviews/src/agent-session/acpmux/attachments.ts",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatUploads.swift",
-    "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift",
-    "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentMedia.swift",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeComposerCheck.swift",
-    "cmux-tui/crates/cmux-conversation/src/attachments.rs",
-}
-# This cache budget is unrelated to chat-upload admission and is deliberately retained.
+# Scope exceptions name an exact path AND symbol, never a directory or a wildcard.
+# Derived/protocol budgets stay. Legacy original-file limits are explicitly deferred
+# to the streaming follow-up split from #26409; they are not permission for new caps.
 RETAINED_BOUNDS = {
+    "Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileImageAttachmentPreparer.swift": {
+        "maximumRawInputBytes": "Unused legacy declaration; outside native staged admission.",
+        "maximumEncodedBytes": "Downsampled PNG/JPEG representation budget, not the input file.",
+    },
+    "Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/TaskComposerAttachment.swift": {
+        "maximumFileBytes": "Legacy mobile task admission; removal belongs to the streaming follow-up.",
+        "maximumTotalBytes": "Legacy mobile task batch quota; deferred with its upload transport.",
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneDraftAttachments.swift": {
+        "maximumBytes": "Inline draft persistence memory budget; file-reference persistence is separate.",
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {
+        "maximumWarmBytes": "New Tab warm-cache budget, unrelated to chat.upload decoding.",
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneUpload.swift": {
+        "maximumFileBytes": "Legacy whole-message inline upload; staged upload has separate admission.",
+        "maximumTotalBytes": "Legacy whole-message batch budget; staged batches do not use it.",
+        "maximumPeerFileBytes": "Legacy peer inline protocol budget; removal needs streaming integration.",
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentPeerUploads.swift": {
+        "maximumPeerFileBytes": "Legacy peer upload admission, deferred to the streaming follow-up.",
+        "maximumTotalBytes": "Legacy peer batch quota, deferred with its transport replacement.",
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudUploads.swift": {
+        "maximumFileBytes": "Cloud upload quota; removal waits for the streaming/multipart prerequisites.",
+        "maximumTotalBytes": "Cloud batch quota; deferred with the cloud streaming integration.",
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefAvatarUploads.swift": {
+        "maximumBytes": "Custom pet-avatar image format budget; not a chat attachment.",
+        "maximumGIFBytes": "Custom pet-avatar GIF budget; not a chat attachment.",
+    },
     "cmux-tui/crates/cmux-conversation/src/attachments.rs": {
         "MAX_POSTER_BYTES": "Derived video-poster representation budget, not original admission.",
         "MAX_PREVIEW_IMAGE_BYTES": "Derived image-preview representation budget, not original admission.",
         "max_bytes": "DerivedVariant representation budget only; original upload is uncapped.",
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {
-        "maximumWarmBytes": "New Tab warm-cache budget, unrelated to chat.upload decoding.",
+    "cmux-tui/crates/cmux-tui/src/link/access_cli/uploads.rs": {
+        "MAX_FILE_BYTES": "Cloud CLI upload quota; deferred with the cloud transport integration.",
+    },
+    "webviews/src/agent-session/acpmux/attachments.ts": {
+        "MAX_IMAGE_BYTES": "Model image representation budget; larger previews are downsampled.",
+        "MAX_DOCUMENT_BYTES": "Inline protocol-frame budget; larger originals use file links.",
+        "MAX_TEXT_BYTES": "Inline prompt-text budget; larger originals use file links.",
+        "MAX_AUDIO_BYTES": "Inline audio protocol-frame budget; not staged file admission.",
+    },
+    "webviews/src/pages/home-channels/attachmentService.ts": {
+        "maxBytes": "Preview encoding budget; original upload is uncapped.",
+        "MAX_UNSIZED_DECODE_BYTES": "Shared optional image-preview decode budget; original upload is uncapped.",
     },
     "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift": {
         "streamMaxBytes": "Worker transport threshold; larger originals use presigned upload.",
@@ -58,20 +81,28 @@ RETAINED_BOUNDS = {
     "backend/packages/home-core/src/conversation/attachments.ts": {
         "maxBytes": "Derived image representation budget; original upload is uncapped.",
     },
-    "webviews/src/pages/home-channels/attachmentService.ts": {
-        "maxBytes": "Preview encoding budget; original upload is uncapped.",
-        "MAX_UNSIZED_DECODE_BYTES": "Shared optional image-preview decode budget; original upload is uncapped.",
-    },
-    "webviews/src/agent-session/acpmux/attachments.ts": {
-        "MAX_IMAGE_BYTES": "Model image representation budget; larger previews are downsampled.",
-        "MAX_DOCUMENT_BYTES": "Inline protocol-frame budget; larger originals use file links.",
-        "MAX_TEXT_BYTES": "Inline prompt-text budget; larger originals use file links.",
-        "MAX_AUDIO_BYTES": "Inline audio protocol-frame budget; not staged file admission.",
-    },
 }
-
+FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:BYTES|SIZE)|maximum\w*(?:File|Bytes|Stage)\w*)\b")
+HOME_FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:BYTES|SIZE)|maximum\w*(?:File|Bytes|Stage)\w*|max\w*(?:File|Bytes|Size))\b")
+EXCLUDED = {".git", ".build", "node_modules", "dist", "fixtures", "generated", "tests", "test", "__tests__", "vendor", "target", "build", "third_party"}
+SOURCE_SUFFIXES = {".swift", ".rs", ".ts", ".tsx", ".js", ".mjs"}
 # chat.upload is decoded here despite the filename lacking upload/attachment.
 EXTRA_SOURCES = {"AgentPaneRequest+Decoding.swift"}
+# Home admission also lives in files without attachment/upload in their names.
+ADMISSION_PATHS = {
+    "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentMedia.swift",
+    "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatUploads.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeComposerCheck.swift",
+    "backend/apps/api/src/home-attachment-gc.ts",
+    "backend/apps/api/src/home-attachment-quota.ts",
+    "backend/apps/api/src/home-attachments.ts",
+    "backend/packages/home-core/src/conversation/attachments.ts",
+    "cmux-tui/crates/cmux-conversation/src/attachments.rs",
+    "webviews/src/agent-session/acpmux/attachments.ts",
+    "webviews/src/pages/home-channels/attachmentService.ts",
+}
 TOKEN = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|[\w$]+|<=|>=|==|!=|=>|<<|>>|&&|\|\||[^\s]")
 COMPARISONS = {"<", "<=", ">", ">="}
 STOPS = COMPARISONS | {"==", "!=", "&&", "||", "=", ";", ",", ":", "?", "if", "guard", "else", "return", "let", "const", "var"}
@@ -155,7 +186,7 @@ def files(root: Path) -> list[Path]:
             relative = path.relative_to(root)
             if path.suffix not in SOURCE_SUFFIXES or ".test." in name or ".spec." in name:
                 continue
-            if relative.as_posix() in ADMISSION_PATHS:
+            if relative.as_posix() in ADMISSION_PATHS or name in EXTRA_SOURCES or any("attachment" in part.lower() or "upload" in part.lower() for part in relative.parts):
                 found.append(path)
     return sorted(found)
 
@@ -168,11 +199,12 @@ def violations(root: Path) -> list[str]:
         except UnicodeDecodeError:
             continue
         tokens = code_tokens(source)
+        forbidden = HOME_FORBIDDEN if path.relative_to(root).as_posix() in ADMISSION_PATHS else FORBIDDEN
         for index, token in enumerate(tokens):
             finding = None
-            if (FORBIDDEN.fullmatch(token[0]) and token[0] not in TRANSPORT_BOUNDS and
-                    token[0] not in RETAINED_BOUNDS.get(path.relative_to(root).as_posix(), {})):
-                finding = token[0]
+            if forbidden.fullmatch(token[0]) and token[0] not in TRANSPORT_BOUNDS:
+                if token[0] not in RETAINED_BOUNDS.get(path.relative_to(root).as_posix(), {}):
+                    finding = token[0]
             elif token[0] in COMPARISONS:
                 left = operand(tokens, index - 1, -1)
                 right = operand(tokens, index + 1, 1)

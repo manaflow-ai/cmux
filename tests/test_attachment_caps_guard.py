@@ -13,7 +13,10 @@ SPEC.loader.exec_module(guard)
 
 
 class AttachmentCapsGuardTests(unittest.TestCase):
-    def check_source(self, source, expected, relative="backend/packages/home-core/src/conversation/attachments.ts"):
+    def test_checked_in_tree_has_no_unreviewed_caps(self):
+        self.assertEqual(guard.violations(SCRIPT.parents[2]), [])
+
+    def check_source(self, source, expected, relative="src/upload.swift"):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             path = root / relative
@@ -21,6 +24,19 @@ class AttachmentCapsGuardTests(unittest.TestCase):
             path.write_text(source, encoding="utf-8")
             found = guard.violations(root)
             self.assertEqual(len(found), expected, found)
+
+    def test_retained_bounds_only_apply_to_the_named_path_and_symbol(self):
+        for relative, symbols in guard.RETAINED_BOUNDS.items():
+            for name, reason in symbols.items():
+                with self.subTest(path=relative, name=name):
+                    self.assertTrue(reason.strip())
+                    self.check_source(f"let {name} = 1", 0, relative)
+                    # Home additionally checks short maxBytes-style names; the general scanner
+                    # keeps its existing grammar for unrelated upload policies.
+                    expected = int(guard.FORBIDDEN.fullmatch(name) is not None)
+                    self.check_source(f"let {name} = 1", expected, "new/uploads/service.swift")
+            self.check_source("let maximumNewFileBytes = 1", 1, relative)
+            self.check_source("guard size <= 1_048_576 else { return failure() }", 1, relative)
 
     def test_camel_case_file_and_stage_caps(self):
         for name in ("maximumFileSize", "maximumUploadBytes", "maximumUploadStageFile", "maximumStagedBytes"):
@@ -46,22 +62,6 @@ class AttachmentCapsGuardTests(unittest.TestCase):
     def test_decoder_is_scanned_even_without_upload_in_filename(self):
         self.check_source("let maximumUploadStageFile = 1024", 1,
                           "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift")
-
-    def test_swift_home_admission_paths_are_scanned(self):
-        paths = (
-            "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift",
-            "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentMedia.swift",
-            "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeComposerCheck.swift",
-        )
-        for relative in paths:
-            with self.subTest(path=relative):
-                self.check_source("let maximumUploadFileBytes = 100\n", 1, relative)
-                self.check_source("static let maxBytes = 100_000_000", 1, relative)
-                self.check_source("guard size <= HomeAttachmentPolicy.maxBytes else { return }", 1, relative)
-
-    def test_swift_derived_preview_limits_are_explicitly_retained(self):
-        self.check_source("let previewMaxBytes = 512 * 1024\n", 0,
-                          "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift")
 
     def test_literal_admission_comparisons(self):
         for source in (
@@ -101,14 +101,12 @@ class AttachmentCapsGuardTests(unittest.TestCase):
     def test_diagnostics_keep_line_numbers_after_comments(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            path = root / "backend/packages/home-core/src/conversation/attachments.ts"
-            path.parent.mkdir(parents=True)
-            path.write_text(
+            (root / "upload.swift").write_text(
                 '/* maximumFileBytes\n size <= 1_048_576 */\n'
                 'guard size <= 1_048_576 else { return failure() }\n')
             found = guard.violations(root)
             self.assertEqual(len(found), 1, found)
-            self.assertTrue(found[0].startswith("backend/packages/home-core/src/conversation/attachments.ts:3: literal size cap:"), found)
+            self.assertTrue(found[0].startswith("upload.swift:3: literal size cap:"), found)
 
     def test_literal_parser_does_not_execute_or_expand_arbitrary_expressions(self):
         for expression in ("__import__('os').system('exit 1')", "2 ** 1000000000", "1 << 1000000000"):
@@ -116,18 +114,45 @@ class AttachmentCapsGuardTests(unittest.TestCase):
                 self.assertIsNone(guard.literal_value([expression]))
 
     def test_new_source_paths_are_discovered(self):
-        for relative in ("backend/apps/api/src/home-attachments.ts", "webviews/src/pages/home-channels/attachmentService.ts"):
+        for relative in ("webviews/src/uploads/service.ts", "NewModule/Sources/Attachments/Service.swift"):
             with self.subTest(path=relative), tempfile.TemporaryDirectory() as folder:
                 root = Path(folder)
                 source = root / relative
                 source.parent.mkdir(parents=True)
-                source.write_text("let MAX_NEW_BYTES = 100\n", encoding="utf-8")
-                self.assertEqual(guard.violations(root), [f"{relative}:1: MAX_NEW_BYTES"])
+                source.write_text("let MAX_ATTACHMENT_BYTES = 100\n", encoding="utf-8")
+                self.assertEqual(guard.violations(root), [f"{relative}:1: MAX_ATTACHMENT_BYTES"])
 
-    def test_unrelated_attachment_policies_are_out_of_scope(self):
-        for relative in ("Packages/iOS/TaskComposerAttachment.swift", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudUploads.swift", "src/uploads/service.ts"):
+    def test_excludes_fixtures_dependencies_and_test_sources(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for relative in ("fixtures/uploads/a.ts", "node_modules/uploads/a.ts", "src/uploads/a.test.ts"):
+                source = root / relative
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("const MAX_FILE_BYTES = 100\n", encoding="utf-8")
+            self.assertEqual(guard.violations(root), [])
+
+    def test_transport_chunks_are_not_original_admission_caps(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "upload.ts").write_text("const MAX_CHUNK_BYTES = 1024; const MAX_TOTAL_BYTES = 100;\n")
+            self.assertEqual(guard.violations(root), ["upload.ts:1: MAX_TOTAL_BYTES"])
+
+
+    def test_swift_home_admission_paths_are_scanned(self):
+        paths = (
+            "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift",
+            "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentMedia.swift",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeComposerCheck.swift",
+        )
+        for relative in paths:
             with self.subTest(path=relative):
-                self.check_source("let MAX_FILE_BYTES = 100\n", 0, relative)
+                self.check_source("let maximumUploadFileBytes = 100\n", 1, relative)
+                self.check_source("static let maxBytes = 100_000_000", 1, relative)
+                self.check_source("guard size <= HomeAttachmentPolicy.maxBytes else { return }", 1, relative)
+
+    def test_swift_derived_preview_limits_are_explicitly_retained(self):
+        self.check_source("let previewMaxBytes = 512 * 1024\n", 0,
+                          "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift")
 
     def test_rust_derived_budgets_do_not_hide_an_original_cap(self):
         self.check_source(
@@ -143,24 +168,6 @@ class AttachmentCapsGuardTests(unittest.TestCase):
     def test_retained_warm_cache_budget_has_a_reason(self):
         self.check_source("let maximumWarmBytes = 1024\n", 0,
                           "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift")
-
-    def test_excludes_fixtures_dependencies_and_test_sources(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            for relative in ("fixtures/uploads/a.ts", "node_modules/uploads/a.ts", "src/uploads/a.test.ts"):
-                source = root / relative
-                source.parent.mkdir(parents=True, exist_ok=True)
-                source.write_text("const MAX_FILE_BYTES = 100\n", encoding="utf-8")
-            self.assertEqual(guard.violations(root), [])
-
-    def test_transport_chunks_are_not_original_admission_caps(self):
-        with tempfile.TemporaryDirectory() as folder:
-            root = Path(folder)
-            path = root / "backend/packages/home-core/src/conversation/attachments.ts"
-            path.parent.mkdir(parents=True)
-            path.write_text("const MAX_CHUNK_BYTES = 1024; const MAX_TOTAL_BYTES = 100;\n")
-            self.assertEqual(guard.violations(root), ["backend/packages/home-core/src/conversation/attachments.ts:1: MAX_TOTAL_BYTES"])
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -398,7 +398,7 @@ public struct AgentChatTranscript: View {
                     .transition(.opacity)
             }
         }
-        // The soft top edge under the status bar or bar is the controller's TopFadeView.
+        // UIKit owns the native top edge and the workspace's iOS 26 gradient fallback.
         .navigationDestination(item: $surface.diffRoute) { route in
             Group {
                 if let file = route.fileID {
@@ -737,8 +737,9 @@ struct TurnView: View {
                 case .failed:
                     let failure = TurnFailureCopy(message: turn.errorText, harness: store.summary.harness, harnessName: store.summary.agentName)
                     FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,
+                                canRetry: store.canRetryFailedTurn(turn),
                                 retryWith: RetryModelChoice(store: store, turn: turn)) {
-                        store.send(prompt: turn.prompt)
+                        store.retryFailedTurn(turn)
                     }
                 case .completed:
                     AnswerActionRow(turn: turn, isLast: isLast, retryWith: RetryModelChoice(store: store, turn: turn)) {
