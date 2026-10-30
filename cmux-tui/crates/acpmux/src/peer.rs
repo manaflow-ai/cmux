@@ -753,6 +753,24 @@ impl Peer {
         self.attached.lock_or_recover().insert(session_id.to_owned())
     }
 
+    /// The link's own attach of the peer's chat `id` ([`hidden_attach`]), marked already. One
+    /// the peer refused, or did not answer while its link stayed up, is no longer marked, so
+    /// the next prompt attaches it again (a mark is never sent twice), and its error goes to
+    /// the log at warn: a chat whose attach failed got no stream, and said nothing of why.
+    /// One whose link dropped stays marked: the next link's handshake attaches it again.
+    pub async fn attach_hidden(&self, id: &str) -> Result<Value, RpcError> {
+        let link = self.link_epoch();
+        let attached = self.request_on(method::MUX_ATTACH, hidden_attach(id), Some(link)).await;
+        if let Err(e) = &attached
+            && self.link_epoch() == link
+            && self.connected.load(Ordering::SeqCst)
+        {
+            self.attached.lock_or_recover().remove(id);
+            tracing::warn!(peer = %self.name, session = %id, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
+        }
+        attached
+    }
+
     /// How many requests wait for the peer's answer now.
     pub async fn pending_requests(&self) -> usize {
         self.pending.lock().await.len()
@@ -1235,10 +1253,9 @@ impl Peer {
             }
             tracing::info!(peer = %me.name, "connected to {}", me.url);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
+            // All at once: a chat the peer is slow on holds up no other's stream.
             let attached: Vec<String> = me.attached.lock_or_recover().iter().cloned().collect();
-            for sid in attached {
-                let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
-            }
+            futures::future::join_all(attached.iter().map(|sid| me.attach_hidden(sid))).await;
             me.refresh_health();
             Ok::<(), RpcError>(())
         });
