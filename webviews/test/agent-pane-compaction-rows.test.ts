@@ -587,6 +587,35 @@ for (const terminal of ["turn_end", "turn_result"])
     }
   });
 
+test("a legacy turn_end answers an unidentified Stop, so the next turn's Stop is sent", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "legacy prompt" }],
+      ["mux", "turn_started", {}],
+    ]),
+  );
+  const { client } = await connect(daemon);
+  const cancels = () => daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel").length;
+  try {
+    await client.cancel();
+    expect(cancels()).toBe(1);
+    daemon.push(record([["mux", "turn_end", { status: "cancelled" }]], 3));
+    daemon.push(
+      record(
+        [
+          ["mux", "user_message", { text: "next legacy prompt" }],
+          ["mux", "turn_started", {}],
+        ],
+        4,
+      ),
+    );
+    await client.cancel();
+    expect(cancels()).toBe(2);
+  } finally {
+    client.close();
+  }
+});
+
 for (const action of ["stop", "send-now"])
   test(`Stop before its late opener keeps the same turn identity (${action})`, async () => {
     const daemon = fakeDaemon([]);
