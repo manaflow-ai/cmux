@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4113159963901",
+  "notes": "notes/4113159963901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25766,
+      "title": "P0 agent-chat: isolate thread rail flash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28528,
+      "title": "ci(cmux-next): a cmux-next.yml edit runs the tiers of the jobs it changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27995,
+      "title": "fix(header): keep action labels stable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28133,
+      "title": "fix(agent-pane): keep running tray durations on one line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28254,
+      "title": "feat(webviews): report visible page loops",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26635,
+      "title": "perf(agent-chat): stop replaying rail tick entrances (rail-speed)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
