@@ -261,6 +261,60 @@ struct CloudIdlePauseTests {
         f.session.disconnect()
     }
 
+    // MARK: One record (Machine Status)
+
+    /// Machine Status reads the machine's record by itself. A record that went from live to not
+    /// live suspends the session like a list refresh does: before, it only replaced the record, so
+    /// the next refresh found "was not live", nothing suspended, and the header never read
+    /// "Paused (idle)" while the link kept trying.
+    @Test(.timeLimit(.minutes(1)))
+    func oneRecordThatTurnedPausedSuspendsTheSession() async throws {
+        let f = Self.pausedMachine(reason: nil)
+        f.session.machine.status = .running
+        f.session.connect()
+        let session = f.session
+        try await Self.waitUntil { session.linkPhase != .idle }
+        #expect(session.stage != .paused(idle: true), "a live link is not a pause")
+
+        var record = session.machine
+        record.status = .paused
+        record.pauseReason = .idle
+        f.services.cloud.apply(record, to: session)
+
+        #expect(session.machine.status == .paused)
+        #expect(session.linkPhase == .idle, "suspended: the link stopped")
+        #expect(!session.daemon.isStarting, "suspended: the daemon connection is down")
+        #expect(session.stage == .paused(idle: true))
+        session.disconnect()
+    }
+
+    /// The other direction: a record that turned live (the machine was resumed elsewhere)
+    /// connects the session. Before, Machine Status left it disconnected.
+    @Test(.timeLimit(.minutes(1)))
+    func oneRecordThatTurnedLiveConnectsTheSession() async throws {
+        let f = Self.pausedMachine(reason: .idle)
+        let session = f.session
+        #expect(!session.daemon.isStarting)
+
+        var record = session.machine
+        record.status = .running
+        record.pauseReason = nil
+        f.services.cloud.apply(record, to: session)
+
+        #expect(session.machine.status == .running)
+        try await Self.waitUntil { session.daemon.isStarting }
+        session.disconnect()
+    }
+
+    /// Waits up to 20 seconds for `condition`, which the session's connect makes true.
+    static func waitUntil(_ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(20)
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try #require(condition())
+    }
+
     // MARK: The setting
 
     @Test func theSettingIsACLIActionWithExactlyTheFiveChoices() throws {
