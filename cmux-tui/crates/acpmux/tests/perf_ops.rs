@@ -125,6 +125,8 @@ struct Load {
     stop: Arc<AtomicBool>,
     fsyncs: Arc<AtomicU64>,
     hog_bytes: Arc<AtomicU64>,
+    /// Bytes the hog freed at critical pressure (the safety bound fired).
+    released: Arc<AtomicU64>,
     threads: Vec<std::thread::JoinHandle<()>>,
 }
 
@@ -135,6 +137,7 @@ impl Load {
         let stop = Arc::new(AtomicBool::new(false));
         let fsyncs = Arc::new(AtomicU64::new(0));
         let hog_bytes = Arc::new(AtomicU64::new(0));
+        let released = Arc::new(AtomicU64::new(0));
         let grown = Arc::new(AtomicBool::new(false));
         let mut threads = Vec::new();
         let ram: u64 = sysctl("hw.memsize").parse().unwrap_or(16 << 30);
@@ -148,8 +151,8 @@ impl Load {
         // Memory hog: incompressible chunks (xorshift) so the compressor cannot absorb them and
         // the host swaps; then a slow re-touch of every page keeps swap traffic on the disk.
         {
-            let (stop, hog_bytes, grown, dir) =
-                (stop.clone(), hog_bytes.clone(), grown.clone(), dir.to_owned());
+            let (stop, hog_bytes, grown, dir, released) =
+                (stop.clone(), hog_bytes.clone(), grown.clone(), dir.to_owned(), released.clone());
             threads.push(std::thread::spawn(move || {
                 let mut chunks: Vec<Vec<u64>> = Vec::new();
                 let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
@@ -187,9 +190,28 @@ impl Load {
                     pressure()
                 );
                 grown.store(true, Ordering::SeqCst);
-                // Re-touch one word per 16 KB page, chunk by chunk.
+                // Re-touch one word per 16 KB page, chunk by chunk. Safety bound: at critical
+                // pressure (the kernel is about to kill processes) free 1 GB, counted in
+                // `released` and printed per run, so the host never dies of the bench.
                 let mut i = 0usize;
+                let mut checked = Instant::now();
                 while !stop.load(Ordering::Relaxed) && !chunks.is_empty() {
+                    if checked.elapsed() >= Duration::from_secs(2) {
+                        checked = Instant::now();
+                        if pressure() >= 4 {
+                            for _ in 0..4 {
+                                if chunks.pop().is_some() {
+                                    released
+                                        .fetch_add(HOG_CHUNK_U64S as u64 * 8, Ordering::Relaxed);
+                                    hog_bytes
+                                        .fetch_sub(HOG_CHUNK_U64S as u64 * 8, Ordering::Relaxed);
+                                }
+                            }
+                            if chunks.is_empty() {
+                                break;
+                            }
+                        }
+                    }
                     let c = &mut chunks[i % chunks.len()];
                     let mut j = 0;
                     while j < c.len() {
@@ -244,7 +266,7 @@ impl Load {
         while !grown.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(240) {
             std::thread::sleep(Duration::from_millis(500));
         }
-        Self { stop, fsyncs, hog_bytes, threads }
+        Self { stop, fsyncs, hog_bytes, released, threads }
     }
 
     fn stop(self) {
@@ -644,12 +666,13 @@ async fn run_arm(
     let fsyncs = load.fsyncs.load(Ordering::Relaxed) - f0;
     let (lmax, wmax) = sampler.finish();
     eprintln!(
-        "ACPMUX-PERF load round={round} arm={arm} load1_start={l0:.1} load1_max={lmax:.1} load1_end={:.1} swap_start_mb={} swap_max_mb={} swap_end_mb={} hog_mb={} bg_fsyncs_per_s={:.1} pressure={}",
+        "ACPMUX-PERF load round={round} arm={arm} load1_start={l0:.1} load1_max={lmax:.1} load1_end={:.1} swap_start_mb={} swap_max_mb={} swap_end_mb={} hog_mb={} hog_released_mb={} bg_fsyncs_per_s={:.1} pressure={}",
         load1(),
         w0 >> 20,
         wmax >> 20,
         swap_used() >> 20,
         load.hog_bytes.load(Ordering::Relaxed) >> 20,
+        load.released.load(Ordering::Relaxed) >> 20,
         fsyncs as f64 / secs,
         pressure()
     );
