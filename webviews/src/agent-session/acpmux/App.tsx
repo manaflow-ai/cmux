@@ -6029,17 +6029,14 @@ function AcpmuxPane() {
         })(restartChat),
         // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts).
         retryCapabilities: directClient.current?.capabilities,
+        // One it can't reach (a reconnect, a switch's hold) is refused with a note, never taken as sent.
         retryAgent: ((owner: string) => (agent: RetryTarget) => {
           const client = directClient.current;
-          if (!client || !restartReaches(owner, sessionIdRef.current, client.selectedSession))
-            return Promise.resolve(undefined);
+          const reaches = () => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession);
+          if (!client) return Promise.resolve("retry.failed" as const);
           const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
-          // Checked again after acpmux answered: the pane may have moved to another chat meanwhile.
-          const send = (text: string) =>
-            restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
-              ? callNative("chat.send", { text })
-              : Promise.resolve();
-          return runRetry(agent, owner, { request, send, capabilities: client.capabilities }, translate);
+          const send = (text: string) => callNative("chat.send", { text });
+          return runRetry(agent, owner, { request, send, capabilities: client.capabilities, reaches }, translate);
         })(restartChat),
       }),
       ...(connected &&

@@ -205,6 +205,9 @@ export type RetryDeps = {
   request: (method: string, params: Record<string, unknown>) => Promise<unknown>;
   send: (text: string) => Promise<unknown>;
   capabilities?: ReadonlySet<string>;
+  /// Whether the pane still shows the row's chat, connected: checked before acpmux is asked and
+  /// again before the ask is sent. A Retry it can't reach is refused `retry.failed`, never sent.
+  reaches?: () => boolean;
 };
 
 /// A refusal's words. `retry.nothing_failed` says why (`data.why`): running again, or gone for
@@ -240,6 +243,8 @@ export async function runRetry(
 ): Promise<RetryNote | undefined> {
   const action = retryActionOf(agent, deps.capabilities);
   if (!action) return undefined;
+  const away = () => deps.reaches !== undefined && !deps.reaches();
+  if (away()) return "retry.failed";
   if (action === "daemon") {
     const params = agent.child ? { sessionId: agent.child } : { sessionId: chat, subagentId: agent.id };
     try {
@@ -253,6 +258,8 @@ export async function runRetry(
       if (agent.child) return "retry.failed";
     }
   }
+  // Checked again after acpmux answered: the pane may have moved to another chat meanwhile.
+  if (away()) return "retry.failed";
   try {
     await deps.send(askPrompt(agent, t));
     return undefined;
