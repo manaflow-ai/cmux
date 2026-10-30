@@ -34,14 +34,19 @@ class RunsSql {
     for (const turn of turns) this.bodies.set(turn.id, JSON.stringify({ id: turn.id, conversation: turn.conversation, run: turn.id, started_at: turn.started, status: "done", model: "fake" }))
   }
   exec<T>(query: string, ...args: Array<unknown>) {
-    if (query.includes("SELECT id FROM cb_turn")) {
+    if (query.includes("SELECT id, started FROM cb_turn")) {
       const conversation = String(args[0])
       const before = Number(args[1])
       const rows = this.turns
-        .filter((turn) => turn.conversation === conversation && (query.includes("started <= ?") ? turn.started <= before : turn.started < before))
+        .filter((turn) => turn.conversation === conversation && (query.includes("started = ?") ? turn.started === before : turn.started < before))
         .sort((a, b) => b.started - a.started || b.id.localeCompare(a.id))
       const limit = args[2] === undefined ? undefined : Number(args[2])
       return result((limit === undefined ? rows : rows.slice(0, limit)).map(({ id, started }) => ({ id, started }))) as ReturnType<typeof result<T>>
+    }
+    if (query.includes("SELECT 1 FROM cb_turn")) {
+      const conversation = String(args[0])
+      const before = Number(args[1])
+      return result(this.turns.some((turn) => turn.conversation === conversation && turn.started < before) ? [{ one: 1 }] : []) as ReturnType<typeof result<T>>
     }
     if (query.includes("SELECT * FROM cb_turn")) return result(this.turns.filter((turn) => turn.id === String(args[0]))) as ReturnType<typeof result<T>>
     if (query.includes("SELECT body FROM oc_run")) return result(this.bodies.has(String(args[0])) ? [{ body: this.bodies.get(String(args[0]))! }] : []) as ReturnType<typeof result<T>>
