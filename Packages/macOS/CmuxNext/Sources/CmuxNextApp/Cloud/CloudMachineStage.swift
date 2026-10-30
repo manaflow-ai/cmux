@@ -109,4 +109,13 @@ nonisolated struct CloudMachineStageInput: Hashable, Sendable {
             return .booting
         }
     }
+
+    /// The failure is a link that ended or a resume that failed on a machine
+    /// that started: its header reads "Disconnected", not "Failed to start",
+    /// which stays for a create or a machine the provider failed.
+    var isDisconnect: Bool {
+        guard stage.failure != nil, machineStatus != .failed else { return false }
+        if case .failed = creation { return false }
+        return linkEnded != nil || resumeFailure != nil
+    }
 }

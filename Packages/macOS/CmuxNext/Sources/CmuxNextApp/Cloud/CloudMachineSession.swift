@@ -226,6 +226,9 @@ final class CloudMachineSession {
     }
 
     /// "Disconnected, click to connect": no connection until the next connect.
+    /// Reads the machine list again (at most every 30 s), as a legacy link's
+    /// failure does (`noteLink`): the idle auto-pause may have parked the
+    /// machine behind the app, and the record then reads paused, not failed.
     private func showEnded(_ error: any Error) {
         CloudAppLinks.logEnded(error)
         let message = CloudAppLinks.endedMessage(error)
@@ -233,6 +236,10 @@ final class CloudMachineSession {
         daemon.store.markFailed(message)
         linkEnded = message
         linkPhase = .failed(message)
+        if let refresher {
+            // task-owner: one throttled list read; the reconcile it runs updates this record
+            Task { await refresher(false) }
+        }
     }
 
     /// A link start began. A previous start's failure stays shown until a

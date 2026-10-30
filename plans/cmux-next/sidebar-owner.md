@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-10-30: a Cloud machine that ran and then lost its app link (or whose resume failed) reads "Disconnected" in
+  its header and workspace rows, with the attention tone, instead of "Failed to start" in red.
+  `SidebarMachine.Status.disconnected` is new; "Failed to start" stays for a create or a machine the provider failed.
+  Nothing else about the header changes. Leo 2026-10-29: "a whole lot of this cloud stuff ought to get better...".
+  Regression: `CloudLinkEndedHeaderTests`.
+
 - 2026-10-29 (https://github.com/manaflow-ai/cmux/issues/27701): Shift-click, Cmd-click and Cmd-Shift-click select
   pinned workspaces as list rows, as classic: the range runs over the drawn order, pinned tiles and rows alike. A pinned
   tile in the multi-selection draws the list's secondary selection fill (`Palette.secondarySelectionFill`); the shown
