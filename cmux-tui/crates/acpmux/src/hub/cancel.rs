@@ -175,6 +175,34 @@ impl Hub {
         self.restart_stopped_agent(&session, &child, &current).await;
     }
 
+    /// After a turn ends, with its turn lock still held: starts the agent a Stop ended
+    /// (`restart_stopped_agent`) again on the same conversation, so the next queued turn finds
+    /// it running. Run by a prompt's turn (`turns.rs`) and by a carried turn
+    /// (`carried_turn.rs`). A close (`kill`) since the turn's request came (`stops`) starts
+    /// nothing (`child_for_since`), nor does another Stop since the restart was marked.
+    pub(super) async fn respawn_stopped_agent(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        turn_id: &str,
+        stops: u64,
+    ) {
+        let respawn = session.stop_respawn.swap(0, Ordering::SeqCst);
+        if respawn == 0
+            || respawn != session.cancels.load(Ordering::SeqCst) + 1
+            || session.status() == SessionStatus::Closed
+        {
+            return;
+        }
+        match self.child_for_since(session, stops).await {
+            Ok(_) => {
+                self.append(session, "mux", "stop_restarted", json!({"turnId": turn_id}));
+            }
+            Err(e) => {
+                tracing::warn!(session = %session.id, "the agent a Stop ended did not start again: {}", e.message);
+            }
+        }
+    }
+
     /// Ends the process of an agent that worked through both cancels, then its turn. Its prompt
     /// fails as the process ends and answers as the forced cancel; the agent starts again on the
     /// same conversation as the turn ends, before the next one (`finish_turn`).

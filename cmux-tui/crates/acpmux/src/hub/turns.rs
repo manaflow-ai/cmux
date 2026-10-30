@@ -902,22 +902,7 @@ impl Hub {
         self.schedule_auto_resume(session, &turn_id, cut);
         // The agent a Stop ended starts again on the same conversation now, while this turn's
         // lock is still held: the next queued turn finds it running (`cancel.rs`).
-        // A close (`kill`) since this prompt came starts nothing (`child_for_since`), nor does
-        // another Stop since the restart was marked.
-        let respawn = session.stop_respawn.swap(0, Ordering::SeqCst);
-        if respawn != 0
-            && respawn == session.cancels.load(Ordering::SeqCst) + 1
-            && session.status() != SessionStatus::Closed
-        {
-            match self.child_for_since(session, stops).await {
-                Ok(_) => {
-                    self.append(session, "mux", "stop_restarted", json!({"turnId": turn_id}));
-                }
-                Err(e) => {
-                    tracing::warn!(session = %session.id, "the agent a Stop ended did not start again: {}", e.message);
-                }
-            }
-        }
+        self.respawn_stopped_agent(session, &turn_id, stops).await;
         // The chat's route changed during the turn: move it before the next
         // one starts (route_switch.rs). A restart that fails leaves the
         // harness stopped; the next prompt's spawn reports why. A carried turn runs on: its
