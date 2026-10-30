@@ -22,21 +22,33 @@ pub fn names(tools: &Value) -> impl Iterator<Item = &str> {
 /// neighbouring letters counts as one edit) of 1 for a name of up to 3 letters and of
 /// `max(2, len / 3)` for a longer one, or a known name `name` begins (when it has at least 3
 /// letters). The closest wins and a tie goes to the first in `known`. `None` when nothing is
-/// that close; `name` itself is never its own hint.
+/// that close, or `name` is longer than [`MAX_NAME`] characters (no tool's name is: a caller's
+/// name of any size costs at most that much work); `name` itself is never its own hint.
 pub fn nearest<'a>(name: &str, known: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
-    let wanted: Vec<char> = name.trim().to_lowercase().chars().collect();
+    let name_trimmed = name.trim();
+    // A char is at most 4 bytes: a longer name is refused before it is read again.
+    if name_trimmed.len() > MAX_NAME * 4 || name_trimmed.chars().count() > MAX_NAME {
+        return None;
+    }
+    let wanted: Vec<char> = name_trimmed.to_lowercase().chars().collect();
     if wanted.is_empty() {
         return None;
     }
     let limit = if wanted.len() <= 3 { 1 } else { (wanted.len() / 3).max(2) };
     let mut best: Option<(usize, &str)> = None;
     for candidate in known {
-        if candidate == name {
+        if candidate == name || candidate.chars().count() > MAX_NAME {
             continue;
         }
         let lower: Vec<char> = candidate.to_lowercase().chars().collect();
+        // The distance is at least the length difference: too far apart to be a typo, unless
+        // `name` is the start of it.
+        let prefix = wanted.len() >= 3 && lower.starts_with(&wanted);
+        if !prefix && lower.len().abs_diff(wanted.len()) > limit {
+            continue;
+        }
         let mut score = distance(&wanted, &lower);
-        if wanted.len() >= 3 && lower.starts_with(&wanted) {
+        if prefix {
             score = score.min(limit);
         }
         if score <= limit && best.is_none_or(|(least, _)| score < least) {
@@ -45,6 +57,9 @@ pub fn nearest<'a>(name: &str, known: impl IntoIterator<Item = &'a str>) -> Opti
     }
     best.map(|(_, candidate)| candidate)
 }
+
+/// The longest tool name a hint is looked for (tool names are short identifiers).
+pub const MAX_NAME: usize = 128;
 
 /// Optimal string alignment distance: insertions, deletions, substitutions and swaps of two
 /// neighbouring characters.
@@ -88,6 +103,19 @@ mod tests {
             unknown_tool("team_inbx", TOOLS),
             "unknown tool: team_inbx; did you mean team_inbox?"
         );
+    }
+
+    #[test]
+    fn an_oversized_name_is_answered_at_once_without_a_hint() {
+        // Megabytes of name: no matrix is built for it (it used to allocate about name x tool cells).
+        let huge = "team_send".repeat(800_000);
+        let started = std::time::Instant::now();
+        assert_eq!(nearest(&huge, TOOLS), None);
+        assert_eq!(nearest(&"x".repeat(MAX_NAME + 1), TOOLS), None);
+        assert!(started.elapsed() < std::time::Duration::from_secs(1), "{:?}", started.elapsed());
+        // Names far apart in length are not compared; a typo still is.
+        assert_eq!(nearest("team_send_with_a_long_tail", TOOLS), None);
+        assert_eq!(nearest("team_sendd", TOOLS), Some("team_send"));
     }
 
     #[test]
