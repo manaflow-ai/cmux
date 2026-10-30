@@ -837,15 +837,26 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-trust-ask[data-asking]{color:var(--agent-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 45%,transparent)}.acpmux-trust-ask-action.acpmux-trust-ask-primary{background:color-mix(in srgb,var(--agent-accent) 14%,transparent);font-weight:500}.acpmux-trust-ask-action.acpmux-trust-ask-primary:hover{background:color-mix(in srgb,var(--agent-accent) 22%,transparent)}
 .acpmux-trust-ask[data-asking]{flex-wrap:wrap;row-gap:6px;padding-top:7px;padding-bottom:7px}.acpmux-trust-ask-body{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:2px}.acpmux-trust-ask-body .acpmux-trust-ask-text{white-space:normal;overflow-wrap:anywhere;font-weight:500}.acpmux-trust-ask-detail{color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}.acpmux-trust-ask-actions{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto}
 
-/* The composer's + palette is a command surface: searchable, compact and immediately interactive. */
-.acpmux-palette-menu{width:min(360px,calc(100vw - 16px));max-height:min(480px,70vh);padding:0;overflow-y:auto;scroll-padding-block-start:48px}
+/* The composer's + palette is a command surface: searchable, compact and immediately interactive.
+   A column: the search field, then the list, which is the scroller, so the field never scrolls away
+   or fades with the rows. */
+.acpmux-palette-menu{display:flex;flex-direction:column;width:min(360px,calc(100vw - 16px));max-height:min(480px,70vh);padding:0;overflow:hidden}
 .acpmux-palette-menu{animation:none!important;transition:none!important}
 .acpmux-palette-menu .acpmux-menu-item>svg{flex:none;color:var(--agent-muted)}
-.acpmux-palette-search{position:sticky;top:0;z-index:var(--layer-dropdown);padding:var(--ui-popup-padding);border-bottom:.5px solid var(--agent-border);background:var(--surface-popup)}
+.acpmux-palette-search{flex:none;padding:var(--ui-popup-padding);border-bottom:.5px solid var(--agent-border)}
 .acpmux-palette-search input{display:block;width:100%;height:28px;padding:0 8px;border:0;border-radius:6px;background:var(--acpmux-pill-fill);color:var(--agent-text);font:inherit;outline:none}
-.acpmux-palette-search input:focus{background:var(--acpmux-pill-hover);box-shadow:0 0 0 1px color-mix(in srgb,var(--agent-accent) 50%,transparent)}
+/* Focus takes the fill only, never a ring (design/composer.md: no focus ring on the composer's controls).
+   The field holds the focus the whole time the menu is open, so a ring here was a ring at rest. */
+.acpmux-palette-search input:focus{background:var(--acpmux-pill-hover)}
+.acpmux-palette-list{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+/* Rows past the list's edge: that edge fades (summary/scrollEdges.ts), the Summary card's fade. */
+.acpmux-palette-list[data-fade-top],.acpmux-palette-list[data-fade-bottom]{--acpmux-palette-fade-top:0px;--acpmux-palette-fade-bottom:0px;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-palette-fade-top),#000 calc(100% - var(--acpmux-palette-fade-bottom)),transparent);mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-palette-fade-top),#000 calc(100% - var(--acpmux-palette-fade-bottom)),transparent)}
+.acpmux-palette-list[data-fade-top]{--acpmux-palette-fade-top:14px}.acpmux-palette-list[data-fade-bottom]{--acpmux-palette-fade-bottom:22px}
+@media (prefers-reduced-transparency:reduce){.acpmux-palette-list[data-fade-top],.acpmux-palette-list[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}}
+:root[data-reduce-transparency] .acpmux-palette-list[data-fade-top],:root[data-reduce-transparency] .acpmux-palette-list[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}
+/* The groups are split by the shared menu separator (PaletteMenu.tsx), in the pane's menu hairline. */
+.acpmux-palette-menu .ui-separator{flex:none;height:.5px;margin:4px 8px;border:0;background:var(--agent-border)}
 .acpmux-palette-empty{padding:var(--ui-row-height) var(--ui-row-padding-inline);color:var(--agent-muted);text-align:center}
-.acpmux-palette-menu .acpmux-menu-header{padding-top:8px}
 
 /* Keep search rows on the same shared menu metrics. */
 .acpmux-file-search input { height: var(--ui-row-height); padding-inline: var(--ui-row-padding-inline); }
