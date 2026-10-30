@@ -11,7 +11,7 @@ export type HarnessHealth = {
   latest?: string | null;
   outdated?: boolean;
   /// Only from evidence (a profile's check, or a probe's sign-in error).
-  auth?: "signedIn" | "signedOut" | "unknown";
+  auth?: "signedIn" | "signedOut" | "expired" | "unknown";
   /// The command that signs it in.
   login?: string | null;
   /// How to update it; `elevated`: it needs sudo, so the pane never offers it.
