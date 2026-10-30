@@ -7171,10 +7171,17 @@ function AcpmuxPane() {
     const before = directClient.current?.selectedSession;
     // Where the reader left this chat, before its rows draw, as a tab opened on it reads it.
     const anchor = await fetchScrollAnchor(sessionId);
-    // Another chat was picked while the anchor was read (a page action, automation): it stands.
-    if (ticket !== adoptionTicket.current || directClient.current?.selectedSession !== before) {
-      if (ticket === adoptionTicket.current)
-        setAdoptingSession((current) => (current === sessionId ? undefined : current));
+    if (ticket !== adoptionTicket.current) return;
+    const now = directClient.current?.selectedSession;
+    if (now !== before) {
+      // A connect or reconnect opened this chat meanwhile (the host bound the tab to it): what the
+      // adoption still carries is its place and its turn (a subagent's pane).
+      if (now === sessionId) {
+        setScrollAnchor(anchor);
+        if (revealTurn) revealRef.current(revealTurn);
+      }
+      // Another chat was picked while the anchor was read (a page action, automation): it stands.
+      else setAdoptingSession((current) => (current === sessionId ? undefined : current));
       return;
     }
     const adopt = window.cmuxAcpmuxActions?.["chat.adopt"];
