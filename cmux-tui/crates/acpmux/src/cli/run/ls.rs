@@ -337,12 +337,12 @@ mod tests {
 
     #[test]
     fn live_and_host_filter_the_rows() {
-        let own = || "big-red".to_owned();
+        let own = || "this-mac".to_owned();
         let live = RowFilter::new(true, None, own()).unwrap();
         assert_eq!(kept(&live), ["claude-sr2/mac-ci-3", "hb/review-1", "idle-one"]);
         let peer = RowFilter::new(true, Some("HB"), own()).unwrap();
         assert_eq!(kept(&peer), ["hb/review-1"]);
-        let here = RowFilter::new(false, Some("big-red"), own()).unwrap();
+        let here = RowFilter::new(false, Some("this-mac"), own()).unwrap();
         assert_eq!(kept(&here), ["claude-sr2/mac-ci-3", "done", "idle-one"]);
         let local = RowFilter::new(false, Some("local"), own()).unwrap();
         assert_eq!(kept(&local), kept(&here));
