@@ -298,3 +298,15 @@ class Main(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TruncatedSnapshot(unittest.TestCase):
+    def test_a_truncated_snapshot_is_no_snapshot_evidence(self) -> None:
+        # A janitor sweep that listed part of the queue (queue_janitor.listing_state()) undercounts every pool.
+        stalled = copy.deepcopy(RECORDED)
+        stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=3, oldest_queued_minutes=30)
+        dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
+        self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
+        dead, started, notes = runner_pools.label_evidence(None, dict(stalled, truncated=True), now=NOW)
+        self.assertEqual((dead, started), (set(), set()))
+        self.assertTrue(any("truncated" in note for note in notes))

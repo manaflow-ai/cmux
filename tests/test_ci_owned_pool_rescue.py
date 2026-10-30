@@ -4301,6 +4301,48 @@ class Sweeper(unittest.TestCase):
         self.assertEqual(api.dispatched, 1)
         self.assertEqual(watched, [1])
 
+    def test_a_handover_dispatches_no_sweeper_when_one_already_waits(self):
+        # 2026-10-30: the handover's dispatch cancelled the cron's pending sweeper (run 41071107039) in the
+        # concurrency group before it ran. The waiting one checks out main, so it already runs the new code.
+        class Waiting(CodeSweepAPI):
+            def waiting_sweeper(self):
+                return 41071107039
+        api = Waiting([listed(1)], picker=[1], changes_after=1)
+        _, _, outcomes = self.code_sweep(api)
+        self.assertEqual(outcomes.get("code changed"), 1)
+        self.assertEqual(api.dispatched, 0)
+
+        class NoneWaiting(CodeSweepAPI):
+            def waiting_sweeper(self):
+                return None
+
+        class Unreadable(CodeSweepAPI):
+            def waiting_sweeper(self):
+                raise urllib.error.URLError("down")
+        for cls in (NoneWaiting, Unreadable):  # unknown dispatches as before, so a sweeper surely follows
+            with self.subTest(api=cls.__name__):
+                api = cls([listed(1)], picker=[1], changes_after=1)
+                self.code_sweep(api)
+                self.assertEqual(api.dispatched, 1)
+
+    def test_waiting_sweeper_finds_a_queued_or_pending_sweeper_but_not_itself_or_a_rescue(self):
+        client = rescue.GitHub("token", "manaflow-ai/cmux")
+        client.own_run = 5
+        listings = {"pending": [{"id": 5, "display_title": "owned-pool-sweeper"},
+                                {"id": 6, "display_title": "owned-pool-rescue-77-1"}],
+                    "queued": [{"id": 8, "display_title": "owned-pool-sweeper"}]}
+        asked = []
+
+        def request(method, path, **kwargs):
+            asked.append(path)
+            status = path.split("status=", 1)[1].split("&", 1)[0]
+            return {"workflow_runs": listings.get(status, [])}
+        client.request = request
+        self.assertEqual(client.waiting_sweeper(), 8)
+        self.assertEqual([path.split("?")[1].split("&")[0] for path in asked], ["status=pending", "status=queued"])
+        listings["queued"] = []
+        self.assertIsNone(client.waiting_sweeper())
+
     def test_unchanged_or_unreadable_code_keeps_sweeping(self):
         for api in (CodeSweepAPI([], changes_after=None), CodeSweepAPI([], fails=True)):
             clock, _, outcomes = self.code_sweep(api, ticks=12)
