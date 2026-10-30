@@ -8,11 +8,20 @@ public final class NativeNewTabHostingView: NSHostingView<NativeNewTabView> {
     /// The page's text field once SwiftUI has made it; nil before the first layout.
     public var fieldView: NSView? { firstTextField(in: self) }
 
+    /// Runs once, at the first layout that has the field: the host sends the keys typed since Cmd-T
+    /// there (the New Tab input hold).
+    public var onFieldReady: (@MainActor () -> Void)?
+
     /// The pane focused this view before the field existed: the field takes the keyboard as soon as
-    /// it is laid out.
+    /// it is laid out, and ``onFieldReady`` runs.
     override public func layout() {
         super.layout()
-        if let window, window.firstResponder === self, let field = fieldView { window.makeFirstResponder(field) }
+        guard let field = fieldView else { return }
+        if let window, window.firstResponder === self { window.makeFirstResponder(field) }
+        if let ready = onFieldReady {
+            onFieldReady = nil
+            ready()
+        }
     }
 }
 

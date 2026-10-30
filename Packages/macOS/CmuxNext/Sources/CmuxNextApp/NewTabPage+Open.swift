@@ -234,6 +234,10 @@ extension NewTabPage {
             services.pages.reveal(key, in: pane)
             return key
         }
+        // Keys typed after Cmd-T wait for the field, as on the web page (NewTabInputCoordinator):
+        // the page needs no handshake, so the hold drains once the field exists.
+        let input = services.keyRouter.newTabInputCoordinator
+        if let token = input.begin(for: pane) { input.acknowledge(token, in: pane.view.window) }
         if services.pages.provider(.nativeNewTab) == nil {
             // Each tab's view owns its model, made from the pane that shows the tab on its first show.
             services.pages.register(WebPageTab(.nativeNewTab, symbol: "square.grid.2x2", title: Strings.untitledBrowser,
@@ -257,7 +261,15 @@ extension NewTabPage {
         let model = NativeNewTabModel(page: page, actions: nativeActions(key, cwd: page.cwd, pane: pane),
                                       paletteActions: { [weak services] in services.map(Self.paletteActions) ?? [] })
         closeFrame.scheduleFrame { closeFrame.scheduleFrameFromMain { [weak model] in model?.loadPaletteActions() } }
-        return NativeNewTabView.hosted(model)
+        let host = NativeNewTabView.hosted(model)
+        // The page counts as shown (leaving it ends the hold) only once its field exists: until then
+        // the pane may not name the page's tab yet, and the hold must keep the keys.
+        host.onFieldReady = { [weak services, weak host] in
+            guard let input = services?.keyRouter.newTabInputCoordinator else { return }
+            input.didShow(in: host?.window)
+            input.flush(in: host?.window)
+        }
+        return host
     }
 
     /// The native page's requests, over the web page's paths: `newTab.submit`'s table for typed text,
