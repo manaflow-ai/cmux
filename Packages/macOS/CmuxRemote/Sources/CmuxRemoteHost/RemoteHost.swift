@@ -236,9 +236,9 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
         }
         lock.withLock { supervisors.append(channel) }
         Task { @MainActor in self.host?.daemonArrived() }
-        var hello: [String: Any] = ["type": "hello", "protocol": version]
-        for (key, value) in status() { hello[key] = value }
-        channel.write(RemoteWire.line(hello))
+        var reply: [String: Any] = ["type": "hello", "protocol": version]
+        for (key, value) in status() { reply[key] = value }
+        channel.write(RemoteWire.line(reply))
         logger.notice("daemon connected (protocol \(version, privacy: .public))")
         while let request = channel.readObject() {
             let id = request["id"]

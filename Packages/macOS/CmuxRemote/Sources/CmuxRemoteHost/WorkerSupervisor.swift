@@ -60,7 +60,7 @@ final class ScreenWorkerSupervisor: Sendable {
         var channel: LineChannel?
         var startedAt: Date?
         var status: [String: Any]?
-        var pending: [Int: CheckedContinuation<[String: Any], Never>] = [:]
+        var pending: [Int: CheckedContinuation<WorkerReply, Never>] = [:]
         var nextID = 1
         var backoff = RestartBackoff()
         var restarts = 0
@@ -112,7 +112,8 @@ final class ScreenWorkerSupervisor: Sendable {
 
     /// One request to the worker; `{"ok":false,...}` shaped when it does not run or stops first.
     func request(_ method: String, _ params: [String: Any] = [:]) async -> [String: Any] {
-        await withCheckedContinuation { continuation in
+        await withCheckedContinuation { (continuation: CheckedContinuation<WorkerReply, Never>) in
+            nonisolated(unsafe) let params = params
             let channel = state.withLockUnchecked { state -> (LineChannel, Int)? in
                 guard let channel = state.channel else { return nil }
                 let id = state.nextID
@@ -121,15 +122,15 @@ final class ScreenWorkerSupervisor: Sendable {
                 return (channel, id)
             }
             guard let (channel, id) = channel else {
-                continuation.resume(returning: ["ok": false, "error": ["code": "worker_unavailable",
-                                                                       "message": "the Screen Sharing worker is not running"]])
+                continuation.resume(returning: WorkerReply(["ok": false, "error": ["code": "worker_unavailable",
+                                                                                   "message": "the Screen Sharing worker is not running"]]))
                 return
             }
             if !channel.write(RemoteWire.line(["id": id, "method": method, "params": params])) {
                 let waiting = state.withLockUnchecked { $0.pending.removeValue(forKey: id) }
-                waiting?.resume(returning: ["ok": false, "error": ["code": "worker_unavailable", "message": "the worker stopped"]])
+                waiting?.resume(returning: WorkerReply(["ok": false, "error": ["code": "worker_unavailable", "message": "the worker stopped"]]))
             }
-        }
+        }.value
     }
 
     private func start() {
@@ -167,7 +168,7 @@ final class ScreenWorkerSupervisor: Sendable {
     private func handle(_ object: [String: Any]) {
         if let id = object["id"] as? Int {
             let waiting = state.withLockUnchecked { $0.pending.removeValue(forKey: id) }
-            waiting?.resume(returning: object)
+            waiting?.resume(returning: WorkerReply(object))
             return
         }
         guard object["type"] as? String == "event" else { return }
@@ -232,14 +233,20 @@ final class ScreenWorkerSupervisor: Sendable {
     }
 
     private func failPending(_ message: String) {
-        let waiting = state.withLockUnchecked { state -> [CheckedContinuation<[String: Any], Never>] in
+        let waiting = state.withLockUnchecked { state -> [CheckedContinuation<WorkerReply, Never>] in
             defer { state.pending.removeAll() }
             return Array(state.pending.values)
         }
         for continuation in waiting {
-            continuation.resume(returning: ["ok": false, "error": ["code": "worker_unavailable", "message": message]])
+            continuation.resume(returning: WorkerReply(["ok": false, "error": ["code": "worker_unavailable", "message": message]]))
         }
     }
+}
+
+/// One decoded JSON answer, handed from the reader thread to its waiter once.
+struct WorkerReply: @unchecked Sendable { // crash-allow: the dictionary is built by one thread and only read by the one waiter after
+    let value: [String: Any]
+    init(_ value: [String: Any]) { self.value = value }
 }
 
 /// Computer Use workers: one per open app channel. The channel is the
