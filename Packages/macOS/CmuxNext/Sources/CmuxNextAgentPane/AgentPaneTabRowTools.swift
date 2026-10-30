@@ -8,6 +8,7 @@ nonisolated enum AgentPaneTabRowTools {
     nonisolated static let maximumTotalMenuItems = 256
     nonisolated static let maximumDepth = 2
     nonisolated static let maximumText = 64
+    nonisolated static let maximumTextBytes = 256
 
     nonisolated static func list(_ raw: Any?) -> [PaneTabRowTool]? {
         guard let raw = raw as? [Any], raw.count <= maximumTools else { return nil }
@@ -74,7 +75,8 @@ nonisolated enum AgentPaneTabRowTools {
     }
 
     private nonisolated static func text(_ value: Any?) -> String? {
-        guard let value = value as? String, !value.isEmpty, value.count <= maximumText else { return nil }
+        guard let value = value as? String, !value.isEmpty,
+              value.utf8.count <= maximumTextBytes, value.count <= maximumText else { return nil }
         return value
     }
 

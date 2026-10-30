@@ -18,9 +18,16 @@ struct AgentPaneTabRowToolsTests {
             "id": "review", "symbol": "checkmark", "label": "Review", "enabled": true, "toggled": false,
             "menu": [["id": "open", "label": "Open", "enabled": true]],
         ]
-        let tools = AgentPaneTabRowTools.list([raw])
-        #expect(tools?.first?.badge == nil)
-        #expect(tools?.first?.menu.first?.role == nil)
+        let tools = try #require(AgentPaneTabRowTools.list([raw]))
+        let item = try #require(tools.first?.menu.first)
+        #expect(tools.first?.badge == nil)
+        #expect(item.role == nil)
+    }
+
+    @Test func rejectsOversizedUtf8Text() {
+        let combining = "a" + String(repeating: "\u{301}", count: 256)
+        let raw: [String: Any] = ["id": "x", "symbol": "x", "label": combining, "enabled": true, "toggled": false]
+        #expect(AgentPaneTabRowTools.list([raw]) == nil)
     }
 
     @Test func rejectsPresentInvalidRole() {
