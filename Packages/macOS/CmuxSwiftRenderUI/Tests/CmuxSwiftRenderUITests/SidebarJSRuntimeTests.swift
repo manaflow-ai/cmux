@@ -84,6 +84,8 @@ struct SidebarJSRuntimeTests {
         #expect(resolver.bundledImage("star.fill") == nil)
         #expect(resolver.bundledImage(nil) == nil)
         #expect(resolver.bundledImage("AgentIcons/Nope") == nil)
+        #expect(resolver.bundledImage("AgentIcons/../AppIcon") == nil)
+        #expect(resolver.bundledImage("AgentIcons/Codex/../../AppIcon") == nil)
     }
 
     @Test func fixedSizeReachesTheNode() {

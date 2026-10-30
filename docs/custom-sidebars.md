@@ -170,7 +170,7 @@ Rules of the runtime:
   `Button` `Spacer` `Divider` `Circle` `Capsule` `Rectangle`
   `RoundedRectangle` `ProgressView` `ForEach` `Reorderable`. Containers take
   `(props, children)` or just `(children)`. `Image(name)` draws an SF Symbol,
-  or a cmux agent mark when `name` is one (`Image(() => a().icon)`,
+  or a cmux agent mark when `name` is one (`Image(() => a().icon ?? "sparkles")`,
   `Image({ asset: "AgentIcons/Codex" })`); `.size(n)` scales the mark to an
   n-point square.
 - Chainable props: `.font(name|size)` `.weight` `.bold()` `.italic()`
@@ -432,7 +432,8 @@ columns with a persisted divider).
 
 Content: `Text("...")`, `Label("Title", systemImage: "folder")`,
 `Image(systemName: "folder.fill")` (SF Symbols; a cmux agent mark such as
-`agents[j].icon` or `"AgentIcons/Codex"` also works),
+`agents[j].icon` or `"AgentIcons/Codex"` also works; size a mark with
+`.resizable().frame(width: 14, height: 14)`, since `.font` sizes only symbols),
 `Button("Title") { <action> }` / `Button(action:){ <label> }`,
 `Menu("Title") { <items> }`, `ProgressView(value: 0.4)` / `ProgressView()`,
 `Gauge(value: 0.7)`, `Spacer()`, `Divider()`, `AnyView(<view>)`.

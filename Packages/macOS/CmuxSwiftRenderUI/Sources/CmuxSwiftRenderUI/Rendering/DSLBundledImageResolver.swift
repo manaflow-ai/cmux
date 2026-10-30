@@ -19,10 +19,11 @@ struct DSLBundledImageResolver {
     func bundledImage(_ name: String?) -> Image? {
         guard let name, isAllowed(name), let image = bundle.image(forResource: name) else { return nil }
         // Source assets can be much larger than a tab mark (Hermes is 1024 px).
-        // Give each sidebar its own point size without mutating the bundle's image.
-        let mark = NSImage(size: NSSize(width: 14, height: 14))
-        mark.addRepresentations(image.representations)
-        mark.isTemplate = image.isTemplate
+        // Size a copy so the bundle's cached image keeps its own size. A copy, not
+        // a new image with the same representations, keeps the catalog's
+        // light and dark variants switching with the sidebar's appearance.
+        guard let mark = image.copy() as? NSImage else { return nil }
+        mark.size = NSSize(width: 14, height: 14)
         return Image(nsImage: mark)
     }
 
@@ -32,6 +33,11 @@ struct DSLBundledImageResolver {
     }
 
     private func isAllowed(_ name: String) -> Bool {
-        namespaces.contains { name.hasPrefix($0) && name.count > $0.count }
+        // One asset name directly inside the namespace: no nested or `..` paths.
+        namespaces.contains { namespace in
+            guard name.hasPrefix(namespace) else { return false }
+            let asset = name.dropFirst(namespace.count)
+            return !asset.isEmpty && !asset.contains("/") && !asset.hasPrefix(".")
+        }
     }
 }
