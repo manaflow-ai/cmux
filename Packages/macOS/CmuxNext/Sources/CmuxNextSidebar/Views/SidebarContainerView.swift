@@ -39,16 +39,15 @@ public final class SidebarContainerView: NSView {
     /// for a right-hand sidebar: treating the superview point as local shifts the reach across the
     /// pane and lets the sidebar claim clicks that belong to the card.
     override public func hitTest(_ point: NSPoint) -> NSView? {
+        if let hit = super.hitTest(point) { return hit }
+        guard !isHiddenOrHasHiddenAncestor, alphaValue > 0, visualPaneReach > 0 else { return nil }
         let local = convert(point, from: superview)
-        if let hit = super.hitTest(local) { return hit }
-        guard visualPaneReach > 0 else { return nil }
         var expanded = bounds
         if side == .left { expanded.size.width += visualPaneReach }
         else { expanded.origin.x -= visualPaneReach; expanded.size.width += visualPaneReach }
         guard expanded.contains(local) else { return nil }
         for child in subviews.reversed() {
-            let childPoint = child.convert(local, from: self)
-            if let hit = child.hitTest(childPoint) { return hit }
+            if let hit = child.hitTest(local) { return hit }
         }
         return self
     }

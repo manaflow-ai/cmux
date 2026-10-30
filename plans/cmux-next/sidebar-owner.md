@@ -21,6 +21,7 @@ performance.
 - 2026-10-30: sidebar pane gap style-switch repair (PR #28052, commit `4c25ba92f1b`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Card and flat styles remount the resize line when the visual pane reach changes, even when their hit bands are equal. Regression: `SidebarPaneGapTests.styleSwitchRemountsTheDividerAtTheNewSurfaceEdge`.
 - 2026-10-30: sidebar pane gap synchronous remount (PR #28052, commit `b3e080abff7`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". `apply()` remounts the resize line immediately when pane reach changes, before its observation task can run.
 - 2026-10-30: sidebar pane gap hit-test coordinate repair (PR #28052, commit `0c7a18ed432`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Pane-reach hit testing converts AppKit's superview point once, preserving right-sidebar card clicks.
+- 2026-10-30: sidebar pane gap right-sidebar hit-test repair (PR #28052, commit `de5e5413804`): Leo, "THE FUCKING SIDEBAR POSITION RELATIVE TO IT ALSO". Extended-band hit testing preserves AppKit's superview coordinates, visibility, and right-pane clicks.
 
 ## Rule for every sidebar change
 

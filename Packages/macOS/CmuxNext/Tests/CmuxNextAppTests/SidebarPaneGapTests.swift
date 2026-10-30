@@ -53,6 +53,33 @@ import Testing
         #expect(root.sidebar.handleFrameForTesting().minY == 0)
     }
 
+    @Test func rightSidebarHitTestsUseSuperviewCoordinatesAndRespectVisibility() throws {
+        let design = DesignSettings.shared
+        let before = design.chromeStyle
+        defer { design.chromeStyle = before }
+        let (window, root) = root(style: .card)
+        defer { window.close() }
+        root.sidebarSide = .right
+        root.layoutSubtreeIfNeeded()
+
+        let sidebar = root.sidebar
+        #expect(sidebar.frame.minX > sidebar.bounds.width)
+        let panePoint = NSPoint(x: 100, y: 100)
+        #expect(sidebar.hitTest(panePoint) == nil)
+        let inside = NSPoint(x: sidebar.bounds.midX, y: sidebar.bounds.midY)
+        #expect(sidebar.hitTest(sidebar.convert(inside, to: root)) != nil)
+
+        // A real child in the extended band catches double conversion of child coordinates.
+        let reach = sidebar.visualPaneReach
+        #expect(reach > 0)
+        let target = NSView(frame: NSRect(x: -reach, y: 100, width: reach, height: 20))
+        sidebar.addSubview(target)
+        let point = sidebar.convert(NSPoint(x: -reach / 2, y: 110), to: root)
+        #expect(sidebar.hitTest(point) === target)
+        sidebar.isHidden = true
+        #expect(sidebar.hitTest(point) == nil)
+    }
+
     @Test func styleSwitchRemountsTheDividerAtTheNewSurfaceEdge() throws {
         let design = DesignSettings.shared
         let before = design.chromeStyle
