@@ -205,7 +205,7 @@ import Testing
         var set: String { self == .fullAccess ? "device" : "vm" }
         var widening: SettingsPageProvider.WideningSwitch { self == .fullAccess ? .fullAccess : .vmHost }
         var reason: String {
-            self == .fullAccess ? SettingsPersonGateStrings.fullAccessReason : SettingsPersonGateStrings.vmHostReason
+            self == .fullAccess ? RemoteStrings.fullAccessConfirmReason : RemoteStrings.vmHostConfirmReason
         }
     }
 
@@ -377,16 +377,16 @@ import Testing
         h.page.setMachineVmHost = { _, on in await landing.write("vm", on, recorder) }
         for op in Switch.allCases {
             // on, then off while the on is in flight, then on again: on, off, on.
-            let key = op.widening.key("m1"), offs = h.page.offs[key, default: 0]
+            let key = op.widening.key("m1"), offs = h.page.wideningGate.offs[key, default: 0]
             let first = try h.heldOn(op, pid: 0)
             requests.append(first)
             try #require(await landing.arrived(first))
             let off = Task { [h] in try await h.refused(op, on: false, h.posted()) }
-            try await Self.until { h.page.offs[key, default: 0] == offs + 1 }
+            try await Self.until { h.page.wideningGate.offs[key, default: 0] == offs + 1 }
             let second = try h.heldOn(op, pid: 0)
             requests.append(second)
-            let afterOff = h.page.writes[key]
-            try await Self.until { h.page.writes[key] != afterOff }
+            let afterOff = h.page.wideningGate.writes[key]
+            try await Self.until { h.page.wideningGate.writes[key] != afterOff }
             landing.land()
             _ = try await first.value
             #expect(try await !off.value)
@@ -396,16 +396,16 @@ import Testing
         }
         #expect(h.recorder.sets == ["device true", "device false", "device true", "vm true", "vm false", "vm true"])
         // on in flight, a second on queued, then an off: the queued on is dropped and off lands last.
-        let key = Switch.fullAccess.widening.key("m1"), offs = h.page.offs[key, default: 0]
+        let key = Switch.fullAccess.widening.key("m1"), offs = h.page.wideningGate.offs[key, default: 0]
         let first = try h.heldOn(.fullAccess, pid: 0)
         requests.append(first)
         try #require(await landing.arrived(first))
-        let tail = h.page.writes[key]
+        let tail = h.page.wideningGate.writes[key]
         let queued = try h.heldOn(.fullAccess, pid: 0)
         requests.append(queued)
-        try await Self.until { h.page.writes[key] != tail }
+        try await Self.until { h.page.wideningGate.writes[key] != tail }
         let off = Task { [h] in try await h.refused(.fullAccess, on: false, h.posted()) }
-        try await Self.until { h.page.offs[key, default: 0] == offs + 1 }
+        try await Self.until { h.page.wideningGate.offs[key, default: 0] == offs + 1 }
         landing.land()
         _ = try await first.value
         do {

@@ -89,15 +89,11 @@ final class SettingsPageProvider: PageProvider {
     /// The Touch ID or password confirm (LocalAuthentication `deviceOwnerAuthentication`) that every
     /// turn-on of Full access or Dedicated agent machine needs (``widen(_:_:on:_:_:)``); nil, never.
     var ownerConfirm: (any DeviceOwnerAuthenticating)?
+    /// The confirm and write order of Full access and Dedicated agent machine (``widen(_:_:on:_:_:)``).
+    let wideningGate = PageWideningGate()
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
     /// one click or key turns on one setting.
-    var spentFullAccessGesture: TimeInterval?
-    /// A turn-on confirm is up: a second one waits for no answer and is refused.
-    var confirmingOwner = false
-    /// Offs per switch and machine (``widen(_:_:on:_:_:)``): an off wins over every on asked before it.
-    var offs: [String: Int] = [:]
-    /// The tail of each switch and machine's write chain: its writes land in the order they were asked.
-    var writes: [String: Task<Void, Never>] = [:]
+    private var spentFullAccessGesture: TimeInterval?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -124,6 +120,34 @@ final class SettingsPageProvider: PageProvider {
             if let color { object[key] = .string(AppTheme.hex(color)) }
         }
         return .object(object)
+    }
+
+    /// Settings' switches that widen what another machine may do here: a paired device's Full access and
+    /// a Cloud machine's Dedicated agent machine.
+    enum WideningSwitch {
+        case fullAccess, vmHost
+
+        func key(_ id: String) -> String { "\(self) \(id)" }
+
+        /// The confirm's reason, which macOS shows as "cmux is trying to <reason>."
+        var reason: String { self == .fullAccess ? RemoteStrings.fullAccessConfirmReason : RemoteStrings.vmHostConfirmReason }
+    }
+
+    /// SECURITY: an agent that drives this Mac's screen must not turn `widening` on for itself. An on needs
+    /// the person's own click or key in the Settings page, spent once (the host's record, never the page's
+    /// word), then Touch ID or the login password (``PageWideningGate``) whatever the click's source fields
+    /// say: a poster can set those, and cannot answer the confirm. The click is spent before the confirm,
+    /// so a script riding it cannot reuse it. An off takes any input and wins over every on asked before it.
+    func widen(_ widening: WideningSwitch, _ id: String, on: Bool, _ context: PageCallContext,
+               _ write: @escaping @MainActor (String, Bool) async -> String?) async throws -> String? {
+        let refusal = PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+        if on {
+            guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
+                  event != spentFullAccessGesture else { throw refusal }
+            spentFullAccessGesture = event
+        }
+        let confirm = ownerConfirm.map { owner in { @MainActor in await owner.authenticate(reason: widening.reason) } }
+        return try await wideningGate.set(widening.key(id), on: on, confirm: confirm, refusal: refusal) { await write(id, $0) }
     }
 
     /// A host the App wires in (nil in tests without an app), or the page's `cmux.page.unavailable`.
