@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "build": "4106459573901",
+  "notes": "notes/4106459573901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 27791,
+      "title": "acpmux: a sub-session answers to its short name; a miss names the close matches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28311,
+      "title": "cmux link / cmux host: a launchd agent follows its app's updates and leaves with it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27102,
+      "title": "Warn about machine load in the composer Computer menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28012,
+      "title": "acpmux: ls PATTERN, dotted --fields, session info --fields, send --tag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27789,
+      "title": "cmux NEXT: subagents fill one split below the first, then open as tabs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28180,
+      "title": "fix(acpmux): relay a down peer's send through the outbox by session id",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27686,
+      "title": "acpmux: every chat's inbox; another agent's plain send is never a turn of its own (A1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 27975,
+      "title": "fix(ios): isolate terminal frame cache by account and Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 28325,
+      "title": "fix(acpmux): help examples name state roots the allowed way (base red from #28013)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
