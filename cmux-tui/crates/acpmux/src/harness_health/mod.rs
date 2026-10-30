@@ -596,6 +596,50 @@ mod tests {
         assert_eq!(serde_json::to_value(Auth::Expired).unwrap(), json!("expired"));
     }
 
+    /// A profile whose CLI keeps its login in an account home of its own (`CODEX_HOME`,
+    /// `CLAUDE_CONFIG_DIR`) is checked there, so its Log In signs in there too, not the
+    /// default home.
+    #[test]
+    fn log_in_signs_in_the_account_home_the_check_reads() {
+        let subject =
+            |id: &str, family: &str, env: &[(&str, &str)], login: Option<&str>| super::Subject {
+                id: id.into(),
+                program: format!("/nonexistent/{family}"),
+                family: family.into(),
+                check: vec![],
+                env: env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
+                login: login.map(str::to_owned),
+                unresolved: vec![],
+                probe_error: None,
+            };
+        let home = std::path::Path::new("/nonexistent-home");
+        let login = |s| super::local(s, home).login;
+        assert_eq!(
+            login(subject("codex-work", "codex", &[("CODEX_HOME", "/Users/me/.codex-work")], None)),
+            Some("CODEX_HOME=/Users/me/.codex-work codex login".into())
+        );
+        assert_eq!(
+            login(subject(
+                "claude-two",
+                "claude",
+                &[("CLAUDE_CONFIG_DIR", "/Users/me/claude two")],
+                None
+            )),
+            Some("CLAUDE_CONFIG_DIR='/Users/me/claude two' claude auth login".into())
+        );
+        // A profile's own login, in the same home.
+        assert_eq!(
+            login(subject("codex-sr", "codex", &[("CODEX_HOME", "~/.codex-sr")], Some("sr login"))),
+            Some("CODEX_HOME=~/.codex-sr sr login".into())
+        );
+        // No account home: unchanged.
+        assert_eq!(login(subject("codex", "codex", &[], None)), Some("codex login".into()));
+        assert_eq!(
+            login(subject("gemini", "gemini", &[("CODEX_HOME", "/elsewhere")], None)),
+            Some("gemini".into())
+        );
+    }
+
     fn home_with(n: usize, config: Option<&str>) -> (std::path::PathBuf, BTreeMap<String, String>) {
         let dir = std::env::temp_dir().join(format!("amx-codex-store-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
