@@ -307,8 +307,18 @@ class Main(unittest.TestCase):
         out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, busy=True)],
                             read_snapshot=lambda t, r: snapshot({LARGE: 90}))
         self.assertEqual((out["owned"], out["runner"]), ("", SMALL))
-        # No snapshot, or an offline-only pool: Blacksmith, never a dead owned label.
-        for runners, snap in (([runner(SIDE, busy=True)], None), ([runner(SIDE, status="offline")], stalled)):
+        # An offline-only pool still beats the stalled label: the job is watched there and picked again
+        # (review P1 on #26614: nothing watches a nightly build queued on a stalled Blacksmith label).
+        out = self.run_main({}, read_runners=lambda t, r: [runner(SIDE, status="offline")],
+                            read_snapshot=lambda t, r: stalled)
+        self.assertEqual((out["owned"], out["runner"]), (SIDE, SIDE))
+        # An online runner's label comes before an offline-only one.
+        out = self.run_main({},
+                            read_runners=lambda t, r: [runner(DEV, status="offline"), runner(SIDE, busy=True)],
+                            read_snapshot=lambda t, r: stalled)
+        self.assertEqual(out["owned"], SIDE)
+        # No snapshot, or no registered runner on the pool: Blacksmith.
+        for runners, snap in (([runner(SIDE, busy=True)], None), ([], stalled)):
             with self.subTest(runners=runners, snap=snap):
                 out = self.run_main({}, read_runners=lambda t, r, runners=runners: runners,
                                     read_snapshot=lambda t, r, snap=snap: snap)

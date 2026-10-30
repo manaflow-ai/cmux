@@ -29,8 +29,8 @@ A Linux job runs this right before the macOS job queues and prints its labels:
   with). Empty when no label is one the rescue watches, or when the runners
   cannot be read (no routing token). A busy fleet is waited on only while every
   Blacksmith macOS label is stalled (owned_queue_route()): then the first of those
-  labels an online runner carries, since the rescue holds a job there until the
-  Blacksmith label moves.
+  labels an online runner carries, else one any registered runner carries, since
+  the rescue watches a job there and re-runs this picker once a label moves.
 - `blacksmith`: the Blacksmith macOS 26 label whose queue moves
   (nightly_sign_runner.pick(): vars.MACOS_RUNNER_26, then 6 vCPU, then 12 vCPU,
   past any stalled one). Never empty. EXCLUDE (a label another leg already
@@ -178,14 +178,18 @@ def owned_route(labels: str | Sequence[str], runners: Sequence[Mapping[str, Any]
 
 
 def owned_queue_route(labels: str | Sequence[str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
-    """(the first watched owned label, or a wider class of it, that an online runner carries, or "", why).
+    """(the first watched owned label, or a wider class of it, that an online runner carries, else the first
+    one any registered runner carries, or "", why).
 
     Taken only while every Blacksmith macOS label is stalled: a busy owned pool frees within one build,
-    while a stalled Blacksmith label may not move for an hour. The rescue keeps a job queued on its owned
-    pool while the Blacksmith label its re-run would take is stalled, and moves it once that label moves
-    (owned_pool_rescue.hold_for_destination()). Run 40622241620 (2026-10-28) queued build-nightly-app on a
-    stalled Blacksmith label from 02:40 to 02:55 while the nightly slots took the next two tips at 02:53 and
-    02:57."""
+    while a stalled Blacksmith label may not move for an hour. A job here is marked and watched: the rescue
+    holds it while the Blacksmith label its re-run would take is stalled, for NIGHTLY_HOLD_SECONDS at most,
+    then re-runs this picker (owned_pool_rescue.hold_for_destination(), rerun_failed_or_repick()). So a
+    label whose runners are all offline still beats a stalled Blacksmith label, which nothing watches: the
+    pick is made again each hold until a runner comes online or a Blacksmith label moves. Only a pool no
+    registered runner carries goes to the stalled Blacksmith label. Run 40622241620 (2026-10-28) queued
+    build-nightly-app on a stalled Blacksmith label from 02:40 to 02:55 while the nightly slots took the
+    next two tips at 02:53 and 02:57."""
     wanted = [label for label in (labels.split() if isinstance(labels, str) else labels) if label]
     watched = [label for label in wanted if owned_label(label)]
     if not watched or runners is None:
@@ -196,7 +200,12 @@ def owned_queue_route(labels: str | Sequence[str], runners: Sequence[Mapping[str
                      and pool.carries_office_pool_label(runner, candidate))
         if online:
             return candidate, f"`{candidate}` has {online} online runner(s), all busy, while every Blacksmith macOS label is stalled"
-    return "", f"no online runner carries {', '.join(f'`{c}`' for c in candidates)}"
+    for candidate in candidates:
+        registered = sum(1 for runner in runners if pool.carries_office_pool_label(runner, candidate))
+        if registered:
+            return candidate, (f"`{candidate}` has {registered} registered runner(s), none online, while every "
+                               "Blacksmith macOS label is stalled; the rescue watches it and picks again")
+    return "", f"no registered runner carries {', '.join(f'`{c}`' for c in candidates)}"
 
 
 def blacksmith_stalled_everywhere(variable: str, snapshot: Mapping[str, Any] | None, now: dt.datetime) -> bool:
