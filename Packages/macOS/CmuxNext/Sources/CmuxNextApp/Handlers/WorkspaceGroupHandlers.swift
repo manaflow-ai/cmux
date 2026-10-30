@@ -205,7 +205,7 @@ enum WorkspaceGroupHandlers {
         // and is placed once the daemon lists it. Setting the group right after the create raced that listing:
         // without the workspace's public id the place went out as the raw command, and it stayed outside the group.
         let slot = windows.controller(for: target).flatMap { controller in
-            shownGroupID(id, in: controller.sidebar.model).map { groupSlot($0, in: controller.sidebar.model, context) }
+            shownGroupID(id, in: controller.sidebar.model).map { groupSlot($0, in: controller.sidebar.model, window: target, context) }
         }
         spawn.slot = slot
         spawn.onListed = { key, bridge in
@@ -230,18 +230,23 @@ enum WorkspaceGroupHandlers {
         }
     }
 
-    /// Where New Workspace in Group puts the new workspace in group `shown` (cmux.json
-    /// `workspaceGroups`, by the group's anchor folder): after its first workspace (`top`, and
-    /// `afterCurrent`, whose reference is the anchor for the header's + and the CLI), else last.
-    private static func groupSlot(_ shown: CmuxNextSidebar.GroupID, in model: SidebarModel, _ context: AppActionContext) -> WorkspaceSlot {
+    /// Where New Workspace in Group puts the new workspace in group `shown`. cmux.json
+    /// `workspaceGroups` (by the group's anchor folder), when it names a placement: after its first
+    /// workspace (`top`, and `afterCurrent`, whose reference is the anchor for the header's + and the
+    /// CLI), else last. Else `workspaces.newPlacement`, as for every new workspace made in a group
+    /// (`NewWorkspaceDefaultSlot.slot(inGroup:members:)`): the group's top under the default `top`.
+    private static func groupSlot(_ shown: CmuxNextSidebar.GroupID, in model: SidebarModel, window: String?,
+                                  _ context: AppActionContext) -> WorkspaceSlot {
         let members = model.group(shown)?.workspaces.map(\.id.rawValue) ?? []
         let config = context.services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig()
         let anchor = WorkspaceGroupConfigLook.anchorDirectory(of: members.compactMap { context.services.machines.workspace(id: $0)?.0 })
-        switch config.placement(for: anchor) {
-        case .top, .afterCurrent:
+        switch config.configuredPlacement(for: anchor) {
+        case .top?, .afterCurrent?:
             return members.first.map(WorkspaceSlot.below) ?? .endOfGroup(shown)
-        case .end:
+        case .end?:
             return .endOfGroup(shown)
+        case nil:
+            return NewWorkspacePlacements.rule(for: window, in: context.services.windows).slot(inGroup: shown, members: members)
         }
     }
 

@@ -34,6 +34,7 @@ use acpmux::peer::{SSH_PEER_PORT, ssh_target};
 use serde_json::{Value, json};
 
 use super::{Outcome, Refusal};
+use cmux_json::JsonSet as _;
 
 const TASK: &str = "machine";
 
@@ -115,8 +116,8 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let connected = found.is_some_and(|peer| flag(peer, "connected"));
     let outdated = found.is_some_and(|peer| flag(peer, "outdated"));
     if same_host && connected && !outdated {
-        report["state"] = json!("ok");
-        report["after"] = report["before"].clone();
+        report.set("state", json!("ok"));
+        report.set("after", report["before"].clone());
         return Ok(Outcome { report, failed: false });
     }
     let plan = if same_host && connected { Plan::Update } else { Plan::Setup };
@@ -126,18 +127,21 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         .and_then(|url| ssh_target(url).ok())
         .map_or(SSH_PEER_PORT, |target| target.port);
     let argv = acp_argv(plan, &request.target, &name, port);
-    report["plan"] = json!([display(&argv)]);
+    report.set("plan", json!([display(&argv)]));
     let (undo, undo_note) = undo(plan, found, same_host, &name);
 
     let probe = probe(&request.target)?;
-    report["ssh"] = json!({
-        "command": test_command(&request.target),
-        "reachable": probe.is_ok(),
-        "error": probe.as_ref().err(),
-    });
+    report.set(
+        "ssh",
+        json!({
+            "command": test_command(&request.target),
+            "reachable": probe.is_ok(),
+            "error": probe.as_ref().err(),
+        }),
+    );
     if let Err(error) = probe {
-        report["state"] = json!("needs_user");
-        report["user_action"] = json!({
+        report.set("state", json!("needs_user"));
+        report.set("user_action", json!({
             "kind": "ssh",
             "text": format!(
                 "cmux reaches {target} over ssh with keys only and could not ({error}). Run the \
@@ -148,30 +152,30 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
             ),
             "command": test_command(&request.target),
             "url": Value::Null,
-        });
+        }));
         return Ok(Outcome { report, failed: false });
     }
-    report["undo"] = json!(undo);
-    report["undo_note"] = json!(undo_note);
+    report.set("undo", json!(undo));
+    report.set("undo_note", json!(undo_note));
     if request.dry_run {
-        report["state"] = json!("planned");
+        report.set("state", json!("planned"));
         return Ok(Outcome { report, failed: false });
     }
 
     match run_acp(&argv) {
         Ok(result) => {
             let peer = after(&result, &name);
-            report["state"] = json!("changed");
-            report["after"] = peer.as_ref().map_or(Value::Null, summary);
-            report["remote_version"] = remote_version(&result, &name);
+            report.set("state", json!("changed"));
+            report.set("after", peer.as_ref().map_or(Value::Null, summary));
+            report.set("remote_version", remote_version(&result, &name));
             Ok(Outcome { report, failed: false })
         }
         Err(error) => {
             // Nothing is registered when setup fails (the peer is its last step).
-            report["state"] = json!("failed");
-            report["error"] = json!(error);
-            report["undo"] = Value::Null;
-            report["undo_note"] = Value::Null;
+            report.set("state", json!("failed"));
+            report.set("error", json!(error));
+            report.set("undo", Value::Null);
+            report.set("undo_note", Value::Null);
             Ok(Outcome { report, failed: true })
         }
     }
@@ -227,11 +231,13 @@ pub(super) fn status() -> Result<Value, Refusal> {
         .map(|peer| {
             let mut row = summary(peer);
             let healthy = flag(peer, "connected") && !flag(peer, "outdated");
-            row["fix"] =
+            row.set(
+                "fix",
                 match (healthy, destination(peer), peer.get("name").and_then(Value::as_str)) {
                     (false, Some(target), Some(name)) => json!(setup_command(&target, name)),
                     _ => Value::Null,
-                };
+                },
+            );
             row
         })
         .collect::<Vec<_>>();

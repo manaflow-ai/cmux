@@ -80,6 +80,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// What the agent working in the workspace does right now (its acpmux lane's step, masked by
     /// acpmux; `sidebar.nowLine`): the row's "Now:" line. Nil while no chat on this Mac works.
     public var agentStep: String?
+    /// The usage rules the workspace's agent chats on this Mac break (their acpmux lanes'
+    /// `usageWarnings`, one line each): the row's warning badge and its tooltip. Empty: no badge.
+    public var usageWarnings: [String] = []
     /// Set only when the user chose an icon or color. When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
@@ -95,6 +98,10 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var activity: StatusIndicatorState
     /// The winning report's style hint (`cmux status set --style`).
     public var activityStyle: StatusIndicatorStyle?
+    /// The winning report is an OSC 7501 program status record: the program opted in to the
+    /// finer row icons (a shield for permission, each pending item), with
+    /// `sidebar.detailedStatusIcons` off (Lawrence msg 1351).
+    public var activityFromProgram = false
     /// The brand id (CmuxAgentBrands) of an agent running in one of the workspace's
     /// tabs, a working or waiting one first; the row draws its mark per `SidebarAgentMarkVariant`.
     public var agentBrand: String?

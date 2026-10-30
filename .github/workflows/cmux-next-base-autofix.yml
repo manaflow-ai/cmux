@@ -7,7 +7,8 @@ name: cmux-next base autofix
 # generated-files job's tools), every React page's generated/strings.json
 # (webviews/scripts/pages/gen-strings.mjs), the SDK wire layers
 # (cmux-tui/bindings/codegen/generate.py), the docs shortcuts copy of the
-# action catalog export (web/scripts/export-docs-shortcuts.ts), the app-host
+# action catalog export (web/scripts/export-docs-shortcuts.ts) and the cmux-next
+# docs reference pages (web/scripts/export-next-docs.ts), the app-host
 # generated files (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts), the namespace
 # daemon capability export (scripts/cmux-next/check-daemon-capabilities-fresh.py), the
 # ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the cloud
@@ -82,6 +83,7 @@ on:
       - docs/mdm/**
       - scripts/ci/defaults_guard.py
       - web/scripts/export-docs-shortcuts.ts
+      - web/scripts/export-next-docs.ts
       # The app-host generated files (base-autofix.sh --app-host).
       - cmux-tui/spec/resource-operations-v2.json
       - first-party-apps/**
@@ -199,7 +201,7 @@ jobs:
     # The exports need a logged-in session, not the console gui token, so once the
     # fleet carries glaeda#1530's session label (vars.CI_SESSION_LABEL is 1) this
     # takes it and runs beside a console GUI job; until then the gui label.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || vars.CI_PR_POOL_OWNED == '1' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # One action regeneration and up to three settings regenerations on a moving tip
     # (base-autofix-action-exports.sh, base-autofix-settings-exports.sh).
     timeout-minutes: 90

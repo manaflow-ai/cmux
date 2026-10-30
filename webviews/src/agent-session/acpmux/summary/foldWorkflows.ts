@@ -39,11 +39,14 @@ function agentOf(node: Subagent, agent: FoldAgent): WorkflowAgent {
     state: node.paused && agent.state === "running" ? "paused" : stateOf(agent.state),
     agentId: agent.agentId,
     doing: agent.action,
+    lastMessage: agent.lastMessage ?? agent.result,
     tokens: agent.tokens,
     lastProgressAt: agent.lastProgressAt,
+    progressVersion: node.progressVersion,
     retryReason: agent.retryReason,
     cached: agent.cached,
     model: agent.model,
+    effort: agent.effort,
     elapsedMs: agent.elapsedMs,
     startedAt: agent.startedAt,
   };
@@ -188,6 +191,7 @@ export function createWorkflowAdapter() {
         node.action,
         node.startedAt,
         node.endedAt,
+        node.progressVersion,
       ];
       let entry = cache.get(node.id);
       if (!entry || key.some((part, i) => part !== entry!.key[i])) entry = { key, summary: summarize(node, sessionId) };

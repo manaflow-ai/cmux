@@ -144,6 +144,13 @@ impl Mux {
         provider_workspace: ProviderWorkspaceState,
         #[cfg_attr(not(test), allow(unused_variables))] test_surface_runtime: bool,
     ) -> anyhow::Result<Arc<Self>> {
+        // Continues the registry open's laps: the owner logs them (startup_timings).
+        let mut timings = registry.take_open_timings();
+        // Warm the pages the adoption's terminal ends write while the restore
+        // runs (workspace_registry::terminal_end_prefetch).
+        if let Some(database) = registry.session_journal_database_path() {
+            crate::workspace_registry::terminal_end_prefetch::start_terminal_end_prefetch(database);
+        }
         let snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let session_shutdown = crate::session_shutdown::SessionShutdownClock::open(
@@ -185,6 +192,7 @@ impl Mux {
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
         );
         Self::rebuild_split_screen_index(&mut state);
+        timings.lap("restore.snapshot");
         let resource_projection_stats = registry.resource_projection_stats().clone();
         let launch_identity = crate::launch_credential::LaunchIdentity::load(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
@@ -313,6 +321,8 @@ impl Mux {
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),
             agent_message_pump: Default::default(),
+            #[cfg(unix)]
+            agent_chat_notices: Default::default(),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             terminal_command_history: AtomicBool::new(false),
@@ -329,6 +339,7 @@ impl Mux {
             journal_ingress,
             output_store,
             journal_maintenance: Mutex::new(None),
+            journal_maintenance_control: Arc::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
@@ -355,6 +366,7 @@ impl Mux {
             terminal_adoptions_now: Mutex::new(HashSet::new()),
             restored_tab_names: Mutex::new(HashMap::new()),
             startup_adoptions_released: AtomicBool::new(false),
+            startup_timings: Mutex::new(None),
             pending_terminals: Mutex::new(HashMap::new()),
             terminal_ends: Mutex::new(HashMap::new()),
             terminal_loss_causes: Mutex::new(loss_causes::LossCauses::default()),
@@ -419,8 +431,10 @@ impl Mux {
         })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.output_store.start(&mux)?;
+        timings.lap("mux.build");
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
+        timings.lap("restore.browsers");
         // Set before adoption: a host that adopts on its own thread names its
         // surfaces from here (finish_terminal_adoption).
         mux.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner).extend(
@@ -428,6 +442,7 @@ impl Mux {
         );
         #[cfg(any(unix, windows))]
         mux.adopt_terminal_hosts()?;
+        timings.lap("terminal.adopt_hosts");
         {
             let mut state = mux.state.lock().unwrap();
             state.rebuild_resource_indexes();
@@ -459,15 +474,21 @@ impl Mux {
             }
             std::thread::sleep(Duration::from_millis(25));
         }
+        timings.lap("restore.reconcile");
         mux.close_ephemeral_workspaces()?;
+        timings.lap("workspace.close_ephemeral");
         // cx-6so.49: host losses whose respawn an earlier owner never ran
         // (it shut down first, or a session shutdown ended the shell).
         #[cfg(any(unix, windows))]
         mux.respawn_lost_terminals_at_start();
+        timings.lap("terminal.respawn_lost");
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
+        timings.lap("agent.hooks");
         mux.start_journal_maintenance()?;
         crate::state::project_watch::start(&mux);
+        timings.lap("journal.maintenance_start");
+        *mux.startup_timings.lock().unwrap_or_else(PoisonError::into_inner) = Some(timings);
         Ok(mux)
     }
 
