@@ -133,7 +133,8 @@
           {
             "key" : "settings.group.quit",
             "rows" : [
-              "app.quitBehavior"
+              "app.quitBehavior",
+              "app.confirmQuit"
             ],
             "title" : {
               "key" : "settings.group.quit",
@@ -6449,6 +6450,80 @@
       "title" : {
         "key" : "settings.app.quitBehavior",
         "text" : "When Quitting"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "always",
+        "dirty-only",
+        "never"
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.confirmQuitDirtyOnly",
+            "text" : "When Programs Are Running"
+          },
+          "value" : "dirty-only"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "never",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.quit",
+        "text" : "Quitting"
+      },
+      "help" : {
+        "key" : "settings.app.confirmQuit.help",
+        "text" : "Asks before Cmd-Q, the Quit menu or the Dock quits cmux."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.confirmQuit",
+      "keywords" : [
+        "quit",
+        "exit",
+        "confirm",
+        "warn",
+        "ask",
+        "cmd-q",
+        "accidental"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "confirmQuit"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.app.confirmQuit",
+        "text" : "Confirm Before Quitting"
       },
       "validation" : "portable"
     },

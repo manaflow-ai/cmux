@@ -30,13 +30,19 @@ struct QuitAlertContent: Equatable {
     /// confirmation: Quit and Cancel.
     static func main(_ prompt: QuitPrompt) -> QuitAlertContent {
         guard prompt.offersSessionChoice else {
-            return QuitAlertContent(title: ConfirmationStrings.quitIncognitoTitle, lines: [], buttons: [.quit, .cancel],
+            // Quit applies the remembered choice; the title names incognito
+            // windows only when they are what is at stake.
+            let title = prompt.incognitoPrograms.isEmpty ? QuitStrings.title : ConfirmationStrings.quitIncognitoTitle
+            return QuitAlertContent(title: title, lines: [], buttons: [.quit, .cancel],
                                     showsSuppression: false)
         }
         // Statuses only, no explanation of what quitting does.
         var lines: [String] = []
         if prompt.runningPrograms > 0 { lines.append(QuitStrings.programsRunning(prompt.runningPrograms)) }
-        if prompt.agentsInTurn > 0 { lines.append(QuitStrings.agentsWorking(prompt.agentsInTurn)) }
+        // A Home Chief turn counts as an agent working: with "dirty-only" it
+        // can be the only reason the dialog opens.
+        let agentsWorking = prompt.agentsInTurn + (prompt.chiefKeepsRunning ? 1 : 0)
+        if agentsWorking > 0 { lines.append(QuitStrings.agentsWorking(agentsWorking)) }
         if !prompt.incognitoPrograms.isEmpty { lines.append(QuitStrings.incognitoCloses) }
         return QuitAlertContent(title: QuitStrings.title, lines: lines, buttons: [.keep, .cancel, .confirmQuitEverything],
                                 showsSuppression: true)

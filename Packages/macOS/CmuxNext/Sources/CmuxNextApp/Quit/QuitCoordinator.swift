@@ -52,7 +52,7 @@ final class QuitCoordinator {
     /// completing ignores a repeat.
     func requestQuit(_ origin: QuitOrigin) {
         guard !isQuitting else {
-            if origin == .interactive { sheet?.answerDefault() }
+            if origin == .interactive, Self.answersDefault(isKeyRepeat: Self.currentEventIsKeyRepeat) { sheet?.answerDefault() }
             return
         }
         origins.record(origin)
@@ -76,7 +76,7 @@ final class QuitCoordinator {
     func shouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !isQuitting else {
             // A second Quit that reached AppKit directly (Dock, menu).
-            sheet?.answerDefault()
+            if Self.answersDefault(isKeyRepeat: Self.currentEventIsKeyRepeat) { sheet?.answerDefault() }
             return .terminateLater
         }
         isQuitting = true
@@ -84,7 +84,8 @@ final class QuitCoordinator {
         SheetDismissal.endAll()
         let origin = origins.consume(appleEventReason: Self.quitReason())
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
-        logger.info("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
+        let confirm = services.settings?.snapshot.confirmQuit ?? ConfirmQuitMode.fallback
+        logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public) confirm=\(confirm.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
             // Unsaved documents come first (R96 quit hook). Answering that
@@ -98,7 +99,7 @@ final class QuitCoordinator {
                 return
             }
             let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
-            switch QuitPolicy.decide(origin, behavior: behavior, facts: facts, alreadyAsked: askedUnsaved) {
+            switch QuitPolicy.decide(origin, behavior: behavior, confirm: confirm, facts: facts, alreadyAsked: askedUnsaved) {
             case .quit(let choice):
                 await complete(choice, remember: false, sender)
             case .ask(let prompt):
@@ -122,6 +123,12 @@ final class QuitCoordinator {
         return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app,
                                              writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
     }
+
+    /// A second quit while the dialog shows answers its default, except a
+    /// key repeat: a held Cmd-Q would otherwise answer the dialog it opened.
+    nonisolated static func answersDefault(isKeyRepeat: Bool) -> Bool { !isKeyRepeat }
+    /// `isARepeat` raises on anything but a key event; a menu click or a Dock quit is a mouse or system event.
+    private static var currentEventIsKeyRepeat: Bool { NSApp.currentEvent.map { $0.type == .keyDown && $0.isARepeat } ?? false }
 
     /// A quit from the Dock or the app switcher while cmux is inactive is the
     /// user's: cmux comes forward so the dialog is seen. Never in a
@@ -172,6 +179,14 @@ final class QuitCoordinator {
                 do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue), by: .user) } catch {
                     Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
                         .error("quit setting write failed: \(String(describing: error), privacy: .public)")
+                }
+            },
+            stopConfirming: {
+                guard let settings = services.settings, settings.snapshot.confirmQuit != .never,
+                      let descriptor = SettingsSchema.descriptor(for: ConfirmQuitMode.configPath) else { return }
+                do { try await settings.setSetting(descriptor, to: .string(ConfirmQuitMode.never.rawValue), by: .user) } catch {
+                    Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
+                        .error("confirm-quit setting write failed: \(String(describing: error), privacy: .public)")
                 }
             },
             prepareWindows: {
