@@ -277,6 +277,31 @@ fn server_connection_permits_enforce_and_release_the_cap() {
     assert_eq!(snapshot.peak, MAX_SERVER_CONNECTIONS as u64);
 }
 
+/// Agents in the session's terminals cannot take every connection: the app's
+/// own connections still get the rest, so it can close their workspaces
+/// (#27698: 55,162 refusals locked the app out of its daemon).
+#[test]
+fn terminal_connections_leave_slots_for_the_app() {
+    let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+    let claim_terminal = || claim_connection(&connections).and_then(ConnectionPermit::into_terminal);
+    let terminal: Vec<ConnectionPermit> = (0..MAX_TERMINAL_CONNECTIONS)
+        .map(|_| claim_terminal().expect("terminal slot below its share"))
+        .collect();
+    // One more terminal connection is refused and gives its slot back.
+    assert!(claim_terminal().is_none());
+    assert_eq!(connections.active(), MAX_TERMINAL_CONNECTIONS as u64);
+
+    let app: Vec<ConnectionPermit> = (MAX_TERMINAL_CONNECTIONS..MAX_SERVER_CONNECTIONS)
+        .map(|_| claim_connection(&connections).expect("slot left for the app"))
+        .collect();
+    assert!(claim_connection(&connections).is_none());
+
+    drop(terminal);
+    assert!(claim_terminal().is_some(), "a released terminal slot is free again");
+    drop(app);
+    assert_eq!(connections.active(), 0);
+}
+
 #[test]
 fn server_stats_report_lock_writer_and_connection_metrics() {
     let mux = test_mux();
