@@ -94,3 +94,16 @@ async fn peer_loop_never_consumes_the_daemons_pending_shutdown() {
         .await
         .expect("peer loop stole the main daemon's shutdown permit");
 }
+
+#[tokio::test(start_paused = true)]
+async fn planned_restart_cancels_an_older_drop_deadline() {
+    let (hub, peer, _) = fixture();
+    let mut events = hub.events.subscribe();
+    send(&hub, &peer, PeerNotice::Disconnected("reset".into())).await;
+    tokio::time::advance(Duration::from_secs(6)).await;
+    send(&hub, &peer, PeerNotice::Restarting).await;
+    tokio::time::advance(Duration::from_secs(5)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(hub.resolve_remote("live").unwrap().2["status"], "ready");
+    assert!(events.try_recv().is_err());
+}
