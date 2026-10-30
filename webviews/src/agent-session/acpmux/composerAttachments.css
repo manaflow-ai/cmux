@@ -635,7 +635,9 @@ button.acpmux-attachment-pasted-open:hover {
    (conversation/UserBubble.tsx SentImage). Its icon keeps its own shape, not the thumbnail's. */
 .cv-user__sourced {
   position: relative;
-  display: block;
+  /* Flex, so the thumbnail's button is no inline box: no line box under it, and the tile is as
+     tall as an unsourced one. */
+  display: flex;
   flex: none;
 }
 .cv-user__sourced > .acpmux-source-badge {
