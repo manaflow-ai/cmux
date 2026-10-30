@@ -228,7 +228,9 @@ import Testing
         let recorder = Recorder()
         page.setDeviceFullAccess = { _, on in recorder.sets.append("device \(on)"); return nil }
         page.setMachineVmHost = { _, on in recorder.sets.append("vm \(on)"); return nil }
-        let ledger = PersonInputLedger()
+        let ledger = PersonInputLedger(check: { event in
+            event.cgEvent?.getIntegerValueField(.eventSourceUnixProcessID) == 0
+        })
         page.personBacksGesture = { ledger.backs($0) }
         page.ownerConfirm = owner
         // A live process other than this one and the WindowServer, standing in for the poster.
@@ -273,22 +275,17 @@ import Testing
         #expect(Switch.fullAccess.reason != Switch.vmHost.reason)
     }
 
-    /// Screen Sharing, Universal Control, the Accessibility Keyboard or a posted click: the same confirm,
-    /// with the switch's own reason; only a success turns it on, and off never asks.
-    @Test func anyOtherClickAsksTheSameConfirm() async throws {
+    /// A posted click is not person input, so it never reaches the confirm; turning off still takes any input.
+    @Test func anyOtherClickIsRefusedBeforeConfirmButOffStillWorks() async throws {
         let owner = FakeOwner()
         let h = try await make(owner: owner)
         defer { h.cleanUp() }
         for op in Switch.allCases {
-            owner.answer = false
             #expect(try await h.refused(op, on: true, h.posted()))
             #expect(!h.recorder.sets.contains("\(op.set) true"))
-            owner.answer = true
-            #expect(try await !h.refused(op, on: true, h.posted()))
-            #expect(h.recorder.sets.last == "\(op.set) true")
         }
         for op in Switch.allCases { #expect(try await !h.refused(op, on: false, h.posted())) }
-        #expect(owner.reasons.count == 4, "off never asks")
+        #expect(owner.reasons.isEmpty, "posted input never asks")
     }
 
     /// The click is spent before the confirm: a cancelled confirm's click, sent again, asks nothing and
