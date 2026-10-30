@@ -51,9 +51,10 @@ async function open(
   watches: boolean,
   {
     watchGate,
+    answerGate,
     adoptOnConnect = true,
     saved = false,
-  }: { watchGate?: Promise<void>; adoptOnConnect?: boolean; saved?: boolean } = {},
+  }: { watchGate?: Promise<void>; answerGate?: Promise<void>; adoptOnConnect?: boolean; saved?: boolean } = {},
 ) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
@@ -76,6 +77,7 @@ async function open(
       other = String(hooks.sessions[0]!.sessionId);
       hooks.answer = async (method, params) => {
         methods.push(method);
+        if (method === "_acpmux/watch_take_over" && params.ifLive) await answerGate;
         if (method === "_acpmux/watch_take_over" && !params.ifLive)
           throw Object.assign(new Error("claude session is open in another process"), {
             data: { reason: "adopt.live", details: { signal: "registry", pid: 4242, canFork: true } },
@@ -84,6 +86,7 @@ async function open(
         const asking = params._meta?.acpmux?.adopt ?? {};
         asked.push(asking);
         if (asking.ifLive === "fork") {
+          await answerGate;
           created("fork-1");
           return { sessionId: "fork-1" };
         }
@@ -190,11 +193,54 @@ test("Open Anyway over the watched chat takes it over and keeps it as the tab's 
   const { client, methods, now } = await open(true);
   try {
     await settle(() => Boolean(now().liveTakeOver));
+    const kept = persisted(client);
     await client.adoptLive("open");
     expect(methods.at(-1)).toBe("_acpmux/watch_take_over");
     expect(client.adopted).toBe("watched-1");
+    expect(kept).toEqual(["watched-1"]);
     expect(now().liveTakeOver).toBeUndefined();
   } finally {
     client.close?.();
   }
 });
+
+/// The chat each choice leaves the tab on, as the host persists it (`onAdopted`).
+function persisted(client: { onAdopted?: (sessionId: string) => void }): string[] {
+  const kept: string[] = [];
+  client.onAdopted = (sessionId) => kept.push(sessionId);
+  return kept;
+}
+
+test("Fork It keeps the fork as the tab's chat, also when it is retried after Trust", async () => {
+  const { client, now } = await open(true);
+  try {
+    await settle(() => Boolean(now().liveTakeOver));
+    const kept = persisted(client);
+    await client.adoptLive("fork");
+    await settle(() => now().sessionId === "fork-1");
+    expect(kept).toEqual(["fork-1"]);
+  } finally {
+    client.close?.();
+  }
+});
+
+for (const choice of ["fork", "open"] as const)
+  test(`a ${choice} answered after the person moved to another chat leaves that chat shown and kept`, async () => {
+    let release = () => undefined as void;
+    const answerGate = new Promise<void>((resolve) => (release = resolve));
+    const { client, other, now } = await open(true, { answerGate });
+    try {
+      await settle(() => Boolean(now().liveTakeOver));
+      const kept = persisted(client);
+      const chosen = client.adoptLive(choice);
+      await settle(() => false);
+      await client.select(other());
+      release();
+      await chosen;
+      await settle(() => false);
+      expect(now().sessionId).toBe(other());
+      expect(kept).toEqual([]);
+    } finally {
+      client.close?.();
+    }
+  });
