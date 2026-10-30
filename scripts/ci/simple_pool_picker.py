@@ -323,6 +323,8 @@ def _pick_blacksmith(state: State) -> Choice:
     for pool in eligible:
         if pool.unreserved_available >= state.jobs:
             return Choice(pool.label, "first Blacksmith label with enough free slots", pool.xcode_app)
+    # A stalled or dead label (Pool.stalled) is the last resort: least loaded among the moving ones first.
+    eligible = [pool for pool in eligible if not pool.stalled] or eligible
     if eligible:
         winner = min(eligible, key=lambda pool: ((pool.queued + pool.running) / max(1, pool.capacity),
                                                   BLACKSMITH.index(pool.label)))

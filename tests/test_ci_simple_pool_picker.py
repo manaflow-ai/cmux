@@ -718,6 +718,13 @@ class DeadLabelTests(unittest.TestCase):
         self.assertTrue({item.label: item for item in state.blacksmith}[self.LARGE].stalled)
         self.assertNotEqual(picker.pick(state).label, self.LARGE)
 
+    def test_with_every_label_full_the_least_loaded_pick_is_never_the_dead_one(self):
+        snap = self.snap()
+        snap["pools"][self.SMALL] = {"queued": 30, "running": 10}
+        snap["pools"][picker.BLACKSMITH[2]] = {"queued": 30, "running": 10}
+        state = self.state(snap)
+        self.assertEqual(picker.pick(state).label, self.SMALL)
+
     def test_no_start_evidence_or_every_label_dead_changes_nothing(self):
         older = self.state(self.snap(started=False))
         self.assertFalse({item.label: item for item in older.blacksmith}[self.LARGE].stalled)
