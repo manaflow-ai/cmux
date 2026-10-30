@@ -137,6 +137,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         if let group = groupID(id) { return groupCardBody(for: group, id: id) }
         guard let list, let ws = workspaceID(id), let workspace = list.hoverCardRow(ws) else { return nil }
         let body = body ?? WorkspaceHoverCardView()
+        if bodyID != id { body.resetDetails() }
         self.body = body
         let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }
         let options = DesignSettings.shared.workspaceHoverCard
@@ -149,6 +150,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         body.configure(content)
         body.tabList.configure(title: ws.rawValue, tabs: workspace.tabs)
         body.tabList.onResize = { [weak self] in self?.coordinator.contentChanged(id) }
+        body.onDetailsChanged = { [weak self] in self?.coordinator.contentChanged(id) }
         body.tabList.onSelect = { [weak self, weak list] tabID in
             guard let self, let list, list.hoverCardRow(ws)?.tabs.contains(where: { $0.id == tabID }) == true else { return }
             list.model.send(.selectTab(workspace: ws, tab: tabID))
@@ -310,6 +312,7 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     let detailsToggle = ClickableButton(title: "Show details", target: nil, action: nil)
     private var detailsExpanded = false
     var isDetailsExpanded: Bool { detailsExpanded }
+    var onDetailsChanged: (() -> Void)?
     /// The scrollable history of prompts, waits and finished turns (u3320).
     let timeline = WorkspaceHoverCardTimelineView()
     /// The card's widest; the full history layout widens it.
@@ -479,7 +482,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
     }
 
     func configure(_ content: WorkspaceHoverCardContent, now: Date = Date()) {
-        if self.content?.title != content.title { detailsExpanded = false }
+        // A reused card always starts compact for the next workspace.
+        detailsExpanded = false
         self.content = content
         width = content.options.layout == .log ? Self.logCardWidth : Self.cardWidth
         widthLimit?.constant = width
@@ -529,17 +533,44 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
 
     @objc private func toggleDetails() {
         detailsExpanded.toggle()
-        if detailsExpanded, let content { configure(content) }
         updateDetailsVisibility()
         needsLayout = true
+        onDetailsChanged?()
+    }
+
+    func resetDetails() {
+        detailsExpanded = false
+        updateDetailsVisibility()
+    }
+
+    func acceptsHoverCardMouse(at screenPoint: CGPoint, in panel: NSWindow) -> Bool {
+        let point = convert(panel.convertPoint(fromScreen: screenPoint), from: nil)
+        var hit = hitTest(point)
+        while let view = hit {
+            if view === detailsToggle || view is WorkspaceTabHoverCardRow { return true }
+            hit = view.superview
+        }
+        return false
     }
 
     private func updateDetailsVisibility() {
-        detailsToggle.title = detailsExpanded ? "Hide details" : "Show details"
+        detailsToggle.title = detailsExpanded ? Strings.hideDetails : Strings.showDetails
         if !detailsExpanded {
             for view in builtIn { view.isHidden = true }
             customSlot.isHidden = true
             customError.isHidden = true
+        } else if customView != nil {
+            for view in builtIn { view.isHidden = true }
+            customSlot.isHidden = false
+            customError.isHidden = true
+        } else {
+            customSlot.isHidden = true
+            activityRow.isHidden = activityWord == nil
+            statsRow.isHidden = content?.stats == nil
+            factsStack.isHidden = content?.facts.isEmpty ?? true
+            timeline.isHidden = content?.timeline.isEmpty ?? true
+            resourceRow.isHidden = !resourceShown
+            customError.isHidden = customError.stringValue.isEmpty
         }
         // The card always has status/details available for this workspace; keep
         // the control visible while collapsed so one click reveals them.

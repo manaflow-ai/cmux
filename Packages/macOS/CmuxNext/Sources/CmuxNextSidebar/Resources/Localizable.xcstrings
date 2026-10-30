@@ -1,6 +1,14 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "sidebar.hoverCard.showDetails": {
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Show details"}}}
+    },
+    "sidebar.hoverCard.hideDetails": {
+      "extractionState": "manual",
+      "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Hide details"}}}
+    },
     "autoArchive.undoTitle": {
       "extractionState": "manual",
       "localizations": {

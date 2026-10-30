@@ -37,6 +37,12 @@ public struct HoverCardBody {
 public protocol HoverCardInteractiveBody: AnyObject {
     /// Returns true when the body consumed `event`.
     func handleHoverCardKeyDown(_ event: NSEvent) -> Bool
+    /// Whether a mouse press at the card's screen point belongs to an interactive control.
+    func acceptsHoverCardMouse(at screenPoint: CGPoint, in panel: NSWindow) -> Bool
+}
+
+public extension HoverCardInteractiveBody {
+    func acceptsHoverCardMouse(at screenPoint: CGPoint, in panel: NSWindow) -> Bool { false }
 }
 
 /// A card body that can say what it shows, for `debug.hover_cards` (GUI proofs read it).

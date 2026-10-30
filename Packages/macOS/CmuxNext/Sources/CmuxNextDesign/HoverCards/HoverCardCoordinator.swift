@@ -387,7 +387,9 @@ public final class HoverCardCoordinator {
             }
             let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
             if panel.cardFrame.contains(point) {
-                if event.type == .leftMouseDown {
+                if event.type == .leftMouseDown,
+                   let body = panel.body as? any HoverCardInteractiveBody,
+                   body.acceptsHoverCardMouse(at: point, in: panel) {
                     // Let the interactive card's row receive the click. Its
                     // action dismisses after it focuses the selected tab.
                     return event
@@ -542,7 +544,7 @@ public final class HoverCardCoordinator {
         ]
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The currently interactive card, for synthetic native input proofs.
     /// Coordinates are relative to the card, excluding the window's shadow band.
     public var debugInteractiveCard: (window: NSWindow, frame: CGRect)? {
