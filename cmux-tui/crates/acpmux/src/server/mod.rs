@@ -1237,6 +1237,7 @@ async fn serve_connection_body(
     fan.abort();
     conn.media.close_all();
     view::release_all(&hub, &conn);
+    chat_windows::connection_ended(&conn);
     // Leases first: ending one is cheap and synchronous, while the ephemeral release awaits each
     // session's kill. A leased peer must not keep reconnecting to a forward port its bridge already
     // closed, which another process could bind (`hub/peer_lease.rs`).

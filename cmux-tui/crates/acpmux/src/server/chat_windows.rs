@@ -51,6 +51,8 @@ pub(super) struct ConnWindows {
 #[derive(Default)]
 struct Windows {
     by_name: BTreeMap<String, WindowState>,
+    /// The connection's reads ended: no window opens again and the task ends.
+    ended: bool,
     /// The highest generation seen for each window name, opens and closes alike.
     generations: HashMap<String, u64>,
     /// The connection's task runs. Set and cleared under this lock, so an open never misses a
@@ -97,6 +99,9 @@ pub(super) async fn open(
     let window = spec.window.clone();
     {
         let mut windows = lock(&conn.chat_windows.windows);
+        if windows.ended {
+            return Ok(json!({"window": window, "ready": false}));
+        }
         let newest = windows.generations.get(&window).copied().unwrap_or(0);
         if spec.generation < newest {
             return Ok(json!({"window": window, "gen": spec.generation, "stale": true}));
@@ -149,6 +154,17 @@ pub(super) fn close(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     // The task sees the last window gone and ends.
     conn.chat_windows.wake.notify_one();
     Ok(json!({"window": window, "closed": closed}))
+}
+
+/// The connection's reads ended (the client hung up): its windows close and its task ends. A unix
+/// writer learns of a hang-up only at its next write, so the task must not wait for one (R6).
+pub(super) fn connection_ended(conn: &Conn) {
+    {
+        let mut windows = lock(&conn.chat_windows.windows);
+        windows.ended = true;
+        windows.by_name.clear();
+    }
+    conn.chat_windows.wake.notify_one();
 }
 
 /// A chat's activity changed (`chats::push_activity`): the connection's windows recompute.
