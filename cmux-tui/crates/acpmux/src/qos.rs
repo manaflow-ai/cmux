@@ -33,6 +33,14 @@
 //! holds the store's writers lock; the upload sweep holds the in-use set) stays
 //! at the daemon's own priority: throttling it would stall every stream.
 //!
+//! Why utility and not background for agents: background class gives the app
+//! more (manaflow-ai/cmuxterm-hq#4947: a Chromium pane's drag lag under 14 busy
+//! processes was 55 ms p95 at default, 40 ms at utility, 6 ms at background),
+//! but it keeps agent work off the performance cores even on an idle Mac: a
+//! fixed CPU job took 0.9 s at default, 0.8 s at utility and 16.6 s at
+//! background on one thread, and 4.0 / 3.6 / 28.5 s on ten (cmux-mac-mini, 4P +
+//! 6E). `ACPMUX_QOS=background` picks background for agent hosts anyway.
+//!
 //! `ACPMUX_QOS=off` turns all of it off (a process started with it set starts
 //! as before); agent hosts get it through their environment allowlist
 //! (`agent::host_environment`). Best effort: a call that fails leaves the process as it was.
@@ -78,6 +86,11 @@ fn enabled() -> bool {
     std::env::var_os(ENV).is_none_or(|v| v != "off")
 }
 
+/// `ACPMUX_QOS=background`: agent hosts run in background instead of utility.
+fn agent_background() -> bool {
+    std::env::var_os(ENV).is_some_and(|v| v == "background")
+}
+
 /// Put this process in `role`'s tier. Call it first thing in `main`, before
 /// any thread starts: for [`Tier::Agent`] on macOS it re-executes the process
 /// in place and returns only when that is not done (already clamped, turned
@@ -88,6 +101,9 @@ pub fn enter(role: Role) {
     }
     match tier(role) {
         Tier::Serving => imp::disk_utility(),
+        // Opt-in: the whole agent tree in background (hq#4947's 55 -> 6 ms
+        // drag lag), at the cost of agent speed (module docs).
+        Tier::Agent if agent_background() => imp::process_background(),
         Tier::Agent => {
             imp::disk_utility();
             imp::clamp_cpu_utility();
@@ -231,6 +247,14 @@ mod imp {
         }
     }
 
+    /// This process, and every process it starts, in `PRIO_DARWIN_BG`
+    /// (inherited across fork and exec; a fleet-mini probe).
+    pub(super) fn process_background() {
+        const PRIO_DARWIN_PROCESS: libc::c_int = 4;
+        // SAFETY: plain syscall on this process.
+        unsafe { libc::setpriority(PRIO_DARWIN_PROCESS, 0, PRIO_DARWIN_BG) };
+    }
+
     /// This thread in `PRIO_DARWIN_BG` until dropped.
     pub(super) struct ThreadBackground;
 
@@ -266,6 +290,10 @@ mod imp {
         }
     }
 
+    pub(super) fn process_background() {
+        clamp_cpu_utility();
+    }
+
     pub(super) struct ThreadBackground;
     impl ThreadBackground {
         pub(super) fn enter() -> Self {
@@ -278,6 +306,10 @@ mod imp {
 mod imp {
     pub(super) fn disk_utility() {}
     pub(super) fn clamp_cpu_utility() {}
+    pub(super) fn process_background() {
+        clamp_cpu_utility();
+    }
+
     pub(super) struct ThreadBackground;
     impl ThreadBackground {
         pub(super) fn enter() -> Self {
