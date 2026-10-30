@@ -188,7 +188,9 @@ struct CloudGitHubSetupTests {
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let seen = root.appendingPathComponent("seen")
-        try Data("#!/bin/sh\necho \"$*\" >>\"$SEEN\"\nexit \(cmuxExit)\n".utf8).write(to: bin.appendingPathComponent("cmux"))
+        // A working agent: the probe's repo is refused by the team's policy.
+        let stub = "#!/bin/sh\necho \"$*\" >>\"$SEEN\"\n[ \"$2\" = credential ] && echo 'cmux github credential: policy.denied: the GitHub connection may not act on cmux-setup-probe/none' >&2\nexit \(cmuxExit)\n"
+        try Data(stub.utf8).write(to: bin.appendingPathComponent("cmux"))
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bin.appendingPathComponent("cmux").path)
         let path = root.appendingPathComponent("a.sock").path
         let listener = socket ? try Self.listen(at: path) : -1
@@ -197,18 +199,22 @@ struct CloudGitHubSetupTests {
         let ran = try Self.run("/bin/sh", ["-c", script], environment: ["PATH": bin.path + ":/usr/bin:/bin", "SEEN": seen.path])
         #expect(ran.output == expected + (expected.hasPrefix("cmux-app:") ? "cmux-gh: logged_in\n" : ""))
         let called = (try? String(contentsOf: seen, encoding: .utf8)) ?? ""
-        // A bound agent's probe answer names no vm.unbound, so the helper goes in.
+        // A working agent's probe answer is the policy refusal, so the helper goes in.
         #expect(called == (socket ? "github credential get\ngithub setup\n" : ""))
     }
 
-    /// An agent not yet bound answers the probe with `vm.unbound`: no helper goes in, and the device flow follows.
-    @Test func anUnboundAgentGetsNoHelper() throws {
+    /// An agent not yet bound, unreachable or broken, a deployment without the App, a team with no
+    /// connection: any probe answer but the policy refusal puts no helper in, and the device flow follows.
+    @Test(arguments: ["vm.unbound: this machine is not bound to cmux Cloud yet", "vm.agent_unreachable: connection refused",
+                      "vm.agent_bad_answer: no token in the answer", "integration.unavailable: GitHub did not answer; retry",
+                      "integration.not_found: this team has no GitHub connection", ""])
+    func anUnusableAgentGetsNoHelper(answer: String) throws {
         let root = URL(fileURLWithPath: "/tmp/cn-gh-unbound-\(UUID().uuidString.prefix(8))")
         let bin = root.appendingPathComponent("bin")
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let seen = root.appendingPathComponent("seen")
-        let stub = "#!/bin/sh\necho \"$*\" >>\"$SEEN\"\n[ \"$2\" = credential ] && echo 'cmux-setup-probe/none: vm.unbound: this machine is not bound to cmux Cloud yet' >&2\nexit 0\n"
+        let stub = "#!/bin/sh\necho \"$*\" >>\"$SEEN\"\n[ \"$2\" = credential ] && echo 'cmux github credential: \(answer)' >&2\nexit 0\n"
         try Data(stub.utf8).write(to: bin.appendingPathComponent("cmux"))
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bin.appendingPathComponent("cmux").path)
         let path = root.appendingPathComponent("a.sock").path
@@ -217,7 +223,7 @@ struct CloudGitHubSetupTests {
         let script = CloudGitHubSetup.appCommand(at: path) + "\necho 'cmux-gh: logged_in'"
         let ran = try Self.run("/bin/sh", ["-c", script], environment: ["PATH": bin.path + ":/usr/bin:/bin", "SEEN": seen.path])
         #expect(ran.output == "cmux-app: unavailable\ncmux-gh: logged_in\n")
-        #expect((try? String(contentsOf: seen, encoding: .utf8)) == "github credential get\n", "the helper went in on an unbound agent")
+        #expect((try? String(contentsOf: seen, encoding: .utf8)) == "github credential get\n", "the helper went in on an unusable agent")
     }
 
     /// A hung agent is stopped after the probe's bound and counts as unavailable: the device flow

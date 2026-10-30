@@ -182,17 +182,20 @@ nonisolated enum CloudGitHubSetup {
     /// The Cloud agent's socket on the machine, which `cmux github` asks for each token.
     static let agentSocket = "/run/cmux-vm-agent/agent.sock"
 
-    /// A token ask for a repo no team has: an agent not yet bound answers `vm.unbound` and mints
-    /// nothing; a bound one passes it to the API, which refuses it. An unbound agent's helper would
-    /// fail every git call, so the device flow runs instead. The ask gets ``probeSeconds``: a hung
-    /// agent (the CLI waits up to 240 s for it) is stopped and counts as unavailable too, so the
-    /// device flow still starts inside ``timeoutMs``. Sets `unbound` to 1 for either.
+    /// A token ask for a repo no team has. Only a working path answers it with the API's
+    /// `policy.denied` (the team's connection may not act on that repo): the agent is bound, reaches
+    /// the API, and the team has an active GitHub connection. Anything else (`vm.unbound`, an
+    /// unreachable or broken agent, `integration.unavailable`, no connection, a token for it) means
+    /// the helper would fail every git call, so the device flow runs instead. The ask gets
+    /// ``probeSeconds``: a hung agent (the CLI waits up to 240 s for it) is stopped and counts as
+    /// unusable too, so the device flow still starts inside ``timeoutMs``. Sets `unusable` to 1 for
+    /// any of them.
     static let unboundProbe = [
         #"probe_err=$(mktemp 2>/dev/null || echo "/tmp/cmux-gh-probe.$$")"#,
         #"printf 'protocol=https\nhost=github.com\npath=cmux-setup-probe/none.git\n\n' | cmux github credential get >/dev/null 2>"$probe_err" & probe=$!"#,
         #"j=0; while kill -0 "$probe" 2>/dev/null && [ $j -lt \#(probeSeconds * 4) ]; do sleep 0.25; j=$((j+1)); done"#,
-        #"if kill -0 "$probe" 2>/dev/null; then kill "$probe" 2>/dev/null; unbound=1"#,
-        #"elif grep -q 'vm\.unbound' "$probe_err"; then unbound=1; else unbound=; fi"#,
+        #"if kill -0 "$probe" 2>/dev/null; then kill "$probe" 2>/dev/null; unusable=1"#,
+        #"elif grep -q 'policy\.denied' "$probe_err"; then unusable=; else unusable=1; fi"#,
         #"rm -f "$probe_err""#,
     ].joined(separator: "\n")
 
@@ -203,7 +206,7 @@ nonisolated enum CloudGitHubSetup {
         [
             "if [ -S \(shellQuote(socket)) ] && command -v cmux >/dev/null 2>&1; then",
             unboundProbe,
-            "  if [ -n \"$unbound\" ]; then echo 'cmux-app: unavailable'",
+            "  if [ -n \"$unusable\" ]; then echo 'cmux-app: unavailable'",
             "  elif cmux github setup >/dev/null 2>&1; then echo 'cmux-gh: app'; exit 0",
             "  else echo 'cmux-app: failed'; fi",
             "else",
