@@ -45,7 +45,7 @@ import {
 import { flushSync } from "react-dom";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
-import { chatColumnOf, useChatWidth, type ChatColumn } from "../chatWidth";
+import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatWidth, type ChatColumn } from "../chatWidth";
 import { PanelToggle } from "../header/PanelToggle";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
@@ -585,9 +585,11 @@ function InspectorPresence({
     if (!drawn) {
       delete shell.dataset.inspectorChatPlacement;
       shell.style.removeProperty("--acpmux-header-room");
+      shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
       return;
     }
     shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
+    shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     // Push always narrows the transcript, not the header: native tabs reserve the tools at the
     // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
     if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
@@ -597,6 +599,7 @@ function InspectorPresence({
     return () => {
       delete shell.dataset.inspectorChatPlacement;
       shell.style.removeProperty("--acpmux-header-room");
+      shell.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(CHAT_LAYOUT_EVENT));
     };
   }, [shell]);
   // A card under the panel (the computer use live preview) reads where it goes from the shell.

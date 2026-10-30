@@ -105,6 +105,7 @@ on:
       - tests/test_build_web_bundles_from.sh
       - tests/test_web_bundle_key_inputs.sh
       - tests/test_web_ota_pointer.sh
+      - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
@@ -367,6 +368,7 @@ on:
       - tests/test_build_web_bundles_from.sh
       - tests/test_web_bundle_key_inputs.sh
       - tests/test_web_ota_pointer.sh
+      - tests/test_web_ota_publication_contract.py
       - scripts/cmux-next/web-ota-pointer.py
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
@@ -1935,7 +1937,9 @@ jobs:
       - name: Web update pointer
         id: web-ota-pointer
         continue-on-error: true
-        run: bash tests/test_web_ota_pointer.sh
+        run: |
+          python3 tests/test_web_ota_publication_contract.py
+          bash tests/test_web_ota_pointer.sh
 
       # The companion workflows' structure: generated-files catch-up and the
       # next-batch landing queue.
@@ -2165,28 +2169,29 @@ jobs:
             fi
             failed+=("$name (${outcome:-not run})")
           done <<<"$OUTCOMES"
-          # A push compares the checks-job reds with the immediately previous tip.
-          # A failure already present there is inherited base red: warn and keep the
-          # job green. A missing/failed comparison leaves every red blocking.
+          # A push names which reds it added and which the previous tip already had, but every
+          # red keeps the job red. Turning inherited reds into warnings (0150fc73e3e) made the
+          # tip's checks job green while its checks were red: base_red_checks.py excused every red
+          # while the previous tip was still pending, which on a branch with ~100 merges a day is
+          # nearly always, so new reds landed unseen; and the PR-side comparisons
+          # (pr_red_checks_comment.py, base_red_excuse.py, next-autoland) read the green tip as
+          # "green on the base" and charged the base's reds to every open pull request
+          # (2026-10-30: 252 of 660 open PRs red on four base reds, no autoland merge in 24 h).
           if [[ "$EVENT_NAME" == push && "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ && ${#failed[@]} -gt 0 ]]; then
             current="$RUNNER_TEMP/cmux-next-red-checks.txt"
             printf '%s\n' "${failed[@]}" | sed -E 's/ \((failure|timed_out|cancelled|not run)\)$//' >"$current"
             base_out="$RUNNER_TEMP/cmux-next-base-red.out"
             if python3 scripts/ci/base_red_checks.py --repo "$GITHUB_REPOSITORY" --before "$BEFORE" --current "$current" >"$base_out"; then
-              inherited=()
-              new_failed=()
               while read -r kind name; do
                 [[ -n "$kind$name" ]] || continue
                 if [[ "$kind" == BASE_RED ]]; then
-                  inherited+=("$name (base red on $BEFORE; warning-only)")
+                  echo "::notice title=cmux-next base red::$name was already red on $BEFORE (or that tip had not finished)"
                 else
-                  new_failed+=("$name (failure)")
+                  echo "::error title=cmux-next new red::$name is new in this push (green on $BEFORE): fix it first, every open pull request inherits it"
                 fi
               done <"$base_out"
-              warned+=("${inherited[@]+${inherited[@]}}")
-              failed=("${new_failed[@]+${new_failed[@]}}")
             else
-              echo "::warning title=cmux-next base-red::could not read the previous tip; current reds remain blocking"
+              echo "::warning title=cmux-next base-red::could not read the previous tip to tell new reds from inherited ones"
             fi
           fi
           for name in "${warned[@]+"${warned[@]}"}"; do
@@ -2627,8 +2632,8 @@ jobs:
   # whatever paths changed, without the gui token. Target: under 5 minutes
   # with the build. A fail-then-pass entry is FLAKY and fails the job: it is
   # never retried silently (fast-tier.py's flake policy). The registry is split
-  # by kind: this Mac job builds and runs the Swift (and script) entries, and
-  # fast-tier-cargo runs the cargo entries on Linux beside it, so the Mac no
+  # by kind: this Mac job builds and runs the Swift entries, and
+  # fast-tier-cargo runs the cargo and script entries beside it, so the Mac no
   # longer builds cmux-tui (297-422 s) after CmuxNext.
   # A pull request the router sends to no Mac tier (only web or CI files, which
   # no fast-tier entry builds or reads) starts no Mac fast tier: its result is
@@ -2819,7 +2824,7 @@ jobs:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
-        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       # Also after a failure or a cancel: end the daemon of this job's home and
       # its agents (shutdown never starts one), then delete the home.
@@ -2864,9 +2869,9 @@ jobs:
           retention-days: 14
           overwrite: true
 
-  # The fast tier's cargo entries (fast-tier.py --kind cargo): cmux-tui-core and the
-  # layout reducer, built and run on a Linux runner beside the Mac job, so the
-  # Mac builds only Swift. Same gating, flake policy and quarantine list as
+  # The fast tier's cargo and portable script entries: cmux-tui-core, the
+  # layout reducer and performance completeness, run beside the Mac job, so
+  # the Mac runs only Swift. Same gating, flake policy and quarantine list as
   # fast-tier; its own check name, receipt and concurrency group.
   fast-tier-cargo:
     needs: [push-head-preflight]
@@ -2967,11 +2972,11 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: ./.github/actions/ghostty-zig-packages
 
-      - name: Run the fast tier (cargo entries)
+      - name: Run the fast tier (cargo and script entries)
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         env:
           CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
-        run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
+        run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' }}
