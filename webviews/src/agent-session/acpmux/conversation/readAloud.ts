@@ -117,7 +117,12 @@ const SCRIPTS = [
   { id: "kana", pattern: /^[\p{scx=Hiragana}\p{scx=Katakana}]$/u, language: "ja", family: ["ja"] },
   { id: "hangul", pattern: /^\p{scx=Hangul}$/u, language: "ko", family: ["ko"] },
   { id: "han", pattern: /^\p{scx=Han}$/u, language: "zh-CN", family: ["zh", "yue"] },
-  { id: "cyrillic", pattern: /^\p{scx=Cyrillic}$/u, language: "ru", family: ["ru", "uk", "bg", "sr", "be", "mk", "kk"] },
+  {
+    id: "cyrillic",
+    pattern: /^\p{scx=Cyrillic}$/u,
+    language: "ru",
+    family: ["ru", "uk", "bg", "sr", "be", "mk", "kk"],
+  },
   { id: "arabic", pattern: /^\p{scx=Arabic}$/u, language: "ar", family: ["ar", "fa", "ur"] },
   { id: "hebrew", pattern: /^\p{scx=Hebrew}$/u, language: "he", family: ["he"] },
   { id: "thai", pattern: /^\p{scx=Thai}$/u, language: "th", family: ["th"] },
