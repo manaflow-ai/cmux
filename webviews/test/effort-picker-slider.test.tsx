@@ -282,3 +282,45 @@ test("on: the slider is a group the menu names Reasoning", async () => {
   expect(group).not.toBeNull();
   expect(doc.getElementById(group.getAttribute("aria-labelledby")!)?.textContent).toBe("Reasoning");
 });
+
+test("a delayed opening frame never steals focus after Down reaches speed rows", async () => {
+  const request = scope.requestAnimationFrame;
+  const cancel = scope.cancelAnimationFrame;
+  const frames: FrameRequestCallback[] = [];
+  scope.requestAnimationFrame = (callback: FrameRequestCallback) => frames.push(callback);
+  scope.cancelAnimationFrame = () => undefined;
+  try {
+    await openMenu({
+      slider: true,
+      speed: {
+        title: "Fast Mode",
+        choices: [
+          { id: "off", name: "Off" },
+          { id: "on", name: "On" },
+        ],
+        current: "off",
+        on: "on",
+        onPick() {},
+      },
+    });
+    await act(
+      async () =>
+        void range()!.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", {
+            key: "ArrowDown",
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+    );
+    const first = doc.querySelector<HTMLElement>('.acpmux-effort-menu [role="menuitemradio"]')!;
+    expect(doc.activeElement).toBe(first);
+    await act(async () => {
+      for (const frame of frames.splice(0)) frame(0);
+    });
+    expect(doc.activeElement).toBe(first);
+  } finally {
+    scope.requestAnimationFrame = request;
+    scope.cancelAnimationFrame = cancel;
+  }
+});
