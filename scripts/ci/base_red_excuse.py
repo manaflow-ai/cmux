@@ -78,10 +78,8 @@ NEEDS_RESULT = re.compile(r"toJSON\(\s*needs\s*\)|\bneeds\.[\w-]+\.result\b|\bne
 EXPRESSION = re.compile(r"\$\{\{.*?\}\}")
 # A reusable workflow in the same repository, read at the same commit; any other `uses:` is opaque.
 LOCAL_WORKFLOW = re.compile(r"\./(\.github/workflows/[^@\s]+\.ya?ml)")
-# A rollup step's output is what follows its `##[group]Run <first line of its script>` header, up to the next step or
-# the runner's own closing lines; the group itself is the echoed script and env, never output.
-STEP_OUTPUT_END = re.compile(r"##\[group\]Run |##\[error\]Process completed with exit code|Post job cleanup\.|"
-                             r"A job completed hook has been configured|Cleaning up orphan processes")
+# A red rollup's own output ends at its failing step's exit line; the runner's closing hooks follow it.
+STEP_EXIT = re.compile(r"##\[error\]Process completed with exit code \d+\.?$")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # GitHub nests reusable workflows at most four deep.
 MAX_WORKFLOW_DEPTH = 4
@@ -245,10 +243,11 @@ def step_header(step: dict) -> tuple[str, re.Pattern]:
 
 
 def step_output(job: dict, log: str, steps: list[tuple[str, re.Pattern]]) -> set[str] | None:
-    """Every line the rollup's own steps printed in JOB's LOG (numbers and commit shas masked, warnings dropped), or
-    None when that cannot be read whole: a step that ran but is not in the log, in order, or whose section has no
-    end (a cut-short log). Steps are found one after another, so two that start alike are each read; a step the job
-    skipped printed nothing."""
+    """Every line the rollup's own steps printed in JOB's LOG (numbers and commit shas masked), or None when that
+    cannot be read whole. The output runs from the end of the first step's echoed script (its `##[group]Run ...`
+    header to the first `##[endgroup]`) to the log's last exit line, the failing step's end; only the later steps'
+    own echoed scripts are cut out of it. Group titles, warnings and notices inside it are compared like any line.
+    None when a step that ran is missing, in order, when a section has no end, or when no exit line follows."""
     listed = [step.get("name") for step in job.get("steps") or []]
     # A step is told from the API's list by its name, so a name that repeats there or among the rollup's steps cannot
     # say which ran: never read.
@@ -256,7 +255,7 @@ def step_output(job: dict, log: str, steps: list[tuple[str, re.Pattern]]) -> set
         return None
     ran = {step.get("name"): step.get("conclusion") for step in job.get("steps") or []}
     lines = [ANSI.sub("", line) for line in lines_of(log)]
-    found: set[str] = set()
+    echoed: list[tuple[int, int]] = []  # (header, endgroup) of each step that ran
     at = 0
     for name, header in steps:
         if name not in ran:
@@ -270,13 +269,20 @@ def step_output(job: dict, log: str, steps: list[tuple[str, re.Pattern]]) -> set
                          None)
         if end_group is None:
             return None
-        at = next((index for index in range(end_group + 1, len(lines)) if STEP_OUTPUT_END.match(lines[index])), None)
-        if at is None:
-            return None
-        for line in lines[end_group + 1:at]:
-            text = line.replace("##[error]", "").strip()
-            if text and not text.startswith(("##[group]", "##[endgroup]")) and not WARNING.search(text):
-                found.add(re.sub(r"\d+", "#", mask_shas(text)))
+        echoed.append((start, end_group))
+        at = end_group + 1
+    if not echoed:
+        return None
+    end = next((index for index in range(len(lines) - 1, echoed[-1][1], -1) if STEP_EXIT.match(lines[index])), None)
+    if end is None:
+        return None
+    found: set[str] = set()
+    for index in range(echoed[0][1] + 1, end):
+        if any(start <= index <= end_group for start, end_group in echoed):
+            continue
+        text = re.sub(r"^##\[(?:error|warning|notice|debug|group)\]", "", lines[index]).strip()
+        if text and text != "##[endgroup]":
+            found.add(re.sub(r"\d+", "#", mask_shas(text)))
     return found
 
 

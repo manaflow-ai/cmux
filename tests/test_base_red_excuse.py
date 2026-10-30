@@ -865,6 +865,18 @@ class RollupIsJudgedByTheJobsUnderIt(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "not in its log whole"):
             self.judge()
 
+    def test_output_inside_a_group_of_its_own_is_compared(self):
+        for printed in (["##[group]Run guard diagnostics", "workflow-guard-history: skipped (route linux_guard_history=true)",
+                         "##[endgroup]"],
+                        ["##[group]workflow-guard-history: skipped (route linux_guard_history=true)", "##[endgroup]"],
+                        ["##[warning]workflow-guard-history: skipped (route linux_guard_history=true)"],
+                        ["Cleaning up orphan processes", "workflow-guard-history: skipped (route linux_guard_history=true)"]):
+            self.gh.logs[3] = rollup_log(GUARD_STATUS, GUARD_STATUS_SCRIPT,
+                                         "workflow-guard-tests: failure (route linux_guard_tests=true)", *printed)
+            with self.subTest(printed=printed[0]), self.assertRaisesRegex(
+                    excuse.Refused, "lines it printed not on feat-cmux-next run 20: .*workflow-guard-history: skipped"):
+                self.judge()
+
     def test_a_step_the_api_does_not_list_leaves_the_rollup_red(self):
         self.gh.jobs[3]["steps"] = [step for step in self.gh.jobs[3]["steps"] if step["name"] != "Check routed guard jobs"]
         self.gh.jobs[3]["steps"].append({"name": "Report", "status": "completed", "conclusion": "failure"})
