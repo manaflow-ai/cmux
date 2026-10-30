@@ -1,4 +1,35 @@
 use super::*;
+use crate::test_exec::write_executable;
+
+#[test]
+fn cli_session_resource_settings_are_config_values() {
+    let mut config = Config::default();
+    config.set_session_resource("session.memory_mb", "6144").unwrap();
+    config.set_session_resource("session.swap_mb", "2048").unwrap();
+    assert_eq!(config.session.memory_mb, Some(6144));
+    assert_eq!(config.session.swap_mb, Some(2048));
+    config.set_session_resource("session.memory_mb", "default").unwrap();
+    assert_eq!(config.session.memory_mb, None);
+}
+
+#[test]
+fn session_task_caps_are_typed_config_values() {
+    let mut config = Config::default();
+    config.set_session_resource("session.tasks_max", "8192").unwrap();
+    config.set_session_resource("session.sessions-tasks-max", "131072").unwrap();
+    assert_eq!(config.session.tasks_max, Some(8192));
+    assert_eq!(config.session.sessions_tasks_max, Some(131_072));
+    let json = serde_json::to_value(&config.session).unwrap();
+    assert_eq!(json, serde_json::json!({"tasksMax": 8192, "sessionsTasksMax": 131072}));
+    let back: SessionResourceConfig = serde_json::from_value(json).unwrap();
+    assert_eq!(back, config.session);
+    // 0 is no cap; `infinity` is the same.
+    config.set_session_resource("session.sessions_tasks_max", "infinity").unwrap();
+    assert_eq!(config.session.sessions_tasks_max, Some(0));
+    config.set_session_resource("session.tasks_max", "default").unwrap();
+    assert_eq!(config.session.tasks_max, None);
+    assert!(config.set_session_resource("session.tasks_max", "lots").is_err());
+}
 
 fn prof(kind: HarnessKind, argv: &[&str]) -> HarnessProfile {
     HarnessProfile {
@@ -258,32 +289,45 @@ fn claude_falls_back_to_the_cmux_router_on_deepseek_without_a_coderouter_route()
 }
 
 #[test]
-fn the_cmux_router_profile_defaults_to_deepseek_v4_flash() {
+fn the_cmux_router_profile_defaults_to_deepseek_v4_1_flash_1017() {
     let mut found = BTreeMap::new();
-    super::discover::add_cmux_router(&mut found, &|_| Some("/usr/bin/claude".into()));
-    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4-flash"));
+    super::discover::add_cmux_router_with(&mut found, &|_| Some("/usr/bin/claude".into()), None);
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash-1017"));
+    // Claude Code's background calls run on the same model.
+    assert_eq!(
+        found["cmux"].env.get("ANTHROPIC_SMALL_FAST_MODEL").map(String::as_str),
+        Some("deepseek/deepseek-v4.1-flash-1017")
+    );
 }
 
-/// Creates an executable (0755) script without this process ever holding a
-/// write descriptor for it.
-///
-/// Tests run on many threads. A sibling test that forks while this process
-/// holds such a descriptor hands a copy to its child until that child execs,
-/// and executing the script in that window fails with ETXTBSY ("Text file
-/// busy"). `O_CLOEXEC` does not close that window, and a temp file plus a
-/// rename does not either (the child holds the same inode). A short-lived
-/// `sh` opens, writes, and closes the file in its own process, so no fork of
-/// this process can inherit it. (The same helper as cmux-tui's `test_exec`.)
-fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
-    use std::io::Write as _;
-    use std::process::{Command, Stdio};
-    let path = path.as_ref();
-    let mut child = Command::new("/bin/sh")
-        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
-    assert!(child.wait().unwrap().success(), "could not write {}", path.display());
+#[test]
+fn the_cmux_router_profile_starts_on_the_model_router_setting() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router_with(
+        &mut found,
+        &|_| Some("/usr/bin/claude".into()),
+        Some("deepseek/deepseek-v4.1-flash"),
+    );
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash"));
+}
+
+#[test]
+fn a_model_router_setting_the_router_does_not_serve_keeps_the_default() {
+    let mut found = BTreeMap::new();
+    super::discover::add_cmux_router_with(
+        &mut found,
+        &|_| Some("/usr/bin/claude".into()),
+        Some("anthropic/claude-opus-5-5"),
+    );
+    assert_eq!(found["cmux"].model.as_deref(), Some("deepseek/deepseek-v4.1-flash-1017"));
+}
+
+#[test]
+fn the_model_router_setting_is_read_from_the_settings_document() {
+    let doc = serde_json::json!({"agents": {"modelRouter": {"model": "deepseek/deepseek-v4-pro"}}});
+    assert_eq!(
+        super::discover::cmux_router_model_in(&doc).as_deref(),
+        Some("deepseek/deepseek-v4-pro")
+    );
+    assert_eq!(super::discover::cmux_router_model_in(&serde_json::json!({})), None);
 }
