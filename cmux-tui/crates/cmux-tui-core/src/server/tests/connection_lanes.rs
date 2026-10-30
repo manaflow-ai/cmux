@@ -459,3 +459,102 @@ fn a_client_that_stops_reading_for_a_while_keeps_its_connection() {
     socket.client_hang_up();
     handler.join().unwrap();
 }
+
+/// One session-socket client on a socket pair whose daemon side has a small
+/// send buffer, so the daemon's writer stops on it as soon as the client
+/// stops reading.
+#[cfg(unix)]
+struct SessionClient {
+    stream: std::os::unix::net::UnixStream,
+    reader: BufReader<std::os::unix::net::UnixStream>,
+}
+
+#[cfg(unix)]
+impl SessionClient {
+    fn connect(session: &listen::ServedSession) -> Self {
+        use std::os::fd::AsRawFd;
+        let (daemon_side, client) = std::os::unix::net::UnixStream::pair().unwrap();
+        let small: libc::c_int = 4 * 1024;
+        for fd in [daemon_side.as_raw_fd(), client.as_raw_fd()] {
+            for option in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
+                // SAFETY: a valid descriptor and a c_int option value of its size.
+                unsafe {
+                    libc::setsockopt(
+                        fd,
+                        libc::SOL_SOCKET,
+                        option,
+                        (&raw const small).cast(),
+                        size_of::<libc::c_int>() as libc::socklen_t,
+                    );
+                }
+            }
+        }
+        session.serve(Box::new(daemon_side), ConnectionLane::Shared);
+        // Only ends a red run (R5): a served reply comes at once.
+        client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let reader = BufReader::new(client.try_clone().unwrap());
+        Self { stream: client, reader }
+    }
+
+    fn send(&mut self, id: u64) {
+        writeln!(self.stream, "{}", json!({"id": id, "cmd": "identify"})).unwrap();
+    }
+
+    /// The next reply, or `Value::Null` once the daemon closed the connection.
+    fn read(&mut self) -> Value {
+        let mut line = String::new();
+        match self.reader.read_line(&mut line) {
+            Ok(0) | Err(_) => Value::Null,
+            Ok(_) => serde_json::from_str(&line).unwrap(),
+        }
+    }
+}
+
+/// #27698 follow-up (review of #28343): with no write deadline, a
+/// session-socket client that stops reading (a frontend stopped with
+/// Ctrl-Z) holds its queued replies' bytes, which come from the session
+/// socket's shared outbound budget. Once that budget can't fit a reply, the
+/// daemon ends the client that holds the most bytes while its socket can't
+/// take more (the kernel says it does not read), so every other client, the
+/// next one asking and an idle one that reads, is still served. No timer
+/// decides who is stalled; the test waits on the daemon's own events.
+#[cfg(unix)]
+#[test]
+fn a_stalled_client_never_starves_the_other_clients_of_the_shared_budget() {
+    let mux = test_mux();
+    let session =
+        listen::ServedSession::with_small_session_budgets_for_test(mux.clone(), 64 * 1024);
+    let mut idle = SessionClient::connect(&session);
+    idle.send(1);
+    assert_eq!(idle.read()["ok"], true);
+
+    // The stalled client asks for far more than the budget holds and never
+    // reads. Its connection ends when one of its replies can't fit: before
+    // the fix it is only closed, its queued bytes still held by a writer that
+    // waits on its full socket; with it, the daemon ends it and frees them.
+    let events = mux.subscribe();
+    let stalled = SessionClient::connect(&session);
+    // On its own thread: once the daemon stops reading this client, the
+    // writes wait on its full socket.
+    let mut requests = stalled.stream.try_clone().unwrap();
+    std::thread::spawn(move || {
+        for id in 1..=256 {
+            if writeln!(requests, "{}", json!({"id": id, "cmd": "identify"})).is_err() {
+                return;
+            }
+        }
+    });
+    loop {
+        if let MuxEvent::ClientDetached(_) = events.recv().unwrap() {
+            break;
+        }
+    }
+
+    let mut asking = SessionClient::connect(&session);
+    asking.send(1);
+    let reply = asking.read();
+    assert_eq!(reply["ok"], true, "a stalled client starved the next client: {reply}");
+    idle.send(2);
+    assert_eq!(idle.read()["ok"], true, "the daemon ended a client that reads");
+    drop(stalled);
+}

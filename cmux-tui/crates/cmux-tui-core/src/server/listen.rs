@@ -477,6 +477,17 @@ impl ServedSession {
         }
     }
 
+    /// A session whose session socket has `bytes` of outbound and control
+    /// budget, so a test fills it with a few replies.
+    #[cfg(test)]
+    pub(super) fn with_small_session_budgets_for_test(mux: Arc<Mux>, bytes: usize) -> Self {
+        Self {
+            mux,
+            render_service: Arc::new(RenderService::new_with_outbound_budgets(bytes, bytes)),
+            app_render_service: Arc::new(RenderService::new()),
+        }
+    }
+
     /// Serve one connection accepted on `lane` on its own thread, bounded by
     /// the lane's budget and, on the session socket, by its client's fair
     /// share (`diagnostics::ConnectionBudget`).
