@@ -316,12 +316,13 @@ test("the compact chip names the model and its effort, and a click opens the sho
   ).toEqual(["Low", "Medium", "High"]);
   expect(segments.find((segment) => segment.getAttribute("aria-checked") === "true")?.textContent).toContain("Medium");
   expect(rows.some((row) => row?.startsWith("Account"))).toBe(true);
-  // Claude Code's order: the models (with inline effort), More models, then Account last.
+  // Claude Code's order: the models, More models (named Legacy models in the default symbols
+  // layout), then Account last.
   expect(
     rows
-      .filter((row) => /^(More models|Account)/.test(row ?? ""))
-      .map((row) => row?.match(/^(More models|Account)/)?.[0]),
-  ).toEqual(["More models", "Account"]);
+      .filter((row) => /^(Legacy models|Account)/.test(row ?? ""))
+      .map((row) => row?.match(/^(Legacy models|Account)/)?.[0]),
+  ).toEqual(["Legacy models", "Account"]);
 });
 
 test("the optional reasoning slider replaces Effort's levels only when enabled", async () => {
@@ -556,7 +557,8 @@ test("Add harness… is the last item in the harness strip, outside More models"
   const { added } = await mount({ routes: [] });
   await open();
   const top = modelNames(menu()!);
-  const more = await openSub("More models");
+  // The default symbols layout names More models "Legacy models".
+  const more = await openSub("Legacy models");
   const rows = itemsOf(more);
   expect(rows).not.toContain("Add harness…");
   expect(rows.length).toBeGreaterThan(0);

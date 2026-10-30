@@ -238,15 +238,23 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const boxes = await tabs.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().toJSON()));
       // One row: every tab on the first tab's line.
       for (const box of boxes) expect(Math.abs(box.y - boxes[0].y)).toBeLessThan(1);
-      // A tab with a symbol draws it alone; its name stays its label and title.
-      const symbolTabs = page.locator(".acpmux-quick-rail-tab:has(.agent-mark)");
-      expect(await symbolTabs.count()).toBeGreaterThan(0);
-      for (const tab of await symbolTabs.all()) {
-        expect(await tab.locator(".acpmux-quick-harness-name").evaluate((node) => node.classList.contains("sr-only"))).toBe(
-          true,
-        );
-        expect(await tab.getAttribute("aria-label")).toBeTruthy();
-        expect(await tab.getAttribute("title")).toBeTruthy();
+      // A tab with a symbol of its own draws it alone; its name stays its label and title. Tabs
+      // that draw the same symbol (Claude Code and its launch setup Claude Code (sr)) keep their
+      // names in the row, so no two tabs look alike.
+      const symbolTabs = await page.locator(".acpmux-quick-rail-tab:has(.agent-mark)").evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          symbol: [...node.querySelectorAll(".agent-mark path")].map((path) => path.getAttribute("d")).join(" "),
+          hidden: !!node.querySelector(".acpmux-quick-harness-name.sr-only"),
+          label: node.getAttribute("aria-label"),
+          title: node.getAttribute("title"),
+        })),
+      );
+      expect(symbolTabs.filter((tab) => tab.hidden).length).toBeGreaterThan(0);
+      for (const tab of symbolTabs) {
+        const shared = symbolTabs.filter((other) => other.symbol === tab.symbol).length > 1;
+        expect(tab.hidden, `${tab.label}: symbol alone unless another tab draws it`).toBe(!shared);
+        expect(tab.label).toBeTruthy();
+        expect(tab.title).toBeTruthy();
       }
       expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);
     } finally {
@@ -270,16 +278,22 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       );
       const lit = colors.find((tab) => tab.on)!;
       expect(colors.filter((tab) => !tab.on).every((tab) => tab.color !== lit.color)).toBe(true);
-      // ⌘N on the rows, and a star on the starred one.
-      const keys = await page.locator(".acpmux-quick-list .ui-menu-shortcut").allInnerTexts();
-      expect(keys.length).toBeGreaterThan(0);
-      expect(keys.every((key) => /^⌘[1-9]$/.test(key.trim()))).toBe(true);
+      // A star on the starred row (Opus 5.5).
       expect(await page.locator(".acpmux-quick-star[aria-pressed=true]").count()).toBe(1);
       // A harness's other models sit under Legacy models with their count.
-      expect(await page.getByText("Legacy models").count()).toBe(1);
+      expect(await page.getByText("Legacy models", { exact: true }).count()).toBe(1);
       expect(await page.getByText(/^5 models$/).count()).toBe(1);
     } finally {
       await page.close();
+    }
+    // ⌘N on the rows: in a chat's menu (New Tab's shows no key hints, as before).
+    const chat = await open("combined");
+    try {
+      const keys = await chat.locator(".acpmux-quick-list .ui-menu-shortcut").allInnerTexts();
+      expect(keys.length).toBeGreaterThan(0);
+      expect(keys.every((key) => /^⌘[1-9]$/.test(key.trim())), keys.join(",")).toBe(true);
+    } finally {
+      await chat.close();
     }
   });
 
@@ -363,16 +377,19 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
           expect(boxes[index].y).toBeGreaterThanOrEqual(boxes[index - 1].y + boxes[index - 1].height - 0.5);
           expect(Math.abs(boxes[index].x - boxes[0].x)).toBeLessThan(1);
         }
-        const rowBox = (await row.boundingBox())!;
+        // Beside the row's effort item, clear of the model's name (a starred row's star may follow
+        // the effort item at the row's very end).
+        const triggerBox = (await trigger.boundingBox())!;
+        const nameBox = (await row.locator(":scope > .acpmux-quick-item:first-child").boundingBox())!;
         const menuBox = (await dropdown.boundingBox())!;
         const viewport = page.viewportSize()!;
-        // Beside the row whenever the window has room on that side; a narrow window shifts it, as
-        // every submenu of this menu (the shared Submenu's collision handling), and it stays whole.
-        if (viewport.width - (rowBox.x + rowBox.width) >= menuBox.width)
-          expect(
-            menuBox.x,
-            `${variant}: row ${JSON.stringify(rowBox)} dropdown ${JSON.stringify(menuBox)}`,
-          ).toBeGreaterThanOrEqual(rowBox.x + rowBox.width - 8);
+        // Beside the effort item whenever the window has room on that side; a narrow window shifts it,
+        // as every submenu of this menu (the shared Submenu's collision handling), and it stays whole.
+        const geometry = `${variant}: name ${JSON.stringify(nameBox)} effort ${JSON.stringify(triggerBox)} dropdown ${JSON.stringify(menuBox)}`;
+        if (viewport.width - (triggerBox.x + triggerBox.width) >= menuBox.width) {
+          expect(menuBox.x, geometry).toBeGreaterThanOrEqual(triggerBox.x + triggerBox.width - 8);
+          expect(menuBox.x, geometry).toBeGreaterThanOrEqual(nameBox.x + nameBox.width);
+        }
         expect(menuBox.x).toBeGreaterThanOrEqual(0);
         expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(viewport.width);
         expect(menuBox.y).toBeGreaterThanOrEqual(0);
