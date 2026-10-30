@@ -52,13 +52,39 @@ extension DaemonConnection {
     /// (`CancellationError`), never on a client clock: a give-up after a fixed budget took back a pane the
     /// window showed while the daemon still made it (P0 2026-10-30, principled-audit R5, R-L5).
     func requestWaitingForStart<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
-        // wakeup-allow: each pass waits for one reply or its start deadline; it ends on a reply, a refusal, the connection's end or cancellation
+        try await Self.waitingThroughLateReplies(R.command) { try await self.request(request) }
+    }
+
+    /// A workspace's first terminal (Cmd-N's, a terminal-first new workspace's): `request` carries its
+    /// client-chosen terminal id and mutation identity, so it waits through a late start
+    /// (``requestWaitingForStart(_:)``) instead of failing at the start deadline, which closed the
+    /// workspace the person already saw while the daemon still made the terminal (P0 2026-10-30).
+    @discardableResult
+    public func createTerminalWaitingForStart(_ request: CreateTerminalRequest) async throws -> CreateTerminalResult {
+        try await requestWaitingForStart(request)
+    }
+
+    /// `create-workspace` for workspace `key` that waits through late replies under one mutation identity
+    /// (the daemon replays it), with no budget: it ends on the reply, the daemon's refusal, the connection's
+    /// end or cancellation (``waitingThroughLateReplies(_:_:)``). For a workspace with a first terminal.
+    @discardableResult
+    public func createWorkspaceWaitingForReply(name: String? = nil, key: WorkspaceKey) async throws -> WorkspaceMutationResult {
+        let request = CreateWorkspaceRequest(name: name, key: key, mutation: mutation())
+        return try await Self.waitingThroughLateReplies(CreateWorkspaceRequest.command) { try await self.request(request) }
+    }
+
+    /// Runs `send` again while it misses its reply or start deadline: each pass waits out one whole deadline
+    /// and repeats one keyed change the daemon replays. It ends on the reply, the daemon's refusal or any other
+    /// error, the connection's end (`notConnected`, `connectionClosed`) or the task's cancellation
+    /// (`CancellationError`), never on a client clock (principled-audit R5, R-L5).
+    static func waitingThroughLateReplies<T>(_ what: String, _ send: () async throws -> T) async throws -> T {
+        // wakeup-allow: each pass waits for one reply or its deadline; it ends on a reply, a refusal, the connection's end or cancellation
         while true {
             do {
-                return try await self.request(request)
+                return try await send()
             } catch let error as DaemonError where error.isLateStart {
                 try Task.checkCancellation()
-                Self.lateReplyLogger.info("\(R.command, privacy: .public): \(String(describing: error), privacy: .public); waiting with its client ids")
+                lateReplyLogger.info("\(what, privacy: .public): \(String(describing: error), privacy: .public); waiting with its client ids")
             }
         }
     }
