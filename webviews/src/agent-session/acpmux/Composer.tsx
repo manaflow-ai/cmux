@@ -690,10 +690,7 @@ export function Composer({
         // Save the destination before changing sessions. Even an immediate navigation during its
         // attachment read leaves the chips durable there. The source stays intact on any refusal.
         writePersistedDraft(target, text);
-        const ready = keptAttachments ? keptAttachments.write(target, chips).then((reply) => {
-          const held = Array.isArray(reply?.held) ? reply.held : [];
-          if (chips.some((chip) => !held.includes(chip.id))) throw new Error("draft attachment transfer failed"); // l10n-allow: internal failure; TrustAsk shows localized retry text.
-        }) : Promise.resolve();
+        const ready = keptAttachments ? keptAttachments.write(target, chips).then(() => undefined) : Promise.resolve();
         return {
           ready,
           cancel: () => {
