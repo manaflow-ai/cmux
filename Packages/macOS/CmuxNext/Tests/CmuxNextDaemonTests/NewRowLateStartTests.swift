@@ -12,7 +12,7 @@ import Testing
 struct NewRowLateStartTests {
     private struct Recorded: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-rows"
+        static let commandName: DaemonCommandName = "test-rows"
     }
 
     private static let script = #"""

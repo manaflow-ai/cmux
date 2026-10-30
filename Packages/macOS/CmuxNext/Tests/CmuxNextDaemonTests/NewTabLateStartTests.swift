@@ -15,7 +15,7 @@ import Testing
 struct NewTabLateStartTests {
     private struct Recorded: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-tabs"
+        static let commandName: DaemonCommandName = "test-tabs"
     }
 
     private static let script = #"""
