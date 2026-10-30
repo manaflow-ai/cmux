@@ -199,10 +199,18 @@ export const slotIn = (sql: Sql, id: string, state: NonNullable<UploadSlot["stat
   return s ? slotRow(s) : null
 }
 
+/**
+ * When an open slot of `mode` stops being usable. A direct slot's parts go to R2 on URLs signed
+ * until its expiry, and a PUT started before then may finish after it; its key and upload are
+ * kept until the expiry grace (DUE), so its completion is taken until then. New part URLs still
+ * stop at the expiry (leaseDirect).
+ */
+const usableUntil = (s: UploadSlot): number => (s.mode === "direct" ? s.expires_at + UPLOADING_GRACE_MS : s.expires_at)
+
 /** The live open slot `id` of `mode` (and of `actor` when given); `consume` moves it to `uploading`, so it works once. */
 export const takeSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], consume: boolean, actor?: string): UploadSlot | null => {
   const s = slotIn(sql, id, "open")
-  if (!s || s.mode !== mode || s.expires_at <= Date.now() || (actor !== undefined && s.actor !== actor)) return null
+  if (!s || s.mode !== mode || usableUntil(s) <= Date.now() || (actor !== undefined && s.actor !== actor)) return null
   if (consume) sql.exec(`UPDATE ${SLOTS} SET state = 'uploading' WHERE id = ?`, id)
   return { ...s, state: consume ? "uploading" : "open" }
 }
@@ -301,7 +309,7 @@ export const leaseDirect = (sql: Sql, id: string): UploadSlot | null => {
 /** Stores the hash state of open direct slot `id` after a verification step, only if no other step stored one since `before`; renews its lease. */
 export const advanceDirect = (sql: Sql, id: string, before: string | null, after: string): boolean => {
   const slot = slotIn(sql, id, "open")
-  if (!slot || slot.mode !== "direct" || (slot.multipart_hash ?? null) !== before || slot.expires_at <= Date.now()) return false
+  if (!slot || slot.mode !== "direct" || (slot.multipart_hash ?? null) !== before || usableUntil(slot) <= Date.now()) return false
   sql.exec(`UPDATE ${SLOTS} SET multipart_hash = ?, expires_at = ? WHERE id = ?`, after, Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
   return true
 }
