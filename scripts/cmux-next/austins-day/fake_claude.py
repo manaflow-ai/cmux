@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""A stand-in for the `claude` CLI for the Austin's-day load scenario.
+
+It is installed as `claude` in a folder that comes on PATH right after the cmux `claude` shim
+folder (ad-agent.sh puts it there). So a terminal that runs `claude` goes the real path: the
+shim runs `cmux-tui agent claude-wrapper`, the wrapper finds this file as the real Claude,
+writes its hook settings file and starts this file with `--settings FILE` and CMUX_TUI_HOOK.
+
+It then does what Claude Code does with those hooks (cmux-tui-hooks claude_session_hook_settings):
+for each event it runs every hook command of that event's matching groups with `sh -c`, all at
+once, with Claude Code's hook payload on stdin and the group's timeout, and waits for them before
+it goes on (a PreToolUse hook holds the tool call), except `async` ones, which run on. A turn is UserPromptSubmit, then
+--tools-per-turn tool calls (PreToolUse, the tool, PostToolUse), then Stop. A tool call is real
+work in the agent's folder (git status, git log, git diff, a file read, a grep) and, every
+--cli-every tool calls, one `cmux` CLI call (the bundled CLI), as agents call it.
+
+Every hook run, tool run and CLI call is one JSON line in AD_AGENT_LOG:
+  {"t": unix time, "kind": "hook"|"tool"|"cli"|"start"|"end", "event", "ms", "rc", "code"}
+`code` is the cmux error code a CLI call printed (server.busy, session.busy, session.no_answer,
+...), else null. The start line says whether the wrapper gave hooks (`hooked`): a run where no
+agent got hooks does not load the daemon the way real hooks do.
+
+Exit: at AD_AGENT_DEADLINE (unix time), or when stdin closes.
+"""
+import argparse
+import json
+import os
+import random
+import re
+import signal
+import subprocess
+import sys
+import threading
+import time
+import uuid
+
+ERROR_CODE = re.compile(r'"code"\s*:\s*"([a-z_]+\.[a-z_.]+)"|\b((?:server|session)\.[a-z_]+)\b')
+TOOLS = (
+    ("Bash", ["git", "status", "--porcelain"]),
+    ("Bash", ["git", "log", "--oneline", "-20"]),
+    ("Bash", ["git", "diff", "--stat", "HEAD~3"]),
+    ("Read", None),
+    ("Grep", ["grep", "-rIl", "--include=*.txt", "needle", "."]),
+    ("Bash", ["git", "rev-parse", "HEAD"]),
+)
+
+
+def log(record):
+    path = os.environ.get("AD_AGENT_LOG")
+    if not path:
+        return
+    record["t"] = round(time.time(), 3)
+    with open(path, "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def load_settings(argv):
+    """The hooks of the `--settings` file the wrapper passed (inline JSON or a path); {} if none."""
+    for index, arg in enumerate(argv):
+        value = None
+        if arg == "--settings" and index + 1 < len(argv):
+            value = argv[index + 1]
+        elif arg.startswith("--settings="):
+            value = arg.split("=", 1)[1]
+        if value is None:
+            continue
+        try:
+            text = value if value.lstrip().startswith("{") else open(value).read()
+            return json.loads(text).get("hooks") or {}
+        except (OSError, ValueError):
+            return {}
+    return {}
+
+
+def matches(matcher, tool):
+    if not matcher or matcher == "*" or tool is None:
+        return True
+    try:
+        return re.fullmatch(matcher, tool) is not None
+    except re.error:
+        return matcher == tool
+
+
+def run_hooks(hooks, event, payload, tool=None):
+    """Runs every command of `event`'s groups that match `tool`, at once, as Claude Code does."""
+    commands = []
+    for group in hooks.get(event) or []:
+        if not matches(group.get("matcher"), tool):
+            continue
+        for hook in group.get("hooks") or []:
+            if hook.get("type", "command") == "command" and hook.get("command"):
+                commands.append((hook["command"], float(hook.get("timeout") or 60), bool(hook.get("async"))))
+    if not commands:
+        return
+    data = json.dumps({**payload, "hook_event_name": event}).encode()
+    threads = []
+
+    def one(command, timeout):
+        start = time.monotonic()
+        rc = None
+        try:
+            done = subprocess.run(["sh", "-c", command], input=data, capture_output=True, timeout=timeout)
+            rc = done.returncode
+        except subprocess.TimeoutExpired:
+            rc = "timeout"
+        except OSError as error:
+            rc = f"oserror:{error.errno}"
+        log({"kind": "hook", "event": event, "ms": round((time.monotonic() - start) * 1000, 2), "rc": rc})
+
+    for command, timeout, detached in commands:
+        thread = threading.Thread(target=one, args=(command, timeout), daemon=True)
+        thread.start()
+        if not detached:  # an `async` hook runs on while Claude Code goes on
+            threads.append(thread)
+    for thread in threads:
+        thread.join()
+
+
+def run_tool(name, argv, cwd):
+    start = time.monotonic()
+    rc = 0
+    try:
+        if name == "Read":
+            files = [f for f in os.listdir(cwd) if f.endswith(".txt")]
+            if files:
+                with open(os.path.join(cwd, random.choice(files)), "rb") as f:
+                    f.read()
+        else:
+            rc = subprocess.run(argv, cwd=cwd, capture_output=True, timeout=120).returncode
+    except subprocess.TimeoutExpired:
+        rc = "timeout"
+    except OSError as error:
+        rc = f"oserror:{error.errno}"
+    log({"kind": "tool", "event": name, "ms": round((time.monotonic() - start) * 1000, 2), "rc": rc})
+
+
+def run_cli(cli):
+    """One read through the bundled `cmux` CLI, as an agent's `cmux` call: its time and error code."""
+    if not cli:
+        return
+    start = time.monotonic()
+    code = None
+    try:
+        done = subprocess.run([cli, "--json", "workspace", "list"], capture_output=True, timeout=30)
+        rc = done.returncode
+        if rc != 0:
+            text = (done.stdout + done.stderr).decode(errors="replace")
+            found = ERROR_CODE.search(text)
+            code = (found.group(1) or found.group(2)) if found else f"exit{rc}"
+    except subprocess.TimeoutExpired:
+        rc, code = "timeout", "timeout"
+    except OSError as error:
+        rc, code = f"oserror:{error.errno}", "oserror"
+    log({"kind": "cli", "event": "workspace list", "ms": round((time.monotonic() - start) * 1000, 2), "rc": rc, "code": code})
+
+
+def main():
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--tools-per-turn", type=int, default=int(os.environ.get("AD_TOOLS_PER_TURN", "6")))
+    parser.add_argument("--tool-gap", type=float, default=float(os.environ.get("AD_TOOL_GAP", "3.0")),
+                        help="mean seconds between tool calls (model think time)")
+    parser.add_argument("--cli-every", type=int, default=int(os.environ.get("AD_CLI_EVERY", "3")))
+    known, _ = parser.parse_known_args(sys.argv[1:])
+    hooks = load_settings(sys.argv[1:])
+    deadline = float(os.environ.get("AD_AGENT_DEADLINE", "0") or 0) or time.time() + 3600
+    cwd = os.getcwd()
+    cli = os.environ.get("CMUX_BUNDLED_CLI_PATH") or None
+    session = str(uuid.uuid4())
+    payload = {"session_id": session, "transcript_path": os.path.join(cwd, f".ad-{session}.jsonl"), "cwd": cwd,
+               "permission_mode": "bypassPermissions"}
+    log({"kind": "start", "event": "start", "hooked": bool(hooks), "events": sorted(hooks), "pid": os.getpid(),
+         "hook_helper": os.environ.get("CMUX_TUI_HOOK"), "cli": cli, "terminal": os.environ.get("CMUX_TUI_TERMINAL_ID")})
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    signal.signal(signal.SIGHUP, lambda *_: sys.exit(0))
+    print(f"AD-AGENT session={session} hooked={bool(hooks)}", flush=True)
+    run_hooks(hooks, "SessionStart", {**payload, "source": "startup"})
+    random.seed(session)
+    turn = 0
+    calls = 0
+    while time.time() < deadline:
+        turn += 1
+        run_hooks(hooks, "UserPromptSubmit", {**payload, "prompt": f"austins day turn {turn}"})
+        for _ in range(known.tools_per_turn):
+            if time.time() >= deadline:
+                break
+            # The model's think time between tool calls, as a stream of tokens to the screen.
+            time.sleep(random.expovariate(1.0 / max(0.05, known.tool_gap)))
+            name, argv = random.choice(TOOLS)
+            tool_input = {"command": " ".join(argv)} if argv else {"file_path": cwd}
+            call = {**payload, "tool_name": name, "tool_input": tool_input, "tool_use_id": f"toolu_{uuid.uuid4().hex[:24]}"}
+            run_hooks(hooks, "PreToolUse", call, tool=name)
+            run_tool(name, argv, cwd)
+            calls += 1
+            if known.cli_every > 0 and calls % known.cli_every == 0:
+                run_cli(cli)
+            run_hooks(hooks, "PostToolUse", {**call, "tool_response": {"ok": True}}, tool=name)
+            print(f"⏺ {name}({tool_input.get('command') or 'file'}) turn {turn} call {calls}", flush=True)
+        run_hooks(hooks, "Stop", {**payload, "stop_hook_active": False})
+        if turn % 5 == 0:
+            run_hooks(hooks, "Notification", {**payload, "message": "Claude is waiting for your input"})
+    run_hooks(hooks, "SessionEnd", {**payload, "reason": "other"})
+    log({"kind": "end", "event": "end", "turns": turn, "calls": calls})
+
+
+if __name__ == "__main__":
+    main()
