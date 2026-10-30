@@ -109,4 +109,33 @@ import Testing
         #expect(contentRect.minY == barRect.maxY)
         #expect(bar.toolbarOpensUpward)
     }
+
+    /// A page tab's bar keeps its edge through a pane host 0 high for a moment (a restore): with every
+    /// pin required AppKit broke one of its own choosing, sometimes the bar's own edge pin.
+    @Test func aPagesBarKeepsTheTopThroughACollapsedPane() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.close() }
+        let bar = NSView()
+        bar.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        let content = NSView()
+        let root = NSView(frame: window.contentLayoutRect)
+        window.contentView = root
+        let view = InternalPageView(key: "md", page: .homeTab, content: content, topBar: bar)
+        view.frame = root.bounds
+        view.autoresizingMask = [.width, .height]
+        root.addSubview(view)
+        root.layoutSubtreeIfNeeded()
+        let full = view.frame
+        view.frame.size.height = 0
+        root.layoutSubtreeIfNeeded()
+        #expect(bar.convert(bar.bounds, to: nil).height == 40, "the bar keeps its height while the pane is 0 high")
+        view.frame = full
+        root.layoutSubtreeIfNeeded()
+        let barRect = bar.convert(bar.bounds, to: nil), contentRect = content.convert(content.bounds, to: nil)
+        let all = view.convert(view.bounds, to: nil)
+        #expect(barRect.maxY == all.maxY, "the bar is back at the top")
+        #expect(contentRect.minY == all.minY && contentRect.maxY == barRect.minY)
+    }
 }

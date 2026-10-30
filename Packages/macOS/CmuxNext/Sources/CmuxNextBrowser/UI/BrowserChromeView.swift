@@ -257,7 +257,7 @@ public final class BrowserChromeView: NSView {
             // The page starts under the header band (empty unless the pane's
             // tab bar sits below the toolbar, R109).
             contentContainer.topAnchor.constraint(equalTo: headerBand.guide.bottomAnchor),
-            contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ToolbarEdgeConstraints.yielding(contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor)),
             // The shared find pill sits where every pane's does.
             findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: FindPillMetrics.inset),
             density.bind(promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
@@ -267,7 +267,7 @@ public final class BrowserChromeView: NSView {
             density.bind(addressBar.bottomAnchor.constraint(equalTo: toolbar.bottomAnchor)) { -OmnibarStyle.barTop(scale: scale()) },
             separator.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
             progressLine.topAnchor.constraint(equalTo: separator.topAnchor),
-            contentContainer.topAnchor.constraint(equalTo: topAnchor),
+            ToolbarEdgeConstraints.yielding(contentContainer.topAnchor.constraint(equalTo: topAnchor)),
             contentContainer.bottomAnchor.constraint(equalTo: headerBand.guide.topAnchor),
             // The page's bars sit by the toolbar, at the page's bottom.
             findBar.bottomAnchor.constraint(equalTo: contentContainer.bottomAnchor, constant: -FindPillMetrics.inset),
@@ -313,6 +313,8 @@ public final class BrowserChromeView: NSView {
             density.bind(progressLine.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.progressThickness },
 
             contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            // The page gives way when the rows do not fit (`ToolbarEdgeConstraints.yielding`).
+            contentContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
 
             findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -FindPillMetrics.inset),

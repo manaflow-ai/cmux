@@ -20,6 +20,18 @@ public final class ToolbarEdgeConstraints {
     /// Empty sets; fill ``top`` and ``bottom``, then ``activate(_:)``.
     public init() {}
 
+    /// `constraint`, the page's pin to the edge away from the row, made the one that gives when the
+    /// view is shorter than its rows (a pane's host is 0 high for a moment while a workspace or its
+    /// tabs are restored). With every pin required AppKit broke one of its own choosing there, and
+    /// when that was the row's own edge pin the row stayed on the other edge after the view grew
+    /// back. Pair it with a required `height >= 0` on the page.
+    /// - Parameter constraint: The page's far-edge pin.
+    /// - Returns: `constraint`, just below required.
+    public static func yielding(_ constraint: NSLayoutConstraint) -> NSLayoutConstraint {
+        constraint.priority = .init(NSLayoutConstraint.Priority.required.rawValue - 1)
+        return constraint
+    }
+
     /// Ends the other set's constraints, then activates the set for `position`.
     /// - Parameter position: The edge the row sits on.
     public func activate(_ position: ToolbarPosition) {

@@ -50,13 +50,15 @@ final class InternalPageView: NSView {
             barEdge.top = [
                 topBar.topAnchor.constraint(equalTo: topAnchor),
                 content.topAnchor.constraint(equalTo: topBar.bottomAnchor),
-                content.bottomAnchor.constraint(equalTo: bottomAnchor),
+                ToolbarEdgeConstraints.yielding(content.bottomAnchor.constraint(equalTo: bottomAnchor)),
             ]
             barEdge.bottom = [
-                content.topAnchor.constraint(equalTo: topAnchor),
+                ToolbarEdgeConstraints.yielding(content.topAnchor.constraint(equalTo: topAnchor)),
                 content.bottomAnchor.constraint(equalTo: topBar.topAnchor),
                 topBar.bottomAnchor.constraint(equalTo: bottomAnchor),
             ]
+            // The content gives way when the bar does not fit (`ToolbarEdgeConstraints.yielding`).
+            content.heightAnchor.constraint(greaterThanOrEqualToConstant: 0).isActive = true
             barEdge.activate(toolbarPosition)
         } else {
             NSLayoutConstraint.activate([
