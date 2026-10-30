@@ -98,7 +98,9 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
 /// A page of `sorted` cut by bytes rather than by count, for a reply that has no `limit` to
 /// page by (ACP's `session/list`): the rows from `cursor` on (a `nextCursor` of this list)
 /// whose `size`s fit in `budget`, at least one, and the cursor after the last of them when
-/// rows are left.
+/// rows are left. A cursor the page cannot get past (two sessions with one id and one
+/// `updatedAt` at the page's edge, the cursor naming both, the page holding only the second)
+/// is refused rather than answered with the same page again.
 pub(crate) fn byte_page(
     sorted: &[Value],
     cursor: Option<&str>,
@@ -124,6 +126,13 @@ pub(crate) fn byte_page(
     let next = (end < sorted.len())
         .then(|| sorted.get(end - 1).map(|last| SessionCursor::after(last).to_text()))
         .flatten();
+    if next.is_some() && next.as_deref() == cursor {
+        return Err(RpcError::new(
+            -32000,
+            "the session list cannot be read past this cursor: two sessions share its id and time",
+        )
+        .with_data(json!({"reason": "list.cursor_stuck"})));
+    }
     Ok((start..end, next))
 }
 
@@ -297,6 +306,31 @@ fn id_hash(id: &str) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two sessions with one id and one `updatedAt` (a chat here and its copy on a peer) share
+    /// a cursor. Across a page edge the second still comes once; a page that would hold only
+    /// the second, after the first, is refused rather than answered again and again.
+    #[test]
+    fn byte_pages_read_two_rows_with_one_cursor_once_or_refuse() {
+        let rows = vec![
+            json!({"sessionId": "a", "updatedAt": 9}),
+            json!({"sessionId": "dup", "updatedAt": 5}),
+            json!({"sessionId": "dup", "updatedAt": 5}),
+            json!({"sessionId": "z", "updatedAt": 1}),
+        ];
+        let size = |_: &Value| 10;
+        // Two rows a page: the edge falls between the two, and every row comes once.
+        let (first, next) = byte_page(&rows, None, 25, size).unwrap();
+        assert_eq!(first, 0..2);
+        let (rest, next) = byte_page(&rows, next.as_deref(), 25, size).unwrap();
+        assert_eq!((rest, next), (2..4, None));
+        // One row a page: the second would come forever.
+        let (_, next) = byte_page(&rows, None, 5, size).unwrap();
+        let (one, next) = byte_page(&rows, next.as_deref(), 5, size).unwrap();
+        assert_eq!(one, 1..2);
+        let e = byte_page(&rows, next.as_deref(), 5, size).unwrap_err();
+        assert_eq!(e.data.unwrap()["reason"], "list.cursor_stuck");
+    }
 
     #[test]
     fn stable_scan_keeps_an_unread_chief_when_it_updates_and_cursor_row_leaves() {

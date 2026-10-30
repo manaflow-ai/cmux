@@ -165,18 +165,45 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         }
         let full: Value = serde_json::from_str(&list.full_whole(hub)).unwrap_or_default();
         let rows = full["sessions"].as_array().map(Vec::as_slice).unwrap_or_default();
-        let (page, next) =
-            crate::hub::session_pages::byte_page(rows, cursor, ACP_PAGE_BYTES, |s| {
-                acp_row(s).to_string().len()
-            })?;
-        let sessions: Vec<Value> = rows.get(page).unwrap_or_default().iter().map(acp_row).collect();
-        let mut result = json!({"sessions": sessions});
-        if let Some(next) = next {
-            result["nextCursor"] = Value::String(next);
+        let page = |budget: usize| -> Result<String, RpcError> {
+            let row = |s: &Value| acp_row_within(s, budget);
+            let size = |s: &Value| row(s).to_string().len();
+            let (page, next) = crate::hub::session_pages::byte_page(rows, cursor, budget, size)?;
+            let sessions: Vec<Value> = rows.get(page).unwrap_or_default().iter().map(row).collect();
+            let mut result = json!({"sessions": sessions});
+            if let Some(next) = next {
+                result["nextCursor"] = Value::String(next);
+            }
+            Ok(if raw { result.to_string() } else { masked(result) })
+        };
+        // A peer reads the page masked (`peer_text.rs`), which may make it longer than the
+        // budget it was cut to: then it is cut again, smaller.
+        let mut budget = ACP_PAGE_BYTES;
+        loop {
+            let text = page(budget)?;
+            if raw || text.len() <= ACP_PAGE_BYTES || budget < MIN_PAGE_BYTES {
+                return Ok(Arc::new(text));
+            }
+            budget /= 2;
         }
-        Ok(Arc::new(if raw { result.to_string() } else { masked(result) }))
     })
     .await
+}
+
+/// The smallest budget a masked page is cut down to before it goes as it is.
+const MIN_PAGE_BYTES: usize = 64 << 10;
+
+/// [`acp_row`], or, for a row larger than `budget` alone, a stub that says so with its size, as
+/// a record too large for a reply goes (`hub/paging.rs`): a page holds at least one row, and
+/// one that large would be refused, page and all.
+fn acp_row_within(s: &Value, budget: usize) -> Value {
+    let mut row = acp_row(s);
+    let bytes = row.to_string().len();
+    if bytes > budget {
+        let omitted = json!({"bytes": bytes, "reason": "too_large"});
+        row["_meta"] = json!({"acpmux": {"sessionId": s["sessionId"], "omitted": omitted}});
+    }
+    row
 }
 
 /// The most a `session/list` result may hold: a megabyte under the message limit, for the
@@ -217,6 +244,21 @@ pub(super) fn reply_line(id: &Value, result: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A session row larger than a page alone goes as a stub with its size, not as a page
+    /// too large to send.
+    #[test]
+    fn an_acp_row_larger_than_its_page_goes_as_a_stub() {
+        let s = json!({"sessionId": "big", "cwd": "/w", "updatedAt": 5,
+            "tools": [{"id": "t", "description": "x".repeat(1000)}]});
+        assert_eq!(acp_row_within(&s, 1 << 20), acp_row(&s));
+        let stub = acp_row_within(&s, 100);
+        assert_eq!(stub["sessionId"], "big");
+        assert_eq!(stub["_meta"]["acpmux"]["sessionId"], "big");
+        assert_eq!(stub["_meta"]["acpmux"]["omitted"]["reason"], "too_large");
+        assert!(stub["_meta"]["acpmux"]["omitted"]["bytes"].as_u64().unwrap() > 1000);
+        assert!(stub.to_string().len() < 400, "{stub}");
+    }
 
     #[tokio::test]
     async fn a_serialized_reply_is_the_line_message_writes_and_parsed_back_outside_a_request() {
