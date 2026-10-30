@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseConfig, parseArtifact, lintGeometry, type GeometryArtifact } from "./geometry";
-import { collectGeometry } from "./geometry-collector";
+import { collectGeometry, parseSelectorMap } from "./geometry-collector";
 import { parseManifest } from "./runner";
 import { captureEnvironment, configForCapture } from "./geometry-audit";
 
@@ -133,6 +133,10 @@ test("audit baseline pairs both appearances and every required group has a selec
     expect(cases.find((value) => value.id === tuple.caseId)?.params?.colorScheme).toBe(tuple.theme);
     for (const rule of config.rules.filter((rule) => !rule.appliesTo || rule.appliesTo.includes(tuple.caseId))) expect(baseline.selectors[tuple.caseId].some((selection: { group: string }) => selection.group === rule.group)).toBe(true);
   }
+});
+
+test("baseline selectors parse with only known keys and measurements", () => {
+  expect(Object.keys(parseSelectorMap(baseline.selectors))).toEqual(Object.keys(baseline.selectors));
 });
 
 test("every required capture expects the gallery source its case renders", () => {
