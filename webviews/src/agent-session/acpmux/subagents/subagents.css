@@ -803,3 +803,13 @@ button.cv-subagent > :last-child {
     translate: 0 -0.4em;
   }
 }
+
+/* Counts and warnings remain readable even when the name or action needs truncation. */
+.acpmux-agent-line__progress {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
