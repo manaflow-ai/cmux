@@ -641,7 +641,6 @@ class StatusCommentTests(unittest.TestCase):
         original = pr_status.upsert
         self.writer = patch.object(pr_status, "upsert", side_effect=lambda *a, **kw:
                                    original(*a, **kw, api=self.api, sleep=None))
-        self.reader = patch.object(pr_status, "list_comments", wraps=pr_status.list_comments)
         self.writer.start()
         self.addCleanup(self.writer.stop)
         self.addCleanup(sys.path.pop, 0)
@@ -652,6 +651,8 @@ class StatusCommentTests(unittest.TestCase):
     def api(self, method, path, payload=None):
         if method == "GET":
             return self.comments
+        if getattr(self, "fail_write", False):
+            raise RuntimeError("write failed")
         self.writes.append((method, path, payload))
         if method == "PATCH":
             next(c for c in self.comments if path.endswith('/' + str(c['id'])))['body'] = payload['body']
@@ -701,9 +702,9 @@ class StatusCommentTests(unittest.TestCase):
     def test_failed_status_write_keeps_legacy_comment(self):
         self.comments = [self.comment(1, self.status.render({"review": "SHIP"})),
                          self.comment(2, self.guard.MARKER + "\nold")]
-        with patch.object(self.status, 'upsert', side_effect=RuntimeError('write failed')):
-            with self.assertRaises(RuntimeError):
-                self.post()
+        self.fail_write = True
+        with self.assertRaises(RuntimeError):
+            self.post()
         self.assertEqual(len(self.comments), 2)
 
     def test_human_legacy_lookalike_is_not_changed(self):
