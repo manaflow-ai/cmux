@@ -947,21 +947,42 @@ impl Hub {
         }
     }
 
-    /// [`Self::remote_matches`] without the last-segments rule: how many peer sessions `key`
-    /// names by id, whole name or `peer/name`. A local sub-session's last segments give way to
-    /// one of these (`Hub::resolve_here`).
-    pub(super) fn remote_strict_matches(&self, key: &str) -> usize {
+    /// How many peer sessions have `key` as their whole name (`NAME` or `PEER/NAME`), or as
+    /// the id they are listed under. A local session's short name gives way to one
+    /// (`Hub::resolve_here`).
+    pub(super) fn remote_whole_names(&self, key: &str) -> usize {
         let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
         if map.get(key).is_some() {
             return 1;
         }
-        map.iter().filter(|(id, r)| names_remote(id, r, key)).count()
+        map.values()
+            .filter(|r| {
+                let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
+                name == key || name.strip_prefix(&format!("{}/", r.peer)) == Some(key)
+            })
+            .count()
+    }
+
+    /// The names (with their ids) of the peer sessions whose short name is `key`
+    /// ([`remote_segment`]), for `Hub::resolve_here`'s tie.
+    pub(super) fn remote_segment_names(&self, key: &str) -> Vec<String> {
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        map.values()
+            .filter(|r| remote_segment(r, key))
+            .map(|r| {
+                let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
+                format!("{name} ({}/{})", r.peer, r.receipt.mux_session_id)
+            })
+            .collect()
     }
 
     /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name or id prefix;
-    /// failing those, the one session whose name ends in `key`'s segments (`mac-ci-3` for
-    /// `claude-sr2/mac-ci-3`, `session_name::ends_with_segments`).
+    /// failing those, the one peer session whose short name `key` is ([`remote_segment`]):
+    /// `mac-ci-3` for `claude-sr2/mac-ci-3` when no session here has that short or whole name,
+    /// or `PEER/mac-ci-3` on that peer only.
     pub fn resolve_remote(&self, key: &str) -> Option<(Arc<crate::peer::Peer>, String, Value)> {
+        // Read before the peers' rows are locked: never this daemon's sessions under them.
+        let bare_is_local = !key.contains('/') && self.local_short_matches(key) > 0;
         let map = self.remote_sessions.lock().unwrap();
         let row = |r: &RemoteSession| {
             (r.peer.clone(), r.receipt.mux_session_id.clone(), r.summary.clone())
@@ -974,7 +995,7 @@ impl Hub {
                 .filter(|(id, r)| names_remote(id, r, key))
                 .map(|(_, r)| row(r))
                 .collect();
-            if matches.is_empty() {
+            if matches.is_empty() && !bare_is_local {
                 matches = map.values().filter(|r| remote_segment(r, key)).map(|r| row(r)).collect();
             }
             if matches.len() == 1 { matches.pop() } else { None }
@@ -1114,16 +1135,20 @@ impl Hub {
     }
 }
 
-/// Whether `key` is the last segments of peer session `r`'s name: `mac-ci-3`, or
-/// `PEER/mac-ci-3`, for `PEER/claude-sr2/mac-ci-3`.
+/// Whether `key` is peer session `r`'s short name, its name's last segment: a bare
+/// `mac-ci-3` for `PEER/claude-sr2/mac-ci-3` on any peer, or `PEER/mac-ci-3` on that peer only.
 fn remote_segment(r: &RemoteSession, key: &str) -> bool {
     let name = r.summary.get("name").and_then(Value::as_str).unwrap_or("");
-    if crate::session_name::ends_with_segments(name, key) {
-        return true;
+    if !key.contains('/') {
+        return crate::session_name::ends_with_segments(name, key);
     }
     let peer = format!("{}/", r.peer);
     key.strip_prefix(&peer).is_some_and(|rest| {
-        crate::session_name::ends_with_segments(name.strip_prefix(&peer).unwrap_or(name), rest)
+        !rest.contains('/')
+            && crate::session_name::ends_with_segments(
+                name.strip_prefix(&peer).unwrap_or(name),
+                rest,
+            )
     })
 }
 

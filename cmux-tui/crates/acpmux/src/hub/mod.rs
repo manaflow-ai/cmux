@@ -1123,12 +1123,15 @@ impl Hub {
     }
 
     /// This daemon's own session `key` names: its id, its whole name, then a unique prefix of
-    /// either. A key that is a sub-session's last name segments (`mac-ci-3` for
+    /// either. A bare key (no `/`) that is a sub-session's last name segment (`mac-ci-3` for
     /// `claude-sr2/mac-ci-3`, `session_name::ends_with_segments`) names it too, ahead of a
-    /// prefix, unless a peer lists a session `key` names exactly: that one is meant (a whole
-    /// name beats a segment), and is the peer route's to find. Several matches are refused with
-    /// their names; a miss is the plain `no session matches` (`Hub::unknown_session` adds the
-    /// close names where a caller is told).
+    /// prefix, when it is the only session here or on a peer with that short name and no peer
+    /// lists a session with that whole name (that one is meant, and is the peer route's to
+    /// find). A short name only a peer's session has is the peer route's too
+    /// (`Hub::resolve_remote`). A short name several sessions share, here or on peers, is
+    /// refused with their names; a miss is the plain `no session matches`
+    /// (`Hub::unknown_session` adds the close names where a caller is told). A key with a `/`
+    /// never matches by short name here: `HOST/NAME` stays a host's (`own_host.rs`).
     pub(super) fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
         let sessions = self.sessions.lock().unwrap();
         // A qualified id is authoritative for new routing. The old bare id,
@@ -1146,13 +1149,14 @@ impl Hub {
         // clone of every meta took ~45 ms with 2,500 sessions, on each Stop
         // (`acpmux session cancel NAME`) and every other call by name. One
         // pass sorts them into the tiers below.
+        let bare = !key.contains('/');
         let (mut by_name, mut by_segment, mut by_prefix) = (Vec::new(), Vec::new(), Vec::new());
         for s in sessions.values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if meta.name == key {
                 by_name.push(s.clone());
             }
-            if crate::session_name::ends_with_segments(&meta.name, key) {
+            if bare && crate::session_name::ends_with_segments(&meta.name, key) {
                 by_segment.push(s.clone());
             }
             if s.id.starts_with(key) || meta.name.starts_with(key) {
@@ -1163,31 +1167,84 @@ impl Hub {
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
         }
-        // Several sessions with the whole name stay a tie a segment does not break. The peers'
-        // rows are read with this daemon's sessions unlocked.
-        if by_name.is_empty() && by_segment.len() == 1 && self.remote_strict_matches(key) == 0 {
-            return Ok(by_segment.remove(0));
-        }
-        let tied = |matched: &[Arc<Session>]| {
-            let mut names: Vec<String> = matched
+        let named = |matched: &[Arc<Session>]| -> Vec<String> {
+            matched
                 .iter()
                 .map(|s| {
                     format!("{} ({})", s.meta.lock().unwrap_or_else(|e| e.into_inner()).name, s.id)
                 })
-                .collect();
+                .collect()
+        };
+        let tied = |mut names: Vec<String>| {
             names.sort();
             names.dedup();
             crate::session_name::ambiguous(key, &names)
         };
-        // Two sub-sessions with the short name are a tie, never settled by a third's prefix.
-        if by_name.is_empty() && by_segment.len() > 1 {
-            by_segment.extend(by_prefix);
-            return Err(tied(&by_segment));
+        // A short name, when no session here has the whole name (several with it stay a tie a
+        // short name does not break). The peers' rows are read with this daemon's sessions
+        // unlocked. A peer's session with the whole name is meant: then this answers as it did
+        // before short names matched, and the peer route finds it.
+        if by_name.is_empty() && bare && self.remote_whole_names(key) == 0 {
+            let remote = self.remote_segment_names(key);
+            match (by_segment.len(), remote.len()) {
+                (0, 0) => {}
+                (1, 0) => return Ok(by_segment.remove(0)),
+                // The peer's alone: `resolve_remote` takes it.
+                (0, 1) => return Err(crate::session_name::not_found(key, &[])),
+                // Never settled by a third session's prefix.
+                _ => {
+                    let mut names = named(&by_segment);
+                    names.extend(remote);
+                    return Err(tied(names));
+                }
+            }
         }
         match by_prefix.len() {
             1 => Ok(by_prefix.remove(0)),
             0 => Err(crate::session_name::not_found(key, &[])),
-            _ => Err(tied(&by_prefix)),
+            _ => Err(tied(named(&by_prefix))),
+        }
+    }
+
+    /// How many of this daemon's own sessions have `key` as their whole name or, for a bare
+    /// key, as their last name segment: a peer's session with that short name gives way to them
+    /// (`Hub::resolve_remote`).
+    pub(super) fn local_short_matches(&self, key: &str) -> usize {
+        let bare = !key.contains('/');
+        let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        sessions
+            .values()
+            .filter(|s| {
+                let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                meta.name == key
+                    || (bare && crate::session_name::ends_with_segments(&meta.name, key))
+            })
+            .count()
+    }
+
+    /// The one session here whose last name segment is the bare `key` (`HOST/SHORT` with this
+    /// machine as `HOST`, `own_host.rs`): None when none is; refused when several are.
+    pub(super) fn resolve_short_here(&self, key: &str) -> Option<Result<Arc<Session>, RpcError>> {
+        if key.contains('/') {
+            return None;
+        }
+        let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let found: Vec<(Arc<Session>, String)> = sessions
+            .values()
+            .filter_map(|s| {
+                let name =
+                    s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).name.clone();
+                crate::session_name::ends_with_segments(&name, key).then(|| (s.clone(), name))
+            })
+            .collect();
+        drop(sessions);
+        match found.as_slice() {
+            [] => None,
+            [(s, _)] => Some(Ok(s.clone())),
+            many => Some(Err(crate::session_name::ambiguous(
+                key,
+                &many.iter().map(|(s, n)| format!("{n} ({})", s.id)).collect::<Vec<_>>(),
+            ))),
         }
     }
 

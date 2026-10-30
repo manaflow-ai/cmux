@@ -25,7 +25,11 @@ impl Hub {
             && is_own_machine_name(host)
             && self.peer(host).is_none()
         {
-            return self.resolve_exact(rest).unwrap_or(found);
+            // Its whole name first, then its short name (`Hub::resolve_short_here`).
+            return self
+                .resolve_exact(rest)
+                .or_else(|| self.resolve_short_here(rest))
+                .unwrap_or(found);
         }
         found
     }
@@ -81,11 +85,13 @@ mod segment_tests {
     use serde_json::json;
 
     fn hub_with(names: &[(&str, &str)]) -> Arc<Hub> {
+        let names: Vec<(String, String)> =
+            names.iter().map(|(i, n)| ((*i).to_owned(), (*n).to_owned())).collect();
         let cfg: crate::config::Config =
             serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
         let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
         let hub = Hub::new(cfg, store);
-        for (id, name) in names {
+        for (id, name) in &names {
             let meta: crate::store::SessionMeta = serde_json::from_value(json!({
                 "schema": crate::store::META_SCHEMA, "id": id, "name": name,
                 "harness": "claude", "cwd": "/w", "status": "idle",
@@ -93,7 +99,7 @@ mod segment_tests {
             }))
             .unwrap();
             let session = hub.make_session(meta);
-            hub.sessions.lock().unwrap().insert((*id).into(), session);
+            hub.sessions.lock().unwrap().insert(id.clone(), session);
         }
         hub
     }
@@ -133,16 +139,27 @@ mod segment_tests {
         assert!(e.data.is_none(), "a probe's miss lists nothing: {e:?}");
     }
 
-    /// A whole name is meant over a segment: here, and on a peer.
+    /// A peer that is listed but never runs, so `resolve_remote` can route to it.
+    fn add_peer(hub: &Hub, name: &str) {
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert(name.to_owned(), peer);
+    }
+
+    fn remote_id(hub: &Hub, key: &str) -> Option<String> {
+        hub.resolve_remote(key).map(|(p, id, _)| format!("{}/{id}", p.name))
+    }
+
+    /// A whole name is meant over a short name: here, and on a peer.
     #[test]
     fn a_whole_name_beats_a_short_name_here_or_on_a_peer() {
         let hub = hub_with(&[("m1", "claude-sr2/lane"), ("m2", "lane")]);
         assert_eq!(id(hub.resolve("lane")), "m2");
         let hub = hub_with(&[("m1", "claude-sr2/lane")]);
+        add_peer(&hub, "hb");
         peer_row(&hub, "hb", "r1", "hb/lane");
         assert!(hub.resolve("lane").is_err(), "the peer's `lane` is the one meant");
-        assert_eq!(hub.resolve_remote("lane").map(|(_, id, _)| id), None, "no peer is connected");
-        assert_eq!(hub.remote_matches("lane"), 1);
+        assert_eq!(remote_id(&hub, "lane").as_deref(), Some("hb/r1"));
     }
 
     /// Two sub-sessions with the short name are refused with their names, so the caller picks;
@@ -151,20 +168,65 @@ mod segment_tests {
     fn two_sub_sessions_with_the_short_name_are_refused_with_both() {
         let hub = hub_with(&[("m1", "a/lane"), ("m2", "b/lane"), ("m3", "lane-2")]);
         let e = err(hub.resolve("lane"));
-        assert!(e.message.contains("matches 3 sessions"), "{}", e.message);
-        assert!(e.message.contains("a/lane (m1), b/lane (m2), lane-2 (m3)"), "{}", e.message);
+        assert!(e.message.contains("matches 2 sessions"), "{}", e.message);
+        assert!(e.message.contains("a/lane (m1), b/lane (m2)"), "{}", e.message);
         assert_eq!(e.data.unwrap()["reason"], "ambiguous_session");
     }
 
-    /// A peer's sub-session is found by its short name, with or without the peer's name.
+    /// Review of #27791: a short name here and one on a peer are a tie on both routes, never
+    /// one picked silently.
     #[test]
-    fn a_peers_sub_session_is_found_by_its_short_name() {
+    fn a_short_name_here_and_on_a_peer_is_a_tie_on_both_routes() {
+        let hub = hub_with(&[("m1", "a/lane")]);
+        add_peer(&hub, "hb");
+        peer_row(&hub, "hb", "r1", "hb/b/lane");
+        let e = err(hub.resolve("lane"));
+        assert!(e.message.contains("a/lane (m1), hb/b/lane (hb/r1)"), "{}", e.message);
+        assert_eq!(remote_id(&hub, "lane"), None, "the peer route does not take it either");
+        // Two here and one on a peer: still a tie, not the peer's.
+        let hub = hub_with(&[("m1", "a/lane"), ("m2", "b/lane")]);
+        add_peer(&hub, "hb");
+        peer_row(&hub, "hb", "r1", "hb/c/lane");
+        assert!(err(hub.resolve("lane")).message.contains("matches 3 sessions"));
+        assert_eq!(remote_id(&hub, "lane"), None);
+        // A peer's alone is the peer route's.
+        let hub = hub_with(&[("m1", "other")]);
+        add_peer(&hub, "hb");
+        peer_row(&hub, "hb", "r1", "hb/claude-sr2/mac-ci-3");
+        assert!(hub.resolve("mac-ci-3").is_err());
+        assert_eq!(remote_id(&hub, "mac-ci-3").as_deref(), Some("hb/r1"));
+        assert_eq!(remote_id(&hub, "hb/mac-ci-3").as_deref(), Some("hb/r1"));
+    }
+
+    /// Review of #27791: `PEER/SHORT` reaches that peer only, never another peer's session
+    /// whose name happens to end in `PEER/SHORT`.
+    #[test]
+    fn a_peer_qualified_short_name_stays_on_that_peer() {
         let hub = hub_with(&[]);
-        peer_row(&hub, "cg", "r1", "cg/claude-sr2/mac-ci-3");
-        assert_eq!(hub.remote_matches("mac-ci-3"), 1);
-        assert_eq!(hub.remote_matches("cg/mac-ci-3"), 1);
-        assert_eq!(hub.remote_matches("ci-3"), 0);
-        assert_eq!(hub.remote_strict_matches("mac-ci-3"), 0);
+        add_peer(&hub, "hb");
+        add_peer(&hub, "cg");
+        peer_row(&hub, "cg", "r1", "cg/parent/hb/lane");
+        assert_eq!(remote_id(&hub, "hb/lane"), None);
+        assert_eq!(hub.remote_matches("hb/lane"), 0);
+        peer_row(&hub, "hb", "r2", "hb/x/lane");
+        assert_eq!(remote_id(&hub, "hb/lane").as_deref(), Some("hb/r2"));
+        assert_eq!(remote_id(&hub, "cg/lane").as_deref(), Some("cg/r1"));
+        assert_eq!(hub.remote_matches("hb/ane"), 0, "on a `/` boundary only");
+    }
+
+    /// Review of #27791: `OWN/NAME` finds the session here named `NAME` exactly before a short
+    /// name, and a key with a `/` is never a short name here.
+    #[test]
+    fn this_machines_qualified_name_keeps_its_exact_match_first() {
+        let own = crate::pairing::machine_name();
+        if own == "host" {
+            return;
+        }
+        let nested = format!("parent/{own}/lane");
+        let hub = hub_with(&[("m1", "lane"), ("m2", nested.as_str()), ("m3", "a/x")]);
+        assert_eq!(id(hub.resolve(&format!("{own}/lane"))), "m1");
+        assert_eq!(id(hub.resolve(&format!("{own}/x"))), "m3", "its short name, on this host");
+        assert!(hub.resolve("parent/x").is_err(), "a key with a `/` is no short name");
     }
 
     /// The refusal a caller reads names the close matches, here and on peers.

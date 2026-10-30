@@ -188,8 +188,9 @@ fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a V
 /// The sessions `key` names: ids take precedence over names. A bare name includes every
 /// host, so a local chat cannot hide a peer's chat with the same name from control callers.
 /// Qualified names select their host; bead ids still find the sessions that carry them. A
-/// sub-session's last name segments (`mac-ci-3` for `claude-sr2/mac-ci-3`,
-/// `session_name::ends_with_segments`) name it when no whole name does, ahead of a prefix.
+/// sub-session's short name (`mac-ci-3` for `claude-sr2/mac-ci-3`,
+/// `session_name::ends_with_segments`) names it when no whole name does, ahead of a prefix: a
+/// bare one on every host, `HOST/SHORT` on that host only and after its exact names.
 fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     let exact: Vec<&Value> = summaries
         .iter()
@@ -215,12 +216,15 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
             return carry;
         }
     }
-    let by_segment: Vec<&Value> = summaries
-        .iter()
-        .filter(|s| crate::session_name::ends_with_segments(bare_name(s), key))
-        .collect();
-    if !by_segment.is_empty() {
-        return by_segment;
+    // A bare short name, on every host: several are the tie a control caller refuses.
+    if !key.contains('/') {
+        let by_segment: Vec<&Value> = summaries
+            .iter()
+            .filter(|s| crate::session_name::ends_with_segments(bare_name(s), key))
+            .collect();
+        if !by_segment.is_empty() {
+            return by_segment;
+        }
     }
     if let Some((host, rest)) = key.split_once('/') {
         let on_host: Vec<&Value> =
@@ -414,6 +418,22 @@ mod tests {
         assert!(by_key(&rows, "ci-3", "big-red").is_empty());
         rows.push(json!({"sessionId": "m7", "name": "mac-ci-3", "harness": "claude"}));
         assert_eq!(ids(&by_key(&rows, "mac-ci-3", "big-red")), ["m7"], "a whole name wins");
+    }
+
+    /// Review of #27791: a host-qualified key keeps that host's exact name first, and a short
+    /// name never crosses to another host.
+    #[test]
+    fn a_host_qualified_short_name_stays_on_its_host_after_its_exact_names() {
+        let rows = vec![
+            json!({"sessionId": "m1", "name": "lane", "harness": "claude"}),
+            json!({"sessionId": "m2", "name": "parent/hb/lane", "harness": "claude"}),
+            json!({"sessionId": "m3", "name": "cg/parent/hb/x", "peer": "cg", "harness": "claude"}),
+            json!({"sessionId": "m4", "name": "a/x", "harness": "claude"}),
+        ];
+        assert_eq!(ids(&by_key(&rows, "hb/lane", "hb")), ["m1"]);
+        assert!(by_key(&rows, "nohost/x", "hb").is_empty());
+        assert_eq!(ids(&by_key(&rows, "hb/x", "hb")), ["m4"], "on host hb only, not cg's m3");
+        assert_eq!(ids(&by_key(&rows, "x", "hb")), ["m3", "m4"], "a bare one: both, a tie");
     }
 
     #[test]
