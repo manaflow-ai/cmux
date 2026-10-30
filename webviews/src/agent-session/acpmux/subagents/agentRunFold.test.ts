@@ -505,9 +505,9 @@ test("an explicitly requested -N name with no competing base name pairs with its
   // `-n fix-2` claims `fix-2` itself; the suffix is a daemon rename only when `fix` competes.
   const { fold, send } = folder();
   send(call("shell", `acpmux run --parent chat-1 -n fix-2 "Fix the flaky test"`));
-  expect(
-    child(fold, 5, { event: "started", shortName: "fix-2", prompt: "Fix the flaky test", harness: "codex" }),
-  ).toBe("shell");
+  expect(child(fold, 5, { event: "started", shortName: "fix-2", prompt: "Fix the flaky test", harness: "codex" })).toBe(
+    "shell",
+  );
   expect(fold.isRun("shell")).toBe(true);
   expect(fold.all()[0]).toMatchObject({ session: "fix-2", child: "child-1" });
 });
@@ -518,8 +518,8 @@ test("an ended unnamed and unprompted parent run leaves no tombstone that blocks
   send(call("file", `acpmux run --parent chat-1 --prompt-file /tmp/task.md`));
   send({ sessionUpdate: "tool_call_update", toolCallId: "file", status: "failed" });
   send(call("shell", PARENT_RUN));
-  expect(
-    child(fold, 5, { event: "started", shortName: "fix", prompt: "Fix the flaky test", harness: "codex" }),
-  ).toBe("shell");
+  expect(child(fold, 5, { event: "started", shortName: "fix", prompt: "Fix the flaky test", harness: "codex" })).toBe(
+    "shell",
+  );
   expect(fold.isRun("shell")).toBe(true);
 });
