@@ -110,11 +110,12 @@ struct CrossMachineTabMoveTests {
             // daemon's barrier so the creation event alone cannot satisfy this lookup.
             // The barrier and lookup share one deadline. Leaving the group cancels and
             // joins the observation wait or deadline task, including on caller cancellation.
+            let daemon = self.machine.daemon
             try await withThrowingTaskGroup(of: Void.self) { group in
                 defer { group.cancelAll() }
-                group.addTask { @MainActor in
+                group.addTask {
                     try Task.checkCancellation()
-                    try await self.machine.daemon.appliedThroughSyncBarrier()
+                    try await daemon.appliedThroughSyncBarrier()
                     try Task.checkCancellation()
                 }
                 group.addTask {
