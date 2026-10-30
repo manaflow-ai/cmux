@@ -461,7 +461,6 @@ final class ShellModel {
         case "offline"?: return .connectionFailed
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
         case "pairing-reset"?: return .waitingForPairingAfterNewKeys(on: "Mac Studio")
-        case "reconnecting"?: return .reconnecting(to: "Mac")
         default: break
         }
         #endif
