@@ -14,6 +14,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import unittest.mock
@@ -147,16 +148,107 @@ class WindowTests(unittest.TestCase):
 
 
 class MainTests(unittest.TestCase):
-    def test_a_github_error_warns_instead_of_failing_the_schedule(self):
-        def boom(*_args, **_kwargs):
-            raise urllib.error.HTTPError("u", 502, "Bad Gateway", {}, None)
-        original = watch.GitHub.call, watch.fetch_feed
-        watch.GitHub.call, watch.fetch_feed = boom, lambda url: NEWEST_FEED
-        try:
-            with unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
-                self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
-        finally:
-            watch.GitHub.call, watch.fetch_feed = original
+    """A GitHub API failure skips the measurement; the run says so and is not green.
+    It used to warn and exit 0, so a 403 made a stale nightly look healthy."""
+
+    def main_with_api(self, urlopen):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = Path(tmp) / "summary.md"
+            with unittest.mock.patch.object(watch, "fetch_feed", lambda url: NEWEST_FEED), \
+                    unittest.mock.patch.object(watch.urllib.request, "urlopen", urlopen), \
+                    unittest.mock.patch("time.sleep") as sleep, \
+                    unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t", "GITHUB_STEP_SUMMARY": str(summary)}):
+                code = watch.main(["--repo", "o/r", "--dry-run"])
+            return code, summary.read_text() if summary.exists() else "", sleep
+
+    def test_a_github_403_is_release_health_unknown_with_a_summary_line(self):
+        def forbidden(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 403, "API rate limit exceeded for installation", {}, None)
+        code, summary, _ = self.main_with_api(forbidden)
+        self.assertEqual(code, 3)
+        self.assertIn("release health unknown", summary)
+        self.assertIn("measurement was skipped", summary)
+        self.assertIn("403", summary)
+
+    def test_a_bad_gateway_is_release_health_unknown_too(self):
+        def bad_gateway(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 502, "Bad Gateway", {}, None)
+        self.assertEqual(self.main_with_api(bad_gateway)[0], 3)
+
+    def test_the_check_step_fails_the_run(self):
+        # Exit 3 must turn the scheduled run red, so the step may not continue on error.
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
+        call = "run: python3 scripts/ci/nightly_next_feed_watch.py"
+        step = workflow[:workflow.index(call)].rsplit("- name:", 1)[1]
+        self.assertNotIn("continue-on-error", step)
+
+
+class Response:
+    def __init__(self, body: bytes):
+        self.body = body
+
+    def read(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class RetryTests(unittest.TestCase):
+    """GitHub reads retry a transient failure a bounded number of times."""
+
+    def call_with(self, failures, method="GET"):
+        attempts = []
+
+        def urlopen(request, timeout=None):
+            attempts.append(request.get_method())
+            if len(attempts) <= len(failures):
+                raise failures[len(attempts) - 1]
+            return Response(b'{"ok": true}')
+        gh = watch.GitHub("o/r", "t", dry_run=False)
+        with unittest.mock.patch.object(watch.urllib.request, "urlopen", urlopen), \
+                unittest.mock.patch("time.sleep") as sleep:
+            try:
+                result = gh.call(method, "/x", {"a": 1} if method != "GET" else None)
+            except watch.TRANSPORT as error:
+                result = error
+        return gh, result, attempts, sleep
+
+    def http(self, code):
+        return urllib.error.HTTPError("u", code, "x", {}, None)
+
+    def test_a_transient_read_failure_is_retried(self):
+        for failure in (self.http(403), self.http(429), self.http(502), urllib.error.URLError("reset"),
+                        TimeoutError("timed out"), http.client.IncompleteRead(b"half")):
+            with self.subTest(failure=repr(failure)):
+                _, result, attempts, sleep = self.call_with([failure, failure])
+                self.assertEqual(result, {"ok": True})
+                self.assertEqual(len(attempts), 3)
+                self.assertEqual(sleep.call_count, 2)
+
+    def test_retries_are_bounded(self):
+        gh, result, attempts, _ = self.call_with([self.http(503)] * 5)
+        self.assertIsInstance(result, urllib.error.HTTPError)
+        self.assertEqual(len(attempts), watch.API_ATTEMPTS)
+        self.assertEqual(watch.API_ATTEMPTS, 3)
+        # Once GitHub is down, later reads try once, so the run ends well inside its timeout.
+        with unittest.mock.patch.object(watch.urllib.request, "urlopen", side_effect=self.http(503)) as urlopen, \
+                unittest.mock.patch("time.sleep"):
+            with self.assertRaises(urllib.error.HTTPError):
+                gh.call("GET", "/y")
+        self.assertEqual(urlopen.call_count, 1)
+
+    def test_a_permanent_error_or_a_write_is_not_retried(self):
+        _, result, attempts, _ = self.call_with([self.http(404)])
+        self.assertIsInstance(result, urllib.error.HTTPError)
+        self.assertEqual(len(attempts), 1)
+        # A dispatch or comment that failed in transit may still have landed; never send it twice.
+        _, result, attempts, _ = self.call_with([self.http(502)], method="POST")
+        self.assertIsInstance(result, urllib.error.HTTPError)
+        self.assertEqual(attempts, ["POST"])
 
 
 class TickRefusalTests(unittest.TestCase):
