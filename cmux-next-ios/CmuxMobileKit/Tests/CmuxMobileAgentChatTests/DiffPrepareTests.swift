@@ -278,6 +278,7 @@ import Testing
 #if os(iOS)
 /// A diff file is prepared in place only when it is small in text, not only in lines: one
 /// minified line of 200,000 characters is laid out off the main thread.
+@MainActor
 @Suite struct DiffInlineBuildTests {
     static func file(lines: Int, width: Int) -> DiffFile {
         let text = String(repeating: "x", count: width)
