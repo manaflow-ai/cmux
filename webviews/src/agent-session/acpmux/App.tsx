@@ -2328,7 +2328,7 @@ export function VirtualTranscript({
         jumping: jumpTarget.current !== undefined,
         deadband: FOLLOW_BOTTOM_DEADBAND_PX,
       });
-      scrollRef.current = { top, delta: top - scrollRef.current.top };
+      scrollRef.current = { top, delta: top - scrollRef.current.top || scrollRef.current.delta };
       // Route recovery through the authoritative setter so the parent callback and synchronous
       // intent ref agree; a stale queued `atLatest` must not retake a parked reader.
       flushSync(() => {
