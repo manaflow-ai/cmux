@@ -20,7 +20,8 @@ public nonisolated protocol DaemonUpdateTarget: Sendable {
     /// ``DaemonUpdateOutcome/busy`` and changes nothing. With `whileBusy` it updates mid-turn too:
     /// the restarted daemon resumes what it interrupted. The policy asks so from the first ask
     /// (``DaemonUpdatePolicy/Dependencies/updateBusyAfter`` is zero by default). It also answers
-    /// `busy` when it cannot update now, such as an unreachable machine or another update running.
+    /// `busy` when it cannot update now, such as another update running, and
+    /// ``DaemonUpdateOutcome/unreachable`` when the machine cannot be reached.
     func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome
     /// Whether the target updates as soon as the policy reaches it: the policy queues it also when
     /// its build is unknown, ahead of every other waiting target and without waiting out another
@@ -46,6 +47,9 @@ public nonisolated enum DaemonUpdateOutcome: Sendable, Equatable {
     /// It is not idle, or, asked to update while busy, it cannot now (unreachable, another update
     /// running); nothing changed. The policy asks again later.
     case busy
+    /// The machine could not be reached (offline); nothing changed. Like ``busy`` the policy asks
+    /// again later, and also once it connects again; never a failure or a toast.
+    case unreachable
     /// No binary for its platform (`target`, a Rust triple) could be found; nothing changed. The
     /// next launch asks again.
     case needsBinary(target: String)
@@ -139,6 +143,9 @@ public nonisolated struct DaemonUpdateEvent: Sendable, Equatable {
         /// non-zero ``DaemonUpdatePolicy/Dependencies/updateBusyAfter``, not idle yet): the policy
         /// asks again with backoff.
         case retrying
+        /// The machine is offline (``DaemonUpdateOutcome/unreachable``): it updates once it is back.
+        /// One quiet line, never a toast.
+        case offline
         case updated(build: String)
         /// `rolledBack`: the target put its previous build back.
         case failed(reason: String, rolledBack: Bool)
