@@ -23,7 +23,14 @@ export function isWheelNotch(event: Pick<WheelEvent, "deltaY" | "deltaMode"> & {
 /// Owns only notch input, on the existing single scroll clock. No anchor or follow-state writes.
 /// A replacement jump, native wheel, other input, hidden page/pane, session switch or removal ends
 /// the glide; the shared runner cancels its frame and listeners. The installer removes its wheel
-/// listener on unmount. Completed notches leave no timer or listener behind.
+/// listeners on unmount. Completed notches leave no timer or listener behind.
+///
+/// Only a notched wheel needs to cancel the browser's scroll, and a wheel listener that may cancel
+/// makes WebKit send every wheel event to the page before it scrolls: a trackpad's scroll then
+/// waited for whatever the page was doing (an older page of history landing), and stopped (Leo
+/// 2026-10-29: "why is it sometimes blocking me from scrolling up further?"). So a passive listener
+/// watches the wheel, and the cancelling one is there until the first precise (trackpad, Mos) event
+/// and again from the next notch, which scrolls natively.
 export function installWheelGlide(node: HTMLElement): { stop(): void; remove(): void } {
   let ride: { remaining(): number } | undefined;
   const finished = () => {
@@ -74,12 +81,24 @@ export function installWheelGlide(node: HTMLElement): { stop(): void; remove(): 
     event.preventDefault();
     ride = animateScrollBy(node, distance, duration, [0.22, 1, 0.36, 1], wanted >= max, finished);
   };
+  let armed = true;
   node.addEventListener("wheel", onWheel, { passive: false });
+  const watch = (event: WheelEvent) => {
+    if (!event.deltaY || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    const notch = isWheelNotch(event);
+    if (notch === armed) return;
+    armed = notch;
+    if (notch) node.addEventListener("wheel", onWheel, { passive: false });
+    else node.removeEventListener("wheel", onWheel);
+  };
+  node.addEventListener("wheel", watch, { passive: true });
   return {
     stop,
     remove: () => {
       stop();
+      node.removeEventListener("wheel", watch);
       node.removeEventListener("wheel", onWheel);
+      armed = false;
     },
   };
 }

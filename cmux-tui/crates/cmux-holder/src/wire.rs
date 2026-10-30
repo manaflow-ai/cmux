@@ -386,24 +386,26 @@ impl Reader {
     /// no frame states are a [`Fault::Malformed`] error: the stream cannot be
     /// read on (never a frame that takes another frame's descriptor).
     pub fn next_frame(&mut self) -> io::Result<Option<Frame>> {
-        let pending = &self.buf[self.start..];
-        if pending.len() < HEADER {
+        let pending = self.buf.get(self.start..).unwrap_or_default();
+        let Some(&[m0, m1, m2, m3, k0, k1, f0, f1, c0, c1, c2, c3, l0, l1, l2, l3]) =
+            pending.first_chunk::<HEADER>()
+        else {
             return Ok(None);
-        }
-        if pending[..4] != MAGIC {
+        };
+        if [m0, m1, m2, m3] != MAGIC {
             return Err(fault(Fault::Malformed, "bad holder frame magic"));
         }
-        let kind = u16::from_le_bytes([pending[4], pending[5]]);
-        let flags = u16::from_le_bytes([pending[6], pending[7]]);
-        let chan = u32::from_le_bytes(pending[8..12].try_into().unwrap_or_default());
-        let len = u32::from_le_bytes(pending[12..16].try_into().unwrap_or_default()) as usize;
+        let kind = u16::from_le_bytes([k0, k1]);
+        let flags = u16::from_le_bytes([f0, f1]);
+        let chan = u32::from_le_bytes([c0, c1, c2, c3]);
+        let len = u32::from_le_bytes([l0, l1, l2, l3]) as usize;
         if len > MAX_PAYLOAD {
             return Err(fault(Fault::Malformed, "holder frame too large"));
         }
-        if pending.len() < HEADER + len {
+        let Some(payload) = pending.get(HEADER..HEADER + len) else {
             return Ok(None);
-        }
-        let payload = pending[HEADER..HEADER + len].to_vec();
+        };
+        let payload = payload.to_vec();
         let frame_at = self.taken;
         self.start += HEADER + len;
         self.taken += (HEADER + len) as u64;
@@ -509,7 +511,7 @@ pub fn send_frame(
 pub fn send_all(fd: RawFd, bytes: &[u8], fds: &[RawFd]) -> io::Result<()> {
     let mut sent = send_with_fds(fd, bytes, fds)?;
     while sent < bytes.len() {
-        sent += send_with_fds(fd, &bytes[sent..], &[])?;
+        sent += send_with_fds(fd, bytes.get(sent..).unwrap_or_default(), &[])?;
     }
     Ok(())
 }
@@ -731,7 +733,7 @@ impl<'a> In<'a> {
         Ok(head)
     }
     pub fn u8(&mut self) -> io::Result<u8> {
-        Ok(self.take(1)?[0])
+        Ok(self.take(1)?.first().copied().unwrap_or_default())
     }
     pub fn u16(&mut self) -> io::Result<u16> {
         Ok(u16::from_le_bytes(self.take(2)?.try_into().unwrap_or_default()))

@@ -17,6 +17,7 @@
 
 use super::Gate;
 use crate::protocol::{DriverError, ErrorCode};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 /// A tab holds at most 1,000 frames, so no owner chain is longer.
@@ -125,7 +126,7 @@ impl Gate {
                 "args": [level.handle, level.point, behavior, if i == 0 { json!(level.selector) } else { Value::Null }],
             });
             if let Some(frame) = &level.frame_id {
-                call["frameId"] = json!(frame);
+                call.set("frameId", json!(frame));
             }
             let hit = match self.driver.call("frame.evaluate", &call) {
                 Ok(hit) => hit,

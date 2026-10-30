@@ -172,6 +172,8 @@ pub enum PeerState {
     Degraded,
     /// Down after it was reached; its last-known sessions stay listed.
     Reconnecting,
+    /// The daemon announced a restart; reconnect immediately once, keeping its sessions.
+    Restarting,
     /// Never reached, and attempts failed. Attempts go on.
     Offline,
 }
@@ -185,6 +187,9 @@ impl PeerState {
             Self::Connected => W::Connected,
             Self::Degraded => W::Degraded,
             Self::Reconnecting => W::Reconnecting,
+            // Existing typed clients understand reconnecting. The richer restart status is
+            // exposed by `_acpmux/peers` summaries until the UI protocol adds it.
+            Self::Restarting => W::Reconnecting,
             Self::Offline => W::Offline,
         }
     }
@@ -195,6 +200,7 @@ impl PeerState {
             Self::Connected => "connected",
             Self::Degraded => "degraded",
             Self::Reconnecting => "reconnecting",
+            Self::Restarting => "restarting",
             Self::Offline => "offline",
         }
     }
@@ -203,6 +209,7 @@ impl PeerState {
 /// The link's history, in wall-clock milliseconds (`store::now_ms`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Link {
+    restarting: bool,
     open: bool,
     ready: bool,
     overdue: bool,
@@ -220,6 +227,9 @@ pub struct Link {
 
 impl Link {
     pub fn state(&self) -> PeerState {
+        if self.restarting {
+            return PeerState::Restarting;
+        }
         match (self.open, self.ready && !self.overdue) {
             (true, true) => PeerState::Connected,
             (true, false) => PeerState::Degraded,
@@ -262,6 +272,7 @@ impl Link {
 
     /// The handshake finished: sessions are listed.
     pub fn ready(&mut self, now: u64) {
+        self.restarting = false;
         self.ready = true;
         self.overdue = false;
         self.last_seen = Some(now);
@@ -281,9 +292,21 @@ impl Link {
         self.overdue = true;
     }
 
+    /// Close 1012: retain last-seen history, without counting a failed attempt. The state
+    /// stays restarting through the next handshake, until readiness or a real failure.
+    pub fn restarting(&mut self, now: u64) {
+        self.restarting = true;
+        self.open = false;
+        self.ready = false;
+        self.overdue = false;
+        self.ready_at = None;
+        self.down_since.get_or_insert(now);
+    }
+
     /// The attempt failed or the link dropped. Returns whether the link had
     /// stayed ready for `stable_after` (so the backoff starts over).
     pub fn down(&mut self, now: u64, stable_after: Duration) -> bool {
+        self.restarting = false;
         let stable = self.is_ready()
             && self
                 .ready_at

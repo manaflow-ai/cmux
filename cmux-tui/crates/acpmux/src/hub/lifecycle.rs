@@ -9,6 +9,44 @@ use super::new_request::{claude_resume_refusal, unique_name_among};
 pub(super) use super::new_request::profile_takes_model_at_spawn;
 use super::resolve::{Draft, Resolved, draft_meta};
 
+/// Owns a session while a creation future is still configuring it. If that future is cancelled
+/// after publication, the guard purges the exact session rather than guessing from its name.
+pub(super) struct CreationGuard {
+    hub: Arc<Hub>,
+    session: Arc<Session>,
+    created_stops: u64,
+    /// The inline `/btw` request's transcript owner, read when the guard is made: the request
+    /// may end (and drop its mark) before the spawned purge runs.
+    inline: Option<super::InlineBtwOwner>,
+    armed: bool,
+}
+
+impl CreationGuard {
+    pub(super) fn new(hub: Arc<Hub>, session: Arc<Session>, created_stops: u64) -> Self {
+        let inline = hub.inline_btw_owner(&session);
+        Self { hub, session, created_stops, inline, armed: true }
+    }
+
+    pub(super) fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CreationGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let hub = self.hub.clone();
+        let session = self.session.clone();
+        let created_stops = self.created_stops;
+        let inline = self.inline.take();
+        tokio::spawn(async move {
+            hub.discard_failed_creation_owned(&session, created_stops, inline).await;
+        });
+    }
+}
+
 impl Hub {
     // --------------------------------------------------------- lifecycle
 
@@ -47,9 +85,15 @@ impl Hub {
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
         // profile) → defaults chain → explicit values on top.
-        let Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest } = {
+        let (
+            Resolved { agent, profile, defaults, head, preset_name, folder_root, preset_digest },
+            preset_plain,
+        ) = {
             let cfg = self.config.read().await;
-            self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?
+            let r =
+                self.resolve_new(&cfg, harness, &preset, model.as_deref(), remote, cwd.as_deref())?;
+            let plain = super::start_mode::plain_for_mode(r.preset_name.as_deref(), &cfg);
+            (r, plain)
         };
         let agent = agent.as_str();
         if profile.kind == crate::config::HarnessKind::Terminal {
@@ -77,9 +121,11 @@ impl Hub {
         // conversation keep today's chain (request, then `defaults`).
         let eligible = adopt.is_none() && preset_name.is_none() && folder_root.is_none();
         // The start mode also skips a remote-origin session (the remote
-        // guard settles its mode) and a profile that pins its mode.
+        // guard settles its mode) and a profile that pins its mode; a built-in Chief subagent
+        // preset's chat takes it as a plain chat does (`start_mode.rs`, cmux#27847).
+        let mode_plain = adopt.is_none() && preset_plain && folder_root.is_none();
         let mode_eligible =
-            super::start_mode::mode_eligible(eligible, remote, keep_harness_mode, &profile);
+            super::start_mode::mode_eligible(mode_plain, remote, keep_harness_mode, &profile);
         // A harness that takes its model at spawn (Claude Code's `--model`)
         // gets the start model there (`model_request` below).
         let model_pinned = model.is_some()
@@ -228,6 +274,7 @@ impl Hub {
             (session, stops)
         };
         let (session, created_stops) = session;
+        let creation_guard = CreationGuard::new(self.clone(), session.clone(), created_stops);
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
             self.child_tags.forget(&id);
@@ -262,6 +309,7 @@ impl Hub {
         self.note_preset_resolved(&session, preset_digest);
         // A watch starts no harness: it shows and follows the transcript (`watch.rs`).
         if let (Some(file), true) = (&adopted_file, adopt.as_ref().is_some_and(|a| a.watch)) {
+            creation_guard.disarm();
             return Ok(self.begin_watch(&session, &family, file.clone()));
         }
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
@@ -375,6 +423,7 @@ impl Hub {
         if adopt.is_none() {
             self.pool_note_used(&session);
         }
+        creation_guard.disarm();
         Ok(session)
     }
 
@@ -510,11 +559,41 @@ impl Hub {
     /// request's, and its agent keeps running. The spawn lock, which every reopen holds
     /// (`ensure_child`), is held from the read to the end of the purge (`kill` never takes it).
     pub(super) async fn discard_failed_creation(&self, session: &Arc<Session>, created_stops: u64) {
+        let inline = self.inline_btw_owner(session);
+        self.discard_failed_creation_owned(session, created_stops, inline).await;
+    }
+
+    /// The inline `/btw` request's mark on this session (`btw.rs` `InlineOwned`), if any.
+    pub(super) fn inline_btw_owner(&self, session: &Session) -> Option<super::InlineBtwOwner> {
+        self.inline_btw
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&session.meta().name)
+            .cloned()
+    }
+
+    /// `discard_failed_creation` with the inline owner already read: an inline /btw's
+    /// session takes its harness transcript with it.
+    pub(super) async fn discard_failed_creation_owned(
+        &self,
+        session: &Arc<Session>,
+        created_stops: u64,
+        inline: Option<super::InlineBtwOwner>,
+    ) {
+        if session.purged.load(Ordering::SeqCst) {
+            return;
+        }
         let _spawning = session.spawn_lock.lock().await;
         let reopened_since = session.stops.load(Ordering::SeqCst) != created_stops
             && session.status() != SessionStatus::Closed;
         if !reopened_since {
-            let _ = self.kill(session, true).await;
+            // An inline /btw's session takes its harness transcript with it (`btw.rs`).
+            match inline {
+                Some((family, env)) => Box::pin(self.btw_cleanup(session, &family, &env)).await,
+                None => {
+                    let _ = self.kill(session, true).await;
+                }
+            }
         }
     }
 

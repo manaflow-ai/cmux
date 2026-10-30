@@ -23,16 +23,11 @@ import { useNearViewport } from "../useNearViewport";
 import { isDeniedPath, linkPath, pathName } from "./paths";
 import { MEDIA_PREVIEW_DWELL, useHoverIntent } from "../../../ui/hoverIntent";
 import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
+import { mediaKind } from "./mediaKind";
 
-const VIDEO = /\.(mp4|m4v|mov|webm)$/i;
-const AUDIO = /\.(mp3|m4a|aac|wav|flac)$/i;
+export { mediaKind } from "./mediaKind";
+
 const ATTACHMENT = /^\/user-attachments\/assets\/[\w-]+$/;
-
-/// Whether `src` (a path or `file://` URL) names a video or an audio file, by its extension.
-export function mediaKind(src: string): "video" | "audio" | undefined {
-  const path = (linkPath(src) ?? src).split(/[?#]/)[0] ?? "";
-  return VIDEO.test(path) ? "video" : AUDIO.test(path) ? "audio" : undefined;
-}
 
 function webURL(src: string): URL | undefined {
   try {

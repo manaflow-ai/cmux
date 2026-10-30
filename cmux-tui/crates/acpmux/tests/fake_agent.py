@@ -67,6 +67,7 @@ import time
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()
+cap_failures = {}
 failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
@@ -295,6 +296,9 @@ def run_gh_pr_create(rid, sid):
 
 def handle_prompt(rid, params):
     sid = params["sessionId"]
+    # Model a harness that scopes an interrupt to the prompt it is processing.
+    if os.environ.get("FAKE_RESET_CANCEL_ON_PROMPT") == "1":
+        cancelled.discard(sid)
     blocks = params.get("prompt", [])
     text = "".join(b.get("text", "") for b in blocks)
     if text.startswith("envs:"):
@@ -321,6 +325,15 @@ def handle_prompt(rid, params):
     if text == "net-refused-later":
         time.sleep(0.5)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "connection refused: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    # A harness-level RPC failure whose wording resembles a dead daemon must
+    # remain an agent error; the CLI must not replay the prompt.
+    if text == "agent-daemon-closed-error":
+        marker = os.environ.get("FAKE_AGENT_DAEMON_CLOSED_MARKER")
+        if marker:
+            with open(marker, "a") as f:
+                f.write("attempt\n")
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "daemon connection closed while the model was running"}})
         return
     # "net-fail-on-cancel" runs until session/cancel, then fails with that transport error, as
     # an agent stopped mid-stream may.
@@ -351,6 +364,13 @@ def handle_prompt(rid, params):
     if text.startswith("cap-fail-once:") and sid not in failed_once:
         failed_once.add(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (127.0.0.1:4016). (error type server_error, HTTP 503)"}})
+        return
+    # "cap-fail-three: X" keeps the SR2 capacity error across the first three
+    # turns.  The fourth prompt succeeds so liveness tests can verify that a
+    # successful turn clears a session's stuck state.
+    if (text.startswith("cap-fail-three:") or sid in cap_failures) and cap_failures.get(sid, 0) < 3:
+        cap_failures[sid] = cap_failures.get(sid, 0) + 1
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://user:secret@example.invalid/inference. (error type server_error, HTTP 503)"}})
         return
     if text.startswith("net-down"):
         net_down.add(sid)
@@ -915,7 +935,8 @@ def handle_prompt(rid, params):
                              "content": {"type": "text", "text": "old answer"}})
         update("orch-child", {"sessionUpdate": "agent_message_chunk", "messageId": "last",
                              "content": {"type": "text", "text": "é" * 300}})
-        update("orch-child", {"sessionUpdate": "usage_update", "used": 1234, "size": 200000})
+        # A real cumulative total (`totalTokens`); `used` is context occupancy, never tokens.
+        update("orch-child", {"sessionUpdate": "usage_update", "totalTokens": 1234, "used": 99, "size": 200000})
         update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "orch-child", "state": "completed"})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
@@ -1149,6 +1170,8 @@ def handle_prompt(rid, params):
     if os.environ.get("FAKE_SHORT_ECHO") == "1" and text.strip():
         text = text.strip().splitlines()[-1]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
+    if text == "reply-then-thought":
+        update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "done"}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
