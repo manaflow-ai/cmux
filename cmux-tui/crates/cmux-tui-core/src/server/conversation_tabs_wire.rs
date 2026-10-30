@@ -563,9 +563,27 @@ fn downgrade_closed_tabs(value: &mut Value) -> bool {
             changed |= downgrade_closed_response_payload(payload);
         }
     }
+    // Session snapshots keep closed history in `extra.state.closed`; session
+    // deltas carry the same records in `changes[].value`. These are explicit
+    // protocol paths, so unrelated nested frontend data remains opaque.
+    if let Some(extra) = object.get_mut("extra")
+        && let Some(state) = extra.get_mut("state")
+        && let Some(closed) = state.get_mut("closed")
+    {
+        changed |= downgrade_closed_groups(closed);
+    }
+    if let Some(changes) = object.get_mut("changes").and_then(Value::as_array_mut) {
+        for change in changes {
+            let is_closed_upsert = change.get("resource").and_then(Value::as_str) == Some("closed")
+                && change.get("kind").and_then(Value::as_str) == Some("state_upsert");
+            if is_closed_upsert && let Some(value) = change.get_mut("value") {
+                changed |= downgrade_closed_group(value);
+            }
+        }
+    }
     // A resource stream item is itself a history row. Do not recurse into its
     // arbitrary fields; only the closed-row discriminator is a known schema.
-    changed |= downgrade_closed_history_entry(object);
+    changed |= downgrade_closed_history_entry_object(object);
     changed
 }
 
@@ -589,7 +607,13 @@ fn downgrade_closed_response_payload(value: &mut Value) -> bool {
 
 fn downgrade_closed_groups(value: &mut Value) -> bool {
     match value {
-        Value::Array(items) => items.iter_mut().map(downgrade_closed_group).any(|changed| changed),
+        Value::Array(items) => {
+            let mut changed = false;
+            for item in items {
+                changed |= downgrade_closed_group(item);
+            }
+            changed
+        }
         Value::Object(_) => downgrade_closed_group(value),
         _ => false,
     }
@@ -616,16 +640,19 @@ fn downgrade_closed_group(value: &mut Value) -> bool {
 
 fn downgrade_closed_group_children(value: &mut Value) -> bool {
     match value {
-        Value::Array(items) => items
-            .iter_mut()
-            .map(|item| {
-                if item.get("tabs").is_some() {
-                    downgrade_closed_screens(item)
-                } else {
-                    downgrade_closed_group(item)
-                }
-            })
-            .any(|changed| changed),
+        Value::Array(items) => {
+            let mut changed = false;
+            for item in items {
+                changed |= {
+                    if item.get("tabs").is_some() {
+                        downgrade_closed_screens(item)
+                    } else {
+                        downgrade_closed_group(item)
+                    }
+                };
+            }
+            changed
+        }
         Value::Object(object) if object.contains_key("tabs") => downgrade_closed_screens(value),
         Value::Object(_) => downgrade_closed_group(value),
         _ => false,
@@ -649,11 +676,19 @@ fn downgrade_closed_screens(value: &mut Value) -> bool {
 
 fn downgrade_closed_history_entries(value: &mut Value) -> bool {
     let Some(entries) = value.as_array_mut() else { return false };
-    entries.iter_mut().map(downgrade_closed_history_entry).any(|changed| changed)
+    let mut changed = false;
+    for entry in entries {
+        changed |= downgrade_closed_history_entry(entry);
+    }
+    changed
 }
 
 fn downgrade_closed_history_entry(value: &mut Value) -> bool {
     let Some(object) = value.as_object_mut() else { return false };
+    downgrade_closed_history_entry_object(object)
+}
+
+fn downgrade_closed_history_entry_object(object: &mut serde_json::Map<String, Value>) -> bool {
     if object.get("kind").and_then(Value::as_str) == Some("closed")
         && object.get("closed_kind").and_then(Value::as_str) == Some("conversation_tab")
     {

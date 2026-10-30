@@ -47,9 +47,15 @@ fn closed_conversation_tabs_negotiate_independently_and_keep_plain_browsers() {
                 Some(capabilities.iter().map(|s| s.to_string()).collect()),
             )
             .unwrap();
-        let message = json!({"closed":[closed.clone()],"entries":[{"kind":"closed","closed_kind":"conversation_tab"}],
-            "result":{"closed":[closed.clone()],"entries":[{"kind":"closed","closed_kind":"conversation_tab"}]},
-            "data":{"closed":[closed.clone()],"entries":[{"kind":"closed","closed_kind":"conversation_tab"}]},
+        let message = json!({"closed":[closed.clone(),closed.clone()],"entries":[{"kind":"closed","closed_kind":"conversation_tab"},{"kind":"closed","closed_kind":"conversation_tab"}],
+            "result":{"closed":[closed.clone(),closed.clone()],"entries":[{"kind":"closed","closed_kind":"conversation_tab"},{"kind":"closed","closed_kind":"conversation_tab"}]},
+            "data":{"closed":[closed.clone(),closed.clone()],"entries":[{"kind":"closed","closed_kind":"conversation_tab"},{"kind":"closed","closed_kind":"conversation_tab"}]},
+            "extra":{"state":{"closed":[closed.clone(),closed.clone()]}},
+            "changes":[
+                {"resource":"closed","kind":"state_upsert","value":closed.clone()},
+                {"resource":"closed","kind":"state_upsert","value":closed.clone()},
+                {"resource":"other","kind":"state_upsert","value":closed.clone()}
+            ],
             "projection":[{"kind":"conversation","conversation":{"conversation":"opaque"}},
                            {"closed_kind":"conversation_tab"},{"kind":"custom","closed_kind":"conversation_tab"}]});
         writer.send_control(&message).unwrap();
@@ -74,10 +80,12 @@ fn closed_conversation_tabs_negotiate_independently_and_keep_plain_browsers() {
             if canonical { "conversation_tab" } else { "browser_tab" }
         );
         for payload in [&read["result"], &read["data"]] {
-            assert_eq!(
-                payload["entries"][0]["closed_kind"],
-                if canonical { "conversation_tab" } else { "browser_tab" }
-            );
+            for entry in payload["entries"].as_array().unwrap() {
+                assert_eq!(
+                    entry["closed_kind"],
+                    if canonical { "conversation_tab" } else { "browser_tab" }
+                );
+            }
             for screens in
                 [&payload["closed"][0]["screens"], &payload["closed"][0]["members"][0]["screens"]]
             {
@@ -95,6 +103,23 @@ fn closed_conversation_tabs_negotiate_independently_and_keep_plain_browsers() {
                 );
             }
         }
+        for screens in [
+            &read["extra"]["state"]["closed"][0]["screens"],
+            &read["extra"]["state"]["closed"][0]["members"][0]["screens"],
+        ] {
+            assert_eq!(
+                screens[0]["tabs"][0]["kind"],
+                if canonical { "conversation" } else { "browser" }
+            );
+        }
+        for index in [0, 1] {
+            assert_eq!(
+                read["changes"][index]["value"]["screens"][0]["tabs"][0]["kind"],
+                if canonical { "conversation" } else { "browser" }
+            );
+        }
+        // A non-closed state resource carrying a similar value is opaque.
+        assert_eq!(read["changes"][2]["value"], message["changes"][2]["value"]);
         assert_eq!(read["projection"], message["projection"], "opaque projection data changed");
         assert_eq!(writer.project_conversation_tab_item(message), read);
     }
