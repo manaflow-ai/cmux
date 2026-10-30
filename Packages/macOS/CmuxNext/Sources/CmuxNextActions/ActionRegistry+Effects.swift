@@ -74,10 +74,14 @@ extension ActionRegistry {
     public func trackRollingBack(_ id: ActionID, _ work: ActionWork) {
         let reported = isCapturingWork
         let title = title(for: id) ?? id.rawValue
-        // task-owner: reports `work`'s failure once it ends; `work` itself is the caller's.
+        let cause = (ActionRunScope.current?.origin ?? .user).observationCause
+        let mainWork = self.mainWork
+        // main-hop-allow: the task only awaits `work` (the caller's own task); the notice is posted through mainWork.reply in the run's class, as `start` posts it
         track(Task { [weak self] in
             guard let failure = await work.value else { return nil }
-            if !reported { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+            guard !reported else { return failure }
+            let notice: @MainActor () -> Void = { self?.remoteFailureObserver?(id, failedText(title, failure.message)) }
+            if let mainWork { await mainWork.reply(as: cause, owner: "ActionRegistry.rollbackNotice") { notice() } } else { notice() }
             return failure
         })
     }

@@ -188,6 +188,7 @@ extension PaneController {
         // After the workspace's create before it (a Ctrl-` on a split still in flight names that split's pane once the
         // daemon made it), as Cmd-D, New Column and New Row go (`WorkspaceContentController.pendingCreate`).
         let previous = self.workspace?.pendingCreate
+        // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and selects in its reply's job
         let work: ActionWork = Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
