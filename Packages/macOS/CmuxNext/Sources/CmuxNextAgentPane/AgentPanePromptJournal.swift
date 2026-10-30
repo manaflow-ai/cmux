@@ -97,15 +97,20 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
 
     private static func key(_ daemon: String, _ promptId: String) -> String { daemon + "\u{0}" + promptId }
 
+    /// The record of a prompt did not reach the disk (an unwritable folder, a full disk): the
+    /// prompt is still in memory, so the caller forgets it and does not send it.
+    struct NotWritten: Error {}
+
     /// Records a prompt the page sent on connection `owner`, on disk before it returns. Call off
-    /// the main thread. False when it is not kept (too large, or the connection ended).
-    func record(_ entry: Entry, owner: UUID) -> Bool {
+    /// the main thread. False when it is not kept (too large, or the connection ended); throws when
+    /// it could not be written.
+    func record(_ entry: Entry, owner: UUID) throws(NotWritten) -> Bool {
         guard entry.params.utf8.count <= Self.maximumParamsBytes else {
             Self.logger.info("agent pane prompt not journaled: too large")
             return false
         }
         var kept = false
-        change { state in
+        let onDisk = change { state in
             guard !state.ended.contains(owner) else { return false }
             let key = Self.key(entry.daemon, entry.promptId)
             state.entries.removeAll { Self.key($0.daemon, $0.promptId) == key }
@@ -118,6 +123,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
             kept = true
             return true
         }
+        guard onDisk else { throw NotWritten() }
         return kept
     }
 
@@ -205,16 +211,18 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
     }
 
-    /// Applies `body` (true when the entries changed) and writes the result when they did.
-    private func change(_ body: (inout State) -> Bool) {
+    /// Applies `body` (true when the entries changed) and writes the result when they did. False
+    /// when that write failed.
+    @discardableResult
+    private func change(_ body: (inout State) -> Bool) -> Bool {
         let snapshot = state.withLock { state -> (Int, [Entry])? in
             load(&state)
             guard body(&state) else { return nil }
             state.generation += 1
             return (state.generation, state.entries)
         }
-        guard let (generation, entries) = snapshot else { return }
-        write(entries, generation: generation)
+        guard let (generation, entries) = snapshot else { return true }
+        return write(entries, generation: generation)
     }
 
     /// Reads the file once; an unreadable one is an empty journal.
@@ -229,16 +237,22 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         state.entries = Array(document.entries.suffix(Self.maximumEntries))
     }
 
-    private func write(_ entries: [Entry], generation: Int) {
+    /// Writes generation `generation` of the entries. True when it is on disk, or a newer one
+    /// (which holds this one's change) already is; the marker moves only once the file is written,
+    /// so a failed write never makes the disk look newer than it is.
+    @discardableResult
+    private func write(_ entries: [Entry], generation: Int) -> Bool {
         written.withLock { last in
-            guard generation > last else { return }
-            last = generation
+            guard generation > last else { return true }
             do {
                 let data = try Self.encoder.encode(Document(entries: entries))
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try data.write(to: url, options: [.atomic])
+                last = generation
+                return true
             } catch {
                 Self.logger.error("agent pane prompt journal write failed: \(String(describing: error), privacy: .public)")
+                return false
             }
         }
     }

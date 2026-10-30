@@ -36,8 +36,10 @@ nonisolated struct AgentPanePromptRelay: Sendable {
     /// `relayID`. A promptId this daemon got from the relay before is the pane's Retry: it goes
     /// marked `resend` (which the page may not send), so acpmux also finds a first copy in the
     /// chat's log, which outlives a daemon restart, and runs it at most once. Returns its
-    /// promptId, or nil when it is not kept.
-    @concurrent func record(_ box: AgentPaneTransport.FrameBox, ids: AcpmuxRequestIds, relayID: Int?) async -> String? {
+    /// promptId, or nil when it is not kept. Throws ``AgentPaneTransportError/promptNotKept`` when
+    /// its record could not be written: it is forgotten again, and the frame must not go.
+    @concurrent func record(_ box: AgentPaneTransport.FrameBox, ids: AcpmuxRequestIds,
+                            relayID: Int?) async throws(AgentPaneTransportError) -> String? {
         guard let text = box.encoded(id: nil),
               var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               var params = object["params"] as? [String: Any], let session = params["sessionId"] as? String else { return nil }
@@ -57,10 +59,18 @@ nonisolated struct AgentPanePromptRelay: Sendable {
             object["params"] = params
             guard let rewritten = AcpmuxRequestIds.encode(object), box.replace(withJSON: rewritten) else { return nil }
         }
-        guard let paramsText = AcpmuxRequestIds.encode(params),
-              journal.record(AgentPanePromptJournal.Entry(daemon: daemon, sessionId: session, promptId: promptId,
-                                                          params: paramsText, at: journal.now()),
-                             owner: owner) else { return nil }
+        guard let paramsText = AcpmuxRequestIds.encode(params) else { return nil }
+        let kept: Bool
+        do {
+            kept = try journal.record(AgentPanePromptJournal.Entry(daemon: daemon, sessionId: session, promptId: promptId,
+                                                                   params: paramsText, at: journal.now()),
+                                      owner: owner)
+        } catch {
+            Self.logger.error("agent pane prompt not sent: its journal record was not written")
+            forget(promptId)
+            throw .promptNotKept
+        }
+        guard kept else { return nil }
         let forget = forget
         if let relayID { ids.whenAnswered(relayID) { forget(promptId) } }
         return promptId
