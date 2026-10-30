@@ -1912,16 +1912,27 @@ class GitHub:
         with a redirect to the log's storage, fetched without our token."""
         if job_id in self._logs:
             return self._logs[job_id]
-        lines = self.job_log_lines(job_id)
+        lines = self._read_log_lines(job_id)
         marks = cancel_marks(lines) if lines is not None else None
         if marks is not None:
             self._logs[job_id] = marks
         return marks
 
     def job_log_lines(self, job_id: int) -> list[str] | None:
-        """A finished job's whole log as lines, or None (an unsized, partial or over-JOB_LOG_MAX_BYTES read)."""
+        """A finished picker job's log lines (nightly_retry_destinations()), cached per job. Only the picker
+        lines nightly_retry_destinations() matches are kept (NIGHTLY_RETRY_LINE), so the cache stays a few
+        short lines a job however long its log; job_marks() caches only its marks."""
         if job_id in self._log_lines:
             return self._log_lines[job_id]
+        lines = self._read_log_lines(job_id)
+        if lines is None:
+            return None
+        kept = [line for line in lines if NIGHTLY_RETRY_LINE.search(line)]
+        self._log_lines[job_id] = kept
+        return kept
+
+    def _read_log_lines(self, job_id: int) -> list[str] | None:
+        """A finished job's whole log as lines, or None (an unsized, partial or over-JOB_LOG_MAX_BYTES read)."""
 
         class Stay(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, *args: Any, **kwargs: Any) -> None:
@@ -1962,8 +1973,6 @@ class GitHub:
                 raise
             with urllib.request.urlopen(location, timeout=60) as response:
                 lines = scan(response)
-        if lines is not None:
-            self._log_lines[job_id] = lines
         return lines
 
     def annotations(self, job_id: int) -> list[Mapping[str, Any]]:
@@ -2672,7 +2681,14 @@ NIGHTLY_RETRY_SOURCES: tuple[tuple[str, str, re.Pattern[str]], ...] = (
     *((name, "pick-nightly-sign-runner",
        re.compile(r"nightly sign runner: .*a re-run takes `(blacksmith-[0-9]+vcpu-macos-[0-9]+)`"))
       for name in ("Verify signed nightly app", "Verify final nightly DMG", "signer-dmg-image", "signer-verify")),
+    # The cmux NIGHTLY-identity lane: attempt 1 may sign on pick-nightly-sign-runner's `sign_owned`; a re-run takes
+    # legacy-identity-target's `sign_alternate`, which that job's own nightly_sign_runner.py step prints.
+    *((name, "legacy-identity-target",
+       re.compile(r"nightly sign runner: .*a re-run takes `(blacksmith-[0-9]+vcpu-macos-[0-9]+)`"))
+      for name in ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy")),
 )
+# The picker lines NIGHTLY_RETRY_SOURCES reads (GitHub.job_log_lines() keeps only these).
+NIGHTLY_RETRY_LINE = re.compile(r"nightly (?:build|sign) runner: ")
 # How long an owned nightly job is held while the label its re-run takes is stalled, after its queue budget:
 # two Blacksmith stall windows. Past it the job moves anyway: no mini took it, and a nightly never waits on one
 # label with no fallback (Leo, 2026-10-27: "a waiting nightly ... job is admitted on a mini ahead of every PR,
@@ -2749,6 +2765,11 @@ def move_verdict(api: GitHub, target: Target, *, now: dt.datetime, sleep: Callab
     if all(state == "free" for state in states.values()):
         return "free", ""
     resolved = nightly_retry_destinations(api, target, sleep, log)
+    unknown = sorted((resolved or set()) - set(states))
+    if unknown:
+        # A label the snapshot's pools do not list has no state to judge: the workflow's labels decide instead.
+        log(f"the re-run's label {', '.join(unknown)} is not a pool the snapshot judges; the workflow's labels decide")
+        resolved = None
     if resolved:
         labels = sorted(resolved)
     else:

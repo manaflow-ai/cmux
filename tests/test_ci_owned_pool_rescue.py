@@ -3087,6 +3087,36 @@ class NightlyRetryDestination(unittest.TestCase):
         self.assertIsNone(rescue.nightly_retry_destinations(api, main, lambda _: None, lambda _: None))
         self.assertEqual(self.verdict(api, main), ("stalled", self.SMALL))
 
+    def test_the_legacy_identity_jobs_read_legacy_identity_target_s_label(self):
+        stalled_small = blacksmith_snapshot(queued=40, oldest=300, label=self.SMALL)
+        for name in ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy"):
+            with self.subTest(job=name):
+                api = self.api(self.jobs(name, "legacy-identity-target"), {7: self.SIGN_LOG}, stalled_small)
+                self.assertEqual(rescue.nightly_retry_destinations(api, self.TARGET, lambda _: None, lambda _: None),
+                                 {self.LARGE})
+                self.assertEqual(self.verdict(api), ("free", ""))
+
+    def test_a_label_the_snapshot_does_not_judge_falls_back_to_the_workflow_s_labels(self):
+        # The picker may print a size the janitor's pools do not list: it has no state, so it never reads "free".
+        stalled_small = blacksmith_snapshot(queued=40, oldest=300, label=self.SMALL)
+        log = ["nightly build runner: blacksmith: blacksmith-24vcpu-macos-26 (moving)\n"]
+        api = self.api(self.jobs(), {7: log}, stalled_small)
+        self.assertEqual(rescue.nightly_retry_destinations(api, self.TARGET, lambda _: None, lambda _: None),
+                         {"blacksmith-24vcpu-macos-26"})
+        self.assertEqual(self.verdict(api), ("stalled", self.SMALL))
+
+    def test_only_picker_lines_are_cached_and_job_marks_caches_no_log(self):
+        client = rescue.GitHub.__new__(rescue.GitHub)
+        client._logs, client._log_lines = {}, {}
+        body = ["x" * 1000 + "\n"] * 50 + self.BUILD_LOG
+        reads = []
+        client._read_log_lines = lambda job_id: reads.append(job_id) or list(body)
+        self.assertEqual(client.job_log_lines(7), self.BUILD_LOG)
+        self.assertEqual(client.job_log_lines(7), self.BUILD_LOG)
+        self.assertEqual(reads, [7])
+        client.job_marks(9)
+        self.assertNotIn(9, client._log_lines)
+
     def test_a_held_nightly_job_moves_after_the_hold_and_others_stay_held(self):
         stalled = blacksmith_snapshot(queued=40, running=0, oldest=30)
         for nightly in (True, False):
