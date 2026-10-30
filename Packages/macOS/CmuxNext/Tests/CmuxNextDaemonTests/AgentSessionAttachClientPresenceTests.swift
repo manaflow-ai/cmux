@@ -8,6 +8,8 @@ import CmuxNextCompat
 /// typing and view verbs and the client's echo in `set-client-info` (so it streams presence); one
 /// that does not gets neither verb and no echo, so an older daemon sees nothing new.
 @Suite(.timeLimit(.minutes(1))) struct AgentSessionAttachClientPresenceTests {
+    private struct EndpointFailure: Error {}
+
     @Test func aDaemonWithPresenceGetsTypingViewAndTheEcho() async throws {
         let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-presence-v1"])
         defer { daemon.stop() }
@@ -67,6 +69,20 @@ import CmuxNextCompat
         let events = OSAllocatedUnfairLock<[String]>(initialState: [])
         let client = AgentSessionAttachClient(surface: 7, reconnect: { false }) { DaemonEndpoint(socketPath: refusing.path) }
         await #expect(throws: AgentSessionAttachError.self) {
+            _ = try await client.attach(afterSeq: nil, beforeSeq: nil, limit: nil, kinds: nil) { name, _ in
+                events.withLock { $0.append(name) }
+            }
+        }
+        #expect(events.withLock { $0 } == ["agent-session-closed"])
+        await client.close()
+    }
+
+    @Test func anEndpointFailureThatDoesNotReconnectClosesTheAttachment() async throws {
+        let events = OSAllocatedUnfairLock<[String]>(initialState: [])
+        let client = AgentSessionAttachClient(surface: 7, reconnect: { false }) {
+            throw EndpointFailure()
+        }
+        await #expect(throws: EndpointFailure.self) {
             _ = try await client.attach(afterSeq: nil, beforeSeq: nil, limit: nil, kinds: nil) { name, _ in
                 events.withLock { $0.append(name) }
             }

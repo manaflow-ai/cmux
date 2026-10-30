@@ -391,8 +391,14 @@ public actor AgentSessionAttachClient {
     }
 
     private func connect(quiet: Bool) async throws -> (LineTransport, Served) {
-        let endpoint = try await self.endpoint()
-        let transport = try LineTransport(path: endpoint.socketPath)
+        let transport: LineTransport
+        do {
+            let endpoint = try await self.endpoint()
+            transport = try LineTransport(path: endpoint.socketPath)
+        } catch {
+            if quiet { quietLoss = true }
+            throw error
+        }
         let handler = handler
         let surface = surface
         // A quiet try's close tells the attachment only once its handshake finished.
