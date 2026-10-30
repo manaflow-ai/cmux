@@ -224,7 +224,9 @@ impl Hub {
         budget: std::time::Duration,
     ) -> Value {
         let started = tokio::time::Instant::now();
-        let done = tokio::time::timeout(budget, settled.changed()).await.is_ok();
+        // A peer that never ran (refused at its start) or was removed meanwhile dropped its
+        // sender: no attempt settled, and the peer reads null.
+        let done = matches!(tokio::time::timeout(budget, settled.changed()).await, Ok(Ok(())));
         let peer = self.peer(name).map(|p| p.summary()).unwrap_or(Value::Null);
         if !done {
             tracing::warn!(peer = %name, state = %peer["state"], "its connect attempt had not settled after {}s; answering with how it is now", budget.as_secs());
@@ -1198,6 +1200,11 @@ mod tests {
         let budget = std::time::Duration::from_millis(50);
         let waited = hub.wait_for_peer("m", &mut settled, budget).await;
         assert_eq!(waited["settled"], false, "{waited}");
+        // One whose peer is gone (its sender dropped) did not settle either.
+        let (gone, mut dropped) = tokio::sync::watch::channel(0);
+        drop(gone);
+        let quick = hub.wait_for_peer("m", &mut dropped, budget).await;
+        assert_eq!(quick["settled"], false, "{quick}");
         assert!(waited["waitedMs"].as_u64().unwrap() >= 50, "{waited}");
         assert_eq!(waited["peer"]["name"], "m", "{waited}");
         assert!(waited["peer"]["state"].is_string(), "{waited}");
