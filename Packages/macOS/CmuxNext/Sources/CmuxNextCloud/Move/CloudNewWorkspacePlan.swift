@@ -28,6 +28,39 @@ public nonisolated struct CloudNewWorkspacePlan: Sendable, Equatable {
         case failed(String)
     }
 
+    /// Where a planned New Workspace goes. A machine costs money, so one is asked for only where its
+    /// progress, Cancel and Retry show (a window), and only when Cloud can make it; otherwise the
+    /// workspace opens on this Mac and the person is told why, never silently.
+    public enum Route: Sendable, Equatable {
+        case cloud
+        case thisMac(Refusal)
+    }
+
+    /// Why a New Workspace the toggle would send to Cloud opened on this Mac instead.
+    public enum Refusal: Sendable, Equatable {
+        /// Cloud cannot run in this build or for this account (the reason as Cloud says it).
+        case unavailable(String)
+        case signedOut
+        /// No open window to show the new machine's progress in (Cmd-N with every window closed).
+        case noWindow
+    }
+
+    /// What New Workspace does after asking the toggle.
+    public enum Outcome: Sendable, Equatable {
+        /// A new machine's creation started, showing in the window: New Workspace makes nothing here.
+        case started
+        /// New Workspace opens on this Mac. `notice`, when the toggle is on, says why it is not in
+        /// Cloud; New Workspace shows it once the workspace opens.
+        case thisMac(notice: String?)
+    }
+
+    public static func route(unavailableReason: String?, signedIn: Bool, hasWindow: Bool) -> Route {
+        if let unavailableReason { return .thisMac(.unavailable(unavailableReason)) }
+        if !signedIn { return .thisMac(.signedOut) }
+        if !hasWindow { return .thisMac(.noWindow) }
+        return .cloud
+    }
+
     /// - Parameters:
     ///   - inCloud: `cloud.newWorkspacesInCloud`.
     ///   - inheritsFolder: `cloud.newWorkspaceFolder` is `inherit`, and this app can copy a folder

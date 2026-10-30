@@ -500,15 +500,20 @@ extension CloudHandlers {
 // New Cloud Workspace flow on a new machine of its own, in their folder copied there (as Move to
 // Cloud copies a chat's) or in the machine's empty folder. Agent chats in it run on that machine.
 extension CloudHandlers {
-    /// Starts it for `invocation` when the toggle applies (and Cloud can create a machine); false
-    /// leaves New Workspace on this Mac.
-    static func startNewWorkspaceInCloud(_ invocation: ActionInvocation, cwd: String?, window: WindowState?, _ services: AppServices) -> Bool {
+    /// Starts it for `invocation` when the toggle applies, Cloud can create a machine and `window`
+    /// can show its progress; otherwise asks for nothing and says why New Workspace stays here.
+    static func startNewWorkspaceInCloud(_ invocation: ActionInvocation, cwd: String?, window: WindowState?, _ services: AppServices) -> CloudNewWorkspacePlan.Outcome {
         let cloud = services.cloud, setting = CloudNewWorkspaceSetting(), root = services.settings?.snapshot.root ?? .object([:])
         let canCopy = cloud.move.cli != nil && cloud.configuration.linkSource == .legacy
-        guard cloud.isSignedIn, cloud.unavailableReason == nil,
-              let plan = CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: canCopy && setting.folder(in: root) == .inherit, cwd: cwd,
+        guard let plan = CloudNewWorkspacePlan(inCloud: setting.inCloud(in: root), inheritsFolder: canCopy && setting.folder(in: root) == .inherit, cwd: cwd,
                                                byPerson: invocation.origin == .user, namesMachineOrCommand: invocation["machine"] != nil || invocation["command"] != nil)
-        else { return false }
+        else { return .thisMac(notice: nil) }
+        switch CloudNewWorkspacePlan.route(unavailableReason: cloud.unavailableReason, signedIn: cloud.isSignedIn, hasWindow: window != nil) {
+        case .cloud: break
+        case .thisMac(.unavailable(let reason)): return .thisMac(notice: CloudStrings.newWorkspaceOpenedHere(reason))
+        case .thisMac(.signedOut): return .thisMac(notice: CloudStrings.newWorkspaceOpenedHere(CloudStrings.signInFirst))
+        case .thisMac(.noWindow): return .thisMac(notice: CloudStrings.newWorkspaceOpenedHere(CloudStrings.newWorkspaceNoWindow))
+        }
         let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID, profile = window?.profileID ?? .defaultProfile
         let checkScope: @MainActor () throws -> Void = {
             try Task.checkCancellation()
@@ -556,6 +561,6 @@ extension CloudHandlers {
             try await WorkspaceCreation.createWithFirstTab(key, name: folder.map { URL(fileURLWithPath: $0.root).lastPathComponent }, on: connection, repair: session.emptyWorkspaces) { _ = try await connection.createTerminal(in: $0.key, cwd: cwd) }
             return key.rawValue
         }
-        return true
+        return .started
     }
 }
