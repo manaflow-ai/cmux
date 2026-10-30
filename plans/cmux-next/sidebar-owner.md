@@ -651,3 +651,5 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 
 - PR #28205, implementation 60b3312ca03. Leo: "when you create a workspace at the top it's a huge cascade". The proposed `sidebar.insertMotion` default is `.snap`: existing rows land at once and only the new row fades. Other variants remain available. The real-sidebar gallery exercises all four variants; its PNGs show settled states. Fleet recordings and macOS validation are still required before landing.
 t
+
+- Motion-only continuation of #28205, with placement decision paused in #27786. Leo: "but what is the desired behaviiour? do we know? we can pause on it, but at least unfuck the animation idk". Existing rows snap to final slots; only the inserted row fades and its chosen icon grows/fades after attachment. Top placement stays unchanged. Frame tests require every existing row in every sample, full visibility, stationary rows above, and final geometry below. The gallery draws icons at 2x in light and dark.

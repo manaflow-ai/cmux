@@ -60,12 +60,12 @@ final class SidebarMotionProbe {
         let fading = list.fadingRows.values.map { (key: $0.key, view: $0) }
         for (key, view) in fading + list.rowViews.map({ (key: $0.key, view: $0.value) }) { // a live row wins over a fading one
             views[String(describing: key)] = Self.presented(view)
-            opacity[String(describing: key)] = view.layer?.presentation()?.opacity ?? Float(view.alphaValue)
+            opacity[String(describing: key)] = view.isHiddenOrHasHiddenAncestor ? 0 : view.layer?.presentation()?.opacity ?? Float(view.alphaValue)
             guard let block = view as? SidebarBlockRowView else { continue }
             let origin = Self.presented(view).origin
             for (id, item) in block.region.itemViews where !id.isTransient {
                 views["item:" + id.rawValue] = Self.presented(item).offsetBy(dx: origin.x, dy: origin.y)
-                opacity["item:" + id.rawValue] = item.layer?.presentation()?.opacity ?? Float(item.alphaValue)
+                opacity["item:" + id.rawValue] = item.isHiddenOrHasHiddenAncestor ? 0 : item.layer?.presentation()?.opacity ?? Float(item.alphaValue)
             }
         }
         let lift = list.drag?.lift ?? list.settling?.drag.lift ?? list.landing.flatMap { $0.lift.superview == nil ? nil : $0.lift }

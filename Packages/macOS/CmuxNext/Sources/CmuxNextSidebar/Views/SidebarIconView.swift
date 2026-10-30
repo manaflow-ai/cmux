@@ -81,6 +81,50 @@ final class SidebarIconView: NSView {
         needsLayout = true
     }
 
+    /// A workspace created by Cmd-N enters with its icon growing and fading in
+    /// alongside the row's shared insertion spring. This is intentionally on the
+    /// icon well, so the row's frame and its text remain one layout pass.
+    /// Starts the icon motion for a row that the list is inserting. The list
+    /// calls this after attaching the row, so existing icons never animate as
+    /// they scroll into realization or during a nonanimated reload.
+    func animateEntrance(spring: MotionSpring) {
+        guard let layer, window != nil else { return }
+        layer.removeAnimation(forKey: "workspace-icon-scale")
+        layer.removeAnimation(forKey: "workspace-icon-opacity")
+        guard Motion.sidebar.animates(.newWorkspace), Motion.sidebar.animatesMovement,
+              Motion.canAnimate(in: self) else {
+            Motion.withoutAnimation {
+                layer.transform = CATransform3DIdentity
+                layer.opacity = 1
+            }
+            return
+        }
+        Motion.withoutAnimation {
+            layer.transform = CATransform3DMakeScale(0.72, 0.72, 1)
+            layer.opacity = 0
+        }
+        _ = Motion.sidebar.set(layer, "transform.scale", to: 1.0, spring: spring, from: 0.72)
+        _ = Motion.sidebar.set(layer, "opacity", to: 1.0, spring: spring, from: 0.0)
+        if let scale = layer.animation(forKey: "transform.scale") {
+            layer.removeAnimation(forKey: "transform.scale")
+            layer.add(scale, forKey: "workspace-icon-scale")
+        }
+        if let opacity = layer.animation(forKey: "opacity") {
+            layer.removeAnimation(forKey: "opacity")
+            layer.add(opacity, forKey: "workspace-icon-opacity")
+        }
+    }
+
+    /// Clears a previous row's entrance state before this icon well is reused.
+    func resetMotion() {
+        layer?.removeAnimation(forKey: "workspace-icon-scale")
+        layer?.removeAnimation(forKey: "workspace-icon-opacity")
+        Motion.withoutAnimation {
+            layer?.transform = CATransform3DIdentity
+            layer?.opacity = 1
+        }
+    }
+
     override func updateLayer() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)

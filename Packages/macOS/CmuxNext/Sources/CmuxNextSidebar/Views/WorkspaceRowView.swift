@@ -211,6 +211,7 @@ final class WorkspaceRowView: SidebarRowView {
 
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
+        icon.resetMotion()
         isSecondarySelected = false
         isOnScreen = false
         isDropTarget = false
