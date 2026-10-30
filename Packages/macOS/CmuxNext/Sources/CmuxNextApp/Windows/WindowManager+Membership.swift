@@ -141,6 +141,19 @@ extension WindowManager {
         controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
     }
 
+    /// Shows `workspaceID` in window `windowID` (taking it there), as a pick in that window's own
+    /// sidebar does; nothing for a window this app does not have.
+    func show(workspaceID: String, inWindow windowID: String) {
+        guard let state = states[windowID] else { return }
+        show(workspaceID: workspaceID, in: state, from: .thisWindow)
+    }
+
+    /// The open window that lists `workspaceID`, if any.
+    func openOwner(of workspaceID: String) -> String? {
+        guard let owner = registry.value.owner(of: workspaceID), registry.value.window(owner)?.isOpen == true else { return nil }
+        return owner
+    }
+
     /// Shows `workspaceID` where it lives: its window when open, else the
     /// active window takes it, else a new window. Returns that window.
     @discardableResult
