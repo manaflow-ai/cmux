@@ -21,6 +21,9 @@ export class NativePopupEventFence {
           ancestry,
           row.kind,
           row.kind === "action" ? row.value : undefined,
+          // A toggle or choice rebuilt with a new state retires changes sent from the old one.
+          row.kind === "toggle" ? row.checked : undefined,
+          row.kind === "choice" ? row.value : undefined,
           row.completion,
           row.keepOpen,
           row.options?.map((option) => [option.id, option.disabled]),
