@@ -185,6 +185,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -192,6 +193,7 @@ import urllib.request
 import zipfile
 import zlib
 from collections.abc import Iterable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -215,8 +217,20 @@ from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E4
 API = "https://api.github.com"
 DEFAULT_THRESHOLD = 6
 DEFAULT_MAX_CANCELS = 10
-MAX_RUN_PAGES = 3
+# The in-flight run listing pages each status until an empty page, up to MAX_RUN_PAGES pages a status
+# (4,000 runs). Until 2026-10-30 it stopped at 3 pages: with 1,138 runs queued that day the sweep saw
+# 300 of them, and the pool snapshot read every other one's jobs as nothing queued. A filtered
+# listing answers at most LISTING_RESULT_PAGES pages (GitHub's 1,000-result cap), so a status that
+# fills them is listed again from the oldest run seen (`created<=`), window by window. A listing
+# that hits MAX_RUN_PAGES is marked truncated in the snapshot (listing_state()).
+MAX_RUN_PAGES = 40
+LISTING_RESULT_PAGES = 10
 MAX_JOB_PAGES = 3
+# Each listed run's jobs are one request; at most MAX_JOB_LISTINGS a sweep (about twice the 1,100 the
+# 2026-10-30 queue needed), JOB_LISTING_WORKERS at a time: one at a time took 0.5 s a request, and
+# 1,100 of them would not fit the workflow's 10 minutes. Runs past the cap leave the listing truncated.
+MAX_JOB_LISTINGS = 2000
+JOB_LISTING_WORKERS = 6
 GRAPHQL_BATCH = 25
 # A read that meets a 5xx or a dropped connection is made again after each of these delays (seconds),
 # then fails. At 08:08Z on 2026-10-26 one 502 on a run's job listing ended the sweep before it wrote
@@ -2977,6 +2991,10 @@ class GitHub:
         self._token = token
         self.calls = 0
         self.kinds: dict[str, int] = {}  # requests by request_kind(), for the summary's REST line
+        # The job listings run on JOB_LISTING_WORKERS threads (read_run_jobs()); the counters are shared.
+        self._count_lock = threading.Lock()
+        # in_flight_runs()'s account of its listing, per status (listing_state()).
+        self.run_listing: dict[str, dict[str, Any]] = {}
         self.fallback_token = fallback_token if fallback_token != token else ""
         # An App's token is in use: one was minted beside the workflow's, and it was not refused yet.
         self.app_token = bool(self.fallback_token)
@@ -3005,9 +3023,10 @@ class GitHub:
         raise AssertionError("unreachable")
 
     def _request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
-        self.calls += 1
         kind = request_kind(method, path, self.repo)
-        self.kinds[kind] = self.kinds.get(kind, 0) + 1
+        with self._count_lock:
+            self.calls += 1
+            self.kinds[kind] = self.kinds.get(kind, 0) + 1
         data = json.dumps(body).encode() if body is not None else None
         headers = dict(self.headers)
         if data is not None:
@@ -3048,26 +3067,63 @@ class GitHub:
             self.rate_limits[found[0]] = found[1]
 
     def in_flight_runs(self) -> list[dict[str, Any]]:
-        """Every run in IN_FLIGHT_RUN_STATUSES, up to MAX_RUN_PAGES pages a status.
+        """Every run in IN_FLIGHT_RUN_STATUSES, up to MAX_RUN_PAGES pages a status; how complete each status's
+        listing is goes to `run_listing` (listing_state()).
 
         A status-filtered listing can return a short page before its last one: `status=queued` answered
         99 runs on page 1 and 85 on page 2 of a total_count of 182 at 06:10Z on 2026-10-26. Stopping at the first short page dropped every queued run older than page 1, so the
         snapshot's oldest wait on blacksmith-12vcpu-macos-26 read 24 minutes while run 40259152940's fast
         tier had waited 205, and the janitor never cancelled that run after PR #24021 landed. So only an
-        empty page ends a status before MAX_RUN_PAGES: neither a short page nor total_count, which a page
+        empty page ends a status: neither a short page nor total_count, which a page
         repeating rows or a listing that shifts between pages would satisfy early. Runs keyed by id drop
         the repeats; a run a shift moves past a page boundary is read on the next sweep.
+
+        GitHub answers a filtered listing's first 1,000 results only (LISTING_RESULT_PAGES pages): a status
+        whose last such page still had runs is listed again from the oldest run it showed (`created<=` that
+        time, newest first), until a window ends in an empty page. A status that reaches MAX_RUN_PAGES, or a
+        window that cannot move past its oldest run, is truncated.
         """
         runs: dict[int, dict[str, Any]] = {}
+        self.run_listing = {}
         for status in IN_FLIGHT_RUN_STATUSES:
-            for page in range(1, MAX_RUN_PAGES + 1):
-                query = urllib.parse.urlencode({"status": status, "per_page": 100, "page": page})
-                payload = self.request("GET", f"/repos/{self.repo}/actions/runs?{query}")
-                batch = payload.get("workflow_runs") or []
-                for run in batch:
-                    runs[run["id"]] = run
-                if not batch:
+            seen: set[int] = set()
+            total: int | None = None
+            pages = 0
+            before = ""  # the window's `created<=` bound; "" for the first window
+            truncated = False
+            while True:
+                oldest = ""
+                ended = False
+                for page in range(1, LISTING_RESULT_PAGES + 1):
+                    if pages >= MAX_RUN_PAGES:
+                        truncated = True
+                        break
+                    params = {"status": status, "per_page": 100, "page": page}
+                    if before:
+                        params["created"] = f"<={before}"
+                    payload = self.request("GET", f"/repos/{self.repo}/actions/runs?{urllib.parse.urlencode(params)}")
+                    pages += 1
+                    if total is None and isinstance(payload.get("total_count"), int):
+                        total = payload["total_count"]
+                    batch = payload.get("workflow_runs") or []
+                    if not batch:
+                        ended = True
+                        break
+                    for run in batch:
+                        runs[run["id"]] = run
+                        seen.add(run["id"])
+                        created = str(run.get("created_at") or "")
+                        if created and (not oldest or created < oldest):
+                            oldest = created
+                if ended or truncated:
                     break
+                # Every page of the window had runs: the 1,000-result cap may hide older ones.
+                if not oldest or oldest == before:
+                    truncated = True  # no older bound to move to (over 1,000 runs created in one second)
+                    break
+                before = oldest
+            self.run_listing[status] = {"listed": len(seen), "total": total if total is not None else len(seen),
+                                        "pages": pages, "truncated": truncated}
         return list(runs.values())
 
     def artifact_names(self, run_id: int, *, stop: str) -> list[str]:
@@ -3253,24 +3309,83 @@ class _Transient(Exception):
 
 
 def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only: frozenset[str],
-                  now: dt.datetime) -> tuple[dict[int, list[dict[str, Any]]], set[int]]:
-    """({run id: jobs} for the runs needs_jobs() lists, the ids whose listing failed).
+                  now: dt.datetime, *, cap: int | None = None,
+                  workers: int | None = None) -> tuple[dict[int, list[dict[str, Any]]], set[int], set[int]]:
+    """({run id: jobs} for the runs needs_jobs() lists, the ids whose listing failed, the ids left unlisted).
 
     One run's failed listing skips that run, not the sweep (a rate limit still ends it): the sweep
-    that ended on one 502 at 08:08Z on 2026-10-26 wrote no pool snapshot (RETRY_DELAYS)."""
+    that ended on one 502 at 08:08Z on 2026-10-26 wrote no pool snapshot (RETRY_DELAYS).
+    At most `cap` (MAX_JOB_LISTINGS) runs are listed, the newest first; the rest are left unlisted and
+    the snapshot says it is truncated. The listings run `workers` (JOB_LISTING_WORKERS) at a time."""
+    cap = MAX_JOB_LISTINGS if cap is None else cap
+    workers = JOB_LISTING_WORKERS if workers is None else workers
+    wanted = [run for run in runs if needs_jobs(run, linux_only, now)]
+    # Newest first, so a capped sweep still sees the demand that is arriving now.
+    wanted.sort(key=lambda run: (str(run.get("created_at") or ""), run["id"]), reverse=True)
+    listed, unlisted = wanted[:max(0, cap)], {run["id"] for run in wanted[max(0, cap):]}
     jobs_by_run: dict[int, list[dict[str, Any]]] = {}
     unread: set[int] = set()
-    for run in runs:
-        if not needs_jobs(run, linux_only, now):
-            continue
+
+    def one(run: Mapping[str, Any]) -> list[dict[str, Any]] | None:
         try:
-            jobs_by_run[run["id"]] = github.jobs(run["id"])
+            return github.jobs(run["id"])
         except RateLimited:
             raise
         except RuntimeError as error:
-            unread.add(run["id"])
             print(f"queue-janitor: run {run['id']} skipped this sweep: {error}", file=sys.stderr)
-    return jobs_by_run, unread
+            return None
+
+    if workers <= 1 or len(listed) <= 1:
+        results = [one(run) for run in listed]
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(one, run) for run in listed]
+            try:
+                results = [future.result() for future in futures]
+            except RateLimited:
+                for future in futures:
+                    future.cancel()
+                raise
+    # In run order, whatever order the listings finished in.
+    by_id = {run["id"]: jobs for run, jobs in zip(listed, results)}
+    for run in runs:
+        if run["id"] not in by_id:
+            continue
+        if by_id[run["id"]] is None:
+            unread.add(run["id"])
+        else:
+            jobs_by_run[run["id"]] = by_id[run["id"]]
+    return jobs_by_run, unread, unlisted
+
+
+def listing_state(github: Any, unlisted: set[int]) -> dict[str, Any]:
+    """The snapshot's account of how much of the in-flight queue this sweep saw.
+
+    `listed` runs of GitHub's `total` (its total_count per status, as the first page reported it; the
+    queue moves while the pages are read, so the two can differ by a few either way), per status in
+    `statuses`. `truncated` is true when a status's listing hit MAX_RUN_PAGES or runs were left past
+    MAX_JOB_LISTINGS (`jobs_unlisted`): the snapshot's pools then miss demand, and its readers take the
+    queue as unknown (pr_runner_pool.snapshot_truncated()), never as nothing queued."""
+    statuses = {status: dict(entry) for status, entry in (getattr(github, "run_listing", None) or {}).items()}
+    truncated = any(entry.get("truncated") for entry in statuses.values()) or bool(unlisted)
+    return {
+        "truncated": truncated,
+        "listed": sum(int(entry.get("listed") or 0) for entry in statuses.values()),
+        "total": sum(int(entry.get("total") or 0) for entry in statuses.values()),
+        "jobs_unlisted": len(unlisted),
+        "statuses": statuses,
+    }
+
+
+def render_listing(listing: Mapping[str, Any]) -> str:
+    """`Listed 866 of 866 in-flight runs (queued 600/600, ...)`, plus what was cut when truncated."""
+    parts = ", ".join(f"{status} {entry.get('listed', 0)}/{entry.get('total', 0)}"
+                      + (" truncated" if entry.get("truncated") else "")
+                      for status, entry in (listing.get("statuses") or {}).items())
+    text = f"Listed {listing.get('listed', 0)} of {listing.get('total', 0)} in-flight runs ({parts or 'none'})"
+    if listing.get("jobs_unlisted"):
+        text += f"; {listing['jobs_unlisted']} run(s) past the {MAX_JOB_LISTINGS} job listings a sweep left unread"
+    return text
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -3324,7 +3439,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     try:
         runs = github.in_flight_runs()
-        jobs_by_run, unread = read_run_jobs(github, runs, linux_only, now)
+        jobs_by_run, unread, unlisted = read_run_jobs(github, runs, linux_only, now)
+        listing = listing_state(github, unlisted)
         # A run whose jobs could not be read: the snapshot below is still written from every other run,
         # and then the sweep decides nothing (no cancel, re-run or orphan), since a partial inventory
         # misjudges the others too (a newer run at the same head, the pool's wait p90).
@@ -3437,12 +3553,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"queue-janitor: {error}", file=sys.stderr)
             print(render_rate_limits(github.rate_limits), file=sys.stderr)
             return 1
-        if unread:
+        # How much of the queue this sweep saw: `truncated` makes every pool reader take the queue as unknown.
+        snapshot.update({key: listing[key] for key in ("truncated", "listed", "total")})
+        snapshot["listing"] = {key: listing[key] for key in ("jobs_unlisted", "statuses")}
+        if unread or listing["truncated"]:
             # Read from every run but these: their jobs are missing, so a label one of them is running on
             # can look starved and one it waits on can look recovered. No starved-label issue is opened,
             # updated or closed on this sweep (starved_labels.py), and readers can tell it is partial.
             snapshot["starved"] = []
             snapshot["starved_incomplete"] = True
+        if unread:
             snapshot[UNREAD_RUNS_KEY] = sorted(unread)
         # Warm affinity on: which root runner kept a build of which main
         # commits (owned_warm_state.py). A failure leaves `warm` out, and the
@@ -3462,14 +3582,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"queue-janitor: fleet gates: {gates_error}", file=sys.stderr)
         args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
-    if unread:
+    if unread or listing["truncated"]:
         # Nothing is acted on, so the pending re-runs an earlier sweep left are carried forward as they were.
         if snapshot is not None and args.pool_load and pending is not None:
             snapshot[LOST_RERUNS_KEY] = [dict(entry) for entry in pending][-LOST_PENDING_MAX:]
             args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
-        summary = (f"\n_The job listings of {len(unread)} run(s) failed ({', '.join(map(str, sorted(unread)))}): "
-                   f"the pool snapshot was written from the other {len(runs)}, and this sweep decided nothing._\n"
-                   f"\n_{render_rate_limits(github.rate_limits)}_\n")
+        if unread:
+            summary = (f"\n_The job listings of {len(unread)} run(s) failed ({', '.join(map(str, sorted(unread)))}): "
+                       f"the pool snapshot was written from the other {len(runs)}, and this sweep decided nothing._\n")
+        else:
+            summary = ""
+        if listing["truncated"]:
+            # An annotation too: the ceilings (MAX_RUN_PAGES, MAX_JOB_LISTINGS) need raising.
+            print(f"::warning title=queue janitor listing truncated::{render_listing(listing)}")
+            summary += (f"\n_{render_listing(listing)}: the pool snapshot says `truncated`, and this sweep "
+                        "decided nothing._\n")
+        summary += f"\n_{render_rate_limits(github.rate_limits)}_\n"
         print(summary)
         if args.summary:
             with args.summary.open("a", encoding="utf-8") as handle:
@@ -3558,6 +3686,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     summary += render_orphan_summary(orphan_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
                                      results=orphan_results)
     summary += render_superseded_summary(superseded_decisions)
+    summary += f"\n_{render_listing(listing)}._\n"
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings, {len(branches)} PR branches, " \
                f"{len(orphans)} orphans, {len(lost)} lost assignments, {len(unclaimed)} unclaimed legs, " \
                f"{head_reads} branch head reads, {len(evidence_jobs)} evidence job listings, " \

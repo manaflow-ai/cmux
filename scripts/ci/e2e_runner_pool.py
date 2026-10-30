@@ -306,6 +306,8 @@ def measure_load(client: ApiClient, *, now: dt.datetime, exclude_run_id: int | N
     snapshot = client.snapshot(now=now)
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
         return None
+    if pr_runner_pool.snapshot_truncated(snapshot):
+        return None  # a partial queue is no usable snapshot (the default keeps its say)
     since = str(snapshot["generated_at"])
     load = PoolLoad(
         snapshot,

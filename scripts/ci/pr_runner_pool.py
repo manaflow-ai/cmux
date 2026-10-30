@@ -1238,8 +1238,19 @@ def owned_room(label: str, counts: Mapping[str, int], added_jobs: int, taken_pea
     return min(wait, bound)
 
 
+def snapshot_truncated(snapshot: Mapping[str, Any]) -> str:
+    """Why `snapshot`'s queue counts are partial, or "": the janitor marks a sweep that could not list every
+    in-flight run `truncated` (queue_janitor.listing_state()). Its pools then miss demand, so a reader takes
+    the queue as unknown, never as nothing queued. Any value but false counts as truncated; a snapshot
+    without the key (written before it existed) does not."""
+    if "truncated" not in snapshot or snapshot.get("truncated") is False:
+        return ""
+    return (f"pool snapshot is truncated (it lists {snapshot.get('listed', '?')} of {snapshot.get('total', '?')} "
+            "in-flight runs), so its queues are unknown")
+
+
 def snapshot_problem(snapshot: Any, now: dt.datetime) -> str:
-    """Why decide() would not read `snapshot` (missing, undated, stale or without pools), or ""."""
+    """Why decide() would not read `snapshot` (missing, undated, stale, truncated or without pools), or ""."""
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
         return "no readable pool snapshot"
     if not isinstance(snapshot.get("pools"), Mapping):
@@ -1247,7 +1258,7 @@ def snapshot_problem(snapshot: Any, now: dt.datetime) -> str:
     age = snapshot_age_minutes(snapshot, now)
     if age is None or age < -5 or age > MAX_SNAPSHOT_MINUTES:
         return f"pool snapshot is stale or undated (age {age if age is None else round(age)} min)"
-    return ""
+    return snapshot_truncated(snapshot)
 
 
 def iso(moment: dt.datetime) -> str:
@@ -1690,6 +1701,8 @@ def decide(
     age = snapshot_age_minutes(snapshot, now)
     if age is None or age < -5 or age > MAX_SNAPSHOT_MINUTES:
         return Choice("", "", f"pool snapshot is stale or undated (age {age if age is None else round(age)} min)")
+    if snapshot_truncated(snapshot):
+        return Choice("", "", snapshot_truncated(snapshot))
     try:
         load = {label: pool(snapshot, label, owned_slots) for label in limits.order}
         roots = {label: pool(snapshot, root_label(label), owned_slots) for label in limits.order

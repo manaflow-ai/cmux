@@ -2100,6 +2100,17 @@ class GitHub:
                  if isinstance(item, Mapping)}
         return {name: found.get(name, "") for name in names}
 
+    def waiting_sweeper(self) -> int | None:
+        """The id of a sweeper run other than this one that has not started yet (queued, or pending in the
+        sweeper concurrency group), else None. One listing per status, made only at a handover."""
+        for status in SWEEPER_WAITING_STATUSES:
+            data = self.request("GET", f"/actions/workflows/{RESCUE_WORKFLOW_FILE}/runs?status={status}&per_page=100")
+            for run in (data or {}).get("workflow_runs") or []:
+                if (isinstance(run, Mapping) and str(run.get("display_title") or "") == SWEEPER_TITLE
+                        and int(run.get("id") or 0) != self.own_run):
+                    return int(run["id"])
+        return None
+
     def dispatch_sweeper(self) -> None:
         """Start a sweeper on MAIN_BRANCH's code. It queues in the sweeper concurrency group until this one exits."""
         self.request("POST", f"/actions/workflows/{RESCUE_WORKFLOW_FILE}/" + "dispatches", own_token=True,
@@ -4383,6 +4394,13 @@ CODE_FILES = ("owned_pool_rescue.py", "pr_runner_pool.py", "simple_pool_picker.p
               "ui_tests_dispatch.py")
 CODE_CHECK_TICKS = 5
 RESCUE_WORKFLOW_FILE = "ci-owned-pool-rescue.yml"
+# A handover dispatches a sweeper only when none waits already (GitHub.waiting_sweeper()). The sweeper
+# concurrency group holds one running and one pending run, and a newer pending run cancels the older one:
+# the handover's dispatch cancelled the cron's pending sweeper before it ran (run 41071107039, cancelled
+# at 14:56:46Z on 2026-10-30 by the dispatch of run 41076139116 three seconds earlier; 41055530432 at
+# 14:08Z the same way). The waiting one checks out main when it starts, so it already runs the new code.
+SWEEPER_TITLE = "owned-pool-sweeper"
+SWEEPER_WAITING_STATUSES = ("pending", "queued")
 
 
 def blob_sha(data: bytes) -> str:
@@ -4596,9 +4614,18 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
             "new code")
         with lock:
             outcomes["code changed"] = outcomes.get("code changed", 0) + 1
+        waiting = None
         try:
-            # It waits in the sweeper concurrency group (never cancel-in-progress) until this one exits.
-            client.dispatch_sweeper()
+            waiting = client.waiting_sweeper() if hasattr(client, "waiting_sweeper") else None
+        except Exception as error:  # noqa: BLE001 - unknown: dispatch as before, so a sweeper surely follows
+            log(f"could not list waiting sweepers ({type(error).__name__}: {error}); dispatching one")
+        try:
+            if waiting:
+                # A second dispatch would cancel it in the concurrency group before it ran.
+                log(f"sweeper run {waiting} already waits to start; it runs main's new code, so none is dispatched")
+            else:
+                # It waits in the sweeper concurrency group (never cancel-in-progress) until this one exits.
+                client.dispatch_sweeper()
         except Exception as error:  # noqa: BLE001 - the cron's next sweeper starts on the new code anyway
             log(f"could not start a sweeper ({type(error).__name__}: {error}); the cron's next one takes over")
     log("handing over: stopping watches; rescues under way finish")
