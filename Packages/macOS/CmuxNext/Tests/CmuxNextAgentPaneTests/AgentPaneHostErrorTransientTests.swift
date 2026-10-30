@@ -27,6 +27,9 @@ struct AgentPaneHostErrorTransientTests {
             .daemonFailed(logPath: "/l", cause: .foreignHome),
             .daemonRefused(holder: "cmux NIGHTLY", socketPath: "/s", reason: "another build"),
             .daemonRefused(holder: nil, socketPath: "/s", reason: "another binary", owner: owner),
+            // Another home's daemon whose pid is unavailable: no holder, still a refusal.
+            .daemonRefused(holder: nil, socketPath: "/s",
+                           reason: "\(AgentPaneHostError.foreignHomeReason)/Users/a/.acpmux, not /Users/a/.cmux-next/acpmux"),
         ]
         for error in refused { #expect(!error.isTransient, "\(error)") }
     }

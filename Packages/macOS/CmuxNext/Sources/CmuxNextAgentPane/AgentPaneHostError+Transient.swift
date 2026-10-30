@@ -18,8 +18,13 @@ nonisolated extension AgentPaneHostError {
             case .refused, .foreignHome: false
             case .replacedBundle, .peerRefused, .noWebSocket, .exited, .unresponsive, .other: true
             }
-        case .daemonRefused(let holder, _, _, _, let owner): holder == nil && owner == nil
+        // A daemon of another acpmux home refuses whether or not its holder is known (AcpmuxHost.foreignHome).
+        case .daemonRefused(let holder, _, let reason, _, let owner):
+            holder == nil && owner == nil && !reason.hasPrefix(Self.foreignHomeReason)
         case .acpmuxNotFound: false
         }
     }
+
+    /// The start of a foreign-home refusal's `reason`, so ``isTransient`` tells it from an unknown peer.
+    static let foreignHomeReason = "it serves the acpmux home "
 }
