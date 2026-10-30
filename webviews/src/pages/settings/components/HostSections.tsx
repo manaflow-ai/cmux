@@ -59,8 +59,8 @@ function ListRows({
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
         {trailing?.(row)}
-        {below?.(row)}
       </div>
+      {below?.(row)}
     </div>
   ));
 }
