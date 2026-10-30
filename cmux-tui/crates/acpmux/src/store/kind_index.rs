@@ -45,7 +45,7 @@ pub const INDEXED_KINDS: &[&str] = &[
 
 /// The folder of a chat's copies, beside its `events`.
 pub const DIR: &str = "events-index";
-const SCHEMA: &str = "acpmux.kind-index.v2";
+const SCHEMA: &str = "acpmux.kind-index.v3";
 
 /// A scan that read this many bytes of a segment past its copy saves the copy again.
 pub(super) const COPY_AFTER: u64 = 1 << 20;
@@ -61,16 +61,21 @@ struct Header {
     /// later file reuses is not the same file.
     born_ns: u64,
     len: u64,
-    /// The copied lines' length and FNV-1a hash: a damaged or cut copy is read past.
+    /// The copied lines' length, and an FNV-1a hash of every other field and the lines: a damaged
+    /// or cut copy is read past.
     lines_len: u64,
     lines_hash: u64,
 }
 
-/// FNV-1a, 64 bits: stable across builds, so a copy one daemon wrote checks in the next.
-fn fnv(bytes: &[u8]) -> u64 {
-    bytes
+/// FNV-1a, 64 bits, of a copy's file, coverage and lines: stable across builds, so a copy one
+/// daemon wrote checks in the next.
+fn seal(id: (u64, u64, u64), len: u64, lines: &[u8]) -> u64 {
+    let fields = [id.0, id.1, id.2, len, lines.len() as u64];
+    fields
         .iter()
-        .fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x100_0000_01b3))
+        .flat_map(|f| f.to_le_bytes())
+        .chain(lines.iter().copied())
+        .fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
 }
 
 /// The file `meta` is of: its device, inode and birth time.
@@ -120,7 +125,8 @@ impl LocalStore {
         let id = file_id(segment);
         let lines = bytes.split_off(end + 1);
         let whole = lines.len() as u64 == header.lines_len
-            && fnv(&lines) == header.lines_hash
+            && seal((header.dev, header.ino, header.born_ns), header.len, &lines)
+                == header.lines_hash
             && lines.last().is_none_or(|b| *b == b'\n');
         let same =
             header.schema == SCHEMA && id.2 != 0 && (header.dev, header.ino, header.born_ns) == id;
@@ -149,7 +155,7 @@ impl LocalStore {
             return Err(e.into());
         }
         crate::config::private_state_dir(&dir)?;
-        let (lines_len, lines_hash) = (lines.len() as u64, fnv(lines));
+        let (lines_len, lines_hash) = (lines.len() as u64, seal((dev, ino, born_ns), len, lines));
         let header =
             Header { schema: SCHEMA.into(), dev, ino, born_ns, len, lines_len, lines_hash };
         let mut out = serde_json::to_vec(&header)?;
