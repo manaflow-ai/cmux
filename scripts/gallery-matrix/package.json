@@ -6,7 +6,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "freestyle": "0.2.10",
+    "freestyle": "0.2.21",
     "pixelmatch": "7.2.0",
     "playwright": "1.62.1",
     "pngjs": "7.0.0"

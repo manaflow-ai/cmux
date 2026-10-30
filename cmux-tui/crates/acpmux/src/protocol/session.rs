@@ -24,7 +24,7 @@ pub struct SessionSummary {
     /// `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;
     /// a peer's session also `unreachable`.
     pub status: String,
-    /// Effective liveness: `stuck` after three classified harness failures, else `status`.
+    /// Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`.
     #[serde(default)]
     #[schemars(default)]
     pub state: String,
@@ -107,6 +107,12 @@ pub struct SessionSummary {
     pub waits_for_slot: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
+    /// Moved to another daemon (`acpmux session move`): where it runs now,
+    /// `{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,
+    /// and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub moved_to: Option<Value>,
     /// The family of a conversation another app runs that this chat only shows; null otherwise.
     pub watching: Option<String>,
     /// The agent takes a prompt mid-turn.
@@ -353,6 +359,12 @@ pub struct QueuedPromptSummary {
     pub queued_at: u64,
     /// Waits behind a failed turn until the queue is resumed.
     pub held: bool,
+    /// Another agent's message the person's Stop holds (`hub/cancel.rs`): it waits until the
+    /// person's next turn completes or the queue is resumed. False otherwise; absent from a peer
+    /// on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub held_by_stop: bool,
     /// The images it sends, in its order; `_acpmux/attachment` reads each by its id.
     #[serde(default)]
     pub images: Vec<QueuedImage>,

@@ -3,6 +3,7 @@ import { asState } from "../../domains/team-vm.ts"
 import type { TeamVmDriver } from "../../team-vm-driver.ts"
 import { DriverError } from "../contract.ts"
 import type { TeamVmProviderWiring } from "../index.ts"
+import { freestyleCustomer } from "./customer.ts"
 import { FreestyleFiles } from "./team-vm-files.ts"
 
 /** The team VM provider on Freestyle (plans/cmux-next/team-vm-plan.md S2): REST v5 with the team VM lane's key. */
@@ -67,6 +68,7 @@ export class FreestyleDriver implements TeamVmDriver {
         snapshotId: this.snapshot,
         idleTimeoutSeconds: IDLE_TIMEOUT_SECONDS,
         metadata: { cmux_team: team, cmux_epoch: String(epoch) },
+        ...freestyleCustomer(team),
         firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] }
       },
       CREATE_TIMEOUT_MS

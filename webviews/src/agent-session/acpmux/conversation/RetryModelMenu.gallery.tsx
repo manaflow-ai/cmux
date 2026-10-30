@@ -65,7 +65,9 @@ export default componentEntry<Record<string, never>>({
         models: claudeModels,
         current: "claude-opus-5-5",
         harness: "Claude Code",
-        top: topModelsFor("claude"),
+        // The current families, plus the 1M Fable row Claude Code's own menu lists: a shown row
+        // with a detail ("1M context"), whose placement retry-model-menu.test.ts measures.
+        top: [...(topModelsFor("claude") ?? []), "claude-fable-5-1[1m]"],
         retry: () => {},
       },
     };
