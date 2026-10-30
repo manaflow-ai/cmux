@@ -5903,6 +5903,9 @@ mod tests;
 mod receipt_env_tests;
 
 #[cfg(test)]
+mod open_cost_tests;
+
+#[cfg(test)]
 mod personal_tests;
 
 #[cfg(test)]
