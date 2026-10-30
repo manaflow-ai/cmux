@@ -84,6 +84,31 @@ class CacheNameTests(unittest.TestCase):
                          Path("/h/.cache/org.swift.swiftpm/artifacts"))
 
 
+class CommandCacheTests(unittest.TestCase):
+    def test_cache_follows_the_command(self) -> None:
+        env = prefetch.command_env("XDG_CACHE_HOME=/tmp/c swift test")
+        self.assertEqual(prefetch.swiftpm_artifact_cache({"HOME": "/h", **env}),
+                         Path("/tmp/c/org.swift.swiftpm/artifacts"))
+        self.assertEqual(prefetch.command_cache_path("swift test --cache-path /x/spm"), "/x/spm")
+        self.assertEqual(prefetch.command_cache_path("swift test --cache-path=rel", "/w"), "/w/rel")
+        self.assertIsNone(prefetch.command_cache_path("swift test -- --cache-path /x"))
+        self.assertEqual(prefetch.swiftpm_artifact_cache({"HOME": "/h"}, "/x/spm"), Path("/x/spm/artifacts"))
+
+    def test_main_seeds_the_cache_the_command_reads(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            seen = []
+            original = prefetch.seed
+            prefetch.seed = lambda packages, store, cache, swift, env=None: seen.append(cache) or 0
+            try:
+                prefetch.main(["--store", tmp, "--swift", "true",
+                               "--command", f"XDG_CACHE_HOME={tmp}/xdg swift test --package-path P"])
+                prefetch.main(["--store", tmp, "--swift", "true",
+                               "--command", f"swift build --cache-path {tmp}/cp"])
+            finally:
+                prefetch.seed = original
+        self.assertEqual(seen, [Path(tmp) / "xdg/org.swift.swiftpm/artifacts", Path(tmp) / "cp/artifacts"])
+
+
 class CommandTests(unittest.TestCase):
     def test_swiftpm_commands_name_their_package(self) -> None:
         cases = {

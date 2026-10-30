@@ -20,6 +20,10 @@ in the root Package.resolved, whose manifests are read at the pinned revision wi
 fetch. A pin's result is kept in the store by location and revision (a revision never changes), so a warm run
 does not touch the network.
 
+Trust: `dump-package` evaluates the snapshot's own manifests, which the command evaluates a moment later in
+the same job anyway (contents: read, no secrets), so this adds no reach; the store only ever serves a file
+whose SHA-256 matches the manifest that asks for it.
+
 Fails soft: a manifest that does not evaluate, or an artifact that does not download, is reported with a
 ::warning:: and left for SwiftPM to fetch itself. A checksum that does not match the manifest is never cached.
 
@@ -79,6 +83,26 @@ def command_env(command: str) -> dict[str, str]:
     return found
 
 
+def command_cache_path(command: str, directory: str = ".") -> str | None:
+    """The --cache-path a `swift build|test` command passes, resolved against `directory`, or None."""
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        return None
+    if "--" in words:
+        words = words[:words.index("--")]
+    found = None
+    for j, word in enumerate(words):
+        if word == "--cache-path" and j + 1 < len(words):
+            found = words[j + 1]
+        elif word.startswith("--cache-path="):
+            found = word.split("=", 1)[1]
+    if found is None:
+        return None
+    found = os.path.expanduser(found)
+    return found if os.path.isabs(found) else os.path.abspath(os.path.join(directory or ".", found))
+
+
 def package_paths(command: str, directory: str = ".") -> list[str]:
     """The package directories `command` builds when it is `swift build|test` (or swift-build|swift-test),
     possibly after env assignments or a wrapper word; [] for anything else, or a command shlex cannot read.
@@ -124,9 +148,11 @@ def swiftpm_cache_key(url: str) -> str:
     return "_" + mangled[1:] if mangled[:1].isdigit() else mangled
 
 
-def swiftpm_artifact_cache(env=os.environ) -> Path:
-    """SwiftPM's shared binary-artifact cache on Linux: FileManager's caches directory ($XDG_CACHE_HOME,
-    else ~/.cache) / org.swift.swiftpm / artifacts."""
+def swiftpm_artifact_cache(env=os.environ, cache_path: str | None = None) -> Path:
+    """SwiftPM's shared binary-artifact cache on Linux: <--cache-path>/artifacts when the command passes one,
+    else FileManager's caches directory ($XDG_CACHE_HOME, else ~/.cache) / org.swift.swiftpm / artifacts."""
+    if cache_path:
+        return Path(os.path.expanduser(cache_path)) / "artifacts"
     caches = env.get("XDG_CACHE_HOME") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".cache")
     return Path(caches) / "org.swift.swiftpm" / "artifacts"
 
@@ -343,17 +369,20 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     paths = list(args.package_path)
     env: dict[str, str] = {}
+    cache_path = None
     if args.command is not None:
         paths += package_paths(args.command, args.directory)
         env = command_env(args.command)
+        cache_path = command_cache_path(args.command, args.directory)
     if not paths:
         return 0
     if shutil.which(args.swift) is None:
         warn(f"{args.swift} is not on PATH; nothing seeded")
         return 0
     try:
-        seed([Path(path) for path in paths], args.store, args.cache or swiftpm_artifact_cache(), args.swift,
-             env=env)
+        # The cache SwiftPM will read: the command's own HOME/XDG_CACHE_HOME assignments and --cache-path win.
+        cache = args.cache or swiftpm_artifact_cache({**os.environ, **env}, cache_path)
+        seed([Path(path) for path in paths], args.store, cache, args.swift, env=env)
     except Exception as error:  # noqa: BLE001 - never fail the run: SwiftPM downloads what is missing
         warn(f"stopped early: {error}")
     return 0
