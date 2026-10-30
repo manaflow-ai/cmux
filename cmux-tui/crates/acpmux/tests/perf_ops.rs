@@ -1,10 +1,12 @@
 //! SCRATCH BENCH (acpmux-durable-ab, never merged; listed in stopped.txt): the acpmux request
 //! latency, send to reply, with and without the "answer only after the write" commits, on a
-//! loaded Mac. Run by `scripts/measure/acpmux-overhead.sh --arg=bench=daemon` at arm B (no
-//! `before=`: the step checkout has no `origin` to fetch it from). The test builds arm A's
-//! release daemon itself from a worktree of HEAD with `durable_ab_arm_a.patch` applied, then:
+//! loaded Mac, and arm C (cp/acpmux-group-commit: the log writer serves waiting requests in arrival
+//! order, in batches, raised to their QoS). Run by `scripts/measure/acpmux-overhead.sh
+//! --arg=bench=daemon` at arm C's bench ref (no `before=`: the step checkout has no `origin`). The
+//! test builds arm A's and arm B's release daemons itself, each from a worktree of HEAD with
+//! `durable_ab_arm_<arm>.patch` applied; arm C is this checkout's own daemon. Then it:
 //! - starts the load once (a memory hog into swap, F_FULLFSYNC writers,
-//!   CPU spinners), then runs arm A's and arm B's daemons in turn, A B A B A B, under the same
+//!   CPU spinners), then runs the arms' daemons in turn, A B C A B C A B C, under the same
 //!   load. Each run: 80 chats stream at once (the background agents), then N = 1, 16 and 80
 //!   clients, each on its own connection and chat, send the request mix for a fixed time.
 //! Output: `ACPMUX-PERF ab ...` rows (p50/p95/p99/max per arm, round, N and request kind),
@@ -43,7 +45,7 @@ const BG_CHATS: usize = 80;
 const PHASES: [usize; 3] = [1, 16, 80];
 /// How long each phase sends requests.
 const PHASE: Duration = Duration::from_secs(20);
-/// Rounds; each runs arm A, then arm B.
+/// Rounds; each runs arm A, then arm B, then arm C.
 const ROUNDS: usize = 3;
 /// A request with no reply in this time counts as an error (the app restarts acpmux at 2 s;
 /// this bound only keeps the bench moving).
@@ -698,13 +700,14 @@ fn must(cmd: &mut Command, what: &str) {
     assert!(status.success(), "{what}: {status}");
 }
 
-/// Builds arm A's release daemon: a worktree of this checkout's HEAD with the arm A patch
-/// (`durable_ab_arm_a.patch`: perf 3ae4c8c922b with 0599e2aee73, 8b2fe7eba54 and 6a5173856d0
-/// reverted, exactly cp-scratch/acpmux-durable-ab-a's source) applied. The step checkout has no
-/// `origin` remote, so acpmux-overhead.sh's `before=` cannot fetch it (job ad7383091037).
-fn build_arm_a(root: &Path, work: &Path) -> PathBuf {
-    let patch = root.join("cmux-tui/crates/acpmux/tests/durable_ab_arm_a.patch");
-    let tree = work.join("arm-a-src");
+/// Builds arm `arm`'s release daemon: a worktree of this checkout's HEAD (arm C,
+/// cp/acpmux-group-commit 7e0ddb6e843) with `durable_ab_arm_<arm>.patch` applied, the source
+/// difference from arm C to that arm (A: e2979fefb93, perf 3ae4c8c922b with 0599e2aee73,
+/// 8b2fe7eba54 and 6a5173856d0 reverted; B: perf 3ae4c8c922b). The step checkout has no `origin`
+/// remote to fetch them from (job ad7383091037).
+fn build_arm(root: &Path, work: &Path, arm: &str) -> PathBuf {
+    let patch = root.join(format!("cmux-tui/crates/acpmux/tests/durable_ab_arm_{arm}.patch"));
+    let tree = work.join(format!("arm-{arm}-src"));
     let _ = Command::new("git")
         .arg("-C")
         .arg(root)
@@ -718,17 +721,17 @@ fn build_arm_a(root: &Path, work: &Path) -> PathBuf {
             .args(["worktree", "add", "--detach"])
             .arg(&tree)
             .arg("HEAD"),
-        "git worktree add for arm A",
+        "git worktree add for an arm",
     );
     must(
         Command::new("git").arg("-C").arg(&tree).arg("apply").arg(&patch),
-        "git apply arm A patch",
+        "git apply an arm patch",
     );
-    assert!(
-        !tree.join("cmux-tui/crates/acpmux/src/hub/request_writes.rs").exists(),
-        "arm A still has the request write rule"
-    );
-    let target = work.join("target-arm-a");
+    let has_rule = tree.join("cmux-tui/crates/acpmux/src/hub/request_writes.rs").exists();
+    let has_fix = tree.join("cmux-tui/crates/acpmux/src/store/write_order_tests.rs").exists();
+    assert_eq!(has_rule, arm == "b", "arm {arm}: request write rule present: {has_rule}");
+    assert!(!has_fix, "arm {arm} still has the group-commit fix");
+    let target = work.join(format!("target-arm-{arm}"));
     let started = Instant::now();
     let mut cargo = Command::new(env!("CARGO"));
     cargo
@@ -740,8 +743,8 @@ fn build_arm_a(root: &Path, work: &Path) -> PathBuf {
     {
         cargo.env("RUSTC", rustc);
     }
-    must(&mut cargo, "cargo build of arm A's daemon");
-    eprintln!("ACPMUX-PERF arm-a-built secs={:.0}", started.elapsed().as_secs_f64());
+    must(&mut cargo, "cargo build of an arm's daemon");
+    eprintln!("ACPMUX-PERF arm-{arm}-built secs={:.0}", started.elapsed().as_secs_f64());
     target.join("release/acpmux")
 }
 
@@ -751,9 +754,12 @@ async fn acpmux_durable_ab_under_load() {
     let root = manifest.join("../../..").canonicalize().expect("the checkout root");
     let work = root.join(".build/acpmux-overhead");
     std::fs::create_dir_all(&work).unwrap();
-    let a = build_arm_a(&root, &work);
-    assert!(a.exists(), "arm A's daemon is missing: {}", a.display());
-    let b = daemon_env::bin().to_owned();
+    let a = build_arm(&root, &work, "a");
+    let b = build_arm(&root, &work, "b");
+    let c = daemon_env::bin().to_owned();
+    for exe in [&a, &b, &c] {
+        assert!(exe.exists(), "an arm's daemon is missing: {}", exe.display());
+    }
     // Short: socket paths must stay under the macOS limit.
     let base = std::env::temp_dir().join(format!("amx-ab-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
@@ -770,7 +776,7 @@ async fn acpmux_durable_ab_under_load() {
     let mut pooled: BTreeMap<(String, usize), Samples> = BTreeMap::new();
     let mut report = serde_json::Map::new();
     for round in 0..ROUNDS {
-        for (arm, exe) in [("A", &a), ("B", &b)] {
+        for (arm, exe) in [("A", &a), ("B", &b), ("C", &c)] {
             let by_n = run_arm(exe, arm, round, &base, &load).await;
             for (n, samples) in by_n {
                 let mut writes_all = Vec::new();
@@ -826,12 +832,14 @@ async fn acpmux_durable_ab_under_load() {
         pressure()
     );
     load.stop();
-    let _ = Command::new("git")
-        .arg("-C")
-        .arg(&root)
-        .args(["worktree", "remove", "--force"])
-        .arg(work.join("arm-a-src"))
-        .status();
+    for arm in ["a", "b"] {
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["worktree", "remove", "--force"])
+            .arg(work.join(format!("arm-{arm}-src")))
+            .status();
+    }
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.build/acpmux-perf");
     let _ = std::fs::create_dir_all(&dir);
     let _ = std::fs::write(
