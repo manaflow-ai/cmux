@@ -1,0 +1,5 @@
+Repository: manaflow-ai/cmux
+Base: b65567fbb33a150fbb29b96e5df0a081fc1d294c
+Head: f201d8c8977828a784b1ddc70d3403ccf2f9041b
+PR: 27720
+Review the exact diff for correctness. Return SHIP or BLOCK first, then only actionable findings with file:line evidence.
