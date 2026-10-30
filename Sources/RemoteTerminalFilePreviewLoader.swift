@@ -19,7 +19,9 @@ actor RemoteTerminalFilePreviewLoader {
     ///
     /// - Parameters:
     ///   - tokens: Terminal path tokens in preferred order.
-    ///   - workingDirectory: The terminal's reported directory, used when no live directory is known.
+    ///   - workingDirectory: The terminal's reported directory. Relative tokens try it after the
+    ///     live directory, because a shell can print paths relative to its own directory while
+    ///     the foreground process runs elsewhere.
     ///   - liveWorkingDirectory: Reads the remote shell's current directory. It is consulted only for
     ///     relative tokens, because a reported directory can be the stale spawn directory.
     /// - Returns: An atomically published local copy of the remote file.
@@ -31,7 +33,7 @@ actor RemoteTerminalFilePreviewLoader {
     ) async throws -> URL {
         try Task.checkCancellation()
         let resolver = RemoteTerminalPathResolver()
-        var workingDirectory = workingDirectory
+        var liveDirectory: String?
         var queriedLiveDirectory = false
         var home: String?
         var seenPaths = Set<String>()
@@ -46,7 +48,7 @@ actor RemoteTerminalFilePreviewLoader {
                resolver.needsWorkingDirectory(tokens: [token]) {
                 queriedLiveDirectory = true
                 if let live = await liveWorkingDirectory(), live.hasPrefix("/") {
-                    workingDirectory = live
+                    liveDirectory = live
                 }
             }
             try Task.checkCancellation()
@@ -54,9 +56,15 @@ actor RemoteTerminalFilePreviewLoader {
             if home == nil, trimmed.hasPrefix("~") || trimmed.hasPrefix("\"~") || trimmed.hasPrefix("'~") {
                 home = try await provider.resolveHomePath()
             }
-            let candidates = resolver.candidates(
-                tokens: [token], workingDirectory: workingDirectory, homeDirectory: home, remoteHost: host
+            var candidates = resolver.candidates(
+                tokens: [token], workingDirectory: liveDirectory ?? workingDirectory,
+                homeDirectory: home, remoteHost: host
             )
+            if let liveDirectory, let workingDirectory, liveDirectory != workingDirectory {
+                candidates += resolver.candidates(
+                    tokens: [token], workingDirectory: workingDirectory, homeDirectory: home, remoteHost: host
+                )
+            }
             for path in candidates where seenPaths.insert(path).inserted {
                 try Task.checkCancellation()
                 let digest = SHA256.hash(data: Data(path.utf8)).map { String(format: "%02x", $0) }.joined()
