@@ -7,7 +7,8 @@
 //! - On the session socket each client identity (a terminal's process
 //!   session) gets a fair share, so one terminal cannot take the pool.
 //! - The budget comes from the open-file limit the daemon runs with.
-//! - A client that stops reading for a while keeps its connection.
+//! - A client that stops reading for a while keeps its connection (the stall
+//!   is a signal, not a sleep: `StalledSocket`).
 
 use super::*;
 use crate::diagnostics::{ConnectionBudget, ConnectionLane, ConnectionStats};
@@ -15,7 +16,8 @@ use crate::diagnostics::{ConnectionBudget, ConnectionLane, ConnectionStats};
 /// Sends `request` and reads one line back, or `Value::Null` at end of stream.
 #[cfg(unix)]
 fn ask(stream: &mut Box<dyn transport::Stream>, request: &Value) -> Value {
-    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    // No read deadline (R5): the daemon answers, or refuses with one line
+    // and closes; either ends the read.
     // A refused connection may already be closed: the write fails, and the
     // refusal line still waits to be read.
     let _ = writeln!(stream, "{request}").and_then(|()| stream.flush());
@@ -154,66 +156,218 @@ fn the_connection_budget_follows_the_open_file_limit() {
     }
 }
 
+/// A socket in memory whose client side the test drives, so a test can say
+/// "the client stopped reading, for longer than any write deadline" as a
+/// signal instead of a sleep (R5). It models the kernel: a daemon write waits
+/// while the client's receive buffer (`capacity` bytes) is full, and a write
+/// that waits when the stall is declared fails as `SO_SNDTIMEO` makes it fail
+/// (`EAGAIN`) when a write deadline is set on the socket; with none it keeps
+/// waiting.
+struct StalledSocket {
+    state: std::sync::Mutex<StalledState>,
+    changed: std::sync::Condvar,
+    capacity: usize,
+}
+
+#[derive(Default)]
+struct StalledState {
+    /// Request bytes the client wrote, for the daemon's reader.
+    inbound: std::collections::VecDeque<u8>,
+    /// Reply bytes the daemon wrote, for the client.
+    outbound: std::collections::VecDeque<u8>,
+    write_timeout: Option<Duration>,
+    /// A daemon write waits for room in `outbound`.
+    writer_waiting: bool,
+    /// The stall was declared while a write waited with a deadline set: that
+    /// write fails.
+    deadline_passed: bool,
+    /// The daemon shut the socket down.
+    closed_by_daemon: bool,
+    /// The client hung up.
+    closed_by_client: bool,
+}
+
+impl StalledSocket {
+    fn new(capacity: usize) -> Arc<Self> {
+        Arc::new(Self {
+            state: std::sync::Mutex::new(StalledState::default()),
+            changed: std::sync::Condvar::new(),
+            capacity,
+        })
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, StalledState> {
+        self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn wait<'a>(
+        &self,
+        state: std::sync::MutexGuard<'a, StalledState>,
+    ) -> std::sync::MutexGuard<'a, StalledState> {
+        self.changed.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The client writes one request line.
+    fn client_send(&self, request: &Value) {
+        self.lock().inbound.extend(format!("{request}\n").into_bytes());
+        self.changed.notify_all();
+    }
+
+    /// Waits until a daemon write waits for room: the client's buffer is full.
+    fn wait_until_the_daemon_waits(&self) {
+        let mut state = self.lock();
+        while !state.writer_waiting {
+            state = self.wait(state);
+        }
+    }
+
+    /// The client has not read for longer than any write deadline.
+    fn declare_the_stall_longer_than_any_deadline(&self) {
+        let mut state = self.lock();
+        if state.writer_waiting && state.write_timeout.is_some() {
+            state.deadline_passed = true;
+        }
+        drop(state);
+        self.changed.notify_all();
+    }
+
+    /// The client reads one reply line; `None` once the daemon closed.
+    fn client_read_line(&self) -> Option<Value> {
+        let mut state = self.lock();
+        loop {
+            if let Some(end) = state.outbound.iter().position(|byte| *byte == b'\n') {
+                let line: Vec<u8> = state.outbound.drain(..=end).collect();
+                drop(state);
+                self.changed.notify_all();
+                return Some(serde_json::from_slice(&line).unwrap());
+            }
+            if state.closed_by_daemon {
+                return None;
+            }
+            state = self.wait(state);
+        }
+    }
+
+    fn client_hang_up(&self) {
+        self.lock().closed_by_client = true;
+        self.changed.notify_all();
+    }
+}
+
+/// The daemon's end of a [`StalledSocket`].
+struct StalledEnd(Arc<StalledSocket>);
+
+impl Read for StalledEnd {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let mut state = self.0.lock();
+        loop {
+            if state.closed_by_daemon {
+                return Ok(0);
+            }
+            if !state.inbound.is_empty() {
+                let count = buf.len().min(state.inbound.len());
+                for (slot, byte) in buf.iter_mut().zip(state.inbound.drain(..count)) {
+                    *slot = byte;
+                }
+                return Ok(count);
+            }
+            if state.closed_by_client {
+                return Ok(0);
+            }
+            state = self.0.wait(state);
+        }
+    }
+}
+
+impl Write for StalledEnd {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let mut state = self.0.lock();
+        loop {
+            if state.closed_by_daemon || state.closed_by_client {
+                return Err(std::io::ErrorKind::BrokenPipe.into());
+            }
+            let room = self.0.capacity.saturating_sub(state.outbound.len());
+            if room > 0 {
+                let count = room.min(buf.len());
+                state.outbound.extend(&buf[..count]);
+                state.writer_waiting = false;
+                drop(state);
+                self.0.changed.notify_all();
+                return Ok(count);
+            }
+            if state.deadline_passed {
+                // SO_SNDTIMEO expired: this write fails, as the kernel's does.
+                state.deadline_passed = false;
+                state.writer_waiting = false;
+                return Err(std::io::ErrorKind::WouldBlock.into());
+            }
+            state.writer_waiting = true;
+            self.0.changed.notify_all();
+            state = self.0.wait(state);
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl transport::Stream for StalledEnd {
+    fn try_clone_box(&self) -> std::io::Result<Box<dyn transport::Stream>> {
+        Ok(Box::new(Self(self.0.clone())))
+    }
+
+    fn set_read_timeout(&self, _timeout: Option<Duration>) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    /// One option for every descriptor of the socket, as SO_SNDTIMEO.
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.0.lock().write_timeout = timeout;
+        Ok(())
+    }
+
+    fn shutdown(&self, _how: Shutdown) -> std::io::Result<()> {
+        self.0.lock().closed_by_daemon = true;
+        self.0.changed.notify_all();
+        Ok(())
+    }
+}
+
 /// (4) A client that stops reading for longer than the daemon's old 2 s
 /// write deadline keeps its connection: every reply is there when it reads
-/// again, and the connection still serves.
-#[cfg(unix)]
+/// again, and the connection still serves. No timer decides it: the stall is
+/// a signal ([`StalledSocket`]).
 #[test]
 fn a_client_that_stops_reading_for_a_while_keeps_its_connection() {
-    use std::os::fd::AsRawFd;
-    use std::os::unix::net::UnixStream;
-
     let mux = test_mux();
-    let (server, client) = UnixStream::pair().unwrap();
-    // A small send buffer: the replies below fill it at once, so the
-    // daemon's writer waits on this client the whole time it does not read.
-    let small: libc::c_int = 8 * 1024;
-    // SAFETY: a valid descriptor and a c_int option value of its size.
-    unsafe {
-        libc::setsockopt(
-            server.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_SNDBUF,
-            (&raw const small).cast(),
-            size_of::<libc::c_int>() as libc::socklen_t,
-        );
-    }
+    // Smaller than the replies below: the daemon's writer waits on the client.
+    let socket = StalledSocket::new(8 * 1024);
     let server_mux = mux.clone();
+    let server = StalledEnd(socket.clone());
     let handler = std::thread::spawn(move || handle_connection(server_mux, Box::new(server)));
 
-    const REQUESTS: u64 = 200;
-    let mut writer = client.try_clone().unwrap();
+    const REQUESTS: u64 = 64;
     for id in 1..=REQUESTS {
-        writeln!(writer, "{}", json!({"id": id, "cmd": "identify"})).unwrap();
+        socket.client_send(&json!({"id": id, "cmd": "identify"}));
     }
-    writer.flush().unwrap();
-    // The client is busy (a stalled main thread, a loaded Mac) and reads
-    // nothing for longer than the old deadline.
-    std::thread::sleep(Duration::from_secs(3));
+    socket.wait_until_the_daemon_waits();
+    // The client is busy (a stalled main thread, a loaded Mac) for longer
+    // than any write deadline.
+    socket.declare_the_stall_longer_than_any_deadline();
 
-    client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    let mut reader = BufReader::new(client.try_clone().unwrap());
     let mut replies = 0;
     while replies < REQUESTS {
-        let mut line = String::new();
-        match reader.read_line(&mut line) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {
-                let reply: Value = serde_json::from_str(&line).unwrap();
-                assert_eq!(reply["ok"], true, "{reply}");
-                replies += 1;
-            }
-        }
+        let Some(reply) = socket.client_read_line() else { break };
+        assert_eq!(reply["ok"], true, "{reply}");
+        replies += 1;
     }
     assert_eq!(replies, REQUESTS, "the daemon closed a client that only read late");
 
-    writeln!(writer, "{}", json!({"id": REQUESTS + 1, "cmd": "identify"})).unwrap();
-    writer.flush().unwrap();
-    let mut line = String::new();
-    assert!(reader.read_line(&mut line).unwrap() > 0, "the connection no longer serves");
-    let reply: Value = serde_json::from_str(&line).unwrap();
+    socket.client_send(&json!({"id": REQUESTS + 1, "cmd": "identify"}));
+    let reply = socket.client_read_line().expect("the connection no longer serves");
     assert_eq!(reply["id"], REQUESTS + 1);
 
-    client.shutdown(Shutdown::Both).unwrap();
+    socket.client_hang_up();
     handler.join().unwrap();
 }
