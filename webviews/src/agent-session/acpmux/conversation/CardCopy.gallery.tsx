@@ -30,22 +30,24 @@ const PROMPT = [
 const MESSAGE =
   "The grid fix is on example/grid-fix; tests pass.\n\nThe grid now reserves its height before the images load, so nothing below it moves.";
 
-const START = tool("mcp__cmux-subsessions__start_session", "other", "completed", {
+const START_ACTIVITY = tool("mcp__cmux-subsessions__start_session", "other", "completed", {
   inputSummary: JSON.stringify({ name: "net-retries", harness: "claude", model: "opus", prompt: PROMPT }),
   output: "Started sub-session net-retries (sessionId sub-retries, depth 1).",
 });
+
+type Tool = NonNullable<typeof START_ACTIVITY.tool>;
+const START = START_ACTIVITY.tool as Tool;
 
 const DISCLOSURE = "gallery-card-copy";
 
 function Stage({ look, card }: Props) {
   useState(() => resetTranscriptDisclosure(DISCLOSURE));
-  const startTool = START.tool!;
   return (
     <TranscriptDisclosureProvider sessionId={DISCLOSURE}>
       <CardCopyLookContext.Provider value={look}>
         <div className="acpmux-shell" style={{ padding: 16, maxWidth: 640 }}>
           {card === "prompt" ? (
-            <SubsessionCallCard call={subsessionCall(startTool)} tool={startTool} />
+            <SubsessionCallCard call={subsessionCall(START)} tool={START} />
           ) : (
             <IncomingMessageLine
               id={`card-copy-${look}`}

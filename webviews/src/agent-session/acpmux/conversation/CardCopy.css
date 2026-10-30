@@ -52,3 +52,7 @@
 .cv-card-copy__button[data-copied] {
   color: var(--cv-text);
 }
+/* The panel holds its floated corner even when the card's text is shorter than the button. */
+.cv-disclosure__panel:has(> .cv-card-copy) {
+  display: flow-root;
+}
