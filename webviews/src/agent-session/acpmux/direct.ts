@@ -933,42 +933,51 @@ export type GitRoute = "native" | "daemon";
 const HIDDEN_DRAW_MS = 50;
 
 /// What hidden pages left for their first frame once shown (`nextFrame`): at most one per client,
-/// since a client waits for one frame at a time; a closed client's draws nothing.
+/// since a client waits for one frame at a time and cancels it on close.
 const waitingForShow = new Set<() => void>();
+function waitForShow(wait: () => void): void {
+  if (waitingForShow.size === 0) document.addEventListener("visibilitychange", drawShown);
+  waitingForShow.add(wait);
+}
+function stopWaiting(wait: () => void): void {
+  if (waitingForShow.delete(wait) && waitingForShow.size === 0)
+    document.removeEventListener("visibilitychange", drawShown);
+}
 function drawShown(): void {
   if (!pageShown()) return;
   document.removeEventListener("visibilitychange", drawShown);
   const due = [...waitingForShow];
   waitingForShow.clear();
-  for (const run of due) nextFrame(run);
+  for (const wait of due) wait();
 }
 
 /// Runs `run` once before the next display frame, or after 50 ms when a shown page draws no frames
-/// (an occluded window). A hidden page draws nothing: `run` waits until it shows, and its first
-/// frame then draws everything that landed meanwhile (`emitInFrame` holds one waiting snapshot).
-/// Every page's waits share one listener, which goes with that show. A hidden page used to draw the
-/// shown chat's stream every 50 ms that nobody could see.
-export const nextFrame = (run: () => void): (() => void) | undefined => {
-  if (!pageShown()) {
-    if (waitingForShow.size === 0) document.addEventListener("visibilitychange", drawShown);
-    waitingForShow.add(run);
-    // A closed client's wait goes at once; the listener goes with the last one.
-    return () => {
-      if (!waitingForShow.delete(run) || waitingForShow.size > 0) return;
-      document.removeEventListener("visibilitychange", drawShown);
+/// (an occluded window). A hidden page draws nothing: `run` waits until it shows, also when the page
+/// hides before the frame comes, and its first frame then draws everything that landed meanwhile
+/// (`emitInFrame` holds one waiting snapshot). Every page's waits share one listener, which goes
+/// with that show. The returned cancel stops it in any state, so a closed client leaves nothing
+/// waiting. A hidden page used to draw the shown chat's stream every 50 ms that nobody could see.
+export const nextFrame = (run: () => void): (() => void) => {
+  let done = false;
+  const frame = () => {
+    if (done) return;
+    if (!pageShown()) return waitForShow(frame);
+    let ran = false;
+    const once = () => {
+      if (ran || done) return;
+      ran = true;
+      if (!pageShown()) return waitForShow(frame);
+      done = true;
+      run();
     };
-  }
-  let ran = false;
-  const once = () => {
-    if (ran) return;
-    ran = true;
-    // Hidden again before the frame came: it waits for the next show instead.
-    if (pageShown()) run();
-    else nextFrame(run);
+    requestAnimationFrame(once);
+    setTimeout(once, 50);
   };
-  requestAnimationFrame(once);
-  setTimeout(once, 50);
-  return undefined;
+  frame();
+  return () => {
+    done = true;
+    stopWaiting(frame);
+  };
 };
 
 /// A thought chunk continues the thought it follows: a thought streams into one growing item,

@@ -125,3 +125,33 @@ test("a cancelled hidden wait runs nothing, and the listener goes with the last 
   jest.advanceTimersByTime(100);
   expect(runs).toBe(0);
 });
+
+test("a frame asked for while shown and deferred by a hide still cancels", () => {
+  let runs = 0;
+  const listening = jest.spyOn(dom.window.document, "addEventListener");
+  const stopped = jest.spyOn(dom.window.document, "removeEventListener");
+  const count = (spy: typeof listening) => spy.mock.calls.filter(([type]) => type === "visibilitychange").length;
+  try {
+    // Shown when asked, hidden before its frame: the 50 ms fallback leaves it waiting for the show.
+    const cancel = nextFrame(() => (runs += 1));
+    setVisibility("hidden");
+    jest.advanceTimersByTime(50);
+    expect(count(listening)).toBe(1);
+    cancel();
+    expect(count(stopped)).toBe(1);
+    // Cancelled before its fallback fires: nothing starts waiting.
+    setVisibility("visible");
+    const cancelSoon = nextFrame(() => (runs += 10));
+    setVisibility("hidden");
+    cancelSoon();
+    jest.advanceTimersByTime(50);
+    expect(count(listening)).toBe(1);
+  } finally {
+    listening.mockRestore();
+    stopped.mockRestore();
+  }
+  setVisibility("visible");
+  drawFrame();
+  jest.advanceTimersByTime(100);
+  expect(runs).toBe(0);
+});
