@@ -189,4 +189,75 @@ mod tests {
             hub.shutdown_all().await;
         }
     }
+
+    #[tokio::test]
+    async fn manual_retry_with_a_durable_prompt_is_not_replayed() {
+        let root = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.store.mode = StoreMode::Local;
+        let store = crate::store::open(&cfg.store, root.path()).unwrap();
+        let error = "You've hit your weekly usage limit";
+        store
+            .save(
+                &serde_json::from_value(json!({
+                    "schema": crate::store::META_SCHEMA,
+                    "id": "c1",
+                    "name": "c1",
+                    "harness": "claude",
+                    "cwd": "/tmp",
+                    "status": "idle",
+                    "createdAt": 1,
+                    "updatedAt": 2,
+                    "lastTurn": {"turnId": "t1", "promptId": "p1", "status": "failed", "errorText": error}
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        store
+            .append(
+                "c1",
+                &EventRecord {
+                    seq: 1,
+                    at: 1,
+                    dir: "mux".into(),
+                    kind: "auto_resume_manual".into(),
+                    msg: json!({
+                        "turnId": "t1",
+                        "promptId": "p1",
+                        "manualPromptId": "p1~resume-1",
+                        "error": error,
+                        "control": "local",
+                        "trustGate": false,
+                        "why": "manual"
+                    }),
+                    host_seq: None,
+                },
+            )
+            .unwrap();
+        store
+            .append(
+                "c1",
+                &EventRecord {
+                    seq: 2,
+                    at: 2,
+                    dir: "mux".into(),
+                    kind: "user_message".into(),
+                    msg: json!({
+                        "promptId": "p1~resume-1",
+                        "turnId": "t2",
+                        "_meta": {"provenance": {"kind": "auto_resume", "promptId": "p1", "attempt": 1, "turnId": "t1", "manual": true}}
+                    }),
+                    host_seq: None,
+                },
+            )
+            .unwrap();
+        let hub = Hub::new(cfg, store);
+        let session = hub.resolve("c1").unwrap();
+        hub.resume_queues();
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(hub.session_summary(&session)["retry"], Value::Null);
+        hub.shutdown_all().await;
+    }
 }
