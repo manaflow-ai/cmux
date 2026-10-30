@@ -51,9 +51,8 @@ import Testing
         let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
         pane.toolbar = toolbar
         pane.show(first)
-        pane.show(second)
-        try #require(pane.paintHold.kept === first)
         let owner = pane.nativeToolOwner
+        #expect(owner.model === first, "the initially shown page owns the tools")
         let current = ObservationStream.current { snapshot(owner) }
         var updates = current.later.makeAsyncIterator()
         toolbar.apply(current.value, owner: owner)
@@ -61,14 +60,21 @@ import Testing
         oldInvocation("review", nil)
         #expect(firstCalls == 1 && secondCalls == 0)
 
+        pane.show(second)
+        try #require(pane.paintHold.kept === first)
+        #expect(owner.model === second, "the selected incoming page owns tools during the paint hold")
+        let incomingInvocation = try #require(toolbar.view.onNativeTool)
+        incomingInvocation("review", nil)
+        #expect(firstCalls == 1 && secondCalls == 1, "a fresh callback during the hold reaches the incoming page")
+        oldInvocation("review", nil)
+        #expect(firstCalls == 2 && secondCalls == 1, "the retained outgoing callback stays bound to the old page")
+
         second.model.markPainted()
-        #expect(owner.model === second)
         let next = try #require(await updates.next())
         #expect(next != current.value, "identical tools still change their owner")
         toolbar.apply(next, owner: owner)
-        oldInvocation("review", nil)
         toolbar.view.onNativeTool?("review", nil)
-        #expect(firstCalls == 1 && secondCalls == 1, "a retained outgoing callback must not retarget to the incoming page")
+        #expect(firstCalls == 2 && secondCalls == 2, "the current callback remains on the incoming page")
 
         second.model.setTabRowTools([])
         let changed = try #require(await updates.next())
@@ -80,6 +86,11 @@ import Testing
         #expect(detached.nativeOwnerID == nil && detached.nativeItems.isEmpty)
         toolbar.apply(detached, owner: owner)
         #expect(toolbar.view.nativeButtons.isEmpty)
+
+        pane.show(second)
+        try #require(second.superview === pane.contentHost)
+        second.removeFromSuperview()
+        #expect(owner.model == nil, "reparenting content away clears native tool ownership")
     }
 }
 #endif

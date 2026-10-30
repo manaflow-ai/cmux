@@ -50,6 +50,7 @@ extension PaneContentView {
             view.frame = contentHost.bounds
             view.autoresizingMask = [.width, .height]
             contentHost.addSubview(view)
+            refreshNativeToolOwner()
             // Parked in the pane it came from.
             if view is PaneParkableContent { view.isHidden = false }
             return
@@ -82,6 +83,7 @@ extension PaneContentView {
         guard view.superview === contentHost else { return }
         guard view is PaneParkableContent else {
             view.removeFromSuperview()
+            refreshNativeToolOwner()
             return
         }
         // The keyboard never stays in a view that does not show: the window
@@ -108,6 +110,7 @@ extension PaneContentView {
             guard let view = entry.view, view.superview === contentHost, view !== content else { return true }
             guard live?(view) ?? true else {
                 view.removeFromSuperview()
+                refreshNativeToolOwner()
                 return true
             }
             return false

@@ -447,9 +447,13 @@ public final class AgentPaneView: NSView {
         applyTheme()
     }
 
+    /// Called by a pane when AppKit reparents this page, so native toolbar ownership cannot stay stale.
+    var onNativeToolOwnerChange: (() -> Void)?
+
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
+        onNativeToolOwnerChange?()
     }
 
     public override func viewDidMoveToWindow() {

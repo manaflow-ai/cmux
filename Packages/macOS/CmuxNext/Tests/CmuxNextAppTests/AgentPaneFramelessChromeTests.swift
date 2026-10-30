@@ -70,7 +70,7 @@ import Testing
         #expect(pane.displayedAgentPaneView === outgoing)
         pane.show(incoming)
         try #require(pane.paintHold.kept === outgoing)
-        #expect(pane.displayedAgentPaneView === incoming, "the toolbar follows the outgoing chat kept for the paint hold")
+        #expect(pane.displayedAgentPaneView === incoming, "the toolbar follows the incoming selected chat during the paint hold")
         incoming.model.markPainted()
         #expect(pane.paintHold.kept == nil)
         #expect(pane.displayedAgentPaneView === incoming)

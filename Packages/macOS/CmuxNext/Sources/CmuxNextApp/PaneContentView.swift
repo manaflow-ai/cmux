@@ -330,6 +330,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         view?.reparentRootedThemeScope()
         // Another pane may own `previous` now and have taken its callback.
         if let previous, previous !== view, previous.superview == nil { (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil }
+        if let agent = view as? AgentPaneView {
+            agent.onNativeToolOwnerChange = { [weak self] in self?.refreshNativeToolOwner() }
+        }
         content = view
         refreshNativeToolOwner()
         // After the incoming view is in: a browser that leaves stays parked
@@ -371,6 +374,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         endPaintHold()
         let shown = hostsContent ? content : nil
         (shown as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
+        (shown as? AgentPaneView)?.onNativeToolOwnerChange = nil
         content = nil
         refreshNativeToolOwner()
         if let shown { if parks { retire(shown) } else { shown.removeFromSuperview() } }
