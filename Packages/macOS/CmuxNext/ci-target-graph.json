@@ -37,7 +37,8 @@
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
         "CmuxNextDesign",
-        "CmuxNextIcons"
+        "CmuxNextIcons",
+        "CmuxNextWakeups"
       ],
       "packages": [
         "CMUXAuthCore",
@@ -1355,6 +1356,7 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
+        "CmuxNextKeepAwake",
         "CmuxNextMobile",
         "CmuxNextPages",
         "CmuxNextRemoteBrowser",

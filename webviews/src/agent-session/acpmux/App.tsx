@@ -273,7 +273,7 @@ import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
-import { stopReadingAloud } from "./conversation/readAloud";
+import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
 import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
@@ -424,6 +424,7 @@ import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
+import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
 import { PendingSteer, takeBackSteer, takesSteersBack } from "./conversation/PendingSteer";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
@@ -621,6 +622,8 @@ declare global {
       applyRecentlyClosed?(items: unknown): void;
       /// What plays, for the New Tab page's player (newtab/nowPlaying.ts); null while nothing does.
       applyNowPlaying?(track: unknown): void;
+      /// The app's read-aloud state (conversation/readAloud.ts): `{id}`, the message it reads or null.
+      applyReadAloud?(state: unknown): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
       revealTurn?(turnId: string): void;
@@ -7655,6 +7658,9 @@ function AcpmuxPane() {
       applyNowPlaying(track) {
         setNowPlaying(track);
       },
+      applyReadAloud(state) {
+        setReadAloudState(state);
+      },
       revealTurn(turnId) {
         revealRef.current(turnId);
       },
@@ -9008,6 +9014,21 @@ function AcpmuxPane() {
   };
   const runHeaderActionRef = useRef(runHeaderAction);
   runHeaderActionRef.current = runHeaderAction;
+  // Continue After Error (palette, CLI, MCP) runs the failed last turn's own way on, as its card's
+  // lead button and Return do (conversation/errorRecovery.ts); with none it says why.
+  const continueAfterErrorRef = useRef<() => void>(() => undefined);
+  continueAfterErrorRef.current = () => {
+    const failed = lastFailedTurn(transcriptRows);
+    const recovery = failed && errorRecovery(failed, turnActions.route, turnActions);
+    // A refusal (busy, nothing failed any more) says why, as the card's note does.
+    const notice = (text: string) => ignoreFailure(openClient().then((client) => client.notice(text)));
+    if (!recovery) notice(t("turn.nothingToContinue"));
+    else
+      void recovery.run().then(
+        (note) => note && notice(t(note)),
+        () => notice(t("retry.failed")),
+      );
+  };
   // The account's machine a Cloud chat runs on, for the chat menu's Pause and Resume; the
   // account's list is read when such a chat shows (and after each pick), never on a timer.
   const accountMachines = useCloudMachines();
@@ -9122,6 +9143,9 @@ function AcpmuxPane() {
           break;
         case "toggleMinimap":
           setMinimapVisible((visible) => !visible);
+          break;
+        case "continueAfterError":
+          continueAfterErrorRef.current();
           break;
       }
     };

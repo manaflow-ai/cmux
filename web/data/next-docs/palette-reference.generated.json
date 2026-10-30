@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1225,
+    "entries": 1226,
     "shortcuts": 189
   },
   "sections": [
@@ -6050,6 +6050,12 @@
           "title": "Stop Computer Use",
           "shortcut": null,
           "command": "cmux agent stop-computer-use"
+        },
+        {
+          "id": "agentPane.stopReadingAloud",
+          "title": "Stop Reading Aloud",
+          "shortcut": null,
+          "command": "cmux agent stop-reading-aloud"
         },
         {
           "id": "home.stopChief",
