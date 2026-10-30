@@ -99,21 +99,53 @@ struct AgentPaneConnectActionTests {
 
     @Test func titleMoveTargetsAreAdvertisedAndValidated() async {
         let model = AgentPaneModel(host: NoHost())
-        var moved: String?
+        var moved: (machine: String, session: String)?
         model.header = AgentPaneHeaderHooks(
             run: { _, _ in },
             tabState: { AgentPaneHeaderState() },
             moveTargets: { [AgentPaneMoveTarget(id: "vm-build", label: "Build Mac", status: "running")] },
-            moveToMachine: { id in moved = id; return true },
+            moveToMachine: { id, session in moved = (id, session); return true },
         )
         let state = await model.respond(to: .tabState(refresh: false))["value"] as? [String: Any]
         let targets = state?["moveTargets"] as? [[String: Any]]
         #expect(targets?.first?["id"] as? String == "vm-build")
-        #expect(await model.respond(to: .moveToMachine("vm-build"))["ok"] as? Bool != true)
+        #expect(await model.respond(to: .moveToMachine("vm-build", session: "chat-a"))["ok"] as? Bool != true)
         model.transport.gestures.record()
-        #expect(await model.respond(to: .moveToMachine("vm-build"))["ok"] as? Bool == true)
-        #expect(moved == "vm-build")
+        #expect(await model.respond(to: .moveToMachine("vm-build", session: "chat-a"))["ok"] as? Bool == true)
+        #expect(moved?.machine == "vm-build")
+        #expect(moved?.session == "chat-a")
         model.transport.gestures.record()
-        #expect(await model.respond(to: .moveToMachine("not-advertised"))["ok"] as? Bool != true)
+        #expect(await model.respond(to: .moveToMachine("not-advertised", session: "chat-a"))["ok"] as? Bool != true)
+    }
+
+    /// The move names the chat whose title menu offered it: a request without one is refused at
+    /// decoding, so the host never falls back to whatever the tab shows when it handles it.
+    @Test func titleMoveRequestCarriesItsChat() {
+        let bound = AgentPaneRequest(body: ["method": "pane.moveToMachine", "params": ["machine": "vm-build", "session": "chat-a"]])
+        #expect(bound == .moveToMachine("vm-build", session: "chat-a"))
+        let unbound = AgentPaneRequest(body: ["method": "pane.moveToMachine", "params": ["machine": "vm-build"]])
+        #expect(unbound == .unsupported("pane.moveToMachine"))
+    }
+
+    /// The host refuses the move when the tab shows another chat by now (the person switched
+    /// before the request was handled): only the menu's own chat moves.
+    @Test func titleMoveRefusedWhenTheChatChanged() async {
+        let model = AgentPaneModel(host: NoHost())
+        var shown = "chat-a"
+        var moved: [String] = []
+        model.header = AgentPaneHeaderHooks(
+            run: { _, _ in },
+            tabState: { AgentPaneHeaderState() },
+            moveTargets: { [AgentPaneMoveTarget(id: "vm-build", label: "Build Mac")] },
+            moveToMachine: { _, session in
+                guard session == shown else { return false }
+                moved.append(session)
+                return true
+            },
+        )
+        shown = "chat-b"
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .moveToMachine("vm-build", session: "chat-a"))["ok"] as? Bool != true)
+        #expect(moved.isEmpty)
     }
 }

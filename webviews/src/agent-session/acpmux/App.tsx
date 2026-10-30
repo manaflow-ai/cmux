@@ -403,6 +403,7 @@ import { cloudCredentialRecovery } from "./cloudCredentialRecovery";
 import { handoffTurns } from "./cloudHandoffTurn";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
+import { archiveClosesTab } from "./header/archiveClose";
 import { avatarRows } from "./header/avatarRow";
 import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
 import { copyRow } from "./header/copyRow";
@@ -6237,10 +6238,18 @@ function AcpmuxPane() {
         }),
       ),
     );
-  const moveChatToMachine = (machine: string) =>
-    void callNative("pane.moveToMachine", { machine }).catch(() =>
-      directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.moveToCloud") })),
-    );
+  /// `session`: the chat whose title menu offered the move. The host moves the tab only while it
+  /// still shows that chat (AgentTabs+Header.swift), so a switch before the request is handled
+  /// never moves the newly selected chat.
+  const moveChatToMachine = (machine: string, session: string | undefined) => {
+    const notRun = () =>
+      directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.moveToCloud") }));
+    if (!session || directClient.current?.selectedSession !== session) {
+      notRun();
+      return;
+    }
+    void callNative("pane.moveToMachine", { machine, session }).catch(notRun);
+  };
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
@@ -8676,13 +8685,9 @@ function AcpmuxPane() {
     // Quick Chat's panel has no tab to close.
     if (!archived || quick || directClient.current !== client) return;
     // Archiving hides the chat from the lists, so the client may already have left it for its
-    // fallback (none, or the most recent chat): that is this archive's own completion. A
-    // navigation to another chat while the archived one is still listed keeps the tab.
-    const listed = (snapshotRef.current?.sessions ?? []).some(
-      (entry) => entry.sessionId === sessionId && !entry.archived,
-    );
-    if (client.selectionToken === selection || client.selectedSession === undefined || !listed)
-      await callNative("pane.action", { id: "closeTab" });
+    // fallback (none, or the most recent chat): that is this archive's own completion. A chat the
+    // person selected while the archive was out keeps the tab (header/archiveClose.ts).
+    if (archiveClosesTab(client, sessionId, selection)) await callNative("pane.action", { id: "closeTab" });
   };
   const deleteChat = async () => {
     const target = deleteConfirmSession;
@@ -9069,7 +9074,7 @@ function AcpmuxPane() {
         ? moveTargets.map((target) => ({
             key: `machine:${target.id}`,
             label: target.label,
-            onSelect: () => moveChatToMachine(target.id),
+            onSelect: () => moveChatToMachine(target.id, sessionId),
           }))
         : []),
       ...(moves.includes(CONNECT_ACTIONS.bringBack)

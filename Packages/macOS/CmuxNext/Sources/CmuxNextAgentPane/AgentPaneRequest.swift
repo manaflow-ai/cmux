@@ -151,8 +151,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
     /// Moves the current chat to one of the eligible Cloud machines advertised by `pane.tabState`.
     /// The host validates the id against its live target list before dispatching the existing
-    /// `cloudMove` action, so the page cannot target an arbitrary machine.
-    case moveToMachine(String)
+    /// `cloudMove` action, so the page cannot target an arbitrary machine. `session` is the chat
+    /// whose title menu offered the move: the host moves the tab only while it still shows it.
+    case moveToMachine(String, session: String)
     /// The header's Changes or an edited-files card naming a chat turn (`pane.action {id:
     /// "openDiffViewer", cwd, mode, turn}`): the diff beside the chat, with that turn as its Last
     /// turn (``AgentPaneDiffTurn``).

@@ -76,8 +76,9 @@ public struct AgentPaneHeaderHooks {
     public var diffTurn: (@MainActor (_ cwd: String?, _ turn: AgentPaneDiffTurn, _ toggle: Bool) -> Void)?
     /// Eligible Cloud machines for the title menu's Move to machine submenu.
     public var moveTargets: @MainActor () -> [AgentPaneMoveTarget]
-    /// Dispatches an existing CloudMove operation to one validated target machine.
-    public var moveToMachine: @MainActor (String) -> Bool
+    /// Dispatches an existing CloudMove operation to one validated target machine, for the chat
+    /// `session` names; false (nothing moved) when the tab no longer shows that chat.
+    public var moveToMachine: @MainActor (_ machine: String, _ session: String) -> Bool
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
@@ -96,7 +97,7 @@ public struct AgentPaneHeaderHooks {
                 showSession: @escaping @MainActor (String) -> Bool = { _ in false },
                 isFamily: @escaping @MainActor (_ session: String, _ chat: String) -> Bool = { _, _ in false },
                 moveTargets: @escaping @MainActor () -> [AgentPaneMoveTarget] = { [] },
-                moveToMachine: @escaping @MainActor (String) -> Bool = { _ in false }) {
+                moveToMachine: @escaping @MainActor (_ machine: String, _ session: String) -> Bool = { _, _ in false }) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
@@ -183,11 +184,11 @@ extension AgentPaneModel {
             // `ran`: the page knows the App took the action (a host without panes, such as the
             // gallery, answers null), so its diff link opens the diff beside the chat, not in place.
             return AgentPaneReply.success(["ran": true])
-        case .moveToMachine(let machineID):
+        case .moveToMachine(let machineID, let session):
             guard newTab == nil, let header,
                   header.moveTargets().contains(where: { $0.id == machineID }),
                   transport.gestures.consume(),
-                  header.moveToMachine(machineID) else {
+                  header.moveToMachine(machineID, session) else {
                 return AgentPaneReply.failure(code: "unavailable", message: "This chat cannot move to that machine.")
             }
             return AgentPaneReply.success(["ran": true])

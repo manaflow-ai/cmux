@@ -1488,6 +1488,10 @@ export class AcpmuxDirectClient {
   /// A purge in flight owns the selected session's disappearance; do not replace it with another
   /// chat before the page's caller closes the tab.
   private purgingSessionId?: string;
+  /// The client's own most recent leaving of a chat that left the list (`selectFallbackSession`),
+  /// at the selection generation it made: a page completion for that chat (Archive's close) can tell
+  /// it apart from a navigation the person made meanwhile.
+  private fallback?: { from: string; generation: number };
   private peers: string[] = [];
   /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
@@ -1802,8 +1806,10 @@ export class AcpmuxDirectClient {
           this.missingReason = "notListedAtOpen";
         }
         const purging = this.purgingSessionId === this.selectedSessionId;
+        const from = this.selectedSessionId;
         this.selectedSessionId = this.host.sessionMustExist || purging ? undefined : this.sessions[0]?.sessionId;
         this.selectionGeneration += 1;
+        this.fallback = { from, generation: this.selectionGeneration };
         this.resetSessionState();
         // The machine the chat was on, from what the app host kept of it (another tab read it).
         const missing = this.missingSession;
@@ -2606,9 +2612,11 @@ export class AcpmuxDirectClient {
       this.missingReason = "leftListWhileShown";
     }
     const purging = this.purgingSessionId === this.selectedSessionId;
+    const from = this.selectedSessionId;
     this.selectedSessionId = this.host.sessionMustExist || purging ? undefined : this.sessions[0]?.sessionId;
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
     const generation = ++this.selectionGeneration;
+    this.fallback = from ? { from, generation } : undefined;
     const hold = this.selectedSessionId ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
     this.resetSessionState();
     this.emit(reason);
@@ -4939,6 +4947,15 @@ export class AcpmuxDirectClient {
   /** Changes on every selection, including leaving and returning to the same session. */
   get selectionToken(): number {
     return this.selectionGeneration;
+  }
+  /** Whether the client's latest selection change was its own fallback away from `sessionId`
+   *  (the chat left the list), not a chat the person selected since. */
+  fellBackFrom(sessionId: string | undefined): boolean {
+    return (
+      sessionId !== undefined &&
+      this.fallback?.from === sessionId &&
+      this.fallback.generation === this.selectionGeneration
+    );
   }
   /** Whether a purge owns the selected session's disappearance. */
   get purgeInFlight(): boolean {

@@ -338,8 +338,9 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.moveToMachine":
-            if let machine = params?["machine"] as? String, !machine.isEmpty, machine.count <= 256 {
-                self = .moveToMachine(machine)
+            if let machine = params?["machine"] as? String, !machine.isEmpty, machine.count <= 256,
+               let session = params?["session"] as? String, !session.isEmpty, session.count <= 256 {
+                self = .moveToMachine(machine, session: session)
             } else {
                 self = .unsupported(method)
             }
