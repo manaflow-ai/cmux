@@ -1,6 +1,6 @@
-// The thread minimap's model: one tick per user message at the transcript's left edge
+// The thread minimap's model: one tick per user message at the pane's left edge
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
-import type { AcpmuxRow } from "../model";
+import { transcriptColumn, type AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
 import { MOTION_MS } from "../../../motion/scale.generated";
 
@@ -39,21 +39,17 @@ export const ROW_PITCH = 10;
 export const ROW_WIDTH = 36;
 /// The tick's line box; a tick draws `tickLength(progress)` of it from the left.
 export const TICK_BOX = 26;
-/// The resting rail sits this close to the transcript text. It moves left with the text as the
-/// pane narrows instead of changing its own width or appearance.
-export const RAIL_TEXT_GAP = 4;
-/// The rail may overlap the transcript by this much at the smallest usable gutter. Hovering can
-/// then expand its ticks over the text without changing the rail's layout box.
-export const RAIL_MAX_OVERLAP = 8;
-/// Below this gutter there is not enough room for the rail, even with its allowed overlap.
-export const RAIL_MIN_GUTTER = ROW_WIDTH - RAIL_MAX_OVERLAP;
-/// Where the one rail sits for a chat column `gutter` px in. The rail keeps its full 36 px box at
-/// every width; its left edge is the text edge minus the rail and the small resting gap.
-export function railPlacement(gutter: number): { hidden: boolean; left: number } {
-  return {
-    hidden: gutter < RAIL_MIN_GUTTER,
-    left: Math.max(0, gutter - ROW_WIDTH - RAIL_TEXT_GAP),
-  };
+/// Pure pane-edge geometry. CSS spacing tokens are read by useRailPlacement, once per layout change.
+export function railPlacement(
+  paneWidth: number,
+  textInset = transcriptColumn(paneWidth).inset,
+  spacing = { min: 8, max: 16, compact: 12 },
+): { left: number; width: number; overlapsText: boolean; gutter: number } {
+  const left = Math.min(spacing.max, Math.max(spacing.min, Math.round(paneWidth / 100)));
+  const minimumWidth = spacing.min + spacing.compact;
+  const width = Math.min(ROW_WIDTH, Math.max(minimumWidth, textInset - left));
+  // `gutter` is the text's own inset, so the occluded rail's hover strip can stop at the text edge.
+  return { left, width, overlapsText: left + width > textInset, gutter: Math.max(0, textInset) };
 }
 /// Height choices for the compact rail. The initial height keeps a short thread from looking like a
 /// transcript slice; the share and row cap let a long thread grow toward the pane's full height before

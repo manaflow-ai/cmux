@@ -11,6 +11,7 @@ import type { Root } from "react-dom/client";
 import { noChat, summary, user } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
+import type { SendBlock } from "../src/agent-session/acpmux/useFolderTrustAsk";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -68,6 +69,8 @@ beforeAll(() => {
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
+  // Retained blocked drafts are persisted by Composer on unmount; each test starts a new chat.
+  dom.window.localStorage.clear();
   host.replaceChildren();
 });
 
@@ -85,8 +88,10 @@ function Chips() {
 
 async function render(
   snapshot: AcpmuxSnapshot,
-  blocked?: { reason?: never },
+  blocked?: SendBlock,
   extra: {
+    blockSend?: boolean;
+    authBlock?: string;
     onOpenInWindow?: () => void;
     handle?: React.Ref<ComposerHandle>;
     onSend?: (text: string, attachments?: unknown, steer?: boolean) => boolean;
@@ -233,8 +238,128 @@ test("an idle chat keeps the usual placeholder", async () => {
 });
 
 test("a running turn whose composer cannot send keeps the usual placeholder", async () => {
-  await render(started({ isWorking: true }), {});
+  await render(started({ isWorking: true }), { reason: "trust.answerFirst" });
   expect(shown()).toBe("Type / for commands");
+});
+
+// A trust read exposes an empty block; the daemon remains the authority and may refuse the
+// prompt. Only an actual trust answer or the separate folder-choice flow keeps it in the field.
+for (const method of ["click", "return"] as const) {
+  test(`an empty trust-read block allows ${method} to send the draft`, async () => {
+    const sent: string[] = [];
+    let handle: ComposerHandle | null = null;
+    await render(
+      started(),
+      {},
+      {
+        handle: (value) => void (handle = value),
+        onSend: (text) => {
+          sent.push(text);
+          return true;
+        },
+      },
+    );
+    await act(async () => handle!.restore("Use the cache", []));
+    const send = host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!;
+    expect(send.disabled).toBe(false);
+    await act(async () => {
+      if (method === "click") send.click();
+      else
+        host
+          .querySelector<HTMLElement>("[role=combobox]")!
+          .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    });
+    expect(sent).toEqual(["Use the cache"]);
+  });
+}
+
+test("a trust read keeps the running turn's steer and queue choices", async () => {
+  await render(steering({ isWorking: true }), {});
+  expect(shown()).toBe("↵ steer · ⌘↵ queue");
+});
+
+test("a concrete trust block keeps the draft for click and Return", async () => {
+  const sent: string[] = [];
+  let handle: ComposerHandle | null = null;
+  await render(
+    started(),
+    { reason: "trust.answerFirst" },
+    {
+      handle: (value) => void (handle = value),
+      onSend: (text) => {
+        sent.push(text);
+        return true;
+      },
+    },
+  );
+  await act(async () => handle!.restore("Keep this draft", []));
+  const send = host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!;
+  expect(send.disabled).toBe(true);
+  await act(async () => {
+    send.click();
+    host
+      .querySelector<HTMLElement>("[role=combobox]")!
+      .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+  expect(sent).toEqual([]);
+  expect(host.querySelector("[role=combobox]")!.textContent).toContain("Keep this draft");
+});
+
+test("a pending folder choice is a hard stop even for a trust-resend handle", async () => {
+  const sent: string[] = [];
+  let handle: ComposerHandle | null = null;
+  await render(
+    started(),
+    {},
+    {
+      blockSend: true,
+      handle: (value) => void (handle = value),
+      onSend: (text) => {
+        sent.push(text);
+        return true;
+      },
+    },
+  );
+  await act(async () => handle!.restore("Choose a folder first", []));
+  expect(host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!.disabled).toBe(true);
+  let accepted: boolean | undefined;
+  await act(async () => {
+    accepted = handle!.send();
+  });
+  expect(accepted).toBe(false);
+  expect(sent).toEqual([]);
+  expect(host.querySelector("[role=combobox]")!.textContent).toContain("Choose a folder first");
+});
+
+test("an auth refusal blocks a trust-read draft and the trust-resend handle", async () => {
+  const sent: string[] = [];
+  let handle: ComposerHandle | null = null;
+  await render(
+    started(),
+    {},
+    {
+      authBlock: "Sign in to send",
+      handle: (value) => void (handle = value),
+      onSend: (text) => {
+        sent.push(text);
+        return true;
+      },
+    },
+  );
+  await act(async () => handle!.restore("Keep this draft", []));
+  const send = host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!;
+  expect(send.disabled).toBe(true);
+  let accepted: boolean | undefined;
+  await act(async () => {
+    send.click();
+    host
+      .querySelector<HTMLElement>("[role=combobox]")!
+      .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    accepted = handle!.send();
+  });
+  expect(accepted).toBe(false);
+  expect(sent).toEqual([]);
+  expect(host.querySelector("[role=combobox]")!.textContent).toContain("Keep this draft");
 });
 
 // Leo's nightly (d5829ff): a dictated prompt, the agent working with three prompts queued, and
@@ -286,4 +411,28 @@ test("a Return the input method passed on as a new paragraph sends, never adds a
     sent: [{ text: "What is Spotlight?", steer: true }],
     inserted: false,
   });
+});
+
+// Leo, 2026-10-29: "the fucking rendering is stupid as hell": a running composer ("↵ steer · ⌘↵
+// queue") drawn with an idle one ("Type / for commands") over it, at another width. The page draws
+// exactly one composer: the same form and field through running↔idle and a pane resize, never a
+// kept copy beside it.
+test("one composer element, the same one, through running↔idle switches and a pane resize", async () => {
+  await render(steering());
+  const form = host.querySelector(".acpmux-composer");
+  const field = host.querySelector(".acpmux-composer-prompt");
+  expect(form).not.toBeNull();
+  expect(field).not.toBeNull();
+  for (const [index, working] of [true, false, true, false, true].entries()) {
+    await render(steering({ isWorking: working }));
+    // Every other switch, the pane changes width too (Session Info opening or closing beside it).
+    if (index % 2 === 0) await act(async () => void window.dispatchEvent(new window.Event("resize")));
+    expect(host.querySelectorAll(".acpmux-composer")).toHaveLength(1);
+    expect(host.querySelectorAll(".acpmux-composer-box")).toHaveLength(1);
+    expect(host.querySelectorAll(".acpmux-composer-prompt")).toHaveLength(1);
+    expect(host.querySelector(".acpmux-composer")).toBe(form);
+    expect(host.querySelector(".acpmux-composer-prompt")).toBe(field);
+    expect(host.querySelectorAll(".acpmux-md-placeholder")).toHaveLength(1);
+    expect(shown()).toBe(working ? "↵ steer · ⌘↵ queue" : "Type / for commands");
+  }
 });
