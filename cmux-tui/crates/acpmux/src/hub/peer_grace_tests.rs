@@ -95,10 +95,7 @@ async fn peer_loop_never_consumes_the_daemons_pending_shutdown() {
         .expect("peer loop stole the main daemon's shutdown permit");
 }
 
-#[tokio::test(start_paused = true)]
-async fn drop_saves_throttled_row_changes_before_grace_ends() {
-    // A daemon that stops inside the grace window still has, on disk, the row
-    // change whose save was throttled before the drop.
+fn disk_fixture() -> (Arc<Hub>, Arc<Peer>, cmux_unix_socket::TestDir) {
     let dir = cmux_unix_socket::short_test_dir("acpmux-pg");
     let mut config = Config::default();
     config.store.mode = crate::config::StoreMode::Local;
@@ -118,10 +115,35 @@ async fn drop_saves_throttled_row_changes_before_grace_ends() {
             seq: 1,
         },
     );
+    (hub, peer, dir)
+}
+
+fn saved_rows(dir: &cmux_unix_socket::TestDir) -> String {
+    std::fs::read_to_string(dir.path().join("peers/remote.json")).unwrap()
+}
+
+#[tokio::test(start_paused = true)]
+async fn drop_saves_throttled_row_changes_before_grace_ends() {
+    // A daemon that stops inside the grace window still has, on disk, the row
+    // change whose save was throttled before the drop.
+    let (hub, peer, dir) = disk_fixture();
     send(&hub, &peer, PeerNotice::Disconnected("reset".into())).await;
     hub.stop_idle_reaper();
     tokio::time::advance(Duration::from_secs(11)).await;
     tokio::task::yield_now().await;
-    let saved = std::fs::read_to_string(dir.path().join("peers/remote.json")).unwrap();
+    let saved = saved_rows(&dir);
+    assert!(saved.contains("renamed"), "{saved}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_outages_first_drop_saves_even_after_the_link_counted_more_attempts() {
+    // The loop reads a queued drop notice after the link may have failed its
+    // next attempt too. The outage's first notice still saves.
+    let (hub, peer, dir) = disk_fixture();
+    peer.count_failed_attempt();
+    peer.count_failed_attempt();
+    send(&hub, &peer, PeerNotice::Disconnected("reset".into())).await;
+    hub.stop_idle_reaper();
+    let saved = saved_rows(&dir);
     assert!(saved.contains("renamed"), "{saved}");
 }

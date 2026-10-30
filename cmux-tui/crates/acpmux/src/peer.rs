@@ -328,6 +328,12 @@ impl Peer {
         self.with_link(|l| l.seed(last_seen));
     }
 
+    /// One failed connect attempt, counted as `finish_link` counts it.
+    #[cfg(test)]
+    pub(crate) fn count_failed_attempt(&self) {
+        self.with_link(|l| l.down(crate::store::now_ms(), self.timings.stable_after));
+    }
+
     /// The refusal for a request while the link is down (`peer_link.rs`).
     pub fn unreachable_error(&self) -> RpcError {
         let error = self.last_error.lock().unwrap_or_else(|e| e.into_inner()).clone();
