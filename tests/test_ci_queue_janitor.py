@@ -738,6 +738,30 @@ class WorkflowShapeTests(unittest.TestCase):
             "${{ !(github.event_name == 'workflow_run' && "
             "github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') }}")
 
+    def test_a_run_that_starts_no_sweep_never_evicts_a_waiting_sweep(self):
+        # The concurrency group keeps one run going and one waiting, and each new arrival cancels the
+        # waiting one. The CI runs of pull requests into feat-cmux-next start no sweep (the job's `if`),
+        # but with the whole workflow in the group they still arrived there and cancelled the real sweep
+        # that was waiting: on 2026-10-30 they were 238 of the janitor's last 400 runs, crons were
+        # cancelled within seconds of being queued, and after 17:57Z no snapshot was written until the
+        # 18:14 cron (the pool snapshot was 50 minutes old). Such a run gets a group of its own now.
+        workflow = yaml.safe_load(self.text)
+        no_sweep = ("github.event_name == 'workflow_run' && "
+                    "github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next'")
+        self.assertEqual(workflow["jobs"]["sweep"]["if"], "${{ !(" + no_sweep + ") }}")
+        self.assertEqual(workflow["concurrency"], {
+            "group": "${{ (" + no_sweep + ") && format('ci-queue-janitor-noop-{0}', github.run_id) "
+                     "|| 'ci-queue-janitor' }}",
+            "cancel-in-progress": False,
+        })
+
+    def test_a_long_sweep_still_publishes_its_snapshot(self):
+        # The snapshot is uploaded by the last step, which a job timeout skips. Sweeps listing the whole
+        # queue took up to 13 minutes on 2026-10-30, and two in a row hit the 10-minute timeout at
+        # 17:46Z and 17:58Z, so neither published. The job gets room for the longest sweep seen.
+        workflow = yaml.safe_load(self.text)
+        self.assertGreaterEqual(workflow["jobs"]["sweep"]["timeout-minutes"], 15)
+
     def test_requested_runs_only_stand_in_for_a_late_cron(self):
         # 2026-10-06: CI was requested hundreds of times an hour, a 240 s skip
         # let those requests sweep about every 5 minutes on top of the cron, and
