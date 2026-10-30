@@ -46,7 +46,9 @@ test("a refused clear shows the native error instead of Cleared", async () => {
   await act(async () => form.querySelector<HTMLButtonElement>("[data-clear]")!.click());
   await settle();
   expect(form.querySelector("[data-cleared]")).toBeNull();
-  expect(form.querySelector<HTMLElement>("[data-clear-error]")?.textContent).toBe("Couldn’t clear browsing data. The browser profile is in use.");
+  expect(form.querySelector<HTMLElement>("[data-clear-error]")?.textContent).toBe(
+    "Couldn’t clear browsing data. The browser profile is in use.",
+  );
   page.unmount();
 });
 
@@ -64,7 +66,6 @@ test("an unknown refusal keeps the clear error generic", async () => {
   page.unmount();
 });
 
-
 test("a native ran:false reply does not claim the data was cleared", async () => {
   const page = await renderPage({ path: "/settings/browser", mock: { actionRan: false } });
   const row = page.container.querySelector<HTMLElement>('[data-profile="p-work"]')!;
@@ -76,7 +77,6 @@ test("a native ran:false reply does not claim the data was cleared", async () =>
   expect(form.querySelector<HTMLElement>("[data-clear-error]")?.textContent).toBe("Couldn’t clear browsing data.");
   page.unmount();
 });
-
 
 test("a later successful clear removes an earlier refusal", async () => {
   const page = await renderPage({ path: "/settings/browser", mock: { actionRan: false } });

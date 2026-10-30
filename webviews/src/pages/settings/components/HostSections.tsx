@@ -570,7 +570,11 @@ function ClearBrowsingData({ target }: { target: string }) {
       </span>
       {error && (
         <output className="row-error clear-browsing-data-error" data-clear-error="" role="alert">
-          {t(error.code === "cmux.browser.clear_refused" ? "settingsWindow.browsingDataClearRefused" : "settingsWindow.browsingDataClearFailed")}
+          {t(
+            error.code === "cmux.browser.clear_refused"
+              ? "settingsWindow.browsingDataClearRefused"
+              : "settingsWindow.browsingDataClearFailed",
+          )}
         </output>
       )}
     </div>
