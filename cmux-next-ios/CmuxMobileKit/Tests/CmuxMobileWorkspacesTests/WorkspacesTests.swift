@@ -62,15 +62,28 @@ import SwiftUI
         #expect(store.workspace(id: "ws-cmux")!.tabs.map(\.id) == ["t-claude", "t-zsh"])
     }
 
+    private func waitForPendingCloseMessage(_ source: WorkspaceTabsSource, _ message: String) async {
+        await withCheckedContinuation { continuation in
+            @MainActor func observe() {
+                if source.pendingClose?.message == message {
+                    continuation.resume()
+                    return
+                }
+                withObservationTracking {
+                    _ = source.pendingClose?.message
+                } onChange: {
+                    Task { @MainActor in observe() }
+                }
+            }
+            observe()
+        }
+    }
+
     /// N2/A1: a shell tab running `sleep` (title "zsh") asks before its close kills it.
     @Test func closingATabWithARunningProgramAsks() async throws {
         let (store, source) = make(backend: ProgramsBackend(programs: ["sleep"]))
         let close = Task { await source.close("t-zsh") }
-        for _ in 0..<200 where source.pendingClose == nil { await Task.yield() }
-        // A busy simulator can miss the 250 ms quick answer: the question then shows as
-        // pending ("Checking what's running...") and the Mac's answer fills it in.
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while source.pendingClose?.message == TabClosePromptPlan.checkingMessage, ContinuousClock.now < deadline { await Task.yield() }
+        await waitForPendingCloseMessage(source, "Still running: sleep.")
         let pending = try #require(source.pendingClose)
         #expect(pending.title == "Close \u{201C}zsh\u{201D}?")
         #expect(pending.message == "Still running: sleep.")
