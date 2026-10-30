@@ -1,0 +1,11 @@
+{
+  "title": "Open Cloud as Pane from an agent chat beside a terminal",
+  "steps": [
+    {"title": "Fresh launch", "wait": 3, "shot": false},
+    {"title": "Create a terminal workspace", "cmux": ["workspace", "new", "--name", "Cloud pane"], "wait": 2, "shot": false},
+    {"title": "Focus the workspace", "cmux": ["workspace", "name:Cloud pane", "focus"], "daemon": true, "wait": 2, "shot": false},
+    {"title": "Open an agent chat beside the terminal", "cmux": ["agent", "new-chat", "--cwd", "/tmp"], "wait": 4, "shot": false},
+    {"title": "Wait for the agent chat", "rpc": {"method": "debug.agent_pane", "params": {"action": "chat_state"}}, "wait": 1, "shot": false},
+    {"title": "Open Cloud as Pane", "cmux": ["action", "run", "palette.openCloudPane"], "wait": 6, "shot": true}
+  ]
+}
