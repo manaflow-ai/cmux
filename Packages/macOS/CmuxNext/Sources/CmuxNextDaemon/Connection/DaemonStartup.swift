@@ -96,6 +96,7 @@ public struct DaemonStartup: Sendable {
                 identity = try await withTaskCancellationHandler {
                     try await connection.start()
                 } onCancel: {
+                    // concurrency-allow: cancellation cleanup is actor-isolated and joined by closeAndWait.
                     Task { await connection.close() }
                 }
                 DaemonLaunchTimings.shared.mark("daemon.handshake_end")
