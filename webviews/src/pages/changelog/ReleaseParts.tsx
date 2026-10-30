@@ -144,9 +144,10 @@ function MediaLightbox({
 }
 
 export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
-  if (!item.action && !item.docs) return null;
+  if (!item.action && !item.docs && !item.pr) return null;
   return (
     <div className="cl-actions">
+      {item.pr && <ChangePullRequest pr={item.pr} title={item.title} />}
       {item.action && (
         <button type="button" className="cl-button" onClick={() => ctx.onTry(item.action!.id)}>
           {item.action.title || ctx.strings.t("changelog.page.tryIt")}
@@ -253,7 +254,7 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
           ) : (
             <li key={`${item.id}-${index}`}>
               <span className="cl-row-text">
-                <span className="cl-row-title">{item.title}</span>
+                {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : <span className="cl-row-title">{item.title}</span>}
                 {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
               </span>
               <RowActions item={item} ctx={ctx} />
@@ -279,7 +280,7 @@ function WideRow({ item, ctx }: { item: ReleaseItem; ctx: PartsContext }) {
   return (
     <li className={item.media ? "cl-wide-row cl-has-media" : "cl-wide-row"}>
       <div className="cl-row-text">
-        <span className="cl-row-title">{item.title}</span>
+        {item.pr ? <ChangePullRequest pr={item.pr} title={item.title} /> : <span className="cl-row-title">{item.title}</span>}
         {paragraphs.length === 0 && actions}
         {paragraphs.map((p, i) => (
           <p key={i} className="cl-row-summary">

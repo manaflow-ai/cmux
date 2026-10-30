@@ -18,6 +18,13 @@ const REPO = "manaflow-ai/cmux";
 
 const pullURL = (pr: number) => `https://github.com/${REPO}/pull/${pr}`;
 
+function pullRequest(urlOrNumber: number | string): { href: string; repo: string; number: number } | undefined {
+  if (typeof urlOrNumber === "number") return { href: pullURL(urlOrNumber), repo: REPO, number: urlOrNumber };
+  const match = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)(?:[/?#].*)?$/i.exec(urlOrNumber);
+  if (!match) return undefined;
+  return { href: `https://github.com/${match[1]}/pull/${match[2]}`, repo: match[1]!, number: Number(match[2]) };
+}
+
 /// The card asks the host what it knows about the pull request (`pr.inspect`), which browsers it
 /// can open in (`browser.list`) and to open it (`browser.openIn`). On this page those go to the
 /// changelog's owner as `cmux.changelog.<method>`, through the page's own client: a second client
@@ -26,10 +33,16 @@ export function routeChipHost(client: PageClient | null): void {
   setChipHost(client ? (method, params) => client.call(`cmux.changelog.${method}`, params) : undefined);
 }
 
-export function ChangePullRequest({ pr, title }: { pr: number; title: string }) {
+export function ChangePullRequest({ pr, title }: { pr: number | string; title: string }) {
+  const ref = pullRequest(pr);
+  if (!ref) return <span className="cl-change-link">{title}</span>;
+  return <ValidChangePullRequest ref={ref} title={title} />;
+}
+
+function ValidChangePullRequest({ ref, title }: { ref: { href: string; repo: string; number: number }; title: string }) {
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
-  const href = pullURL(pr);
+  const href = ref.href;
   const mark = <GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" />;
   return (
     <>
@@ -47,14 +60,14 @@ export function ChangePullRequest({ pr, title }: { pr: number; title: string }) 
         {...hover.trigger}
       >
         {mark}
-        <span className="cv-chip__label">#{pr}</span>
+        <span className="cv-chip__label">#{ref.number}</span>
       </a>
       <LinkHoverCard
         href={href}
         anchor={anchor}
         hover={hover}
         mark={mark}
-        pullRequest={{ repo: REPO, number: pr, title }}
+        pullRequest={{ repo: ref.repo, number: ref.number, title }}
       />
     </>
   );

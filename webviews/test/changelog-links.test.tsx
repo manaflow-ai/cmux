@@ -19,6 +19,24 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
+test("a What's New PR URL renders the shared colored chip and keeps its hover card", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Groups } = await import("../src/pages/changelog/ReleaseParts");
+  const { releaseView } = await import("../src/pages/changelog/model");
+  const notes = {
+    build: "1", shortVersion: "1.0.0-nightly.1", date: "2026-10-16", highlights: [], changes: [],
+    whatsNew: { version: "1.0.0-nightly.1", channel: "nightly" as const, date: "2026-10-16", headline: { en: "x" },
+      entries: [{ id: "groups", category: "new" as const, title: { en: "Workspace groups" }, summary: { en: "Keep related workspaces together." }, pr: "https://github.com/manaflow-ai/cmux/pull/27919" }] },
+  };
+  const strings = { language: "en", t: (key: string) => ({ "changelog.group.new": "New" }[key] ?? key), format: (key: string) => key };
+  const root = createRoot(host);
+  act(() => root.render(<Groups view={releaseView(notes, "en")} ctx={{ strings, onTry: () => undefined }} />));
+  const row = host.querySelector(".cl-group li")!;
+  expect(row.querySelector<HTMLAnchorElement>(".cl-change-link")?.href).toBe("https://github.com/manaflow-ai/cmux/pull/27919");
+  expect(row.querySelector<HTMLAnchorElement>(".cl-pr")?.textContent).toContain("#27919");
+  act(() => root.unmount());
+});
+
 afterAll(() => {
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
