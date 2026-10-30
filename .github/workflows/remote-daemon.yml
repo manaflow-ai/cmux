@@ -121,6 +121,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: Restore Go module and build caches
         id: go-cache-restore
+        # The cache is only a speed-up: a restore or save failure leaves the tests
+        # running on cold caches and never changes the job's result.
+        continue-on-error: true
         if: ${{ steps.go-cache.outcome == 'success' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -142,6 +145,7 @@ jobs:
       - name: Test daemon behavior with the race detector
         run: go -C daemon/remote test -race ./...
       - name: Save Go module and build caches
+        continue-on-error: true
         if: ${{ success() && github.repository == 'manaflow-ai/cmux' && steps.go-cache-restore.outcome == 'success' && steps.go-cache-restore.outputs.cache-hit != 'true' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next"]'), github.ref) }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -186,6 +190,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: Restore Go module and build caches
         id: go-cache-restore
+        # The cache is only a speed-up: a restore or save failure leaves the tests
+        # running on cold caches and never changes the job's result.
+        continue-on-error: true
         if: ${{ steps.go-cache.outcome == 'success' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -201,6 +208,7 @@ jobs:
       - name: Test native macOS daemon behavior with the race detector
         run: go -C daemon/remote test -race ./...
       - name: Save Go module and build caches
+        continue-on-error: true
         if: ${{ success() && github.repository == 'manaflow-ai/cmux' && steps.go-cache-restore.outcome == 'success' && steps.go-cache-restore.outputs.cache-hit != 'true' && contains(fromJSON('["push","workflow_dispatch"]'), github.event_name) && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next"]'), github.ref) }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
