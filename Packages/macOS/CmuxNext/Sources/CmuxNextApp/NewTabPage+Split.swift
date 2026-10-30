@@ -32,7 +32,7 @@ extension NewTabPage {
     @discardableResult
     static func split(_ source: PaneController, edge: PaneEdge, focusesPage: Bool = true, swapsBack: Bool = false) -> Bool {
         let services = source.services
-        var page = Self.page(services, selected: source.selectedTab, pane: source)
+        var page = Self.page(services, selected: source.selectedTab, pane: source, paletteActions: false)
         let cwd = page.cwd
         page.openTabs = openTabs(services, in: source.pane)
         let opened = SplitPageKey()
@@ -78,6 +78,7 @@ extension NewTabPage {
         // The split's provisional pane is in the store: the window lays it out and mounts it in
         // this turn, so the page's pane draws in the key's frame (instant-new-surfaces).
         if started, split != nil { BenchSpans.measure("split.layout") { source.workspace?.applyCurrent() } }
+        if started { fillPaletteActions(services) }
         return started
     }
 

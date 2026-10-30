@@ -94,6 +94,8 @@ final class AppServices {
     let machineAsks = SidebarAsks()
     /// Auto-archive of idle workspaces (plans/cmux-next/auto-archive-DESIGN.md); started at launch.
     private(set) lazy var autoArchive = AutoArchiveCoordinator(host: self, ledgerStore: AutoArchiveLedgerStore(defaults: .standard))
+    /// Each window's own Home (cmux#27880).
+    private(set) lazy var windowHomes = WindowHomes(host: self)
     /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
                                                                   deadline: DemandTimer(owner: "workspace-hibernation"))
@@ -132,8 +134,10 @@ final class AppServices {
     /// The app's latest key or mouse input and whether it was the person's (HID system): backs a consent
     /// grant made in a page. Started at launch.
     let personInput = PersonInputLedger()
+    /// Process-wide widening-switch gate shared by every Settings window.
+    let wideningGate = PageWideningGate()
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
-    private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.api)
+    private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.machineAPI)
     let machineHealth = MachineHealthStore()
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).

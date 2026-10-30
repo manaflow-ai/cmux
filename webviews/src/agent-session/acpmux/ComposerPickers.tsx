@@ -1,3 +1,4 @@
+import { composerPickerEntries } from "./composerPickerEntries";
 import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
@@ -20,7 +21,7 @@ import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
 import { extraConfigOptions } from "./agentOptions";
-import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
+import type { CatalogRefreshState, ModelCombo } from "./modelPickerLayout";
 import { rememberPick } from "./lastPick";
 import { defaultModel } from "./harnessSwitch";
 import { catalogRow } from "./catalogRow";
@@ -54,6 +55,7 @@ import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
+import { useScrollEdges } from "./summary/scrollEdges";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
@@ -256,26 +258,7 @@ export function ComposerPickers({
   // harnesses Fork to rows. Debug Settings' "Allow switching harness in a started chat"
   // (`harnessSwitch`) keeps the whole rail and its switch.
   const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
-  const allEntries: ModelPickerProps["catalog"] = pickerCatalog
-    ? [
-        ...pickerCatalog.harnesses
-          .filter(
-            (entry) =>
-              !entry.unavailable || entry.probeFailed || (entry.acpmuxHarness ?? entry.id) === summary?.harness,
-          )
-          .map((entry) => ({
-            id: entry.acpmuxHarness ?? entry.id,
-            name: entry.name,
-            models: entry.models,
-            ...(entry.family ? { family: entry.family } : {}),
-            ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
-            pickable: entry.pickable && entry.acpmuxHarness !== null,
-            ...(entry.topModels ? { top: entry.topModels } : {}),
-          })),
-        // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
-        ...snapshot.catalog.filter((entry) => entry.folder),
-      ]
-    : snapshot.catalog;
+  const allEntries = composerPickerEntries(snapshot, pickerCatalog);
   // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
   // than an empty picker. A chat that can fork keeps every harness: the picker offers the others as
   // Fork to, never as a switch in place (Leo 2026-10-22: "can expose as fork").
@@ -501,6 +484,10 @@ export function ComposerPickers({
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
+    const pickEffort = (value: string) => {
+      if (presession && harness) setHeldPick({ harness, value });
+      onEffort(effort?.id ?? HELD_EFFORT_ID, value);
+    };
     if (harness && remembers) rememberPick({ harness, model: pickedModel }, folder ?? summary?.cwd);
     if (pickedModel !== shown) {
       pending.current =
@@ -508,13 +495,13 @@ export function ComposerPickers({
           ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
           : undefined;
       onModel(pickedModel);
-      if (pickedEffort && presession) onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
+      if (pickedEffort && presession) pickEffort(pickedEffort);
     } else if (
       pickedEffort &&
       pickedEffort !== currentEffort &&
       (effort ? efforts.some((choice) => choice.id === pickedEffort) : presession)
     )
-      onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
+      pickEffort(pickedEffort);
   };
   // A typed combo ("gpt medium fast", ModelPicker): its model and effort land as a pick does, and
   // fast mode turns on once the agent reports the model and offers it. A combo for another harness
@@ -534,6 +521,10 @@ export function ComposerPickers({
       if (!switchHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
       if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
+      // The chip's held level follows the pick to its harness: the combo's own, or none (a level an
+      // earlier pick held there would name an effort this combo does not send).
+      if (picked.effort) setHeldPick({ harness: picked.harness, value: picked.effort });
+      else setHeldPick((held) => (held?.harness === picked.harness ? undefined : held));
       // The effort and Fast ride the switch, so a prompt sent right after the pick (it queues on the
       // switch) runs its first turn on the whole combo; the effect below only fills in what the new
       // session still reports otherwise.
@@ -1594,12 +1585,16 @@ export function Picker({
   // No room above or below its button in the pane: past the window's edge (popupHost.ts).
   const host = usePopupHost();
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  // Marks the menu's edges that rows scroll past (data-fade-top, data-fade-bottom); the composer's
+  // + styles them as the shared scroll-edge fade (styles.css). It stops when the menu unmounts.
+  const edges = useScrollEdges();
   const attach = useCallback(
     (node: HTMLDivElement | null) => {
       menu.current = node;
+      edges(node);
       if (host) setShown(node);
     },
-    [host],
+    [host, edges],
   );
   useEscapingPopup(host, shown, () => trigger.current, {
     side: "top",
