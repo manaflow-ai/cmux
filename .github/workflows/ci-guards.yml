@@ -1785,6 +1785,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_blacksmith_linux_failover.py
 
+      - name: Validate cmux-tui artifacts Linux jobs take the shared 32/16 vCPU set
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_artifacts_linux_runner_set.py
+
       - name: Validate the macOS cross-compile shadow jobs stay compare-only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_cross_shadow_jobs.py

@@ -1001,7 +1001,7 @@ class WiringTests(unittest.TestCase):
         self.assertNotIn("needs.visual-gate-nightly.", publish)
         # In report mode (and when the gate is skipped) publication goes ahead; enforce blocks this
         # run's own build only, never a recovered one (judged by its own verdict).
-        condition = next(line for line in publish.splitlines() if line.strip().startswith("if: \"!cancelled()"))
+        condition = next(line for line in publish.splitlines() if line.strip().startswith(("if: \"!cancelled()", "if: \"always() && !cancelled()")))
         own, recovered = condition.split(" || (needs.recover-nightly-next-notarization")
         self.assertIn("needs.visual-gate-nightly-verdict.outputs.blocks != 'true'", own.split("((", 1)[1])
         self.assertNotIn("visual-gate-nightly", recovered)
@@ -1036,7 +1036,7 @@ class WiringTests(unittest.TestCase):
         publish = self.job("publish-nightly")
         needs = publish[publish.index("needs: [") + len("needs: ["):].split("]", 1)[0]
         self.assertIn("route-visual-gate-nightly", [n.strip() for n in needs.split(",")])
-        condition = next(line for line in publish.splitlines() if line.strip().startswith("if: \"!cancelled()"))
+        condition = next(line for line in publish.splitlines() if line.strip().startswith(("if: \"!cancelled()", "if: \"always() && !cancelled()")))
         own = condition.split(" || (needs.recover-nightly-next-notarization")[0]
         self.assertIn("needs.route-visual-gate-nightly.outputs.mode != 'invalid'", own)
 
