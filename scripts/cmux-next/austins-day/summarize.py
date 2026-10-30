@@ -200,7 +200,8 @@ def run_metrics(run):
     person = load(series["person_cli"])
     control = load(series["app_control"])
     closes = [c for c in series["closes"] if c.get("made")]
-    answers = [a for w in series["waves"] for a in (w.get("answers") or [x for chat in w.get("chats") or [] for x in chat])]
+    answers = [a for w in series["waves"] for a in (w.get("answers") or
+               [x for chat in (w["chats"] if isinstance(w.get("chats"), list) else []) if isinstance(chat, list) for x in chat])]
     # One chat = the first answer of a one_chat attempt: session/new, or the connection that failed first.
     # An empty chat (written by drivers before a84ddb0e414's fix) is a failed open: it never got an answer.
     # Drivers before 152ee4f4d1e wrote "chats": <the wave size> (an int): only a list is a chat record.

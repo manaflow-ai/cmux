@@ -357,7 +357,9 @@ class OldRuns(unittest.TestCase):
             run_["series"]["waves"] = [{"chats": 25, "answers": [
                 {"method": "session/new", "ms": 40.0, "error": None},
                 {"method": "session/prompt", "ms": 900.0, "error": None},
-                {"method": "session/new", "ms": 10000.0, "error": "agent host start did not finish within 10s"}]}]
+                {"method": "session/new", "ms": 10000.0, "error": "agent host start did not finish within 10s"}]},
+                # A wave whose chats all failed to connect: no answers at all.
+                {"chats": 25, "answers": []}]
             d = os.path.join(tmp, "run-1")
             os.makedirs(d)
             with open(os.path.join(d, "run.json"), "w") as f:
