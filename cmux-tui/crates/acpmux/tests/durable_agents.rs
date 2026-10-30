@@ -4,6 +4,8 @@
 //! restart is still answerable after the new daemon adopts the host.
 #![cfg(unix)]
 
+#[path = "durable_agents/carried_restart.rs"]
+mod carried_restart;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
