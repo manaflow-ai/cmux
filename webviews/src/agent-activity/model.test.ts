@@ -41,6 +41,10 @@ test("groups normalizes the filter once for all sessions", () => {
     },
   };
 
-  expect(groups(state).flatMap((group) => group.sessions).map((item) => item.id)).toEqual(["a", "b"]);
+  expect(
+    groups(state)
+      .flatMap((group) => group.sessions)
+      .map((item) => item.id),
+  ).toEqual(["a", "b"]);
   expect(trimCalls).toBe(1);
 });
