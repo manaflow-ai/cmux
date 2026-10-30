@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextSidebar
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// When a personal workspace group ends (cx-rcby). The home daemon keeps a
 /// group until a client deletes it, so the client that moves workspaces
@@ -53,6 +54,13 @@ nonisolated enum PersonalGroupLifecycle {
     /// Whether `group` has no live member.
     static func isEmpty(_ group: WorkspaceGroupID, rows: [PersonalWorkspace], isLive: (Member) -> Bool) -> Bool {
         !rows.contains { $0.group == group && isLive(member($0)) }
+    }
+
+    /// Closing a workspace can leave its personal row behind for Reopen
+    /// Closed. The group is still removable when no live row remains; pinned
+    /// groups are retained as an explicit saved container.
+    static func shouldDeleteAfterClose(_ group: Group, rows: [PersonalWorkspace], isLive: (Member) -> Bool) -> Bool {
+        !group.pinned && isEmpty(group.id, rows: rows, isLive: isLive)
     }
 }
 
@@ -148,9 +156,73 @@ struct PersonalGroupLife {
 
     /// Deletes `group` when it is still an unpinned group with no live member.
     func deleteIfEmpty(_ group: WorkspaceGroupID, failed: @escaping @MainActor () -> Void) {
-        guard isEmptyUnpinned(group) else { return }
+        guard let model = personal.group(group),
+              PersonalGroupLifecycle.shouldDeleteAfterClose(
+                  PersonalGroupLifecycle.Group(id: model.id, pinned: model.pinned),
+                  rows: personal.workspaces, isLive: isLive) else { return }
         let life = self
         commit("delete-personal-group", ending: [group], recheck: { life.isEmptyUnpinned(group) ? [group] : [] }, failed: failed) { _ -> Void in }
+    }
+
+    /// Whether a close ends the groups it empties: on a home daemon that
+    /// serves personal state with pinned (saved) groups, the same daemons
+    /// on which Close Workspaces in Group deletes an unpinned group
+    /// (`PersonalGroupPin`). A home daemon without the capability keeps
+    /// groups as they are.
+    var endsGroupsOnClose: Bool {
+        let home = machines.local
+        return personal.isLoaded && home.store.servesStateResources && home.supports(DaemonCapability.workspaceGroupPin.rawValue)
+    }
+
+    /// The personal groups of the workspaces `ids` that a close of them may
+    /// empty, read before they close (none when `endsGroupsOnClose` is false).
+    func groupsClosing(_ ids: [String]) -> Set<WorkspaceGroupID> {
+        guard endsGroupsOnClose else { return [] }
+        return Set(ids.compactMap { id in
+            WindowProfiles.qualified(id, machines: machines).flatMap { personal.workspace(session: $0.session, key: $0.key)?.group }
+        })
+    }
+
+    /// How long a close waits for its members' close events to reach the
+    /// home store before it stops waiting to delete their group. A close the
+    /// daemon refuses (or one that never lands) leaves its members live, so
+    /// without a limit the wait would never end; a close that lands is seen
+    /// well within it (`WorkspaceGroupClose.arrivalLimit` gives Undo the same).
+    nonisolated static let closeSettleLimit: Duration = .seconds(5)
+
+    /// What a close's group cleanup did: `deleted` sent the delete (`deleteIfEmpty`), `kept` left the group.
+    enum CloseCleanup: Equatable {
+        case deleted
+        case kept
+    }
+
+    /// Deletes `group` once its members' closes reach the home store: waits
+    /// until it is an unpinned group with no live member, it is gone, the
+    /// observation ends, or `limit` passes, whichever comes first, then
+    /// deletes it only if it still is an unpinned group with no live member.
+    /// So it always returns, and a refused close (its members stay live)
+    /// keeps its group.
+    @discardableResult
+    func deleteWhenEmpty(_ group: WorkspaceGroupID, limit: Duration = PersonalGroupLife.closeSettleLimit,
+                         failed: @escaping @MainActor () -> Void) async -> CloseCleanup {
+        let life = self
+        return await Self.settle(
+            limit: limit,
+            settled: { life.personal.group(group) == nil || life.isEmptyUnpinned(group) },
+            deletable: { life.isEmptyUnpinned(group) },
+            delete: { life.deleteIfEmpty(group, failed: failed) })
+    }
+
+    /// The bounded wait behind `deleteWhenEmpty`, over the state it reads (a
+    /// test drives it with its own): waits until `settled` holds, the
+    /// observation ends or `limit` passes (`ObservationDeadline`), then runs
+    /// `delete` only when `deletable` holds.
+    static func settle(limit: Duration, settled: @escaping @MainActor @Sendable () -> Bool,
+                       deletable: @MainActor () -> Bool, delete: @MainActor () -> Void) async -> CloseCleanup {
+        if !settled() { await ObservationDeadline(owner: "personal-group-close-cleanup").until(settled, limit: limit) }
+        guard deletable() else { return .kept }
+        delete()
+        return .deleted
     }
 }
 

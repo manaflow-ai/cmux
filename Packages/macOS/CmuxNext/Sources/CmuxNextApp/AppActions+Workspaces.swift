@@ -199,6 +199,11 @@ extension AppActions {
         let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
         let id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
+        // Closing the last workspace in an unpinned personal group removes the
+        // now-empty group (cx-rcby, `PersonalGroupLife.endsGroupsOnClose`). Capture
+        // the group before the workspace leaves its daemon; `deleteIfEmpty` rechecks
+        // after the close has been applied so a concurrent move keeps it.
+        let personalGroup = PersonalGroupLife(machines: services.machines).groupsClosing([id]).first
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
@@ -233,9 +238,13 @@ extension AppActions {
                         try await ClosingWorkspaces.shared.refusal()
                         try await WorkspaceClose.close(key, terminals: terminals, on: connection)
                     }
-                    guard hidden else { return failure }
-                    // A close that went through stays hidden until the store has applied its events (the row is gone there).
+                    // Wait for the close event before deciding whether its personal group is empty.
                     if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
+                    if failure == nil, let personalGroup {
+                        let life = PersonalGroupLife(machines: services.machines)
+                        life.deleteIfEmpty(personalGroup, failed: { controller?.sidebar.resync() })
+                    }
+                    guard hidden else { return failure }
                     ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
                     return failure
                 }
