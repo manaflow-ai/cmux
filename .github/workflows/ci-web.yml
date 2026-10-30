@@ -872,7 +872,9 @@ jobs:
         continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: scripts/ci/webviews_test_history.py
+          sparse-checkout: |
+            scripts/ci/webviews_test_history.py
+            scripts/ci/web_subareas.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -903,7 +905,8 @@ jobs:
           [ -e "${shards[0]}" ] || { echo "no shard recorded results"; exit 1; }
           history="$RUNNER_TEMP/webviews-test-history/history.json"
           python3 scripts/ci/webviews_test_history.py record "$history" "$history.new" \
-            --sha "$GITHUB_SHA" --time "$(git log -1 --format=%ct)" "${shards[@]}"
+            --sha "$GITHUB_SHA" --attempt "$GITHUB_RUN_ATTEMPT" --time "$(git log -1 --format=%ct)" \
+            --inputs "$(python3 scripts/ci/webviews_test_history.py inputs)" "${shards[@]}"
           mv "$history.new" "$history"
 
       - name: Save the history

@@ -283,6 +283,33 @@ def test_an_aggregate_red_with_no_red_job_blocks():
     assert "do not merge until green" in line, line
 
 
+def test_an_unrelated_base_red_never_excuses_an_aggregate_whose_job_was_cancelled():
+    # Review (gpt-6-astra), 2026-10-30: React Doctor cancelled, both web aggregates red, and a size-cap red that the
+    # base has too. The size cap is no job either aggregate gathers, and the cancelled job is the aggregates' own.
+    size = "cmux-next CmuxNextApp size cap"
+    fake = FakeGitHub(
+        [run("web / react-apps-check", "failure", id_=11), run("web / Web status", "failure", id_=12),
+         run("web / react-doctor", "cancelled", id_=13), run(size, "failure", id_=14), run(RAC, "success", id_=15)], [],
+        base_runs=[run(size, "failure", id_=24), run("web / react-apps-check", "success", id_=21)],
+        steps={14: [failed("Check the app size")], 24: [failed("Check the app size")]})
+    lines = checks_line(fake).splitlines()
+    by = {line.split(";")[0]: line for line in lines}
+    assert "does not block" in by[f"red: {size}"], lines
+    assert by["red: web / react-apps-check"].endswith(
+        "a job it gathers ended without a verdict (web / react-doctor: cancelled); do not merge until green; see lane-rules"), lines
+    assert "a job it gathers is red on this change" in by["red: web / Web status"], lines
+
+
+def test_a_cancelled_job_blocks_its_aggregate_beside_base_reds():
+    fake = FakeGitHub(
+        [run("web / react-apps-check", "failure", id_=11), run(RAC, "failure", id_=12),
+         run("web / react-doctor", "cancelled", id_=13)], [],
+        base_runs=[run(RAC, "failure", id_=22)],
+        steps={12: [failed("Fail on the eager JS budget")], 22: [failed("Fail on the eager JS budget")]})
+    lines = checks_line(fake).splitlines()
+    assert "ended without a verdict (web / react-doctor: cancelled)" in lines[0], lines
+
+
 # OWN_CHECKS_GREEN: the caller's tracked jobs passed. Three workflows call this on every push; with
 # no red line there is nothing for a green caller to change, so it reads no check runs.
 GREEN = {"OWN_CHECKS_GREEN": "true"}

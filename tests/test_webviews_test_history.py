@@ -24,63 +24,102 @@ FILE = "test/agent-pane-suggested-tasks.test.ts"
 TEST = f"{FILE} > sends the image"
 
 
-def runs(*verdicts):
-    """One run per verdict: True green, False the test red, None the file timed out, "-" not run."""
+def runs(*verdicts, keys=None):
+    """One run per verdict: True green, False the test red, None the file timed out, "-" not run. `keys` gives each
+    run's inputs key (default: all the same inputs)."""
     out = []
     for i, verdict in enumerate(verdicts):
         found = {} if verdict == "-" else {FILE: False} if verdict is None else {TEST: False} if verdict is False else {FILE: True}
-        out = history.record(out, f"sha{i}", 1000 + i, found) if found else out
+        out = history.record(out, f"sha{i}", 1000 + i, found, keys[i] if keys else "same") if found else out
     return out
 
 
 class Flaky(unittest.TestCase):
-    def test_a_lone_red_between_greens_is_flaky(self):
+    def test_a_test_that_passes_and_fails_on_the_same_inputs_is_flaky(self):
+        # agent-pane-suggested-tasks: base runs 41075124126 red and 41075808917 green on the same webview tree.
         self.assertEqual(history.flaky(runs(True, True, False, True, True)), [TEST])
-
-    def test_a_lone_green_between_reds_is_flaky(self):
         self.assertEqual(history.flaky(runs(False, False, True, False), [TEST]), [TEST])
+        self.assertEqual(history.flaky(runs(True, False, keys=["a", "a"])), [TEST])
+
+    def test_a_break_and_its_revert_are_not_flaky(self):
+        # A working commit, a broken one and its revert: green, red, green, each on its own inputs (review, 10-30).
+        self.assertEqual(history.flaky(runs(True, False, True, keys=["w", "x", "w"])), [])
+        self.assertEqual(history.flaky(runs(True, False, True, keys=["w", "x", "r"])), [])
+        # Pushes that change no webview input in between still follow the code.
+        self.assertEqual(history.flaky(runs(True, True, False, False, True, True, keys="wwxxrr")), [])
 
     def test_a_break_that_holds_is_not_flaky(self):
-        self.assertEqual(history.flaky(runs(True, True, False, False, False)), [])
-
-    def test_a_break_on_the_newest_push_is_not_flaky(self):
-        self.assertEqual(history.flaky(runs(True, True, True, False)), [])
-
-    def test_a_fix_that_holds_is_not_flaky(self):
-        self.assertEqual(history.flaky(runs(False, False, True, True), [TEST]), [])
+        self.assertEqual(history.flaky(runs(True, True, False, False, keys="wwxx")), [])
 
     def test_a_timed_out_file_says_nothing_about_its_tests(self):
-        # The file never reached its tests on the timed-out run, so the red stays a lasting break.
-        self.assertEqual(history.flaky(runs(True, False, None, False), [TEST]), [])
-        self.assertEqual(history.verdicts(runs(True, None, True), TEST), [True, True])
+        # The timed-out run shares the red run's inputs but names no test: no green to set against the red.
+        self.assertEqual(history.flaky(runs(True, None, False, keys="abb"), [TEST]), [])
+        self.assertEqual(history.verdicts(runs(True, None, True), TEST), [("same", True), ("same", True)])
 
     def test_a_file_that_times_out_now_and_then_is_flaky_as_a_file(self):
-        found = runs(True, None, True)
-        self.assertEqual(history.flaky(found, [FILE]), [FILE])
+        self.assertEqual(history.flaky(runs(True, None, True), [FILE]), [FILE])
         # A run that failed with named tests did not time out: the file-level verdict is green there.
-        self.assertEqual(history.verdicts(runs(False, None, False), FILE), [True, False, True])
+        self.assertEqual([ok for _, ok in history.verdicts(runs(False, None, False), FILE)], [True, False, True])
 
     def test_runs_without_the_file_are_skipped(self):
-        self.assertEqual(history.flaky(runs(True, "-", False, "-", True)), [TEST])
+        self.assertEqual(history.flaky(runs(True, "-", False)), [TEST])
 
     def test_only_the_names_asked_about(self):
         self.assertEqual(history.flaky(runs(True, False, True), ["test/other.test.ts > x"]), [])
+
+
+class Inputs(unittest.TestCase):
+    def git(self, repo, *args):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                              check=True, capture_output=True, text=True).stdout
+
+    def test_the_key_follows_the_routers_webview_inputs_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self.git(repo, "init", "-q")
+            (repo / "webviews/test").mkdir(parents=True)
+            (repo / "webviews/test/a.test.ts").write_text("1\n")
+            (repo / "Sources").mkdir()
+            (repo / "Sources/App.swift").write_text("1\n")
+            self.git(repo, "add", "-A")
+            self.git(repo, "commit", "-qm", "one")
+            first = history.inputs(repo)
+            (repo / "Sources/App.swift").write_text("2\n")  # a Swift-only push
+            self.git(repo, "commit", "-qam", "swift")
+            self.assertEqual(history.inputs(repo), first)
+            (repo / "webviews/test/a.test.ts").write_text("2\n")
+            self.git(repo, "commit", "-qam", "webviews")
+            changed = history.inputs(repo)
+            self.assertNotEqual(changed, first)
+            (repo / "webviews/test/a.test.ts").write_text("1\n")  # the revert: its inputs are the first's again
+            self.git(repo, "commit", "-qam", "revert")
+            self.assertEqual(history.inputs(repo), first)
+            (repo / "scripts/ci").mkdir(parents=True)
+            (repo / "scripts/ci/run-webviews-tests.sh").write_text("runner\n")  # REACT_EXACT
+            self.git(repo, "add", "-A")
+            self.git(repo, "commit", "-qm", "runner")
+            self.assertNotEqual(history.inputs(repo), first)
 
 
 class Record(unittest.TestCase):
     def test_keeps_the_newest_runs_in_commit_order(self):
         found = []
         for i in (3, 1, 2):
-            found = history.record(found, f"sha{i}", i, {FILE: True}, keep=2)
+            found = history.record(found, f"sha{i}", i, {FILE: True}, "k", keep=2)
         self.assertEqual([run["sha"] for run in found], ["sha2", "sha3"])
 
-    def test_a_rerun_of_a_push_replaces_its_run(self):
-        found = history.record([], "sha", 1, {TEST: False})
-        found = history.record(found, "sha", 1, {FILE: True})
-        self.assertEqual(found, [{"sha": "sha", "time": 1, "files": [FILE], "red": []}])
+    def test_a_rerun_of_a_push_is_more_evidence_and_the_same_attempt_replaces_itself(self):
+        found = history.record([], "sha", 1, {TEST: False}, "k")
+        found = history.record(found, "sha", 1, {FILE: True}, "k", attempt=2)
+        self.assertEqual(history.flaky(found), [TEST])
+        found = history.record(found, "sha", 1, {FILE: True}, "k", attempt=2)
+        self.assertEqual(len(found), 2)
+        found = history.record([], "sha", 1, {TEST: False}, "k")
+        found = history.record(found, "sha", 1, {FILE: True}, "k")
+        self.assertEqual(found, [{"sha": "sha", "attempt": 1, "time": 1, "inputs": "k", "files": [FILE], "red": []}])
 
     def test_no_results_add_no_run(self):
-        self.assertEqual(history.record([], "sha", 1, {}), [])
+        self.assertEqual(history.record([], "sha", 1, {}, "k"), [])
 
     def test_shards_merge_and_a_red_wins(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -97,6 +136,9 @@ class Record(unittest.TestCase):
             self.assertEqual(history.load(bad), [])
             bad.write_text(json.dumps({"runs": [{"sha": 1}]}))
             self.assertEqual(history.load(bad), [])
+            # A run with no inputs key proves nothing.
+            bad.write_text(json.dumps({"runs": [{"sha": "s", "time": 1, "files": [], "red": []}]}))
+            self.assertEqual(history.load(bad), [])
             self.assertEqual(history.load(Path(tmp) / "missing.json"), [])
 
 
@@ -109,7 +151,7 @@ class Command(unittest.TestCase):
                 shard = tmp / f"shard{i}.json"
                 shard.write_text(json.dumps(found))
                 done = subprocess.run([sys.executable, str(SCRIPT), "record", str(saved), str(tmp / "new.json"),
-                                       "--sha", f"sha{i}", "--time", str(100 + i), str(shard)],
+                                       "--sha", f"sha{i}", "--time", str(100 + i), "--inputs", "k", str(shard)],
                                       capture_output=True, text=True, check=True)
                 (tmp / "new.json").replace(saved)
             self.assertIn("3 push runs", done.stdout)

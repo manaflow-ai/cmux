@@ -30,8 +30,9 @@ test reds that broke the base, and this line called most of them base reds):
     change" annotations.
   - web / react-apps-check and web / Web status only gather other jobs. Their one failed step ("Check
     webview test shards", "Check routed web jobs") failed the same way on a red base for any reason, so a
-    signature match said nothing. Each follows the other red checks' lines: it blocks when any of them
-    blocks, or when none of them is red (a job it gates was skipped or cancelled). A new advisory check is one more entry
+    signature match said nothing. Each follows the lines of the red jobs it gathers (AGGREGATES): it blocks
+    when one of them blocks, when a job it gathers was cancelled, or when none of them is red. A red check
+    it does not gather (the size cap) never excuses it. A new advisory check is one more entry
 in TRACKED. The comment this used to keep on its own (LEGACY_MARKER) is deleted on the first write.
 
 OWN_CHECKS_GREEN=true (the caller's tracked jobs all passed or were skipped) reads only the status
@@ -70,8 +71,15 @@ RED = {"failure", "timed_out", "action_required", "startup_failure"}
 BASE_CHECK = re.compile(r"^web / react-apps-base-check \(\d+\)$")
 NEW_TEST_TITLE = "Webview test red on this change"
 NAMED = 3  # new red tests a line names before "(+N more)"
-# Jobs that only gather other jobs' verdicts: never compared with the base on their own.
-AGGREGATES = ("web / react-apps-check", "web / Web status")
+# Jobs that only gather other jobs' verdicts, each with the jobs it gathers (its `needs`, as check names): never
+# compared with the base on their own. react-apps-check comes first: Web status gathers it too.
+AGGREGATES = {
+    "web / react-apps-check": re.compile(r"^web / (?:react-apps-(?:base-)?check \(\d+\)|react-doctor)$"),
+    "web / Web status": re.compile(r"^web / (?!Web status$)"),  # it needs every routed web job
+}
+# A gathered job that ended with no verdict: the aggregate failed on it, and no base red explains that. Skipped is
+# not one: a replay is skipped after its shard fails (that shard's line decides), and an unrouted job skips.
+NO_VERDICT = {"cancelled", "stale"}
 GREEN_LINE = "web and size checks: green"
 BLOCK = "do not merge until green; see lane-rules"
 EXIT_CODE = re.compile(r"^Process completed with exit code \d+\.?$")
@@ -192,12 +200,16 @@ def base_check_line(name, tests):
     return f"red: {name}; NEW webview test reds: {'; '.join(tests[:NAMED])}{more}; {BLOCK}"
 
 
-def aggregate_line(name, others):
-    """An aggregate's line, from the other red checks' lines: never a base red of its own."""
-    if not others:
-        return f"red: {name}; none of the jobs it gathers is red (one was skipped or cancelled); {BLOCK}"
-    if any(BLOCK in line for line in others):
+def aggregate_line(name, gathered, unfinished=()):
+    """An aggregate's line, from the lines of the red jobs it gathers: never a base red of its own. It blocks when one
+    of them blocks, when a job it gathers was cancelled or skipped (its own failure, which no base red explains), or
+    when none of them is red."""
+    if any(BLOCK in line for line in gathered):
         return f"red: {name}; a job it gathers is red on this change (its line here); {BLOCK}"
+    if unfinished:
+        return f"red: {name}; a job it gathers ended without a verdict ({unfinished[0]}); {BLOCK}"
+    if not gathered:
+        return f"red: {name}; none of the jobs it gathers is red (one was skipped or cancelled); {BLOCK}"
     return f"red: {name}; follows the jobs it gathers, whose reds are all on the base too; does not block"
 
 
@@ -227,10 +239,14 @@ def base_lines(gh, runs, base_sha):
             print(f"pr-red-checks: {name}: no signature ({err}); it blocks", file=sys.stderr)
             continue
         lines[name] = compare(name, pr_sig, base_run, base_sig, base_sha)
-    others = [lines.get(n) or f"red: {n}; {BLOCK}" for n in red if n not in AGGREGATES]
-    for name in red:
-        if name in AGGREGATES:
-            lines[name] = aggregate_line(name, others)
+    for name, gathers in AGGREGATES.items():
+        if name not in red:
+            continue
+        jobs = [n for n in red if n != name and gathers.match(n)]
+        unfinished = sorted(f"{n}: {r.get('conclusion')}" for n, r in mine.items()
+                            if n != name and gathers.match(n)
+                            and r.get("status") == "completed" and r.get("conclusion") in NO_VERDICT)
+        lines[name] = aggregate_line(name, [lines.get(n) or f"red: {n}; {BLOCK}" for n in jobs], unfinished)
     return lines
 
 
