@@ -207,9 +207,7 @@ public final class AgentPaneView: NSView {
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
         model.tabRow.supportsNativeTools = pageEvents != nil
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
-            guard let self, self.model.tabRow.nativeToolsEnabled, let pageEvents = self.pageEvents else { return }
-            AgentPanePersonInput.record(self.model.transport.gestures)
-            pageEvents.publish(.tabRowToolInvoked(id: id, menuItemId: menuItemID))
+            self?.invokeTabRowTool(id, menuItemID: menuItemID)
         }
         openURL = { [weak self] url, modifiers in
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }

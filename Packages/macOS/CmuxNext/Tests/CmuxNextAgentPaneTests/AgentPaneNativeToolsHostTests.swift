@@ -9,11 +9,11 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AgentPaneNativeToolsHostTests {
-    private actor NoHost: AgentPaneHostProviding {
+    actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    private func enableTools() -> () -> Void {
+    func enableTools() -> () -> Void {
         let store = TunableStore.shared
         store.activate(file: nil)
         store.register(ChromeTunables.all)
