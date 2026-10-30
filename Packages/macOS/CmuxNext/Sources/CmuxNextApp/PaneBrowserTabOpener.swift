@@ -96,6 +96,8 @@ struct PaneBrowserTabOpener {
             // moves to a column on its right, as the daemon reroutes it for a dock closed to tabs. A caller's
             // `then` places it itself (LinkOpener, AgentBesidePlacement, a script's HomeDockOpens.placing).
             let beside = then == nil && controller.isOpenPinnedDockPane
+            // Keep a Home-dock tab out of the dock strip until it lands beside the dock.
+            let outbound = beside ? OutboundTab.begin(in: controller) : nil
             // A person's foreground tab: shown with its page in this turn (openStandIn). Not one aimed
             // at Home: the stand-in selects it in Home's dock, and its strip would come back (Lawrence
             // 2026-10-29: "chief in home should not have horizontal tabbar").
