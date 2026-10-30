@@ -54,6 +54,7 @@ async function open(
     answerGate,
     attachGate,
     adoptGate,
+    trustOnce = false,
     adoptOnConnect = true,
     saved = false,
   }: {
@@ -61,6 +62,7 @@ async function open(
     answerGate?: Promise<void>;
     attachGate?: Promise<void>;
     adoptGate?: Promise<void>;
+    trustOnce?: boolean;
     adoptOnConnect?: boolean;
     saved?: boolean;
   } = {},
@@ -71,6 +73,7 @@ async function open(
   const asked: Record<string, unknown>[] = [];
   const methods: string[] = [];
   const killed: string[] = [];
+  let trusted = false;
   let other = "";
   class LiveElsewhere extends MockAcpmuxSocket {
     constructor() {
@@ -97,6 +100,12 @@ async function open(
         if (method !== "session/new") return answer(method, params);
         const asking = params._meta?.acpmux?.adopt ?? {};
         asked.push(asking);
+        if (asking.ifLive === "fork" && trustOnce && !trusted) {
+          trusted = true;
+          throw Object.assign(new Error("trust this folder first"), {
+            data: { reason: "trust.pending", cwd: "~/code/cmux" },
+          });
+        }
         if (asking.ifLive === "fork") {
           await answerGate;
           created("fork-1");
@@ -305,3 +314,24 @@ for (const watches of [true, false])
       client.close?.();
     }
   });
+
+test("a fork waiting on Trust is not retried after the person moved to another chat", async () => {
+  const { client, asked, other, now } = await open(true, { trustOnce: true });
+  try {
+    await settle(() => Boolean(now().liveTakeOver));
+    let again: (() => void) | undefined;
+    client.onTrustRefused = (_refusal, retry) => (again = retry);
+    const kept = persisted(client);
+    await client.adoptLive("fork");
+    await settle(() => again !== undefined);
+    expect(again).toBeDefined();
+    await client.select(other());
+    again?.();
+    await settle(() => false);
+    expect(asked.filter((a) => a.ifLive === "fork")).toHaveLength(1);
+    expect(now().sessionId).toBe(other());
+    expect(kept).toEqual([]);
+  } finally {
+    client.close?.();
+  }
+});
