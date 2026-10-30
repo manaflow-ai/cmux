@@ -23,8 +23,10 @@
 #   fetch and resolve-commit take the v2 publication, else the v1 publication
 #   of the same commit (`key --version v1`), and the workflow publishes both.
 #   The `cmux-tui artifacts` workflow runs on every trusted push to
-#   feat-cmux-next and feat-cmux-next-acpmux that touches cmux-tui, ghostty or
-#   ghostty-next. Untrusted synthetic merge refs are refused.
+#   feat-cmux-next and feat-cmux-next-acpmux that changes a runtime input.
+#   GitHub filters pushes containing only cmux-tui/docs prose, so consumers
+#   never wait for an unpublished docs-only key. Untrusted synthetic merge
+#   refs are refused.
 #   After the hosted build and the cmux_next_ daemon tests pass on that commit,
 #   it publishes https://files.cmux.com/cmux-tui/tree/<key>/ with
 #   cmux-tui-aarch64-apple-darwin, cmux-tui-aarch64-apple-darwin.sha256 and

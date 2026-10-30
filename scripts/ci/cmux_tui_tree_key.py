@@ -64,6 +64,29 @@ def tree_key(revision: str, version: str = "v2") -> str:
         expected_mode = {"tree": "040000", "gitlink": "160000", "blob": "100755"}.get(kind)
         if expected_mode is None:
             raise RuntimeError(f"unknown cmux-tui tree input type {kind!r} for {path}")
+        if version == "v2" and kind == "tree" and path == "cmux-tui":
+            # The published runtime does not contain the prose and examples
+            # under cmux-tui/docs. Expand this workspace tree while omitting
+            # that subtree, so a docs-only commit keeps the code tree key even
+            # in a shallow checkout with no parent commit available.
+            try:
+                raw_entries = subprocess.check_output(
+                    ["git", "-C", str(ROOT), "ls-tree", "-r", "-z", revision, "--", path],
+                    env=GIT_ENV,
+                    timeout=GIT_TIMEOUT_SECONDS,
+                )
+            except subprocess.CalledProcessError:
+                raise RuntimeError(f"{revision} has no {kind} input {path}") from None
+            for raw_entry in raw_entries.split(b"\0"):
+                if not raw_entry:
+                    continue
+                header, raw_path = raw_entry.split(b"\t", 1)
+                mode, object_type, object_id = header.decode().split()
+                entry_path = raw_path.decode()
+                if entry_path == "cmux-tui/docs" or entry_path.startswith("cmux-tui/docs/"):
+                    continue
+                entries[tuple(entry_path.split("/"))] = (mode, object_type, object_id)
+            continue
         entries[parts] = (expected_mode, {"tree": "tree", "gitlink": "commit", "blob": "blob"}[kind], object_id)
 
     def make_tree(prefix: tuple[str, ...]) -> str:
