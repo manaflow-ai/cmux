@@ -61,6 +61,17 @@ nonisolated enum FilePageActionCatalog: ActionCatalogGroup {
                 // App-wide like the other headless settings verbs: nothing to right-click.
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // R96: the recovered drafts of unsaved files (a quit, crash or power-off) after the
+            // launch notice has shown once; Return opens the chosen one as unsaved changes, as the
+            // notice's Open does.
+            ActionDescriptor(
+                id: "file.openRecoveredDraft",
+                title: String(localized: "action.file.openRecoveredDraft", defaultValue: "Open Recovered Draft…", bundle: .module),
+                keywords: ["file", "editor", "recover", "recovered", "draft", "unsaved", "crash", "restore"],
+                category: .pane, symbol: "doc.badge.clock", surfaces: [.palette], cliName: "file open-recovered-draft",
+                // A palette page of drafts to pick from; scripts read the drafts with debug.filepages.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
         ]
     }
 }
