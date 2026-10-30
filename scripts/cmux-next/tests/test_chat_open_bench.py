@@ -137,6 +137,14 @@ class OpenTests(unittest.TestCase):
         self.assertIn("marks=['action']", line)
         self.assertNotIn("pane_made", line)
 
+    def test_why_shows_how_the_workspace_was_shown_past_a_long_reply(self):
+        reply = {"action": "agent.openSessionWorkspace", "args": {"session": "s" * 300}, "created": ["ws_1"],
+                 "shown": {"via": "workspace.selectLast", "reply": {}, "refused": {"error": "No workspace ws_1."}}}
+        record = {"timed_out": True, "frames": [], "order": ["action"], "open_reply": reply}
+        line = self.bench.why(record)
+        self.assertIn('shown={"via": "workspace.selectLast"', line)
+        self.assertIn("shown", record["open_reply"])  # the record keeps it for the JSON artifact
+
 
 if __name__ == "__main__":
     unittest.main()
