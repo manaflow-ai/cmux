@@ -45,14 +45,16 @@ fn stamp(path: &Path) -> Option<Value> {
 /// The entry name for `spec`, or None when its command cannot be read (it
 /// then starts to be listed, as before). It names the file `PATH` resolves
 /// the command to, so another `PATH` is another entry, and every arg that
-/// names a file (a script an interpreter runs), so editing it is a new entry.
+/// names a file (a script an interpreter runs, `server.py` included: the
+/// server starts in this process's directory, where a relative arg resolves
+/// the same way), so editing it is a new entry.
 pub(super) fn key(spec: &Spec) -> Option<String> {
     let program = stamp(&resolve(spec)?)?;
     let files: Vec<Value> = spec
         .args
         .iter()
         .map(Path::new)
-        .filter(|arg| arg.components().count() > 1 && arg.is_file())
+        .filter(|arg| arg.is_file())
         .filter_map(stamp)
         .collect();
     let mut env: Vec<&str> = spec.env.iter().map(|(k, _)| k.as_str()).collect();
@@ -215,6 +217,18 @@ mod tests {
         std::fs::write(&script, "version two").unwrap();
         assert_ne!(key(&by_script).unwrap(), before);
         assert!(key(&named).is_some());
+        // A bare relative script (`python3 server.py`) counts too: the server
+        // starts in this process's directory, so the arg names the same file.
+        let bare = tempfile::NamedTempFile::new_in(".").unwrap();
+        std::fs::write(bare.path(), "v1").unwrap();
+        let name = bare.path().file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(Path::new(&name).components().count(), 1);
+        let mut relative = spec(&late.join("srv"), "t");
+        relative.args = vec![name];
+        let before = key(&relative).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(bare.path(), "version two").unwrap();
+        assert_ne!(key(&relative).unwrap(), before);
         // Without the servers own PATH entry, this processs PATH (no `srv`) finds nothing.
         assert_eq!(resolve(&spec(Path::new("srv-not-on-any-path"), "t")), None);
     }
