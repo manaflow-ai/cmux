@@ -1,12 +1,20 @@
+/// What the X's take-back of a waiting steer came to: its text went back into the composer
+/// (`back`), acpmux answered that it stays (`refused`: the agent took it already, or its harness
+/// cannot drop one), or it failed on the way (`failed`: an RPC error, attachments not read yet),
+/// so the X may be tried again.
+export type TakeBack = "back" | "refused" | "failed";
+
 // Actions a turn's footer and edited-files card offer that reach past the transcript (to the
 // client). A context, so a change in what acpmux serves, or in what the reader decided about a
 // turn's hunks, reaches memoized rows without changing their versions.
 import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
+import type { AccessOffer } from "../accessOffer";
 import type { ChatAccount } from "../chatAccounts";
 import type { HarnessHealth } from "../HarnessHealthNotice";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
+import type { RetryNote, RetryTarget } from "../subagents/retryState";
 import type { MessageBranch } from "./branches";
 import type { SlashCommand } from "../slashCommands";
 import type { RetryModel } from "./retryModelSections";
@@ -40,6 +48,10 @@ export type TurnActions = {
   promptImage?: (id: string) => Promise<string | undefined>;
   /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
   retry?: (rowId: string, prompt: string) => void;
+  /// A failed last turn's Retry (turnRetry.ts): acpmux's turn retry of the chat the row was drawn
+  /// for, else `retry` where the turn has a prompt to send (`rowId`, `prompt`). Settles with the
+  /// note a refusal leaves on the failure's card.
+  retryFailed?: (rowId: string | undefined, prompt: string | undefined) => Promise<RetryNote | undefined>;
   /// Retry with another model (cx-ncc.62): the chat harness's models, the one it runs, and the retry
   /// that moves the chat to the model picked and sends the prompt again there.
   retryWith?: {
@@ -61,6 +73,11 @@ export type TurnActions = {
   /// Restart on a subagent's end line (subagents/restart.ts): asks the chat to run it again with
   /// its prompt.
   restartSubagent?: (agent: Subagent) => void;
+  /// Retry on a failed subagent's or sub-session's row (subagents/retryState.ts `runRetry`):
+  /// settles with the note a refusal leaves on the row.
+  retryAgent?: (agent: RetryTarget) => Promise<RetryNote | undefined>;
+  /// The capabilities acpmux named (retryState.ts `retryActionOf`): which Retry a row offers.
+  retryCapabilities?: ReadonlySet<string>;
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
   /// Explicitly set up this Cloud chat's provider credentials on its machine, then retry the turn.
@@ -76,12 +93,15 @@ export type TurnActions = {
     find: () => Promise<ChatAccount | "on" | undefined>;
     use: (routeId: string) => Promise<void>;
   };
+  /// Add Credits… on a turn the cmux model router refused for want of a plan or credits
+  /// (accessOffer.ts, failureCopy.ts `needs-credits`); the app runs it on the person's click.
+  access?: AccessOffer;
   /// What another agent's waiting message's ⋯ menu does (conversation/QueuedMessageCard.tsx), as
   /// the chat offers it now; undefined while the chat is not connected.
   queuedMessages?: () => QueuedMessageActionsValue | undefined;
   /// The X beside a steer the agent has not read yet: takes it back into the composer to edit
-  /// (PendingSteer.tsx `takeBackSteer`); false when the agent read it first.
-  unsteer?: (row: AcpmuxRow) => Promise<boolean>;
+  /// (PendingSteer.tsx `takeBackSteer`).
+  unsteer?: (row: AcpmuxRow) => Promise<TakeBack>;
   /// The changes view's hunk decisions; a card's Undo asks for its turn's hunks through it, so
   /// the view shows them as requested too.
   review?: HunkReview;
@@ -128,7 +148,10 @@ export function chatLoginCommand(
   harness: string | undefined,
   health: HarnessHealth | undefined,
 ): string | undefined {
-  const profile = catalog.find((entry) => entry.id === (harness ?? ""))?.auth?.login;
   const checked = health && health.id === harness ? health.login?.trim() : undefined;
-  return profile || checked || undefined;
+  // Prefer the health command: it is the profile command after account-home
+  // qualification (CODEX_HOME/CLAUDE_CONFIG_DIR). The catalog value is the
+  // unqualified fallback for a daemon that has not reported health yet.
+  const profile = catalog.find((entry) => entry.id === (harness ?? ""))?.auth?.login;
+  return checked || profile || undefined;
 }
