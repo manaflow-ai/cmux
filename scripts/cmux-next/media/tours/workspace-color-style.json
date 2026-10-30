@@ -1,5 +1,5 @@
 {
-  "title": "Workspace Color Style: a colored workspace as a dot, a left rail or a filled row (#25653)",
+  "title": "Workspace Color Style: Fill Row, colored loose and grouped rows filled (#25653)",
   "steps": [
     {
       "title": "Launch",
@@ -145,39 +145,7 @@
       "wait": 1
     },
     {
-      "title": "Dark",
-      "rpc": {
-        "method": "debug.appearance",
-        "params": {
-          "mode": "dark"
-        }
-      },
-      "wait": 2,
-      "shot": false,
-      "optional": "debug.appearance is DEBUG only"
-    },
-    {
-      "title": "Dark, Dot (default): the swatch before each colored name",
-      "cmux": [
-        "settings",
-        "set",
-        "workspaceColors.indicatorStyle",
-        "dot"
-      ],
-      "wait": 2
-    },
-    {
-      "title": "Dark, Left Rail: a bar down each colored row's edge",
-      "cmux": [
-        "settings",
-        "set",
-        "workspaceColors.indicatorStyle",
-        "leftRail"
-      ],
-      "wait": 2
-    },
-    {
-      "title": "Dark, Fill Row: each colored row filled, the selected one stronger",
+      "title": "Fill Row: each colored row filled, the selected one stronger",
       "cmux": [
         "settings",
         "set",
@@ -185,64 +153,6 @@
         "fill"
       ],
       "wait": 2
-    },
-    {
-      "title": "Light",
-      "rpc": {
-        "method": "debug.appearance",
-        "params": {
-          "mode": "light"
-        }
-      },
-      "wait": 2,
-      "shot": false,
-      "optional": "debug.appearance is DEBUG only"
-    },
-    {
-      "title": "Light, Fill Row",
-      "wait": 1
-    },
-    {
-      "title": "Light, Left Rail",
-      "cmux": [
-        "settings",
-        "set",
-        "workspaceColors.indicatorStyle",
-        "leftRail"
-      ],
-      "wait": 2
-    },
-    {
-      "title": "Light, Dot (default)",
-      "cmux": [
-        "settings",
-        "set",
-        "workspaceColors.indicatorStyle",
-        "dot"
-      ],
-      "wait": 2
-    },
-    {
-      "title": "Back to the default",
-      "cmux": [
-        "settings",
-        "unset",
-        "workspaceColors.indicatorStyle"
-      ],
-      "wait": 1,
-      "shot": false
-    },
-    {
-      "title": "Back to the system appearance",
-      "rpc": {
-        "method": "debug.appearance",
-        "params": {
-          "mode": "system"
-        }
-      },
-      "wait": 2,
-      "shot": false,
-      "optional": "debug.appearance is DEBUG only"
     }
   ]
 }
