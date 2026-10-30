@@ -39,47 +39,60 @@ extension UpdaterService {
     }
 
     /// A staged build known pulled waits in Update Ready (an installer this app cannot cancel, or
-    /// one about to be dropped): no card or footer pill offers it, and a quit with
-    /// `updates.installOnQuit` off cancels it as any staged update.
+    /// one about to be dropped): no card or footer pill offers it, and a quit cancels it instead
+    /// of installing it.
     var stagedPulledHeld: Bool {
         guard case .ready = flow.phase, let staged = stagedBuild(), !staged.isEmpty else { return false }
-        return StagedUpdateRefresh.knownPulled(staged, updater: self)
+        return isKnownPulled(staged)
     }
 
     /// Starts the check that downloads the newest build (this app's driver, never Sparkle's silent one).
     func startNewestCheck(_ reason: NewestFetch) {
+        guard reason == .click || !isOffManagedChannel else { return }
         newestFetch = reason
         if let startCheck = stagedRefresh.startCheck { startCheck() } else { controller?.checkForUpdates() }
+    }
+
+    /// Whether `build` is known pulled: on the pulled list as last read, or dropped as pulled before.
+    func isKnownPulled(_ build: String) -> Bool {
+        pulledWatch.isPulled(build) || droppedPulled.contains(build)
+    }
+
+    /// A found update known pulled is never offered or downloaded: ``indicatorPhase`` hides it (no
+    /// card, no Update Available button, no download), and its Sparkle prompt ends without
+    /// skipping it, so the next check offers a good build as usual.
+    func dropPulledAvailable() {
+        guard case .available = sourcePhase, let found = availableBuild(), isKnownPulled(found) else { return }
+        log.append("found build \(found) was pulled: not offering it")
+        dismissAvailable()
     }
 
     /// The pulled list was read, or a build was staged or found: a pulled staged build gives way to
     /// the newest good one, and a pulled running build updates to it.
     func followPulled() {
-        guard disabledReason == nil, !dropPulledAvailable(), newestFetch == nil, !pulledWatch.pulledBuilds.isEmpty else { return }
+        // A found build the list now marks pulled leaves the update-found step before anything accepts it.
+        if case .available = flow.phase, let found = availableBuild(), isKnownPulled(found) { return syncFlowPhase() }
+        guard disabledReason == nil, newestFetch == nil, !pulledWatch.pulledBuilds.isEmpty else { return }
+        // A pulled staged build this app holds no installer for stays: a pulled running build still updates.
+        var pulledStagedKept = false
         if case .ready = flow.phase, let staged = stagedBuild(), !staged.isEmpty, pulledWatch.isPulled(staged) {
             // An install click decides for itself (``StagedUpdateRefresh/beforeInstall(updater:install:)``).
             guard !flow.installRequested, !stagedRefresh.clickWaits else { return }
-            guard cancelStaged() else {
-                // No installer this app holds: the build stays staged, and nothing offers it (``stagedPulledHeld``).
-                log.append("staged build \(staged) was pulled, but no installer was held to cancel; not offering it")
-                // A pulled running build still updates past it (from #28074).
-                return followRunningPulled(pulledStagedKept: true)
+            if cancelStaged() {
+                if droppedPulled.insert(staged).inserted {
+                    log.append("staged build \(staged) was pulled: dropping it and getting the newest build")
+                    let runningPulled = pulledWatch.isPulled(identity.build)
+                    if runningPulled { runningPulledHandled = true }
+                    startNewestCheck(runningPulled ? .runningPulled : .stagedPulled)
+                } else {
+                    // The feed staged it again (a cached appcast): drop it and wait for the next scheduled check.
+                    log.append("staged build \(staged) was pulled and staged again: dropped")
+                }
+                return
             }
-            if droppedPulled.insert(staged).inserted {
-                log.append("staged build \(staged) was pulled: dropping it and getting the newest build")
-                startNewestCheck(.stagedPulled)
-            } else {
-                // The feed staged it again (a cached appcast): drop it and wait for the next scheduled check.
-                log.append("staged build \(staged) was pulled and staged again: dropped")
-            }
-            return
+            pulledStagedKept = true
         }
-        followRunningPulled(pulledStagedKept: false)
-    }
-
-    /// A pulled running build fetches the newest good build, once per launch (``runningPulledHandled``).
-    private func followRunningPulled(pulledStagedKept: Bool) {
-        guard pulledWatch.isPulled(identity.build), !runningPulledHandled else { return }
+        guard !isOffManagedChannel, pulledWatch.isPulled(identity.build), !runningPulledHandled else { return }
         switch flow.phase {
         case .hidden, .note:
             runningPulledHandled = true
@@ -99,17 +112,6 @@ extension UpdaterService {
         }
     }
 
-    /// A found build waiting on its ask that is known pulled (a cached appcast) ends its prompt: it
-    /// never shows as "Update Available" and never downloads. True when it did.
-    func dropPulledAvailable() -> Bool {
-        guard case .available = flow.phase, let found = availableBuild(), StagedUpdateRefresh.knownPulled(found, updater: self) else {
-            return false
-        }
-        log.append("found build \(found) was pulled: not offering it")
-        dismissAvailable()
-        return true
-    }
-
     /// Follows the phase while the newest build downloads: a found build downloads (the person
     /// already chose to update), and the fetch ends once it is staged, or the check ends without one.
     func followNewestFetch(_ phase: UpdateIndicatorPhase, previous: UpdateIndicatorPhase) {
@@ -117,14 +119,14 @@ extension UpdaterService {
         switch phase {
         case .available:
             // The click's own request downloads it (``UpdateFlow``); a pulled build's replacement downloads here.
-            if fetch != .click, !dropPulledAvailable() { acceptAvailable() }
+            if fetch != .click {
+                if isOffManagedChannel { newestFetch = nil } else { acceptAvailable() }
+            }
         case .checking, .downloading:
             break
         case .hidden:
-            // The staged build's cancel passes through hidden before the check starts. A found build
-            // whose prompt ended (a pulled one, ``dropPulledAvailable()``) ends the fetch too.
+            // The staged build's cancel passes through hidden before the check starts.
             if previous == .checking || previous.isDownloading { newestFetch = nil }
-            if case .available = previous { newestFetch = nil }
         case .ready, .installing, .note:
             newestFetch = nil
         }

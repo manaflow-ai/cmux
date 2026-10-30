@@ -352,17 +352,28 @@ public final class UpdaterService {
             return
         }
         controller.actionDelegate = self
-        // A found build known pulled never downloads, even when downloads are automatic (from #28074).
-        controller.refusesUpdate = { [weak self] build in self.map { StagedUpdateRefresh.knownPulled(build, updater: $0) } ?? false }
-        pulledWatch.start(controller: controller)
-        controller.startUpdaterIfNeeded()
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if UpdateHarness.current?.backgroundCheck == true {
-            UpdateHarness.mark("background_check")
-            controller.checkInBackground()
+        // A found build known pulled never downloads, even when downloads are automatic.
+        controller.refusesUpdate = { [weak self] in self?.isKnownPulled($0) ?? false }
+        controller.prepareUpdate = { [weak self] in
+            guard let self else { return }
+            await self.pulledWatch.refresh().value
         }
-        #endif
-        recheckRequiredUpdate()
+        let pulledListReady = pulledWatch.start(controller: controller)
+        // Do not let Sparkle's launch/background check race the pulled-build list. Until that
+        // read completes, a pulled appcast item is not yet known to ``refusesUpdate`` and could
+        // be accepted and downloaded before ``followPulled()`` gets a chance to cancel it.
+        Task { @MainActor [weak self, weak controller] in
+            await pulledListReady.value
+            guard let self, let controller, self.started else { return }
+            controller.startUpdaterIfNeeded()
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if UpdateHarness.current?.backgroundCheck == true {
+                UpdateHarness.mark("background_check")
+                controller.checkInBackground()
+            }
+            #endif
+            self.recheckRequiredUpdate()
+        }
     }
 
     /// The user asked to check. With Sparkle it starts a foreground Sparkle

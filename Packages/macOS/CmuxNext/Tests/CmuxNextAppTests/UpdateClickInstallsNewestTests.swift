@@ -33,9 +33,12 @@ import Testing
     }
 
     /// The harness with the install seams counted. `downloadsAsk`: found updates wait for a click
-    /// (`updates.downloadAutomatically` off, the nightly default); `pulled`: pulled.json's builds.
-    static func make(newer: Bool, held: Bool = false, downloadsAsk: Bool = false, pulled: [String] = []) -> (Base.Harness, Installs) {
-        let h = Base.make(ring: "nightly", feed: feed(newer: newer), held: held, replaceable: !downloadsAsk, pulled: pulled)
+    /// (`updates.downloadAutomatically` off, the nightly default); `cancellable`: this app's driver
+    /// holds the staged installer; `pulled`: pulled.json's builds.
+    static func make(newer: Bool, held: Bool = false, downloadsAsk: Bool = false, cancellable: Bool = true,
+                     pulled: [String] = []) -> (Base.Harness, Installs) {
+        let h = Base.make(ring: "nightly", feed: feed(newer: newer), held: held, replaceable: !downloadsAsk,
+                          cancellable: cancellable, pulled: pulled)
         let installs = Installs()
         h.updater.preflightOverride = { nil }
         h.updater.installStaged = { installs.count += 1 }
@@ -88,6 +91,28 @@ import Testing
         #expect(installs.count == 1, "the click waits on a feed that never answers")
         #expect(h.sparkle.cancels == 0)
         h.feed.release()
+    }
+
+    /// The feed answers at once with build 500 while the pulled list is read past the click's
+    /// deadline: the feed's answer still decides, so stale build 300 never installs, and build 500
+    /// does not wait on the pulled list.
+    @Test func aFeedThatAnsweredDecidesWhileThePulledListIsSlow() async throws {
+        let (h, installs) = Self.make(newer: true)
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        h.updater.pulledWatch.fetch = { _ in
+            for await _ in gate {}
+            return nil
+        }
+        defer { open.finish() }
+        h.updater.installClicked()
+        #expect(await eventually { h.sparkle.cancels == 1 }, "newer build 500 waited on the slow pulled list")
+        for _ in 0..<5 {
+            h.clock.advance(by: .seconds(1))
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(installs.count == 0, "the click's deadline installed stale build 300 though the feed had answered with 500")
+        #expect(h.sparkle.cancels == 1 && h.sparkle.backgroundChecks == 1, "nothing looked for build 500")
+        #expect(h.updater.newestFetch == .click)
     }
 
     /// Leo 2026-10-29: build 4091813159501 was staged at 18:16Z, 4092299464301 was on the feed at
@@ -162,5 +187,19 @@ import Testing
         h.updater.installClicked()
         #expect(await eventually { sheets == 1 }, "the click ended in silence")
         #expect(installs.count == 0, "the click installed pulled build 300")
+    }
+
+    /// The staged installer is not this app's to cancel (the click installs at once, with no read
+    /// of the feed), and the staged build is known pulled: it is still never installed, and the
+    /// update sheet opens instead.
+    @Test func aKnownPulledStagedBuildIsNotInstalledWhenTheClickCannotReplaceIt() async throws {
+        let (h, installs) = Self.make(newer: false, cancellable: false, pulled: ["300"])
+        var sheets = 0
+        h.updater.presentUpdateUI = { sheets += 1 }
+        h.updater.cancelStaged = { false }
+        await h.updater.pulledWatch.refresh().value
+        h.updater.installClicked()
+        #expect(installs.count == 0, "the click installed known-pulled build 300")
+        #expect(sheets == 1, "the click ended in silence")
     }
 }

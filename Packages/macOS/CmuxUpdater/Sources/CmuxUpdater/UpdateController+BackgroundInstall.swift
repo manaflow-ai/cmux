@@ -137,14 +137,15 @@ extension UpdateController {
     }
 
     /// Cancels the staged update's pending installer (Sparkle would install it when the app
-    /// quits) without skipping its version. No-op without one; returns whether one was cancelled.
+    /// quits) without skipping its version. A legacy silent installer is cancelled and checked
+    /// again before it reaches this ready reply. No-op without one; returns whether cancelled.
     @discardableResult
     public func cancelStagedUpdate() -> Bool {
         driver.cancelStaged()
     }
 
     /// Whether this driver holds the staged update's installer, so ``cancelStagedUpdate()`` would
-    /// cancel it (not Sparkle's own silent install, nor one already handed to the installer).
+    /// cancel it (not one still resuming from Sparkle's silent cycle or already installing).
     public var canCancelStagedUpdate: Bool {
         driver.stagedCancel != nil
     }
@@ -198,5 +199,12 @@ extension UpdateController {
     public var refusesUpdate: (@MainActor (String) -> Bool)? {
         get { driver.refusesBuild }
         set { driver.refusesBuild = newValue }
+    }
+
+    /// Refreshes the host's refusal policy before an appcast item is offered or downloaded.
+    /// A bounded async read may finish after the appcast, but the item waits for this read.
+    public var prepareUpdate: (@MainActor () async -> Void)? {
+        get { driver.prepareUpdate }
+        set { driver.prepareUpdate = newValue }
     }
 }

@@ -100,6 +100,41 @@ import Testing
         #expect(h.sparkle.cancels == 1 && h.sparkle.backgroundChecks == 1)
     }
 
+    /// With downloads asking first, a cached appcast offers the pulled build again on the update-found
+    /// step: it shows no card and no Update Available button, never downloads, and its Sparkle prompt
+    /// ends. A found build the list marks pulled later leaves the step the same way.
+    @Test func aFoundPulledBuildIsNeverOfferedOrDownloaded() async throws {
+        let h = Base.make(ring: "nightly", replaceable: false, pulled: ["300"])
+        var downloads = 0, dismissals = 0
+        var found: String? = "300"
+        h.updater.acceptAvailable = { downloads += 1 }
+        h.updater.availableBuild = { found }
+        h.updater.dismissAvailable = { dismissals += 1 }
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.updater.newestFetch == .stagedPulled)
+
+        h.sparkle.staged = nil
+        for phase: UpdateIndicatorPhase in [.hidden, .checking, .available(version: "3.0.0")] {
+            h.updater.debugIndicatorPhase = phase
+        }
+        #expect(downloads == 0, "pulled build 300 downloaded again")
+        #expect(h.updater.card == nil && h.updater.availableButton == nil, "pulled build 300 was offered")
+        #expect(dismissals >= 1, "pulled build 300's prompt stayed open")
+        #expect(h.updater.newestFetch == nil)
+
+        // Build 400 waits for a click; then the list marks it pulled.
+        found = "400"
+        h.updater.debugIndicatorPhase = .hidden
+        h.updater.debugIndicatorPhase = .available(version: "4.0.0")
+        #expect(h.updater.availableButton != nil)
+        let list = Self.body([("300", "crashed"), ("400", "crashed")])
+        h.updater.pulledWatch.fetch = { _ in list }
+        await h.updater.pulledWatch.refresh().value
+        h.updater.downloadClicked()
+        #expect(downloads == 0, "pulled build 400 downloaded")
+        #expect(h.updater.card == nil && h.updater.availableButton == nil, "pulled build 400 was offered")
+    }
+
     /// A feed that stages the pulled build again (a cached appcast) never loops: it is dropped, and
     /// nothing checks again until Sparkle's next scheduled check.
     @Test func aPulledBuildStagedAgainIsDroppedWithoutAnotherCheck() async throws {
@@ -146,7 +181,7 @@ import Testing
 
     /// The running build (100) and the staged build (300) are both pulled, and the staged
     /// installer is not this app's to cancel: the running build still looks for the newest good
-    /// build, once (from #28074).
+    /// build, once.
     @Test func aPulledRunningBuildStillUpdatesWhenAPulledStagedBuildCannotBeDropped() async throws {
         let h = Base.make(ring: "nightly", pulled: ["100", "300"])
         h.updater.cancelStaged = { false }
@@ -156,6 +191,34 @@ import Testing
         h.updater.newestFetch = nil
         await h.updater.pulledWatch.refresh().value
         #expect(h.sparkle.backgroundChecks == 1, "the pulled running build looked twice")
+    }
+
+    @Test func aPulledBuildDoesNotDownloadFromAnOffManagedChannel() async {
+        let h = Base.make(ring: "nightly", pulled: ["100", "300"])
+        h.updater.applyManagedPolicy(channel: "stable", minimumVersion: nil)
+        var downloads = 0
+        h.updater.acceptAvailable = { downloads += 1 }
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.cancels == 1, "the pulled installer must still be cancelled")
+        #expect(h.sparkle.backgroundChecks == 0, "automatic recovery checked the forbidden nightly channel")
+        h.sparkle.staged = nil
+        h.updater.debugIndicatorPhase = .hidden
+        await h.updater.pulledWatch.refresh().value
+        h.updater.debugIndicatorPhase = .available(version: "4.0.0")
+        #expect(downloads == 0, "automatic recovery downloaded from the forbidden nightly channel")
+        #expect(h.updater.newestFetch == nil)
+    }
+
+    @Test func aPulledRunningAndStagedBuildKeepsTheRunningExplanation() async {
+        let h = Base.make(ring: "nightly", pulled: ["100", "300"])
+        await h.updater.pulledWatch.refresh().value
+        #expect(h.sparkle.cancels == 1)
+        #expect(h.sparkle.backgroundChecks == 1)
+        #expect(h.updater.newestFetch == .runningPulled)
+        h.sparkle.staged = nil
+        h.updater.debugIndicatorPhase = .checking
+        #expect(h.updater.card == .gettingNewest(nil, pulled: true))
+        #expect(h.updater.cardPresentation?.detail == UpdaterStrings.runningBuildPulled)
     }
 
     /// With nothing newer than the pulled running build on the feed, the check ends and nothing shows.

@@ -54,7 +54,7 @@ final class StagedUpdateRefresh {
         let install: @MainActor () -> Void, click: Int
         /// The appcast answered (a slow pulled list never hides its newer build), the pulled list
         /// answered, and the deadline passed while the list had not.
-        var feedAnswered = false, listAnswered = false, deadlinePassed = false
+        var probed = false, listAnswered = false, deadlinePassed = false
     }
     private var pendingClick: PendingClick?
     private var clicks = 0
@@ -80,12 +80,19 @@ final class StagedUpdateRefresh {
     /// download by themselves: the click is the person's yes to the newest build's download (Leo
     /// 2026-10-29: "those kinds of download/update things need to be more "latest" instead of me
     /// downloading whatever was the first one"). Otherwise, or when the feed fails or is slow,
-    /// `install` runs. A second click while the feed is read joins the first.
+    /// `install` runs. A second click while the feed is read joins the first. A staged build known
+    /// pulled never installs, even when this app cannot replace it (the update sheet opens instead),
+    /// and no staged build installs before the pulled list answers.
     func beforeInstall(updater: UpdaterService, install: @escaping @MainActor () -> Void) {
         guard pendingClick == nil else { return }
         // Every click reads the pulled list, also with no installer this app can cancel: a staged build
         // pulled since launch is never installed because the list was not read yet.
         guard updater.disabledReason == nil, let staged = updater.stagedBuild(), !staged.isEmpty else { return install() }
+        if !isCancellable(updater), updater.isKnownPulled(staged) {
+            updater.log.append("install click: staged build \(staged) was pulled and this app cannot replace it; not installing it")
+            updater.presentUpdateUI?()
+            return
+        }
         updater.log.append("install click: looking for a build newer than staged build \(staged)")
         clicks += 1
         let click = clicks
@@ -94,7 +101,8 @@ final class StagedUpdateRefresh {
         let pulled = updater.pulledWatch.refresh()
         clickTimer.schedule(after: Self.clickProbeDeadline) { @MainActor [weak self, weak updater] in
             guard let self, let updater else { return }
-            self.settleClick(answered: self.pendingClick?.feedAnswered ?? false, updater: updater)
+            // A feed that answered in time still counts while the pulled list is read.
+            self.settleClick(answered: self.pendingClick?.probed == true, updater: updater)
         }
         // The pulled list has its own bound (each read's 15-second request timeout): a deadline that
         // passed while it read settles once it answers.
@@ -102,14 +110,19 @@ final class StagedUpdateRefresh {
             await pulled.value
             guard let self, let updater, self.pendingClick?.click == click else { return }
             self.pendingClick?.listAnswered = true
-            if self.pendingClick?.deadlinePassed == true {
-                self.settleClick(answered: self.pendingClick?.feedAnswered ?? false, updater: updater)
-            }
+            if self.pendingClick?.deadlinePassed == true { self.settleClick(answered: self.pendingClick?.probed == true, updater: updater) }
         }
         Task { @MainActor [weak self, weak updater] in
             let failure = await probe.value
-            guard let self else { return }
-            if failure == nil, self.pendingClick?.click == click { self.pendingClick?.feedAnswered = true }
+            guard let self, self.pendingClick?.click == click else { return }
+            if failure == nil, let updater {
+                self.pendingClick?.probed = true
+                // A strictly newer build this app can swap to decides the click at once: whatever the
+                // pulled list says, the staged build gives way.
+                if let now = updater.stagedBuild(), Self.probedNewer(than: now, updater: updater) != nil, self.isCancellable(updater) {
+                    return self.settleClick(answered: true, updater: updater)
+                }
+            }
             await pulled.value
             guard let updater, self.pendingClick?.click == click else { return }
             self.pendingClick?.listAnswered = true
@@ -117,10 +130,10 @@ final class StagedUpdateRefresh {
         }
     }
 
-    /// A build on the pulled list, or one dropped as pulled before: it stays pulled, whatever the
-    /// latest read of the list said.
-    static func knownPulled(_ build: String, updater: UpdaterService) -> Bool {
-        updater.pulledWatch.isPulled(build) || updater.droppedPulled.contains(build)
+    /// The probed ring's build when it is strictly newer than `staged`, else nil.
+    private static func probedNewer(than staged: String, updater: UpdaterService) -> String? {
+        guard case .updateAvailable(let item)? = updater.lastProbe?.outcome, AppcastSelector.isOlder(staged, than: item.version) else { return nil }
+        return item.version
     }
 
     /// The feed and the pulled list answered, or the deadline passed with whatever the appcast
@@ -137,13 +150,9 @@ final class StagedUpdateRefresh {
             clickTimer.cancel()
             return install()
         }
-        let pulled = Self.knownPulled(staged, updater: updater)
-        var newer: String?
-        if answered, case .updateAvailable(let item)? = updater.lastProbe?.outcome, AppcastSelector.isOlder(staged, than: item.version) {
-            newer = item.version
-        }
-        // Before the list answers, only a newer build this app can swap to settles the click: every
-        // other path may install the staged build.
+        // A build dropped as pulled before stays pulled, whatever the latest read of the list said.
+        let pulled = updater.isKnownPulled(staged)
+        let newer = answered ? Self.probedNewer(than: staged, updater: updater) : nil
         if !pending.listAnswered, !pulled, newer == nil || !isCancellable(updater) {
             if !pending.deadlinePassed { updater.log.append("install click: waiting for the pulled list before installing staged build \(staged)") }
             pendingClick?.deadlinePassed = true
