@@ -62,8 +62,8 @@ function setSeen(ctx: HookContext, sessionID: string, value: number): void {
   // Rename is atomic within the session directory, so a concurrent hook sees either
   // the old cursor or the complete new one, never a truncated JSON document.
   const temp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
-  writeFileSync(temp, `${JSON.stringify({ seen: value })}\n`);
   try {
+    writeFileSync(temp, `${JSON.stringify({ seen: value })}\n`);
     renameSync(temp, file);
   } catch (error) {
     rmSync(temp, { force: true });
