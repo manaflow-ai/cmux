@@ -41,8 +41,12 @@ check("timeout-minutes: 10" in text, "a tick is one short job")
 check("statuses:" not in text, "the dispatcher takes no statuses grant")
 check("--event pull_request" in text and "tip/scripts/ci/cmux_next_route.py" in text,
       "the change filter must be cmux-next's own router on the tip, not a second path list")
-check("steps.plan.outputs.action == 'dispatch' || steps.route.outputs.swift == 'true'" in text,
-      "the dispatch must follow the plan or the router's swift verdict")
+check("steps.plan.outputs.action == 'dispatch' || steps.route.outputs.reached == 'true'" in text,
+      "the dispatch must follow the plan or the router's verdict for the suite's tier")
+check(re.search(r"matrix:\n\s+suite: \[swift, daemon\]", text) is not None,
+      "the Swift and daemon suites each get a matrix leg")
+check('sed -n "s/^${SUITE}=//p"' in text, "the router verdict read is the suite's own tier (swift= or daemon=)")
+check(text.count("SUITE: ${{ matrix.suite }}") == 3, "the plan, router and dispatch steps all take the leg's suite")
 
 HARNESS = r"""
 const fixture = JSON.parse(require('fs').readFileSync(process.argv[2], 'utf8'));
@@ -52,7 +56,7 @@ const github = { rest: {
   git: { getRef: async () => ({ data: { object: { sha: fixture.tip } } }) },
   repos: { compareCommitsWithBasehead: async (args) => {
     calls.push(['compare', args.basehead]);
-    return { data: { status: fixture.compare || 'ahead' } };
+    return { data: { status: fixture.compare || 'ahead', ahead_by: fixture.ahead_by || 1 } };
   } },
   actions: {
     listWorkflowRuns: async (args) => {
@@ -63,24 +67,41 @@ const github = { rest: {
       calls.push(['jobs', args.run_id]);
       return { data: { jobs: fixture.jobs[String(args.run_id)] || [] } };
     },
-    createWorkflowDispatch: async (args) => { calls.push(['dispatch', args.workflow_id, args.ref, args.inputs]); },
+    createWorkflowDispatch: async (args) => {
+      calls.push(['dispatch', args.workflow_id, args.ref, args.inputs]);
+      if (fixture.refuse) { const e = new Error('Unexpected inputs provided'); e.status = 422; throw e; }
+    },
   },
 } };
 const context = { repo: { owner: 'o', repo: 'r' } };
+const core = { warning: (m) => calls.push(['warning', m]) };
 (async () => {
-  const p = await plan({ github, context, now: fixture.now });
-  if (p.action === 'dispatch') await dispatch({ github, context });
-  console.log(JSON.stringify({ plan: p, calls }));
+  const p = await plan({ github, context, now: fixture.now, suite: fixture.suite });
+  let sent = null;
+  if (p.action === 'dispatch') sent = await dispatch({ github, context, suite: fixture.suite, core });
+  console.log(JSON.stringify({ plan: p, calls, sent }));
 })().catch((e) => { console.error(e); process.exit(1); });
 """
 
 _ids = iter(range(1000, 100000))
 
 
-def tip_run(sha, status="completed", conclusion="failure", age_min=60, title=None):
-    return {"id": next(_ids), "head_sha": sha, "status": status, "conclusion": conclusion, "name": "cmux-next",
-            "display_title": title or f"cmux-next tip Swift suite · {sha}",
+def tip_run(sha, status="completed", conclusion="failure", age_min=60, title=None, head_sha=None):
+    return {"id": next(_ids), "head_sha": head_sha or sha, "status": status, "conclusion": conclusion,
+            "name": "cmux-next", "display_title": title or f"cmux-next tip Swift suite · {sha}",
             "created_at_ms": NOW - age_min * MIN}
+
+
+def daemon_run(sha, conclusion="failure", age_min=60, head_sha=None, status="completed"):
+    return tip_run(sha, status, conclusion, age_min, title=f"cmux-next tip daemon suite · {sha}", head_sha=head_sha)
+
+
+def daemon_job(conclusion, failed_step=None):
+    steps = [{"name": "Set up job", "conclusion": "success"}]
+    if failed_step:
+        steps.append({"name": failed_step, "conclusion": "failure"})
+    return [{"name": "cmux-next path routing", "status": "completed", "conclusion": "success", "steps": []},
+            {"name": "cmux-next daemon tests", "status": "completed", "conclusion": conclusion, "steps": steps}]
 
 
 def swift_job(conclusion, failed_step=None):
@@ -91,16 +112,16 @@ def swift_job(conclusion, failed_step=None):
             {"name": "cmux-next swift test", "status": "completed", "conclusion": conclusion, "steps": steps}]
 
 
-def run(runs, jobs=None, compare="ahead"):
+def run(runs, jobs=None, compare="ahead", suite=None, ahead_by=1, refuse=False):
     from datetime import datetime, timezone
     for r in runs:
         r["created_at"] = datetime.fromtimestamp(r.pop("created_at_ms") / 1000, timezone.utc).isoformat().replace("+00:00", "Z")
     jobs = dict(jobs or {})
-    for r in runs:  # a successful run's swift test passed unless the case says otherwise
+    for r in runs:  # a successful run's suite job passed unless the case says otherwise
         if r["conclusion"] == "success":
-            jobs.setdefault(r["id"], swift_job("success"))
-    fixture = {"tip": TIP, "now": NOW, "runs": runs, "compare": compare,
-               "jobs": {str(k): v for k, v in jobs.items()}}
+            jobs.setdefault(r["id"], daemon_job("success") if suite == "daemon" else swift_job("success"))
+    fixture = {"tip": TIP, "now": NOW, "runs": runs, "compare": compare, "suite": suite, "ahead_by": ahead_by,
+               "refuse": refuse, "jobs": {str(k): v for k, v in jobs.items()}}
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "fixture.json").write_text(json.dumps(fixture))
         (Path(tmp) / "run.js").write_text(HARNESS)
@@ -110,7 +131,7 @@ def run(runs, jobs=None, compare="ahead"):
         failures.append(f"the plan failed:\n{result.stderr}")
         return {"action": "error"}, []
     out = json.loads(result.stdout.strip().splitlines()[-1])
-    return out["plan"], out["calls"]
+    return out["plan"], out["calls"] + [["sent", out["sent"]]]
 
 
 def dispatched(calls):
@@ -140,7 +161,7 @@ check(p["action"] == "route", f"a run created 26 minutes ago must not hold back 
 
 # Change filter: a new tip with a green ancestor goes to the router with that green.
 p, calls = run([tip_run(GREEN, conclusion="success")])
-check(p == {"action": "route", "reason": p.get("reason"), "tip": TIP, "base": GREEN},
+check(p == {"action": "route", "reason": p.get("reason"), "tip": TIP, "base": GREEN, "suite": None},
       f"a new tip with a green ancestor must be routed from that green, got {p}")
 check(["compare", f"{GREEN}...{TIP}"] in calls, "the ancestry check is one compare from the green to the tip")
 check(not dispatched(calls), "the plan must not dispatch before the router says swift test is reached")
@@ -203,6 +224,45 @@ runs = [tip_run(TIP, age_min=40 * (i + 1)) for i in range(3)]
 p, calls = run(runs, jobs={x["id"]: swift_job("failure", "Set up runner") for x in runs})
 check(p["action"] == "skip" and not dispatched(calls), f"a tip with three no-verdict runs must not loop, got {p}")
 
+
+# The daemon suite (2026-10-30, #27692: a feat-cmux-next push never runs daemon-test, so the base had no
+# daemon-test verdict to compare a pull request's daemon red with).
+p, calls = run([], suite="daemon")
+check(dispatched(calls) == [["dispatch", "cmux-next.yml", "refs/heads/feat-cmux-next", {"tip_daemon_suite": "true"}]],
+      f"with no daemon verdict the tip must get one daemon suite run, got {dispatched(calls)}")
+# Its runs are its own: a Swift suite run on the tip is no daemon verdict, and the reverse.
+p, calls = run([tip_run(TIP, conclusion="success")], suite="daemon")
+check(p["action"] == "dispatch", f"a Swift suite run must not stand in for the daemon suite, got {p}")
+p, calls = run([daemon_run(TIP, conclusion="success")])
+check(p["action"] == "dispatch", f"a daemon suite run must not stand in for the Swift suite, got {p}")
+# A same-tree run tests the recorded commit after the tip moved: the name, not head_sha, says which.
+p, calls = run([daemon_run(TIP, conclusion="success", head_sha="9" * 40)], suite="daemon")
+check(p["action"] == "skip", f"a same-tree daemon run of the tip is the tip's verdict, got {p}")
+p, calls = run([daemon_run(GREEN, conclusion="success", head_sha=TIP)], suite="daemon")
+check(p["action"] == "route" and p["base"] == GREEN, f"the daemon green is the commit its name tests, got {p}")
+# The verdict comes from the daemon job; a skipped one (its tree was still publishing) is none.
+r = daemon_run(TIP, conclusion="success")
+p, calls = run([r], jobs={r["id"]: daemon_job("skipped")}, suite="daemon")
+check(p["action"] == "dispatch", f"a run whose daemon tests were skipped must be retried, got {p}")
+r = daemon_run(TIP)
+p, calls = run([r], jobs={r["id"]: daemon_job("failure", "Run the live-daemon suites")}, suite="daemon")
+check(p["action"] == "skip", f"a tip whose live-daemon suites failed has a verdict, got {p}")
+# Fresh base log: 20 landings past the last verdict dispatch whatever the router says; fewer route.
+p, calls = run([daemon_run(GREEN, conclusion="success")], suite="daemon", ahead_by=20)
+check(p["action"] == "dispatch", f"20 landings past the last daemon verdict must dispatch, got {p}")
+p, calls = run([daemon_run(GREEN, conclusion="success")], suite="daemon", ahead_by=19)
+check(p["action"] == "route", f"19 landings past the last daemon verdict go to the router, got {p}")
+p, calls = run([tip_run(GREEN, conclusion="success")], ahead_by=500)
+check(p["action"] == "route", f"the Swift suite keeps routing on its tier alone, got {p}")
+# Cadence per suite: a daemon run in flight holds only the daemon leg.
+p, calls = run([daemon_run(GREEN, status="in_progress", conclusion=None, age_min=5)], suite="daemon")
+check(p["action"] == "skip", f"a daemon run in flight must skip the daemon tick, got {p}")
+p, calls = run([daemon_run(GREEN, status="in_progress", conclusion=None, age_min=5)])
+check(p["action"] == "dispatch", f"a daemon run in flight must not hold the Swift tick, got {p}")
+# Before feat-cmux-next's cmux-next.yml takes the input: a warning, not a red tick. Swift still throws.
+p, calls = run([], suite="daemon", refuse=True)
+check(["sent", False] in calls and any(c[0] == "warning" for c in calls),
+      f"a refused daemon dispatch must warn and report nothing sent, got {calls}")
 
 if failures:
     print("FAIL: cmux NEXT tip Swift suite dispatcher\n  " + "\n  ".join(failures))
