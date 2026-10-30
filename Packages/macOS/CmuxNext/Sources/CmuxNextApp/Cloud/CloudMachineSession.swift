@@ -104,12 +104,11 @@ final class CloudMachineSession {
     func applyRecord(_ record: CloudMachine) {
         let previous = machine.status
         let wasResuming = machine.pendingChange == .starting
-        let pendingBefore = machine.pendingMutationID
-        let failureBefore = machine.lastChangeFailure
         machine = record
-        if let pendingBefore, record.pendingMutationID != pendingBefore,
-           record.lastChangeFailure != nil, record.lastChangeFailure != failureBefore {
-            mutationFailed(pendingBefore)
+        // The error may have arrived before acknowledgement, while the mutation remained
+        // pending. Its settlement, not a change in displayed error text, authorizes recovery.
+        if let failedMutationID = record.failedMutationID {
+            mutationFailed(failedMutationID)
         }
         if !record.status.isLive, !record.shownStatus.isChanging { interruptedMutation = nil }
         if previous.isLive, !record.status.isLive {

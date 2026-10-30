@@ -109,7 +109,7 @@ public final class CloudMachineChanges {
     /// their own terminal record arrives. A failed newer request exposes the older operation.
     public func applyingPending(to record: CloudMachine) -> CloudMachine {
         var shown = record
-        settleMutations(record)
+        shown.failedMutationID = settleMutations(record)
         shown.pendingChange = mutations[record.id]?.last?.status
         shown.pendingMutationID = mutations[record.id]?.last?.id
         return shown
@@ -119,18 +119,19 @@ public final class CloudMachineChanges {
         applyingPending(to: record).pendingChange
     }
 
-    private func settleMutations(_ record: CloudMachine) {
-        guard var outstanding = mutations[record.id] else { return }
+    private func settleMutations(_ record: CloudMachine) -> UUID? {
+        guard var outstanding = mutations[record.id] else { return nil }
         if record.status == .destroyed {
             mutations[record.id] = nil
-            return
+            return nil
         }
+        var failedMutationID: UUID?
         // A provider error has no operation id: attribute a new terminal error only to the
         // newest acknowledged operation. Never let one failure retire every older mutation,
         // including when both reconciliation and the poller inspect this same record.
         if let last = outstanding.last, last.requestReturned, !record.status.isChanging,
            let failure = record.lastChangeFailure, failure != last.baselineFailure {
-            outstanding.removeLast()
+            failedMutationID = outstanding.removeLast().id
             for index in outstanding.indices { outstanding[index].baselineFailure = failure }
         }
         outstanding.removeAll { mutation in
@@ -142,6 +143,7 @@ public final class CloudMachineChanges {
             }
         }
         mutations[record.id] = outstanding.isEmpty ? nil : outstanding
+        return failedMutationID
     }
 
     /// A list omitted a machine (including an authoritative delete confirmation).

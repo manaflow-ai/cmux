@@ -265,6 +265,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     public var pendingChange: Status?
     /// Local mutation identity; never decoded from a server record.
     public var pendingMutationID: UUID?
+    /// Local rollback settled by this record; never decoded or inferred from displayed error changes.
+    public var failedMutationID: UUID?
 
     /// The status the app shows: a change sent from here, else the record's.
     public var shownStatus: Status { pendingChange ?? status }
