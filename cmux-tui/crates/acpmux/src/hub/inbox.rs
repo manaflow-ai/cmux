@@ -583,18 +583,16 @@ impl Hub {
         tokio::spawn(async move {
             let blocks = vec![json!({"type": "text", "text": text})];
             let result = Box::pin(hub.run_prompt(&s, blocks, CLIENT, steer, opts)).await;
-            // A steer went in unless it was withdrawn or cancelled; a turn of its own went in once
-            // its prompt was written (`inbox_prompt_written`), however its turn then ended.
-            let went_in = if steer {
-                result.as_ref().is_ok_and(|v| {
-                    !matches!(
-                        v.get("stopReason").and_then(Value::as_str),
-                        Some("withdrawn") | Some("cancelled")
-                    )
-                })
-            } else {
-                hub.notice_written(&s, &notice_id)
-            };
+            // In unless it was withdrawn or cancelled; a turn of its own also once its prompt was
+            // written (`inbox_prompt_written`), however its turn then ended (a Stop after the
+            // agent read it).
+            let answered = result.as_ref().is_ok_and(|v| {
+                !matches!(
+                    v.get("stopReason").and_then(Value::as_str),
+                    Some("withdrawn") | Some("cancelled")
+                )
+            });
+            let went_in = hub.notice_written(&s, &notice_id) || answered;
             hub.notice_done(&s, &notice_id, &ids, waiters, result, went_in, steer);
         });
     }
@@ -614,14 +612,13 @@ impl Hub {
     ) {
         let first = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
-            // Its turn's start logged it already (`inbox_turn_started`).
+            // Not logged yet: still in flight (a steer), or its turn started and no written
+            // prompt logged it (`inbox_prompt_written`).
             let first = inbox.in_flight.as_ref().is_some_and(|(id, _)| id == notice_id);
             if first {
                 inbox.in_flight = None;
             }
-            if inbox.landing.as_ref().is_some_and(|(id, _)| id == notice_id) {
-                inbox.landing = None;
-            }
+            let first = inbox.landing.take_if(|(id, _)| id == notice_id).is_some() || first;
             if went_in {
                 inbox.refused_at = 0;
             } else {
