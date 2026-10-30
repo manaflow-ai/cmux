@@ -64,12 +64,29 @@ impl Owned {
     /// The first owned path that is no longer the file it was, and why.
     #[cfg(unix)]
     pub(crate) fn lost(&self) -> Option<String> {
-        self.paths.iter().find_map(|(path, was)| match identity(path) {
-            None => Some(format!("{} was removed", path.display())),
-            Some(now) if now != *was => Some(format!("{} was replaced", path.display())),
-            Some(_) => None,
-        })
+        self.lost_except(None)
     }
+
+    /// [`Owned::lost`], leaving out `skip` (a path this daemon removes itself).
+    #[cfg(unix)]
+    fn lost_except(&self, skip: Option<&Path>) -> Option<String> {
+        self.paths.iter().filter(|(path, _)| Some(path.as_path()) != skip).find_map(
+            |(path, was)| match identity(path) {
+                None => Some(format!("{} was removed", path.display())),
+                Some(now) if now != *was => Some(format!("{} was replaced", path.display())),
+                Some(_) => None,
+            },
+        )
+    }
+}
+
+/// Set just before a shutdown removes the socket it bound: from then on the watch leaves the
+/// socket out, so that removal is not taken for a lost home.
+static SOCKET_RELEASED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// This daemon removes its own socket now (see [`SOCKET_RELEASED`]).
+pub(crate) fn release_socket() {
+    SOCKET_RELEASED.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// Resolves once the home, the socket or the lock is lost; never when the watch could not be
@@ -117,16 +134,21 @@ pub(crate) fn watch(home: &Path, socket: &Path, lock: &Path) -> HomeGone {
             return Box::pin(std::future::pending());
         }
     }
+    let socket = socket.to_path_buf();
     Box::pin(async move {
         // Owned here: the watch lives exactly as long as this future.
         let _watcher = watcher;
+        let check = || {
+            let released = SOCKET_RELEASED.load(std::sync::atomic::Ordering::SeqCst);
+            owned.lost_except(released.then_some(socket.as_path()))
+        };
         // A loss between reading the identities and the first watch.
-        let mut lost = owned.lost();
+        let mut lost = check();
         while lost.is_none() {
             if rx.recv().await.is_none() {
                 return std::future::pending().await;
             }
-            lost = owned.lost();
+            lost = check();
         }
         // At once, before the shutdown starts: no write may make the old home again.
         crate::config::mark_home_lost();
@@ -144,6 +166,9 @@ impl Owned {
         None
     }
 }
+
+#[cfg(not(unix))]
+pub(crate) fn release_socket() {}
 
 #[cfg(not(unix))]
 pub(crate) fn watch(_home: &Path, _socket: &Path, _lock: &Path) -> HomeGone {
@@ -170,6 +195,21 @@ mod tests {
         assert!(owned.lost().unwrap().ends_with("was replaced"), "{:?}", owned.lost());
         std::fs::remove_dir_all(&home).unwrap();
         assert!(owned.lost().unwrap().ends_with("was removed"), "{:?}", owned.lost());
+    }
+
+    #[test]
+    fn a_path_the_daemon_removes_itself_is_left_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("home");
+        std::fs::create_dir(&home).unwrap();
+        let socket = home.join("acpmux.sock");
+        std::fs::write(&socket, "").unwrap();
+        let owned = Owned::now(&[&home, &socket]).unwrap();
+        std::fs::remove_file(&socket).unwrap();
+        assert!(owned.lost().is_some(), "a removed socket is a loss");
+        assert_eq!(owned.lost_except(Some(&socket)), None, "unless the daemon removed it");
+        std::fs::remove_dir_all(&home).unwrap();
+        assert!(owned.lost_except(Some(&socket)).is_some(), "the home still counts");
     }
 
     #[test]

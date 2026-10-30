@@ -685,6 +685,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Read again: the router, pid and app files below stay alone once it is lost.
     let home_lost = crate::config::home_lost();
     if bound_socket.as_ref().map_or(!home_lost, |s| s.lost().is_none()) {
+        // The home watch runs on through the shutdown: this removal is not a loss.
+        home_watch::release_socket();
         let _ = std::fs::remove_file(socket_path());
     }
     // How many hosted agents this shutdown kept running for the next
