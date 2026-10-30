@@ -492,9 +492,10 @@ async fn follow(
             let _ = exec(client, vm_id, &kill, &[], 30_000).await;
             return Ok(Outcome::TimedOut);
         }
+        let wait = poll_wait_tenths(deadline, Instant::now());
         let poll = format!(
             "d={RUN_DIR}; i=0; size() {{ stat -c %s \"$1\" 2>/dev/null || echo 0; }}; \
-             while [ $i -lt {POLL_WAIT_TENTHS} ] && [ ! -f $d/rc ] && [ $(size $d/out) -le {out_at} ] && [ $(size $d/err) -le {err_at} ]; do sleep 0.1; i=$((i+1)); done; \
+             while [ $i -lt {wait} ] && [ ! -f $d/rc ] && [ $(size $d/out) -le {out_at} ] && [ $(size $d/err) -le {err_at} ]; do sleep 0.1; i=$((i+1)); done; \
              cat $d/rc 2>/dev/null || echo -; \
              tail -c +{} $d/out 2>/dev/null | head -c {CHUNK_BYTES} | base64 -w0; echo; \
              tail -c +{} $d/err 2>/dev/null | head -c {CHUNK_BYTES} | base64 -w0; echo",
@@ -522,6 +523,21 @@ async fn follow(
             return Ok(Outcome::Exited(rc.parse().unwrap_or(exit::UNEXPECTED)));
         }
     }
+}
+
+/// How long one guest poll may wait for output, in tenths of a second: never
+/// past the `--timeout` deadline, so the command is killed on time.
+fn poll_wait_tenths(deadline: Option<Instant>, now: Instant) -> u32 {
+    let Some(deadline) = deadline else {
+        return POLL_WAIT_TENTHS;
+    };
+    let left = deadline
+        .saturating_duration_since(now)
+        .as_millis()
+        .div_ceil(100);
+    u32::try_from(left)
+        .unwrap_or(u32::MAX)
+        .clamp(1, POLL_WAIT_TENTHS)
 }
 
 async fn pull(
@@ -1121,6 +1137,26 @@ fn note(stderr: &mut dyn Write, message: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_poll_never_waits_past_the_deadline() {
+        let now = Instant::now();
+        assert_eq!(poll_wait_tenths(None, now), POLL_WAIT_TENTHS);
+        assert_eq!(
+            poll_wait_tenths(Some(now + Duration::from_secs(1)), now),
+            10
+        );
+        assert_eq!(
+            poll_wait_tenths(Some(now + Duration::from_millis(250)), now),
+            3
+        );
+        assert_eq!(
+            poll_wait_tenths(Some(now + Duration::from_secs(3600)), now),
+            POLL_WAIT_TENTHS
+        );
+        // Past the deadline: one short wait, then the loop kills the command.
+        assert_eq!(poll_wait_tenths(Some(now), now + Duration::from_secs(5)), 1);
+    }
 
     #[test]
     fn one_word_is_a_command_line_and_several_are_quoted() {

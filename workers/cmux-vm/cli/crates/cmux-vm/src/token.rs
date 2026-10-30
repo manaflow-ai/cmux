@@ -111,6 +111,20 @@ impl StoredToken {
         parse_rfc3339(&self.expires_at).map(|at| at - now_unix)
     }
 
+    /// For `token status`: how it reads and the exit code. As in resolution
+    /// (config.rs), a token without a readable expiry is refused like an
+    /// expired one.
+    pub fn status(&self, now_unix: i64) -> (&'static str, i32) {
+        match self.seconds_left(now_unix) {
+            Some(left) if left > 0 => ("is", crate::exit::OK),
+            Some(_) => ("expired", crate::exit::UNAUTHENTICATED),
+            None => (
+                "is refused (no readable expiry)",
+                crate::exit::UNAUTHENTICATED,
+            ),
+        }
+    }
+
     /// The public facts, for output: never the key.
     pub fn public(&self) -> Value {
         json!({
@@ -383,15 +397,22 @@ pub async fn create(
                 error
             }
         })?;
-    let stored = StoredToken::from_created(&created, team_id, base_url).and_then(|token| {
-        save(&token, env)
-            .map_err(CliError::unexpected)
-            .map(|()| token)
-    });
-    match stored {
+    match keep(&created, team_id, base_url, env) {
         Ok(token) => report(&token, "stored", json_output, out),
         Err(error) => Err(revoke_unkept(client, &created, error).await),
     }
+}
+
+/// Reads and stores a freshly minted key, replacing any earlier one.
+fn keep(
+    created: &[u8],
+    team_id: Option<String>,
+    base_url: Option<String>,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<StoredToken, CliError> {
+    let token = StoredToken::from_created(created, team_id, base_url)?;
+    save(&token, env).map_err(CliError::unexpected)?;
+    Ok(token)
 }
 
 /// Revokes a key that was minted but cannot be kept (unreadable or not
@@ -413,16 +434,47 @@ async fn revoke_unkept(client: &Client, created: &[u8], error: CliError) -> CliE
     }
 }
 
-/// Stores a freshly minted token, replacing any earlier one, and prints its
-/// public facts. Shared with the cmux CLI, whose app mints the key.
-pub fn store_and_report(
-    token: &StoredToken,
+/// Stores a key the cmux app minted and prints its public facts. A key that
+/// cannot be kept (an unreadable answer, a failed store) revokes itself, since
+/// an agent key may revoke itself, so it never outlives the command that made
+/// it. Shared with the cmux CLI, whose app mints the key with the signed-in
+/// session; nothing here holds that session.
+pub async fn keep_minted(
+    created: &[u8],
+    team_id: Option<String>,
+    base_url: Option<String>,
     env: &dyn Fn(&str) -> Option<String>,
     json_output: bool,
     out: &mut dyn Write,
 ) -> Result<(), CliError> {
-    save(token, env).map_err(CliError::unexpected)?;
-    report(token, "stored", json_output, out)
+    let error = match keep(created, team_id.clone(), base_url.clone(), env) {
+        Ok(token) => return report(&token, "stored", json_output, out),
+        Err(error) => error,
+    };
+    let key = serde_json::from_slice::<Value>(created)
+        .ok()
+        .and_then(|created| created["key"].as_str().map(str::to_owned));
+    let Some(key) = key else {
+        return Err(error.with_recovery(
+            "the app's answer held no key to revoke it with; any key it issued was never shown and expires within its --ttl",
+        ));
+    };
+    // The same base URL `token revoke` would use for this key.
+    let base_url = env("CMUX_VM_BASE_URL")
+        .filter(|url| !url.is_empty())
+        .or(base_url)
+        .unwrap_or_else(|| cmux_vm_client::DEFAULT_BASE_URL.to_owned());
+    match cmux_vm_client::authenticated_raw_client(
+        &base_url,
+        &key,
+        team_id.as_deref(),
+        concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
+    ) {
+        Ok(client) => Err(revoke_unkept(&client, created, error).await),
+        Err(_) => Err(error.with_recovery(
+            "the new key could not be revoked; it was never shown and expires within its --ttl",
+        )),
+    }
 }
 
 pub fn report(
@@ -519,6 +571,76 @@ mod tests {
         let body = create_body(&args).unwrap();
         assert_eq!(body["scopes"], json!(["vm:read", "vm:write", "vm:exec"]));
         assert_eq!(body["ttlSeconds"], json!(DEFAULT_TTL_SECONDS));
+    }
+
+    #[test]
+    fn status_refuses_an_unreadable_expiry_like_an_expired_one() {
+        let mut token = StoredToken {
+            key: "k".into(),
+            key_id: "vmk_x".into(),
+            expires_at: "2026-10-29T08:00:00Z".into(),
+            team_id: None,
+            base_url: None,
+            scopes: Vec::new(),
+            max_vms: None,
+            max_usd_per_hour: None,
+        };
+        let at = parse_rfc3339(&token.expires_at).unwrap();
+        assert_eq!(token.status(at - 60), ("is", crate::exit::OK));
+        assert_eq!(token.status(at), ("expired", crate::exit::UNAUTHENTICATED));
+        token.expires_at = "never".into();
+        assert_eq!(token.status(at - 60).1, crate::exit::UNAUTHENTICATED);
+        token.expires_at = String::new();
+        assert_eq!(token.status(at - 60).1, crate::exit::UNAUTHENTICATED);
+    }
+
+    #[tokio::test]
+    async fn an_app_minted_key_that_cannot_be_kept_revokes_itself() {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        let id = "vmk_0123456789abcdefghjkmnpqrs";
+        Mock::given(method("DELETE"))
+            .and(path(format!("/v1/agent-keys/{id}")))
+            .and(header("authorization", "Bearer cmuxvm_sk_SECRETSECRET"))
+            .respond_with(ResponseTemplate::new(204))
+            .expect(1)
+            .mount(&server)
+            .await;
+        // No readable expiry: refused before anything is stored.
+        let created = format!(
+            r#"{{"id":"{id}","key":"cmuxvm_sk_SECRETSECRET","scopes":["vm:read"],"expiresAt":"soon"}}"#
+        );
+        let uri = server.uri();
+        let env = |name: &str| (name == "CMUX_VM_BASE_URL").then(|| uri.clone());
+        let mut out = Vec::new();
+        let error = keep_minted(created.as_bytes(), None, None, &env, false, &mut out)
+            .await
+            .unwrap_err();
+        assert!(
+            error.message().contains("no readable expiry"),
+            "{}",
+            error.message()
+        );
+        assert!(
+            error
+                .message()
+                .contains(&format!("the new key {id} was revoked")),
+            "{}",
+            error.message()
+        );
+        assert!(!error.message().contains("SECRET"));
+        assert!(out.is_empty());
+
+        // An answer with no key has nothing to revoke with, and says so.
+        let error = keep_minted(br#"{"id":"vmk_x"}"#, None, None, &env, false, &mut out)
+            .await
+            .unwrap_err();
+        assert!(
+            error.message().contains("held no key"),
+            "{}",
+            error.message()
+        );
     }
 
     #[test]

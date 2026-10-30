@@ -173,11 +173,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 /// Runs the cmux-vm CLI on its own runtime, with this process's stdio.
 fn run_in_process(plan: Vec<String>, env: &dyn Fn(&str) -> Option<String>) -> i32 {
-    // reqwest rides cmux's rustls without a provider of its own (cmux-vm's
-    // default-tls feature is off here): install ring, as the other HTTPS
-    // verbs do.
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
+    let runtime = match client_runtime() {
         Ok(runtime) => runtime,
         Err(error) => {
             eprintln!("cmux: cannot start the VM client: {error}");
@@ -192,6 +188,14 @@ fn run_in_process(plan: Vec<String>, env: &dyn Fn(&str) -> Option<String>) -> i3
         &mut std::io::stdout().lock(),
         &mut std::io::stderr().lock(),
     ))
+}
+
+/// A runtime for the cmux-vm client. reqwest rides cmux's rustls without a
+/// provider of its own (cmux-vm's default-tls feature is off here): install
+/// ring, as the other HTTPS verbs do.
+fn client_runtime() -> std::io::Result<tokio::runtime::Runtime> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    tokio::runtime::Builder::new_multi_thread().enable_all().build()
 }
 
 /// `token create` that the app may mint. With `--config` (an explicit
@@ -321,25 +325,32 @@ fn mint_through_app(global: &GlobalArgs, plan: &[String]) -> i32 {
     };
     let text = |name: &str| created.get(name).and_then(Value::as_str).map(str::to_owned);
     let body = serde_json::to_vec(&created).unwrap_or_default();
-    let token =
-        match cmux_vm::token::StoredToken::from_created(&body, text("teamId"), text("baseUrl")) {
-            Ok(token) => token,
-            Err(_) => return fail("vm.token_failed", "the app answered without a key", 1),
-        };
+    let runtime = match client_runtime() {
+        Ok(runtime) => runtime,
+        // Nothing can revoke the key without a client: say what was left.
+        Err(error) => {
+            return fail(
+                "vm.token_failed",
+                &format!(
+                    "cannot start the VM client ({error}); the minted key was never shown and expires within its --ttl"
+                ),
+                1,
+            );
+        }
+    };
     let env = |name: &str| std::env::var(name).ok();
     let json_output = global.output == OutputMode::Json;
-    match cmux_vm::token::store_and_report(&token, &env, json_output, &mut std::io::stdout().lock())
-    {
+    // A key that cannot be kept (an unreadable answer, a failed store)
+    // revokes itself, so it never outlives this command.
+    match runtime.block_on(cmux_vm::token::keep_minted(
+        &body,
+        text("teamId"),
+        text("baseUrl"),
+        &env,
+        json_output,
+        &mut std::io::stdout().lock(),
+    )) {
         Ok(()) => 0,
-        Err(_) => fail(
-            "vm.token_store_failed",
-            &format!(
-                "the token {} was minted but could not be stored in the {}; it was never shown and expires unused at {}",
-                token.key_id,
-                cmux_vm::token::store_name(),
-                token.expires_at
-            ),
-            1,
-        ),
+        Err(error) => fail("vm.token_failed", error.message(), 1),
     }
 }

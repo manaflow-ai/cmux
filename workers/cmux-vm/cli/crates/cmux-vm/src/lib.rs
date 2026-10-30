@@ -722,22 +722,9 @@ async fn token_command(
 ) -> Result<i32, CliError> {
     match command {
         token::TokenCommand::Status => {
-            let left = stored.seconds_left(token::now_unix());
-            token::report(
-                &stored,
-                if left.is_some_and(|left| left <= 0) {
-                    "expired"
-                } else {
-                    "is"
-                },
-                cli.json,
-                stdout,
-            )?;
-            Ok(if left.is_some_and(|left| left <= 0) {
-                exit::UNAUTHENTICATED
-            } else {
-                exit::OK
-            })
+            let (verb, code) = stored.status(token::now_unix());
+            token::report(&stored, verb, cli.json, stdout)?;
+            Ok(code)
         }
         token::TokenCommand::Revoke => {
             let base_url = cli
