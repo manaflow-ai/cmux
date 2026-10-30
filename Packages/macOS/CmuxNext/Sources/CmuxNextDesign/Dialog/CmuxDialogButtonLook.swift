@@ -30,6 +30,12 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
     public var card: ThemeRGB
     /// The card under Reduce Transparency (the opaque popup surface): the gap on that card.
     public var opaqueCard: ThemeRGB
+    /// The keyboard focus ring: the theme's focus ring, moved toward its pole until it reads at
+    /// ``focusMinimumContrast`` on both card surfaces (on a gray Cancel it is the only sign of focus).
+    public var focusRing: ThemeRGB
+
+    /// WCAG's least contrast for a focus indicator against what is next to it.
+    public static let focusMinimumContrast = 3.0
 
     /// The least contrast of every ink on every surface under it.
     public static let minimumContrast = 4.5
@@ -65,6 +71,8 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
         self.surfaces = surfaces
         self.card = card.first ?? fill.withAlpha(1)
         opaqueCard = card.count > 1 ? card[1] : self.card
+        focusRing = Self.readable(tokens.focusRing.composited(over: card.first ?? fill.withAlpha(1)), over: card,
+                                  minimum: Self.focusMinimumContrast)
     }
 
     /// The card a dialog button sits on: the opaque popup surface (Reduce Transparency) and the
@@ -80,8 +88,8 @@ public nonisolated struct CmuxDialogButtonLook: Equatable, Sendable {
     /// `ink` moved toward its pole until it reads at ``minimumContrast`` on every surface. A move for
     /// one surface can lower the contrast on another, so the passes repeat until all read (a few at
     /// most: the card's surfaces are near one another).
-    static func readable(_ ink: ThemeRGB, over surfaces: [ThemeRGB]) -> ThemeRGB {
-        let target = minimumContrast + 0.05
+    static func readable(_ ink: ThemeRGB, over surfaces: [ThemeRGB], minimum: Double = minimumContrast) -> ThemeRGB {
+        let target = minimum + 0.05
         var color = ink
         for _ in 0..<4 where !surfaces.allSatisfy({ color.contrast(with: $0) >= target }) {
             color = surfaces.reduce(color) { ThemeTokens.readable($0, over: $1, minimum: target) }

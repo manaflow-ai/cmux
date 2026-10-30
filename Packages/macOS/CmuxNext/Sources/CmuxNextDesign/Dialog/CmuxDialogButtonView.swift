@@ -2,7 +2,7 @@ public import AppKit
 
 /// A dialog button in its ``CmuxDialogButtonLook``: the default button a solid accent fill, a
 /// destructive one in the danger color, the others a theme gray (never the system accent), every
-/// title 4.5:1 on its fill. It draws a focus ring in `Palette.focusRing` around itself while it has
+/// title 4.5:1 on its fill. It draws a focus ring (`Palette.focusRing`, fit to 3:1 on the card) around itself while it has
 /// keyboard focus (outside the fill, so it shows on a solid one too).
 @MainActor
 public final class CmuxDialogButtonView: ClickableButton {
@@ -179,7 +179,7 @@ public final class CmuxDialogButtonView: ClickableButton {
             layer?.backgroundColor = look.fill.nsColor.cgColor
             layer?.cornerRadius = CmuxDialogMetrics.buttonCornerRadius
             focusRing.isHidden = !hasFocus
-            focusRing.borderColor = Palette.focusRing.cgColor
+            focusRing.borderColor = look.focusRing.nsColor.cgColor
             // Only a solid fill needs the gap: a translucent one already reads apart from the ring.
             focusGap.isHidden = !hasFocus || look.fill.alpha < 1
             // The card's own color: the opaque surface under Reduce Transparency, else the glass.
