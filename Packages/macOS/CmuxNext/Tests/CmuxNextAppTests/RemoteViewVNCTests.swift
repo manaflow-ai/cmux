@@ -151,6 +151,31 @@ struct RemoteVNCReconnectTests {
         #expect(session.source.client === connectedClient)
         #expect(session.source.status.state == .streaming)
     }
+
+    @Test(.timeLimit(.minutes(1))) func queuedLossAfterManualReconnectSchedulesNoRetry() async throws {
+        let record = try #require(RemoteViewTabRecord(host: "vm-test", target: .virtual, mode: .view, cloudDesktop: true))
+        let attempts = AttemptCounter()
+        let session = RemoteVNCSession(cloudRecord: record) {
+            attempts.increment()
+            return ConnectedRFBTransport()
+        }
+        defer { session.close() }
+
+        let statuses = session.source.statusUpdates()
+        session.reconnect(in: nil)
+        for await status in statuses {
+            if status.state == .streaming { break }
+            if case .ended = status.state { break }
+        }
+        try #require(session.source.status.state == .streaming)
+        let connectedClient = try #require(session.source.client)
+        // A loss from the old session, queued on the main actor before the manual reconnect,
+        // lands now. It must not schedule a retry that would replace the healthy connection.
+        session.deliverQueuedLossForTesting()
+        #expect(!session.hasPendingRetryForTesting)
+        #expect(attempts.value == 1)
+        #expect(session.source.client === connectedClient)
+    }
 }
 
 private nonisolated final class ConnectedRFBTransport: RFBTransport {

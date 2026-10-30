@@ -53,6 +53,9 @@ public final class RemoteVNCSession {
 
     private func reconnectAfterLoss() {
         guard makeTransport != nil, !closed, retry == nil else { return }
+        // The loss is queued onto the main actor. A manual reconnect that ran first started a new
+        // session (its status is no longer this loss), so the queued loss schedules nothing.
+        guard case .ended(.connectionLost) = source.status.state else { return }
         let wait = Duration.seconds(min(10, 1 << min(lostTries, 3)))
         lostTries += 1
         scheduleRetry(after: wait)
@@ -78,6 +81,11 @@ public final class RemoteVNCSession {
 
     internal func scheduleAutomaticRetryForTesting(after wait: Duration) {
         scheduleRetry(after: wait)
+    }
+
+    /// Runs a lost-path callback that was queued before a manual reconnect.
+    internal func deliverQueuedLossForTesting() {
+        reconnectAfterLoss()
     }
 #endif
 
