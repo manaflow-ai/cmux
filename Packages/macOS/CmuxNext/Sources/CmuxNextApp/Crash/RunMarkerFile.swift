@@ -21,6 +21,8 @@ import CmuxNextCompat
 ///   one-shot `DemandTimer`).
 nonisolated final class RunMarkerFile: Sendable {
     typealias Writer = @Sendable (Data, URL) throws -> Void
+    /// Makes the bytes to write; nil when they cannot be made (nothing is written).
+    typealias Encode = @Sendable () -> Data?
 
     let url: URL
     let signalURL: URL
@@ -67,6 +69,14 @@ nonisolated final class RunMarkerFile: Sendable {
         guard let ticket else { return 0 }
         queue.async { self.drain() }
         return ticket
+    }
+
+    /// Asks for the bytes `encode` makes on disk; returns at once. Making them may read the kernel (the
+    /// marker's footprint), so it never runs on the main thread.
+    @discardableResult
+    func submit(encoding encode: @escaping Encode) -> UInt64 {
+        guard let data = encode() else { return 0 }
+        return submit(data)
     }
 
     /// True once `ticket` is on disk; false when `timeout` passes first.
