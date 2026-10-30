@@ -1,3 +1,4 @@
+import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output, Shell block or diff below once opened.
 import { useFindReveal } from "./chatFind";
@@ -23,11 +24,13 @@ import { toolDuration } from "./toolGroups";
 import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
 import { useBlockWrap } from "./blockWrap";
 import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
-import { cleanText } from "./mcpCalls";
+import { cleanText, mcpCall } from "./mcpCalls";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { toolResult, type ToolResult } from "./toolResult";
 import { Markdown } from "./Markdown";
 import { WriteLabel, writeCall } from "./WriteLabel";
+import { ToolLabel } from "./ToolVerb";
+import { useMoreBelow } from "./moreBelow";
 import { rowFailed, toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
@@ -85,6 +88,8 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
   );
+  // An MCP call's plain name ("Hub · read chat", toolPaths.ts) leads with its server, not a verb.
+  const plainMcp = useMemo(() => label.includes(" · ") && mcpCall(tool) !== undefined, [label, tool]);
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const failed = rowFailed(tool);
   // Why it failed, in a word on the row and one line under it (toolFailure.ts); read only once it failed.
@@ -118,7 +123,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
       <span className="cv-tool__text" data-find-skip={(shell && (open || !drawsCommand)) || undefined}>
-        {write ? <WriteLabel tool={tool} write={write} t={t} /> : label}
+        {write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} whole={plainMcp} />}
         {failure && (
           <span className="cv-tool__failed" data-find-skip>
             {" "}
@@ -163,6 +168,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
       )}
+      <WrittenArtifactButtons tools={[tool]} />
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (shell || files.length > 0 || body) && (
@@ -203,11 +209,13 @@ function ToolOutput({ id, result, reveal }: { id: string; result: ToolResult; re
   const preview = usePreview(lineCount(raw.text), reveal);
   const shown = previewedOutput(raw, preview);
   const body = useSidewaysRef<HTMLPreElement>();
+  // A Markdown result scrolls at a fixed height: its bottom edge fades while more lies under it.
+  const markdown = useMoreBelow<HTMLDivElement>(result.lang === "markdown" ? result.text : undefined);
   // A result's own Markdown (an MCP tool's text reply) reads as Markdown, as a reply does.
   if (result.lang === "markdown")
     return (
       <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: result.text })}>
-        <div className="cv-tool-output__box cv-tool-output__markdown selectable">
+        <div ref={markdown} className="cv-tool-output__box cv-tool-output__markdown selectable">
           {/* Fences stay code: a tool's text never runs a render card or draws a diagram. */}
           <Markdown plainCode>{result.text}</Markdown>
         </div>

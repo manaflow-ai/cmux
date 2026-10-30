@@ -1253,9 +1253,10 @@ fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Ref
 /// ([`upload_folder`]) and answers one data frame `{"path","size"}`, then
 /// closes with `eof`. A refusal is answered `{"error","message"}` before the
 /// channel closes with that code. Nothing is overwritten, nothing is
-/// executed, and a short, long or oversized upload leaves no file. `size`
-/// may be a JSON number or a decimal string (the app's channel arguments
-/// are strings).
+/// executed, and a short or long upload leaves no file. Any `size` is
+/// accepted: the bytes stream to disk as they arrive (attachments have no
+/// size cap). `size` may be a JSON number or a decimal string (the app's
+/// channel arguments are strings).
 async fn upload(
     config: &ServiceConfig,
     peer: &Peer,
@@ -1294,12 +1295,6 @@ async fn receive_upload(
         _ => None,
     }
     .ok_or_else(|| Refusal::new("bad_request", "missing size"))?;
-    if size > config.upload_max_bytes {
-        return Err(Refusal::new(
-            "too_large",
-            format!("the file is larger than {} MB", config.upload_max_bytes / (1024 * 1024)),
-        ));
-    }
     let name = safe_file_name(name);
     let cwd = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
     let folder = upload_folder(config, peer, cwd).await?;
@@ -1360,7 +1355,6 @@ mod tests {
             pairing: None,
             agent_tab_host: None,
             uploads_dir: base.path().join("uploads"),
-            upload_max_bytes: 1,
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
@@ -1452,7 +1446,6 @@ mod tests {
             pairing: None,
             agent_tab_host: None,
             uploads_dir: std::path::PathBuf::from("/tmp"),
-            upload_max_bytes: 1,
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),

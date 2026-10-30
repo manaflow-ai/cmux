@@ -78,7 +78,9 @@ fn asks(request: &Value) -> bool {
 /// asking. Answering a pending permission is not here: that is the asking.
 pub const SESSION_CONTROL_METHODS: &[&str] = &[
     "session/prompt",
+    "_acpmux/retry",
     "session/fork",
+    "acp.session.fork",
     "session/load",
     "session/resume",
     "_acpmux/queue_edit",
@@ -238,6 +240,53 @@ mod tests {
             let r = json!({"jsonrpc": "2.0", "id": 3, "method": m, "params": {"sessionId": "s1"}});
             assert!(controlled_session(&r.to_string()).is_some(), "{m}");
         }
+    }
+
+    #[test]
+    fn both_fork_names_have_identical_phone_controls() {
+        for key in ["sessionId", "session", "name"] {
+            for method in ["session/fork", "acp.session.fork"] {
+                let request = json!({"jsonrpc": "2.0", "id": 17, "method": method,
+                    "params": {key: "source", "throughSeq": 12}});
+                let text = request.to_string();
+                let (id, session) = controlled_session(&text).expect(method);
+                assert_eq!((id.clone(), session.as_str()), (json!(17), "source"));
+                for mode in PHONE_MODES {
+                    assert_eq!(mode_refusal(&id, Some(mode)), None, "{method}: {mode}");
+                }
+                for mode in ["agent", "agent-full-access", "bypassPermissions"] {
+                    let refused: Value =
+                        serde_json::from_str(&mode_refusal(&id, Some(mode)).expect(method)).unwrap();
+                    assert_eq!(refused["id"], 17);
+                    assert_eq!(refused["error"]["data"]["reason"], "phone.mode_not_asking");
+                    let marked: Value = serde_json::from_str(&marked(&text).unwrap()).unwrap();
+                    assert_eq!(marked["params"]["_meta"]["acpmux"]["requireFullAccess"], true);
+                    assert_eq!(marked["params"][key], "source");
+                    assert_eq!(marked["params"]["throughSeq"], 12);
+                    assert_eq!(marked["method"], method);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn retry_checks_the_current_mode_and_requires_full_access_when_it_does_not_ask() {
+        let retry = json!({"jsonrpc": "2.0", "id": 12, "method": "_acpmux/retry",
+                           "params": {"sessionId": "s1"}})
+        .to_string();
+        let (id, session) = controlled_session(&retry).expect("retry controls the existing session");
+        assert_eq!(session, "s1");
+        assert_eq!(mode_refusal(&id, Some("ask")), None);
+        let refusal: Value = serde_json::from_str(
+            &mode_refusal(&id, Some("agent-full-access")).expect("refused on the dashboard token"),
+        )
+        .unwrap();
+        assert_eq!(refusal["id"], 12);
+        assert_eq!(refusal["error"]["data"]["reason"], "phone.mode_not_asking");
+        let marked_retry: Value = serde_json::from_str(&marked(&retry).unwrap()).unwrap();
+        assert_eq!(marked_retry["params"]["_meta"]["acpmux"]["requireFullAccess"], true);
+        assert_eq!(marked_retry["method"], "_acpmux/retry");
+        assert_eq!(marked_retry["params"]["sessionId"], "s1");
     }
 
     /// On a phone's own credential, what the filter refuses goes on marked, for acpmux to

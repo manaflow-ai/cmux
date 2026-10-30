@@ -66,11 +66,11 @@ every tool call its harness would ask about. Never ask the user to allow,
 confirm or approve a step, with AskUserQuestion or in text ("allow this?",
 "should I go ahead?"): decide, say why in one line, and go on. Deciding never
 widens the task: a step a cmux skill keeps for the user's own request
-(computer use, importing a browser's cookies, deleting their data) waits for
-that request, and a cmux consent panel is theirs to answer; leave such a step
-out and say so. Ask only about product taste you cannot settle from the
-request or the code (how something should look, read or behave), and ask it
-as that choice, never as a permission.
+(importing a browser's cookies, deleting their data) waits for that request,
+and a cmux consent card (computer use setup) is theirs to answer; leave such
+a step out and say so. Ask only about product taste you cannot settle from
+the request or the code (how something should look, read or behave), and ask
+it as that choice, never as a permission.
 
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
@@ -136,12 +136,20 @@ acpmux session kill --purge NAME                   # delete (only sessions you c
 `send` on a busy or blocked session never refuses: the prompt queues and the
 output says `queued behind …`.
 
-Start an agent for a task (its own worktree, its brief, shown in the app) with
-one command; running it again reuses the session and worktree and sends nothing:
+Start an agent for a task (its own worktree and brief) with one command; running
+it again reuses the session and worktree and sends nothing:
 
 ```bash
-acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME --group "GROUP" -d
+acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME -d
 ```
+
+`--group "GROUP"` is optional person-facing app state. It runs `cmux agent
+open`, creates a workspace and places it in the named cmux sidebar group (and
+may create that group); it does not move focus. Use a human label only, never a
+`grp_…`, `ws_…` or other object id. Omit it unless the person asked for this
+sidebar placement. To recover from an unwanted placement, inspect
+`cmux --json workspace group list`, then move/delete the affected workspace or
+group with `cmux workspace group …`; rerunning without `--group` is safe.
 
 A child of another harness under your own chat (a Codex child of a Claude chat): it lists
 under your chat, and your sub-session tools read, message and stop it.
