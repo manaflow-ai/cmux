@@ -394,6 +394,15 @@ Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`
 deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
 (default 30; 0 keeps them), checked at the daemon's start and daily.
 
+`usageWarnings` (`{"contextTokens": 400000, "subagentsPerHour": 40, "autocompactCap": true}`,
+those are the defaults; 0 or false turns a rule off): a session whose usage breaks a rule gets
+`usageWarnings` on its summary, `[{rule, value, limit, text}]`, decided from its `usageStats`
+when the summary is read (`hub/usage_warnings.rs`). `noAutocompactCap`: a Claude session with no
+autocompact cap; `contextTokens`: its last call's context is above the limit; `subagentsPerHour`:
+it started more subagents than the limit in the last hour. `acpmux ls` shows them in a WARN
+column (`no-cap ctx 412k 90 sub/h`) while any row has one, and the cmux NEXT sidebar draws a
+warning triangle on the row whose tooltip is each `text`.
+
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
 event) gets an instant first-message placeholder, then a 3-6 word model title, logged
 as `titled`. A thin first message may get one refresh after its first completed turn;

@@ -336,11 +336,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 return Ok(());
             }
+            // The usage rules each row breaks (`hub/usage_warnings.rs`); the WARN column shows
+            // only while some row breaks one.
+            let warns: Vec<String> = sessions.iter().map(usage_warn_cell).collect();
+            let warn_width = warns.iter().map(|w| w.chars().count()).max().unwrap_or(0);
+            let warn_col = |cell: &str| match warn_width {
+                0 => String::new(),
+                w => format!("{cell:<w$} "),
+            };
             println!(
-                "{:<24} {:<8} {:<13} {:>5} {:<6} LAST",
-                "NAME", "AGENT", "STATUS", "TURNS", "AGE"
+                "{:<24} {:<8} {:<13} {:>5} {:<6} {}LAST",
+                "NAME",
+                "AGENT",
+                "STATUS",
+                "TURNS",
+                "AGE",
+                warn_col("WARN")
             );
-            for s in sessions {
+            for (s, warn) in sessions.iter().zip(&warns) {
                 let g = |k: &str| s.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
                 let mut status =
                     s["state"].as_str().map(str::to_owned).unwrap_or_else(|| g("status"));
@@ -348,12 +361,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     status = "waiting!".into();
                 }
                 println!(
-                    "{:<24} {:<8} {:<13} {:>5} {:<6} {}",
+                    "{:<24} {:<8} {:<13} {:>5} {:<6} {}{}",
                     short(&g("name"), 24),
                     short(&g("harness"), 8),
                     status,
                     s.get("turnCount").and_then(Value::as_u64).unwrap_or(0),
                     age(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
+                    warn_col(warn),
                     short(s.get("lastPrompt").and_then(Value::as_str).unwrap_or(""), 50)
                 );
             }
@@ -1399,6 +1413,14 @@ fn text_field(value: Option<&Value>) -> String {
     }
 }
 
+/// A row's WARN cell for `acpmux ls`: its usage warnings, short (`no-cap ctx 955k 90 sub/h`).
+fn usage_warn_cell(session: &Value) -> String {
+    session["usageWarnings"]
+        .as_array()
+        .map(|w| w.iter().map(crate::hub::usage_warnings::short).collect::<Vec<_>>().join(" "))
+        .unwrap_or_default()
+}
+
 fn team_receipt_line(receipt: &Value) -> String {
     let canonical =
         receipt.pointer("/to/teamAddress").and_then(Value::as_str).unwrap_or("unresolved");
@@ -1416,6 +1438,19 @@ mod tests {
         let line = super::team_receipt_line(&receipt);
         assert!(line.contains("@user_42/coordinator"));
         assert!(line.contains("startWork=information"));
+    }
+
+    #[test]
+    fn a_rows_warn_cell_names_each_broken_rule_with_its_number() {
+        let row = serde_json::json!({"usageWarnings": [
+            {"rule": "noAutocompactCap", "value": 955_000, "limit": null},
+            {"rule": "contextTokens", "value": 955_000, "limit": 400_000},
+            {"rule": "subagentsPerHour", "value": 90, "limit": 40},
+        ]});
+        assert_eq!(super::usage_warn_cell(&row), "no-cap ctx 955k 90 sub/h");
+        // An older daemon's row, or one with nothing to warn about: an empty cell.
+        assert_eq!(super::usage_warn_cell(&serde_json::json!({})), "");
+        assert_eq!(super::usage_warn_cell(&serde_json::json!({"usageWarnings": []})), "");
     }
     use super::{
         new_requires_tty, new_without_prompt_requires_tty, parse_duration_ms, parse_fields,
