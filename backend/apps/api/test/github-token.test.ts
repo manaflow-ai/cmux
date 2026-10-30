@@ -282,6 +282,9 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
 
     const mine = await token(vm, { repo: "acme/web", permissions: { contents: "read" } })
     expect(mine.body.token, JSON.stringify(mine.body)).toBe("ghs_secret_1")
+    // The machine's own git push: vm-self covers write on /token (no mutate-own on a vm install).
+    const push = await token(vm, { repo: "acme/web", permissions: { contents: "write" } })
+    expect(push.body.token, JSON.stringify(push.body)).toBe("ghs_secret_2")
     expect((await token(vm, { team: "team_00000000000000000000", repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("auth.forbidden")
     // Deleting the machine ends the VM install, and with it the VM's tokens.
     expect((await op(a.session, "cloud.machine.delete", { machine })).body.ok).toBe(true)

@@ -113,8 +113,11 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) {
       return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))
     }
+    // A person's install writes only with mutate-own. On /token a vm install's vm-self grant covers its
+    // own machine's git (the existing Cloud machine contract); the machine-token seam stays read-only for it.
     const writes = Object.values(body.permissions).some((access) => access === "write")
-    if (writes && who.p.kind === "install" && !who.p.grant_classes?.includes("mutate-own")) {
+    const vmSelf = sub === "token" && who.p.kind === "install" && who.p.install_kind === "vm"
+    if (writes && who.p.kind === "install" && !vmSelf && !who.p.grant_classes?.includes("mutate-own")) {
       return failed(no(403, "auth.forbidden", "this install's grant does not cover write access"))
     }
     const ttlSec = sub === "machine-token" ? (body as typeof GitHubMachineTokenRequest.Type).ttlSec : undefined
