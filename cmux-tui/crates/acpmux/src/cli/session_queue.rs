@@ -113,24 +113,23 @@ pub async fn run(client: &Client, cmd: QueueCmd, json_out: bool) -> Result<()> {
                 }
                 return Ok(());
             }
+            // Before anything leaves: the session's own daemon (a peer's, for `host/name`) must
+            // check `fromAgentsOnly` as each prompt leaves, or an agent message the person edits
+            // meanwhile (theirs now) would go by the list read above.
+            if !targets.is_empty() && !checks_agents_only(client, &id).await? {
+                return Err(agents_only_unsupported("nothing was removed"));
+            }
             let mut results = Vec::with_capacity(targets.len());
             for item in &targets {
                 let prompt_id = item["promptId"].as_str().unwrap_or_default();
                 let result = remove_one(client, &id, prompt_id, true).await;
-                // A daemon that does not check `fromAgentsOnly` as the prompt leaves (an older
-                // acpmux, or a peer on one) removed it by the list read before: stop there.
+                // The probe said it checks; a daemon replaced since (updated back to an older
+                // build) would not: stop at the first removal it did not check.
                 let unchecked = result["status"] == "removed" && result["checked"] != true;
                 results.push(result);
                 if unchecked {
                     report(&id, &results, json_out, true)?;
-                    return Err(AppError::new(
-                        Code::Runtime,
-                        "queue.agents_only_unsupported",
-                        "this session's daemon does not check that a prompt is still another \
-                         agent's message as it removes it (an older acpmux); clear stopped after \
-                         one. Update that daemon, or remove PROMPT_ID... by hand",
-                    )
-                    .into());
+                    return Err(agents_only_unsupported("clear stopped after one"));
                 }
             }
             // One that left the queue meanwhile (it ran or its sender took it back), or that an
@@ -225,6 +224,30 @@ fn list_lines(queue: &[Value]) -> Vec<String> {
     lines
 }
 
+/// Whether the daemon that holds session `id` checks `fromAgentsOnly` as a prompt leaves: asked
+/// with an id no prompt has, so nothing leaves; a daemon that checks echoes `fromAgentsOnly`.
+async fn checks_agents_only(client: &Client, id: &str) -> Result<bool> {
+    let probe = format!("acpmux-cli-probe-{}", uuid::Uuid::now_v7());
+    let params = json!({"sessionId": id, "promptId": probe, "fromAgentsOnly": true});
+    let reply = client.request(method::MUX_QUEUE_REMOVE, params).await?;
+    Ok(reply["fromAgentsOnly"] == true && reply["removed"] != true)
+}
+
+/// `clear` on a daemon that does not check `fromAgentsOnly` (an older acpmux, or a peer on one).
+fn agents_only_unsupported(what: &str) -> anyhow::Error {
+    AppError::new(
+        Code::Runtime,
+        "queue.agents_only_unsupported",
+        format!(
+            "this session's daemon does not check that a prompt is still another agent's \
+             message as it removes it (an older acpmux), so clear --from-agents could take a \
+             prompt the person just edited: {what}. Update that daemon, or remove PROMPT_ID... \
+             by hand"
+        ),
+    )
+    .into()
+}
+
 /// One prompt's outcome: `removed`, `not_found` (not waiting: it started, ended or was already
 /// taken out), `kept` (asked `from_agents_only`, and it is no longer another agent's message:
 /// the person edited it), or `refused` with the daemon's reason. With `from_agents_only`, a
@@ -297,6 +320,63 @@ fn report(id: &str, results: &[Value], json_out: bool, gone_ok: bool) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stand-in daemon on a socket: answers `initialize`, `_acpmux/resolve`, `_acpmux/info`
+    /// (one agent message queued) and `_acpmux/queue_remove` as an older acpmux does (no
+    /// `fromAgentsOnly` echo, and it removes what it is asked), recording each removal's id.
+    #[cfg(unix)]
+    async fn older_daemon(
+        socket: &std::path::Path,
+    ) -> (tokio::task::JoinHandle<()>, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use crate::rpc::Message;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let listener = tokio::net::UnixListener::bind(socket).unwrap();
+        let removals = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = removals.clone();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (rd, mut wr) = stream.into_split();
+            let mut lines = BufReader::new(rd).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let Ok(Message::Request { id, method, params }) = Message::parse(&line) else {
+                    continue;
+                };
+                let params = params.unwrap_or_default();
+                let result = match method.as_str() {
+                    method::MUX_RESOLVE => json!({"matches": [{"sessionId": "s", "name": "c"}]}),
+                    method::MUX_INFO => json!({"queue": [{"promptId": "p-a", "fromAgent": "lane-a",
+                        "prompt": "hi", "queuedAt": 0, "held": false}]}),
+                    method::MUX_QUEUE_REMOVE => {
+                        let prompt_id = params["promptId"].as_str().unwrap_or_default();
+                        seen.lock().unwrap().push(prompt_id.to_owned());
+                        json!({"sessionId": "s", "promptId": prompt_id, "removed": prompt_id == "p-a"})
+                    }
+                    _ => json!({}),
+                };
+                wr.write_all(Message::ok(id, result).to_line().as_bytes()).await.unwrap();
+            }
+        });
+        (server, removals)
+    }
+
+    /// On a daemon that does not check `fromAgentsOnly`, clear removes nothing: an agent
+    /// message the person edited after the list was read would otherwise go.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn clear_on_an_older_daemon_removes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("d.sock");
+        let (server, removals) = older_daemon(&socket).await;
+        let client = Client::connect(&socket).await.unwrap();
+        let cmd = QueueCmd::Clear { session: "c".into(), from_agents: true, dry_run: false };
+        let e = run(&client, cmd, true).await.unwrap_err();
+        drop(client);
+        server.await.unwrap();
+        assert!(e.to_string().contains("nothing was removed"), "{e}");
+        let removals = removals.lock().unwrap().clone();
+        assert_eq!(removals.len(), 1, "only the probe: {removals:?}");
+        assert!(removals[0].starts_with("acpmux-cli-probe-"), "{removals:?}");
+    }
 
     fn item(id: &str, from: Option<&str>, text: &str) -> Value {
         json!({"promptId": id, "fromAgent": from, "prompt": text, "queuedAt": 0, "held": false})
