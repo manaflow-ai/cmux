@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextSidebar
 import Foundation
+import ImageIO
 import Testing
 
 /// Four visual treatments for a workspace inserted at the top. The selected `.snap` treatment leaves the
