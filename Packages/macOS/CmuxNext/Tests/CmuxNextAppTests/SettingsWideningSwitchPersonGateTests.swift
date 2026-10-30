@@ -339,7 +339,7 @@ import Testing
             h.cleanUp()
         }
         for op in Switch.allCases {
-            let asking = try h.heldOn(op)
+            let asking = try h.heldOn(op, pid: 0)
             #expect(await owner.held(asking))
             #expect(try await !h.refused(op, on: false, h.posted()))
             owner.resume(true)
@@ -351,7 +351,7 @@ import Testing
             }
         }
         #expect(h.recorder.sets == ["device false", "vm false"])
-        let asking = try h.heldOn(.vmHost)
+        let asking = try h.heldOn(.vmHost, pid: 0)
         #expect(await owner.held(asking))
         #expect(try await !h.refused(.fullAccess, on: false, h.posted()))
         owner.resume(true)
