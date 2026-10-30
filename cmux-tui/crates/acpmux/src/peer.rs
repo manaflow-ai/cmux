@@ -182,7 +182,11 @@ pub struct Peer {
     /// requests and notifications are refused, so none goes out on a link
     /// that is dropped to reconnect as a peer, or waits to go out on the next.
     admitting: AtomicBool,
-    attached: StdMutex<HashSet<String>>,
+    /// The chats local clients want streamed, each with the ticket of its latest mark: a client
+    /// that relies on a mark already there renews it, so an attach refused meanwhile does not
+    /// take it away (`attach_hidden`).
+    attached: StdMutex<HashMap<String, u64>>,
+    marks: AtomicU64,
     notices: mpsc::Sender<(String, u64, PeerNotice)>,
     stop: AtomicBool,
     /// A replacement requested now attempts immediately, even if its cache is parked.
@@ -260,7 +264,8 @@ impl Peer {
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
-            attached: StdMutex::new(HashSet::new()),
+            attached: StdMutex::new(HashMap::new()),
+            marks: AtomicU64::new(0),
             notices,
             stop: AtomicBool::new(false),
             retry_immediately: AtomicBool::new(false),
@@ -748,23 +753,30 @@ impl Peer {
     }
 
     /// Remember that local clients want this session's stream, so it is
-    /// re-attached after a reconnect.
+    /// re-attached after a reconnect. True when it was not marked yet; a mark already there is
+    /// renewed, since this caller now relies on it.
     pub fn mark_attached(&self, session_id: &str) -> bool {
-        self.attached.lock_or_recover().insert(session_id.to_owned())
+        let ticket = self.marks.fetch_add(1, Ordering::SeqCst) + 1;
+        self.attached.lock_or_recover().insert(session_id.to_owned(), ticket).is_none()
     }
 
     /// The link's own attach of the peer's chat `id` ([`hidden_attach`]), marked already. Its
     /// error goes to the log at warn: a chat whose attach failed got no stream, and said
     /// nothing of why. One the peer refused ([`refuses_attach`]: the chat is gone there, or the
     /// peer takes no such attach) is no longer marked, so no reconnect asks for it again and the
-    /// next prompt attaches it anew; any other failure (the link dropped, a timeout, a full
+    /// next prompt attaches it anew, unless a client marked it again while this attach was out:
+    /// that client relies on the mark. Any other failure (the link dropped, a timeout, a full
     /// queue) keeps the mark, and the next link's handshake attaches it again.
     pub async fn attach_hidden(&self, id: &str) -> Result<Value, RpcError> {
+        let ticket = self.attached.lock_or_recover().get(id).copied();
         let attached = self.request(method::MUX_ATTACH, hidden_attach(id)).await;
         if let Err(e) = &attached {
             let refused = refuses_attach(e);
             if refused {
-                self.attached.lock_or_recover().remove(id);
+                let mut marks = self.attached.lock_or_recover();
+                if marks.get(id).copied() == ticket {
+                    marks.remove(id);
+                }
             }
             tracing::warn!(peer = %self.name, session = %id, refused, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
         }
@@ -1255,7 +1267,7 @@ impl Peer {
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             // Several at once: a chat the peer is slow on holds up no other's stream, and a
             // link with many chats does not fill its send queue with them.
-            let attached: Vec<String> = me.attached.lock_or_recover().iter().cloned().collect();
+            let attached: Vec<String> = me.attached.lock_or_recover().keys().cloned().collect();
             let link = &me;
             futures::stream::iter(attached.iter())
                 .for_each_concurrent(REATTACHES_AT_ONCE, |sid| async move {
