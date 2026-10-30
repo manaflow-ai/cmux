@@ -200,5 +200,62 @@ class FreezeTests(unittest.TestCase):
         self.assertEqual(status, 2)
 
 
+class PaginationTests(unittest.TestCase):
+    """The gh quota shim refuses `gh api --paginate` (it can't be charged), so lists are read one
+    page per call, with an explicit per_page and a page cap that fails closed."""
+
+    def fake_gh(self, total):
+        calls = []
+
+        def gh(*args):
+            calls.append(args)
+            self.assertNotIn("--paginate", args)
+            query = dict(part.split("=", 1) for part in args[-1].split("?", 1)[1].split("&"))
+            self.assertEqual(query["per_page"], str(freeze.PER_PAGE))
+            start = (int(query["page"]) - 1) * freeze.PER_PAGE
+            return json.dumps([{"filename": f"f{i}"} for i in range(start, min(total, start + freeze.PER_PAGE))])
+        return gh, calls
+
+    def with_gh(self, gh):
+        original = freeze.gh
+        freeze.gh = gh
+        self.addCleanup(setattr, freeze, "gh", original)
+
+    def test_each_page_is_one_bounded_call_and_a_short_page_ends_the_list(self):
+        gh, calls = self.fake_gh(250)
+        self.with_gh(gh)
+        items = freeze.gh_items("repos/x/y/pulls/1/files")
+        self.assertEqual(len(items), 250)
+        self.assertEqual([c[1] for c in calls], [f"repos/x/y/pulls/1/files?per_page=100&page={n}" for n in (1, 2, 3)])
+        gh, calls = self.fake_gh(3)
+        self.with_gh(gh)
+        freeze.gh_items("repos/x/y/issues?state=open&labels=merge-freeze")
+        self.assertEqual(calls[0][1], "repos/x/y/issues?state=open&labels=merge-freeze&per_page=100&page=1")
+
+    def test_a_list_past_the_page_cap_fails_closed(self):
+        gh, calls = self.fake_gh(freeze.PER_PAGE * freeze.MAX_PAGES)
+        self.with_gh(gh)
+        with self.assertRaisesRegex(ValueError, "more than 30 pages"):
+            freeze.gh_items("repos/x/y/pulls/1/files")
+        self.assertEqual(len(calls), freeze.MAX_PAGES)
+
+    def test_a_changed_files_list_past_the_cap_is_status_2_not_clear(self):
+        endless, calls = self.fake_gh(10**6)
+
+        def gh(*args):  # no open freezes; the PR's files never end
+            return "[]" if "/issues?" in args[-1] else endless(*args)
+        self.with_gh(gh)
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            status = freeze.main(["check", "--repo", "x/y", "--pr", "1"])
+        self.assertEqual(status, 2)
+        self.assertIn("pulls/1/files has more than 30 pages", stderr.getvalue())
+        self.assertEqual(len(calls), freeze.MAX_PAGES)
+
+    def test_the_script_never_asks_gh_to_paginate(self):
+        source = (ROOT / "scripts/ci/merge_freeze.py").read_text()
+        self.assertNotIn('"--paginate"', source)
+
+
 if __name__ == "__main__":
     unittest.main()

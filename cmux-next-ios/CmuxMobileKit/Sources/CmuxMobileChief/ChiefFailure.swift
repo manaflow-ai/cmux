@@ -70,6 +70,12 @@ public struct ChiefTurnFailure: Equatable, Sendable {
         reply.isEmpty ? friendlyText : "\(reply)\n\n\(friendlyText)"
     }
 
+    init(kind: Kind, reply: String, detail: String) {
+        self.kind = kind
+        self.reply = reply
+        self.detail = detail
+    }
+
     /// The failure at the end of `text`, or nil when Chief's message did
     /// not end in one. Only the brain's own trailing note counts, so a reply
     /// that merely mentions a failure is left alone.
@@ -78,7 +84,9 @@ public struct ChiefTurnFailure: Equatable, Sendable {
         guard trimmed.hasSuffix(")") else { return nil }
         // The note starts a line: the whole message, or after a blank line.
         let start: String.Index
-        if trimmed.hasPrefix("(turn failed") {
+        // A turn the brain refused before it ran (`(turn refused: why)`,
+        // `ended_turn_text`) is a whole message of its own.
+        if trimmed.hasPrefix("(turn failed") || trimmed.hasPrefix("(turn refused") {
             start = trimmed.startIndex
         } else if let range = trimmed.range(of: "\n\n(turn failed", options: .backwards) {
             start = trimmed.index(range.lowerBound, offsetBy: 2)
@@ -86,13 +94,37 @@ public struct ChiefTurnFailure: Equatable, Sendable {
             return nil
         }
         let note = trimmed[start...].dropFirst().dropLast() // without the outer parentheses
-        // "turn failed[ on X[ (fallback for Y)]]: error"
-        guard let colon = Self.headerColon(in: note) else { return nil }
-        let detail = String(note[note.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+        let detail: String
+        if note == "turn refused" {
+            detail = "refused"
+        } else {
+            // "turn failed[ on X[ (fallback for Y)]]: error" or "turn refused: why"
+            guard let colon = Self.headerColon(in: note) else { return nil }
+            detail = String(note[note.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+        }
         guard !detail.isEmpty else { return nil }
         reply = String(trimmed[..<start]).trimmingCharacters(in: .whitespacesAndNewlines)
         self.detail = detail
         kind = Self.kind(of: detail)
+    }
+
+    /// A list preview of a message that may end in the brain's note. The
+    /// Mac's Home list cuts previews short, so the note's closing parenthesis
+    /// may be gone: the note is recognized by its start alone here.
+    public static func previewText(_ text: String) -> String {
+        if let failure = ChiefTurnFailure(text: text) { return failure.displayText }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("(turn failed") || trimmed.hasPrefix("(turn refused") {
+            let note = trimmed.dropFirst()
+            let detail = note.firstIndex(of: ":").map { String(note[note.index(after: $0)...]) } ?? ""
+            return ChiefTurnFailure(kind: kind(of: detail), reply: "", detail: detail).friendlyText
+        }
+        if let range = trimmed.range(of: "\n\n(turn failed", options: .backwards) {
+            let detail = String(trimmed[range.upperBound...])
+            let reply = String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return ChiefTurnFailure(kind: kind(of: detail), reply: reply, detail: detail).displayText
+        }
+        return text
     }
 
     /// `text` without URLs, IP addresses and host:port pairs.
@@ -107,9 +139,9 @@ public struct ChiefTurnFailure: Equatable, Sendable {
 
     /// The colon that ends "turn failed[ on X[ (fallback for Y)]]".
     private static func headerColon(in note: Substring) -> Substring.Index? {
-        guard note.hasPrefix("turn failed") else { return nil }
+        guard let header = ["turn failed", "turn refused"].first(where: { note.hasPrefix($0) }) else { return nil }
         var depth = 0
-        var index = note.index(note.startIndex, offsetBy: "turn failed".count)
+        var index = note.index(note.startIndex, offsetBy: header.count)
         while index < note.endIndex {
             switch note[index] {
             case "(": depth += 1
@@ -259,4 +291,7 @@ public enum ChiefBarItem: Equatable, Sendable {
     case failure(id: String, ChiefTurnFailure)
     /// The Mac's Chief can't be reached: why, and whether Try Again is running.
     case unavailable(reason: String, retrying: Bool)
+    /// The Mac is away and Chief reads its cloud copy: messages wait for the
+    /// Mac, and the bar offers the Cloud Chief now.
+    case macAway(reason: String)
 }

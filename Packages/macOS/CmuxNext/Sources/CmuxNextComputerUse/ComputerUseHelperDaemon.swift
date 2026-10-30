@@ -15,6 +15,8 @@ protocol ComputerUseHelperLaunching: AnyObject {
     /// Launches a new instance of `app` (never activated); its pid, or nil.
     func launch(_ app: URL, arguments: [String], environment: [String: String]) async -> pid_t?
     func terminate(_ pid: pid_t)
+    /// Whether the process `pid` still exists (signal 0, nothing is sent).
+    func isRunning(_ pid: pid_t) -> Bool
     /// Calls `onExit` once, on the main actor, when `pid` exits; the returned
     /// closure cancels the watch (`ComputerUseHelperExitWatch`).
     func watchExit(of pid: pid_t, onExit: @escaping @MainActor () -> Void) -> @MainActor () -> Void
@@ -62,6 +64,11 @@ public final class ComputerUseHelperDaemon {
     public static let shared = ComputerUseHelperDaemon()
 
     public private(set) var state: State = .off
+    /// Why the running helper refused this app as its consent host
+    /// (`host_unverified`: a cmux build that isn't team-signed, such as a
+    /// tagged dev build). Every call that needs consent is refused then.
+    /// Cleared when the helper stops, exits or starts again.
+    public private(set) var consentHostUnverified: String?
     @ObservationIgnored let socketPath: String
     @ObservationIgnored let stateDirectory: URL
     @ObservationIgnored private let identity: CuaHelperIdentity
@@ -89,6 +96,9 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private let restarts: ComputerUseHelperRestarts
     /// The helper v2 (`computerUse.driver = "upstream"`).
     @ObservationIgnored public let upstream: ComputerUseHelperV2
+    /// Serves machine consent to the running helper from this app's acpmux
+    /// daemon (the same query the helper v2 uses).
+    @ObservationIgnored private var consentHost: ComputerUseConsentHost?
 
     init(identity: CuaHelperIdentity = CuaHelperIdentity(),
          candidates: @escaping @Sendable () -> [URL] = { CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild) },
@@ -266,6 +276,7 @@ public final class ComputerUseHelperDaemon {
         agentToken = agent
         hostToken = host
         state = .running(pid)
+        startConsentHost(agentToken: agent, hostToken: host)
         restarts.watch(launcher.watchExit(of: pid) { [weak self] in self?.helperExited(pid) })
         helperLogger.notice("cmux Computer Use helper started from \(staged.path, privacy: .public)")
     }
@@ -277,6 +288,8 @@ public final class ComputerUseHelperDaemon {
     /// setup offers Restart Helper.
     private func helperExited(_ pid: pid_t) {
         guard case .running(let running) = state, running == pid else { return }
+        consentHost?.stop()
+        consentHostUnverified = nil
         agentToken = nil
         hostToken = nil
         guard requestedEnabled, !quitting else {
@@ -294,6 +307,20 @@ public final class ComputerUseHelperDaemon {
         _ = request(enabled: true)
     }
 
+    /// The helper's state after checking that a `.running` helper's process
+    /// still exists. A reader whose request found no listener calls this: a
+    /// helper that is gone while the state still says `.running` (its exit
+    /// event never came) is handled as the exit it was, so it starts again
+    /// (`.off` while the restart runs, `.failed` past the restart budget)
+    /// instead of every request saying the helper did not answer.
+    public func confirmRunning() -> State {
+        if case .running(let pid) = state, !launcher.isRunning(pid) {
+            helperLogger.error("cmux Computer Use helper pid=\(pid, privacy: .public) is gone, but no exit event came")
+            helperExited(pid)
+        }
+        return state
+    }
+
     /// Restarts the legacy helper. The caller checks the current setting and policy.
     public func restartLegacy() async {
         stop()
@@ -305,10 +332,29 @@ public final class ComputerUseHelperDaemon {
     /// exit watch ends first, so this exit starts nothing.
     func stop() {
         restarts.stopped()
+        consentHost?.stop()
+        consentHostUnverified = nil
         if case .running(let pid) = state { launcher.terminate(pid) }
         state = .off
         agentToken = nil
         hostToken = nil
+    }
+
+    private func startConsentHost(agentToken: String, hostToken: String) {
+        let host = consentHost ?? ComputerUseConsentHost(
+            consent: { [upstream] in
+                let query = await MainActor.run { upstream.machineConsent }
+                return await query()
+            },
+            refused: { [upstream] surface in
+                let record = await MainActor.run { upstream.consentRefused }
+                await record(surface)
+            },
+            unverified: { [weak self] why in self?.consentHostUnverified = why })  // nil: accepted again
+        consentHost = host
+        consentHostUnverified = nil
+        host.start(AgentActivitySocketSource.Configuration(socketPath: socketPath, authToken: agentToken,
+                                                           hostAuthToken: hostToken, machineName: ""))
     }
 
     /// A process that failed its running check got the agent token in its

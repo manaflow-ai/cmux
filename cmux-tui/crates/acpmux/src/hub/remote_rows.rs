@@ -7,12 +7,14 @@ use super::*;
 
 #[derive(Default)]
 pub(crate) struct RemoteRows {
-    rows: HashMap<String, RemoteSession>,
+    rows: HashMap<String, Arc<RemoteSession>>,
     by_pair: HashMap<(String, String), std::collections::BTreeSet<String>>,
+    /// Writes so far: a shared session list is rebuilt after one (`list_guard.rs`).
+    pub(crate) writes: u64,
 }
 
 impl std::ops::Deref for RemoteRows {
-    type Target = HashMap<String, RemoteSession>;
+    type Target = HashMap<String, Arc<RemoteSession>>;
     fn deref(&self) -> &Self::Target {
         &self.rows
     }
@@ -20,15 +22,23 @@ impl std::ops::Deref for RemoteRows {
 
 impl RemoteRows {
     pub(crate) fn insert(&mut self, key: String, row: RemoteSession) {
-        self.remove(&key);
+        self.take(&key);
+        self.writes += 1;
         if let Some(pair) = pair_of(&row.summary) {
             self.by_pair.entry(pair).or_default().insert(key.clone());
         }
-        self.rows.insert(key, row);
+        self.rows.insert(key, Arc::new(row));
     }
 
     pub(crate) fn remove(&mut self, key: &str) -> Option<RemoteSession> {
+        self.take(key).map(Arc::unwrap_or_clone)
+    }
+
+    // Readers capture Arc handles under the mutex, then serialize outside it. A write
+    // replaces the row; readers retain the captured version until their build ends.
+    pub(crate) fn take(&mut self, key: &str) -> Option<Arc<RemoteSession>> {
         let row = self.rows.remove(key)?;
+        self.writes += 1;
         if let Some(pair) = pair_of(&row.summary)
             && let Some(keys) = self.by_pair.get_mut(&pair)
         {
@@ -44,7 +54,7 @@ impl RemoteRows {
         let gone: Vec<String> =
             self.rows.iter().filter(|(k, r)| !keep(k, r)).map(|(k, _)| k.clone()).collect();
         for key in gone {
-            self.remove(&key);
+            self.take(&key);
         }
     }
 
@@ -70,7 +80,11 @@ impl RemoteRows {
         &self,
         pair: &(String, String),
     ) -> impl Iterator<Item = &RemoteSession> {
-        self.by_pair.get(pair).into_iter().flatten().filter_map(|key| self.rows.get(key))
+        self.by_pair
+            .get(pair)
+            .into_iter()
+            .flatten()
+            .filter_map(|key| self.rows.get(key).map(Arc::as_ref))
     }
 
     /// How many pairs the index holds.

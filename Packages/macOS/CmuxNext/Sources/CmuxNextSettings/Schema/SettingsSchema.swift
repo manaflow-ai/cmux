@@ -161,7 +161,7 @@ public nonisolated enum SettingsSchema {
                 TitlebarButtonsSetting.configPath, section: .general, group: window,
                 title: SettingsText.keyed("settings.window.titlebarButtons", "Titlebar Buttons"),
                 help: SettingsText.keyed("settings.window.titlebarButtons.help",
-                                        "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows."),
+                                        "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show."),
                 kind: .choice([
                     SettingChoice(TitlebarButtonsMode.hover.rawValue, SettingsText.keyed("settings.choice.onHover", "On Hover")),
                     SettingChoice(TitlebarButtonsMode.always.rawValue, SettingsText.keyed("settings.choice.always", "Always")),
@@ -196,6 +196,15 @@ public nonisolated enum SettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback),
                 keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.showMenuBarIconPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.showMenuBarIcon", "Show Menu Bar Icon"),
+                help: SettingsText.keyed("settings.app.showMenuBarIcon.help",
+                                        "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.showMenuBarIconFallback),
+                keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
             ),
             TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.terminalFirst(group: tabs),
