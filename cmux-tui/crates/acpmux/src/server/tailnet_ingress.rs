@@ -259,13 +259,13 @@ where
         super::pairing::Admitted::Ticket(secret) => {
             let close = tokio::select! {
                 biased;
-                () = restart.normal() => true,
-                () = restart.closing() => true,
-                _ = stopped(&mut stop) => true,
-                _ = super::pairing::serve_redeem(hub, &mut ws, secret) => false,
+                () = restart.normal() => Some(false),
+                () = restart.closing() => Some(true),
+                _ = stopped(&mut stop) => Some(false),
+                _ = super::pairing::serve_redeem(hub, &mut ws, secret) => None,
             };
-            if close {
-                super::ws_shutdown::close(&mut ws, restart.close_code_restart()).await;
+            if let Some(restarting) = close {
+                super::ws_shutdown::close(&mut ws, restarting).await;
             }
         }
         super::pairing::Admitted::Device(device) => {
@@ -316,15 +316,13 @@ async fn device_connection<S>(
                 }
             }
         };
-        // A revoked device is told to go, never to come back; any other end takes the
-        // daemon's close code at this moment.
         let restarting = tokio::select! {
             biased;
-            () = restart.normal() => restart.close_code_restart(),
-            () = restart.closing() => restart.close_code_restart(),
-            _ = stopped(&mut stop) => restart.close_code_restart(),
+            () = restart.normal() => false,
+            () = restart.closing() => true,
+            _ = stopped(&mut stop) => false,
             _ = revoked => false,
-            _ = network => restart.close_code_restart(),
+            _ = network => false,
         };
         super::ws_shutdown::close(&mut sink, restarting).await;
         drop(input);
