@@ -83,26 +83,53 @@ extension SidebarBridge {
         // A position the sidebar document listed names the group by its item (`itm_g_<id>`); the home session
         // knows only the personal id, and an unknown one would take the rows out of their group.
         let group = position.group.map { WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: $0.rawValue)) }
-        let (failed, applied) = rows.outcome(edit, failed: saveFailed(.reorder(ids, to: position)))
-        guard let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else {
-            // Nothing to send: the rows show the store's again (no save failed).
-            rows.settle(edit)
-            return resync()
+        // The queue settles a placement that did not apply (the rows show the store's again); `commit` leaves it.
+        let settle: @MainActor () -> Void = { [weak self] in
+            self?.rows.settle(edit)
+            self?.resync()
         }
-        let regroup = statePersonal ? plan.regroup : []
-        // Only the dropped workspaces leave their group; a group they empty goes (cx-rcby).
-        let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
-        let ending = life.emptied(by: moving, into: group)
-        life.commit("set-personal-workspace", ending: ending, recheck: { life.emptied(by: moving, into: group) }, failed: failed,
-                    applied: applied) { connection in
-            for step in plan.steps {
-                try await connection.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
-                                                                  resource: step.workspace.resource,
-                                                                  group: step.moves ? (group.map { .set($0) } ?? .clear) : .unchanged,
-                                                                  index: step.index)
+        // A save that failed says why (#26382); a skipped placement, or one an earlier failure stopped, does not.
+        let action = SidebarIntent.reorder(ids, to: position).saveAction
+        let report: @MainActor (ActionWorkFailure) -> Void = { [weak self] failure in
+            self?.services.registry.reportFailure(of: ActionID(rawValue: action.id), title: action.title, failure)
+        }
+        let home = services.machines.local
+        services.personalPlacements.enqueue(on: home, failed: settle) { [weak self] in
+            guard let connection = home.connection else {
+                report(ActionWorkFailure("set-personal-workspace", DaemonError.notConnected))
+                return .failed
             }
-            guard let first = plan.first else { return }
-            for id in regroup { try await connection.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
+            guard let self, let state, services.windows.registry.value.window(state.id)?.isOpen == true,
+                  ids.allSatisfy({ services.machines.workspace(id: $0.rawValue) != nil }),
+                  let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return .skipped }
+            // `sections` retains this intent's neighbors. The planner now reads
+            // personal order containing every successful preceding write.
+            let regroup = statePersonal ? plan.regroup : []
+            let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
+            let ending = life.emptied(by: moving, into: group)
+            let sent = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                var finished = false
+                let finish: @MainActor (Bool) -> Void = { ok in
+                    guard !finished else { return }
+                    finished = true
+                    done.resume(returning: ok)
+                }
+                life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) },
+                            failed: report, completed: { finish($0) }) { sending in
+                    guard sending === connection else { throw DaemonError.notConnected }
+                    for step in plan.steps {
+                        try await sending.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
+                                                                          resource: step.workspace.resource,
+                                                                          group: step.moves ? (group.map { .set($0) } ?? .clear) : .unchanged,
+                                                                          index: step.index)
+                    }
+                    guard let first = plan.first else { return }
+                    for id in regroup { try await sending.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
+                }
+            }
+            guard sent, await home.appliedThroughReply(on: connection, after: "personal placement") else { return .failed }
+            rows.settle(edit)
+            return .applied
         }
     }
 

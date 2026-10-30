@@ -74,8 +74,9 @@ extension AppActionContext {
             services?.windows.active?.sidebar.resync()
             services?.registry.reportFailure(of: "removeWorkspaceFromGroup", failure)
         }
-        life.commit("set-personal-workspace", ending: life.emptied(by: [placement], into: nil),
-                    recheck: { life.emptied(by: [placement], into: nil) }, failed: failed) {
+        let ending = life.emptied(by: [placement], into: nil)
+        life.commit("set-personal-workspace", ending: ending,
+                    recheck: { ending.filter(life.isEmptyUnpinned) }, failed: failed) {
             try await $0.state.placePersonalWorkspace(session: qualified.session, key: key, resource: resource, group: .clear)
         }
     }
