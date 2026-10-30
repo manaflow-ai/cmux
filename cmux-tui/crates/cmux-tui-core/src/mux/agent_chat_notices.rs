@@ -32,7 +32,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Weak, mpsc};
+use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -148,6 +148,26 @@ impl Mux {
     }
 }
 
+/// The notices thread's wake. The socket watch hints through the mux, never
+/// with a sender of its own, so the only sender is here: dropping the mux, or
+/// [`Mux::stop_agent_chat_notices`] at shutdown, disconnects the channel and
+/// ends a thread that waits for the socket to appear.
+#[derive(Default)]
+pub(super) struct AgentChatNoticesWake(Mutex<Option<mpsc::Sender<()>>>);
+
+impl Mux {
+    fn hint_agent_chat_notices(&self) {
+        if let Some(hint) = &*self.agent_chat_notices.0.lock().unwrap_or_else(|e| e.into_inner()) {
+            let _ = hint.send(());
+        }
+    }
+
+    /// Ends the notices thread's wait for a socket change (shutdown).
+    pub(super) fn stop_agent_chat_notices(&self) {
+        self.agent_chat_notices.0.lock().unwrap_or_else(|e| e.into_inner()).take();
+    }
+}
+
 /// Connects whenever acpmux listens and follows it until the daemon ends.
 ///
 /// Between connections the thread blocks until the socket path changes:
@@ -168,8 +188,20 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
         return;
     }
     let (hint, hints) = mpsc::channel::<()>();
+    {
+        let Some(live) = mux.upgrade() else { return };
+        *live.agent_chat_notices.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(hint);
+    }
+    // Shutdown marks the mux before it takes the sender: checked after the
+    // sender is in place, a shutdown that came first is never missed.
+    if !daemon_runs(mux) {
+        return;
+    }
+    let watched = mux.clone();
     let watcher = cmux_config::watch::Watcher::start(vec![socket.to_path_buf()], move || {
-        let _ = hint.send(());
+        if let Some(live) = watched.upgrade() {
+            live.hint_agent_chat_notices();
+        }
     });
     let _watcher = match watcher {
         Ok(watcher) => watcher,
@@ -184,7 +216,8 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
     // The first hint comes when the watch is armed. A hint can also be an
     // unrelated change in the nearest existing ancestor of a missing socket
     // directory (macOS watches that ancestor's entries): with no socket there
-    // is nothing to connect to, and its creation hints again.
+    // is nothing to connect to, and its creation hints again. The wait ends
+    // when the mux is dropped or shuts down (`AgentChatNoticesWake`).
     while hints.recv().is_ok() {
         // Hints that queued meanwhile are one change.
         while hints.try_recv().is_ok() {}
@@ -198,8 +231,9 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
 /// [`CONNECTS_PER_HINT`] connects in a row found no listener (the stale socket
 /// of an acpmux that crashed) or the socket is gone (acpmux removes it when it
 /// stops); false when the daemon is gone. A connection acpmux accepted and
-/// then ended is spaced out by the backoff, as before, and never counts
-/// toward giving up: acpmux is running.
+/// then ended, or a connect that failed for another reason (out of file
+/// descriptors, permission), is spaced out by the backoff and never counts
+/// toward giving up: acpmux may still be listening.
 fn follow_while_listening(
     mux: &Weak<Mux>,
     socket: &Path,
@@ -221,6 +255,7 @@ fn follow_while_listening(
                     return true;
                 }
             }
+            Connection::Failed => refused = 0,
             Connection::Ended { stayed_up } => {
                 refused = 0;
                 if stayed_up {
@@ -249,11 +284,19 @@ fn daemon_runs(mux: &Weak<Mux>) -> bool {
 
 /// How one connect went.
 enum Connection {
-    /// Nothing listens on the socket.
+    /// Nothing listens on the socket (or it is gone).
     Refused,
+    /// The connect failed for another reason, which says nothing of acpmux.
+    Failed,
     /// acpmux answered and the connection ended; `stayed_up` as [`follow`]
     /// judges it.
     Ended { stayed_up: bool },
+}
+
+/// Whether a connect error means nothing listens on the socket: the stale
+/// socket of an acpmux that crashed, or no socket at all.
+fn no_listener(error: &std::io::Error) -> bool {
+    matches!(error.kind(), std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound)
 }
 
 /// One connection, followed until it ends.
@@ -262,7 +305,11 @@ fn connect_and_follow(
     socket: &Path,
     chats: &mut HashMap<String, Chat>,
 ) -> Connection {
-    let Ok(stream) = UnixStream::connect(socket) else { return Connection::Refused };
+    let stream = match UnixStream::connect(socket) {
+        Ok(stream) => stream,
+        Err(error) if no_listener(&error) => return Connection::Refused,
+        Err(_) => return Connection::Failed,
+    };
     if let Some(live) = mux.upgrade() {
         // acpmux is back: what waited for it goes out now.
         live.wake_agent_message_pump();
@@ -704,6 +751,66 @@ mod tests {
 
     fn test_mux(name: &str) -> Arc<Mux> {
         Mux::new_for_test(name, crate::SurfaceOptions::default())
+    }
+
+    /// Starts `watch` on a missing socket under a fresh folder and returns
+    /// once the thread waits for the socket to appear (its sender is in place).
+    fn waiting_watch(mux: &Arc<Mux>, name: &str) -> std::thread::JoinHandle<()> {
+        let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a test folder");
+        let socket = dir.join("acpmux.sock");
+        let weak = Arc::downgrade(mux);
+        let thread = std::thread::spawn(move || watch(&weak, &socket));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while mux.agent_chat_notices.0.lock().unwrap().is_none() {
+            assert!(Instant::now() < deadline, "the watch never armed");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        thread
+    }
+
+    fn ends_within(thread: &std::thread::JoinHandle<()>, limit: Duration) -> bool {
+        let deadline = Instant::now() + limit;
+        while !thread.is_finished() {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        true
+    }
+
+    #[test]
+    fn shutdown_ends_a_watch_that_waits_for_acpmux() {
+        // A missing socket leaves the thread blocked on its hints with no
+        // timer: shutdown must end that wait, or the thread and its file
+        // watch outlive the daemon's shutdown.
+        let mux = test_mux("notices-shutdown");
+        let thread = waiting_watch(&mux, "cmux-notices-shutdown");
+        mux.shutting_down.store(true, std::sync::atomic::Ordering::Release);
+        mux.stop_agent_chat_notices();
+        assert!(ends_within(&thread, Duration::from_secs(5)), "the watch outlived shutdown");
+    }
+
+    #[test]
+    fn dropping_the_mux_ends_a_watch_that_waits_for_acpmux() {
+        // The watch holds no sender of its own, so the last mux reference
+        // going away disconnects the hints and ends the thread.
+        let mux = test_mux("notices-drop");
+        let thread = waiting_watch(&mux, "cmux-notices-drop");
+        drop(mux);
+        assert!(ends_within(&thread, Duration::from_secs(5)), "the watch outlived its mux");
+    }
+
+    #[test]
+    fn only_a_missing_listener_counts_toward_giving_up_on_a_hint() {
+        use std::io::{Error, ErrorKind};
+        assert!(no_listener(&Error::from(ErrorKind::ConnectionRefused)));
+        assert!(no_listener(&Error::from(ErrorKind::NotFound)));
+        // Out of descriptors or a permission error says nothing of acpmux:
+        // the watch keeps retrying instead of waiting for the next change.
+        assert!(!no_listener(&Error::from_raw_os_error(24)));
+        assert!(!no_listener(&Error::from(ErrorKind::PermissionDenied)));
     }
 
     #[test]
