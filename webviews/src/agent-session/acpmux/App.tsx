@@ -6674,6 +6674,11 @@ function AcpmuxPane() {
   useLayoutEffect(() => {
     toggleSessionInfo.current = inspector.toggle;
   }, [inspector.toggle]);
+  // The native palette's page commands that apply now (paletteCommands below), by command name.
+  const paletteCommands = useRef<{ sessionId: string; commands: Record<string, () => void> }>({
+    sessionId: "",
+    commands: {},
+  });
   const revealInspector = inspector.reveal;
   useEffect(() => {
     const openCard = revealInspector
@@ -7375,6 +7380,17 @@ function AcpmuxPane() {
       command(name, sessionId) {
         if (name === "toggleSessionInfo") {
           toggleSessionInfo.current?.();
+          return;
+        }
+        if (name.startsWith("header:")) {
+          const separator = name.indexOf("|");
+          if (separator < 0) return;
+          const target = name.slice(separator + 1);
+          // Both the live client and rendered callbacks must still belong to the captured chat.
+          if ((directClient.current?.selectedSession ?? "") !== target) return;
+          const rendered = paletteCommands.current;
+          if (rendered.sessionId !== target) return;
+          rendered.commands[name.slice("header:".length, separator)]?.();
           return;
         }
         // Native palette rows carry the session id that was focused when the action was queued.
@@ -8851,7 +8867,7 @@ function AcpmuxPane() {
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
   // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
   // follows the App's answer to the click.
-  const { sideTabs, pullRequest: headerPullRequest, moves } = useHeaderState();
+  const { sideTabs, pullRequest: headerPullRequest, moves, lit: litSplits } = useHeaderState();
   // The moves the chat's own right-click menu offers now: the composer's picker offers the same.
   const offloads = useMemo(
     () => (["move", "bringBack"] as const).filter((kind) => moves.includes(CONNECT_ACTIONS[kind])),
@@ -8958,6 +8974,26 @@ function AcpmuxPane() {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
   };
+  const togglePreview = (url: string | undefined) => {
+    ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, ...(url ? { url } : {}), mode: "toggle" }));
+    window.setTimeout(refreshTabState, 400);
+  };
+  // The header's toggles the native palette runs (AgentPaneView+Commands.swift), each only where the
+  // header offers it: Quick Chat's panel has no tabs beside it, a remote chat's folder is not on this
+  // Mac, and Preview needs the chat's page or the preview it opened. The App greys out the rest.
+  const commands: Record<string, () => void> = {};
+  if (!quick) commands.toggleSideTabs = toggleSideTabs;
+  if (!quick && localCwd) commands.toggleFiles = () => runSplitAction(HEADER_ACTIONS.files, localCwd, "toggle");
+  if (!quick && (previewUrl || litSplits.includes(HEADER_ACTIONS.preview)))
+    commands.togglePreview = () => togglePreview(previewUrl);
+  paletteCommands.current = { sessionId: snapshot.sessionId ?? "", commands };
+  const commandNames = Object.keys(commands).sort().join(" ");
+  // Again for every client: the host's handshake (a reconnect's too) forgets the list, and a new
+  // client follows its handshake (connectHost).
+  useEffect(() => {
+    const available = commandNames ? commandNames.split(" ") : [];
+    void callNative("pane.commandAvailability", { commands: available }).catch(() => undefined);
+  }, [commandNames, snapshot.sessionId, clientEpoch]);
   diffBeside.current = async (rowId, path) => {
     // A remote or cloud chat's folder is not on this Mac, and Quick Chat's panel has no tab beside it.
     if (quick || !localCwd) return false;
