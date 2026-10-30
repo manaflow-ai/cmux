@@ -1,4 +1,4 @@
-import CmuxNextCloud
+public import CmuxNextCloud
 import Foundation
 
 /// The signed-in account's Cloud machines in the composer's environment picker, beside the peers
