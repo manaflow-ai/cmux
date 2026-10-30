@@ -296,12 +296,14 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 if gapHere {
                     openGapIfNeeded(section: section.id, group: nil, index: 0)
                 } else if blockHeight == 0 || (emptyDropZone && docID.map(o.emptyDocSections.contains) == true) {
+                    let isPinned = section.id == .pinned || section.id == .custom(SidebarDocStore.pinnedSection)
+                    let emptyHeight = isPinned ? m.emptySectionHeight : m.rowHeightWithSubtitle
                     rows.append(SidebarRow(
-                        key: .emptySection(section.id), y: y, height: m.emptySectionHeight, section: section.id,
+                        key: .emptySection(section.id), y: y, height: emptyHeight, section: section.id,
                         group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
                         isCollapsed: false, childCount: 0, groupColor: nil
                     ))
-                    y += m.emptySectionHeight + m.rowSpacing
+                    y += emptyHeight + m.rowSpacing
                 }
                 continue
             }

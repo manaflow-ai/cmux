@@ -551,7 +551,17 @@ impl Hub {
         let peer = peer.to_owned();
         {
             match notice {
-                PeerNotice::Connected => tracing::info!(peer = %peer, "peer ready"),
+                PeerNotice::Connected => {
+                    tracing::info!(peer = %peer, "peer ready");
+                    // Sessions can be saved before the handshake marks the link ready.
+                    // Persist its cleared outage once, without rewriting an already-clear cache.
+                    if self.peer(&peer).is_some_and(|p| {
+                        p.generation == generation
+                            && p.cache_saved_outage.load(std::sync::atomic::Ordering::SeqCst)
+                    }) {
+                        self.save_peer_cache(&peer, generation, true);
+                    }
+                }
                 PeerNotice::Restarting => {
                     // A planned restart never enters the disconnect/flap-grace path. Keep
                     // every row unchanged, but retire the old link's purge tombstones.
@@ -581,7 +591,8 @@ impl Hub {
                         self.with_tombstones(&peer, generation, |t| t.link_ended());
                         map.mark_peer_stale(&peer, link.last_seen)
                     };
-                    if !changed.is_empty() {
+                    // Persist outage age even for a peer that never listed any sessions.
+                    if !changed.is_empty() || link.attempts == 1 || link.next_retry_at.is_some() {
                         self.save_peer_cache(&peer, generation, true);
                     }
                     // What its chats streamed in the last seconds is kept now (`peer_snapshot.rs`).
