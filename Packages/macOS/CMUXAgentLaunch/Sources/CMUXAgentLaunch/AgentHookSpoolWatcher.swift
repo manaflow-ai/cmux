@@ -13,6 +13,7 @@ public actor AgentHookSpoolWatcher {
     private var directorySource: DispatchSourceFileSystemObject?
     private var processSource: DispatchSourceProcess?
     private var retrySource: DispatchSourceTimer?
+    private var continuation: AsyncStream<Void>.Continuation?
 
     /// Binds the watcher to one spool directory.
     ///
@@ -26,7 +27,7 @@ public actor AgentHookSpoolWatcher {
     /// - Parameter parentPID: The forwarder's parent, which execs into the agent.
     /// - Returns: Coalesced wakeups, starting with one initial drain. The stream
     ///   finishes when the parent exits or is no longer this process's parent.
-    public func changes(parentPID: Int32, retryInterval: TimeInterval? = nil) -> AsyncStream<Void> {
+    public func changes(parentPID: Int32) -> AsyncStream<Void> {
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let fd = open(directory.path, O_EVTONLY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else {
@@ -38,29 +39,20 @@ public actor AgentHookSpoolWatcher {
         let files = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd, eventMask: [.write, .delete, .rename], queue: nil
         )
-        files.setEventHandler { continuation.yield(()) }
+        files.setEventHandler { [weak self] in
+            Task { await self?.directoryChanged() }
+        }
         files.setCancelHandler { Darwin.close(fd) }
         let process = DispatchSource.makeProcessSource(identifier: parentPID, eventMask: .exit, queue: nil)
         process.setEventHandler { continuation.finish() }
-        let retry: DispatchSourceTimer?
-        if let retryInterval, retryInterval > 0 {
-            let timer = DispatchSource.makeTimerSource(queue: nil)
-            let nanoseconds = DispatchTimeInterval.nanoseconds(Int(retryInterval * 1_000_000_000))
-            timer.schedule(deadline: .now() + nanoseconds, repeating: nanoseconds)
-            timer.setEventHandler { continuation.yield(()) }
-            retry = timer
-        } else {
-            retry = nil
-        }
         directorySource = files
         processSource = process
-        retrySource = retry
+        self.continuation = continuation
         continuation.onTermination = { [weak self] _ in
             Task { await self?.stopWatching() }
         }
         files.resume()
         process.resume()
-        retry?.resume()
         // Registration precedes this check, closing the parent-exit race and
         // rejecting PID reuse: the forwarder must still be the agent's child.
         if getppid() != parentPID {
@@ -71,6 +63,30 @@ public actor AgentHookSpoolWatcher {
         return stream
     }
 
+    /// Schedules one recovery drain. File changes coalesce while it is pending;
+    /// no timer runs after a successful drain or after the parent exits.
+    public func retry(after delay: TimeInterval) {
+        guard continuation != nil, retrySource == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: nil)
+        timer.schedule(deadline: .now() + delay)
+        timer.setEventHandler { [weak self] in
+            Task { await self?.retryReady() }
+        }
+        retrySource = timer
+        timer.resume()
+    }
+
+    private func directoryChanged() {
+        guard retrySource == nil else { return }
+        continuation?.yield(())
+    }
+
+    private func retryReady() {
+        retrySource?.cancel()
+        retrySource = nil
+        continuation?.yield(())
+    }
+
     private func stopWatching() {
         directorySource?.cancel()
         processSource?.cancel()
@@ -78,5 +94,6 @@ public actor AgentHookSpoolWatcher {
         directorySource = nil
         processSource = nil
         retrySource = nil
+        continuation = nil
     }
 }

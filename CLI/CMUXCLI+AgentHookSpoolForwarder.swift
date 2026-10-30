@@ -55,7 +55,7 @@ extension CMUXCLI {
     /// agent, so the agent is this process's parent. Queued hook events arrive
     /// as spool records instead of CLI launches; one socket connection admits
     /// them in publication order. When the socket connection fails, the
-    /// forwarder keeps its lock and retries on the next watcher tick. This
+    /// forwarder keeps its lock and schedules a recovery drain. This
     /// keeps later hooks on the fast spool path while the app is busy or
     /// restarting, without retrying a record whose admission already began.
     func runAgentHookSpoolForwarder(
@@ -90,14 +90,26 @@ extension CMUXCLI {
         }
 
         let watcher = AgentHookSpoolWatcher(directory: spool.url)
-        for await _ in await watcher.changes(parentPID: parentPID, retryInterval: 0.5) {
+        let clock = ContinuousClock()
+        var retryAfter = clock.now
+        var retryDelay = Self.agentHookAdmissionResponseTimeoutSeconds
+        for await _ in await watcher.changes(parentPID: parentPID) {
+            // A file event already buffered before the failure must not bypass
+            // the retry delay while new hooks continue publishing records.
+            guard clock.now >= retryAfter else { continue }
             let connected = forwardPublishedAgentHookRecords(
                 in: spool, agentExited: false, client: client, socketPassword: socketPassword
             )
             if !connected {
-                // The watcher keeps ticking until the parent exits. Records
-                // that were not claimed remain available for this retry.
+                // Unclaimed records can be retried safely. Close even a socket
+                // that still appears open: a late reply belongs to the failed
+                // admission and must not become the next record's response.
                 client.close()
+                retryAfter = clock.now.advanced(by: .seconds(retryDelay))
+                await watcher.retry(after: retryDelay)
+                retryDelay = min(retryDelay * 2, Double(AgentHookDeliveryPolicy.declaredTimeoutSeconds))
+            } else {
+                retryDelay = Self.agentHookAdmissionResponseTimeoutSeconds
             }
         }
         // Move the spool aside so no producer can publish after the final
