@@ -168,7 +168,8 @@ final class LinkOpener {
                     placed?(surface)
                 }
             }
-            return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, then: then)
+            return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, then: then,
+                                       placementOwner: placed != nil)
         }
     }
 
@@ -272,7 +273,8 @@ final class LinkOpener {
         guard let anchor, let pane = content.panes[anchor] else { return false }
         let make: Make = { pane, placed in
             switch item {
-            case .web(let url): return pane.newBrowserTab(url: url, background: placed != nil, then: placed)
+            case .web(let url): return pane.newBrowserTab(url: url, background: placed != nil, then: placed,
+                                                          placementOwner: placed != nil)
             case .file(let url): return pane.services.viewers.openFile(url, in: pane, markdown: false, placed: placed)
             }
         }

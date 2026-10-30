@@ -34,7 +34,7 @@ struct PaneBrowserTabOpener {
     /// page unless the caller waits for the tab, and media Chromium cannot play opens in WebKit.
     func open(url: URL?, engine requested: String?, inherited: String?, adopting child: (any BrowserTab)?, // perf-hot: 10ms new-tab (the key's turn of every new browser tab)
               background: Bool, profile: String?, notice: String?, opener: SurfaceID?,
-              then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
+              placementOwner: Bool = false, then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
         let services = controller.services
         var target = url
         // chrome://history and chrome://bookmarks open cmux's pages; chrome://settings opens Settings
@@ -101,7 +101,7 @@ struct PaneBrowserTabOpener {
             // A caller-supplied callback is HomeDockOpens.placing (or another placement owner).
             // It starts the move and owns the OutboundTab hold; selecting here after that callback
             // begins would release the hold and briefly restore Home's strip.
-            let callerOwnsHomePlacement = controller.isOpenPinnedDockPane && then != nil
+            let callerOwnsHomePlacement = controller.isOpenPinnedDockPane && placementOwner
             // A person's foreground tab: shown with its page in this turn (openStandIn). Not one aimed
             // at Home: the stand-in selects it in Home's dock, and its strip would come back (Lawrence
             // 2026-10-29: "chief in home should not have horizontal tabbar").

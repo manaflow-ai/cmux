@@ -112,10 +112,14 @@ extension PaneController {
     /// (NEW-TERMINAL-INHERITS-CWD).
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
                         fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
+                        placementOwner: Bool = false,
                         then: (@MainActor (SurfaceID) -> Void)? = nil) {
         // Placement owns selection in Home: selecting its provisional or real tab here releases
         // the outbound hold and flashes Home's strip before the move callback runs.
-        let selectHere = !HomeDockOpens.opensBeside(pane, services: services)
+        // A caller callback may only notify or close a source page; only a callback that owns
+        // placement suppresses the normal selection.
+        let ownsPlacement = placementOwner || (then == nil && HomeDockOpens.opensBeside(pane, services: services))
+        let selectHere = !ownsPlacement
         // Nothing opens in Home's dock: without a placement of the caller's, the tab moves beside it.
         let then = then ?? HomeDockOpens.placing(pane, services: services, focus: true, then: nil)
         let handle = pane.handle
@@ -208,9 +212,11 @@ extension PaneController {
     @discardableResult
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
-                       notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+                       notice: String? = nil, opener: SurfaceID? = nil, placementOwner: Bool = false,
+                       then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
-                                                    profile: profile, notice: notice, opener: opener, then: then)
+                                                    profile: profile, notice: notice, opener: opener, then: then,
+                                                    placementOwner: placementOwner)
     }
 
     /// Several tabs (close others, to the left, to the right) close in one

@@ -193,15 +193,16 @@ extension NewTabPage {
             case .terminal where !request.run:
                 let typeAhead = services.newTabTypeAhead
                 if typeAhead.latest(key).isEmpty, !request.text.isEmpty { typeAhead.update(key, text: request.text) }
-                target.newTerminalTab(cwd: cwd, typingAhead: key, then: landed)
+                target.newTerminalTab(cwd: cwd, typingAhead: key, then: landed, placementOwner: placed != nil)
                 return true
             case .terminal:
                 guard let command = command(request.text) else { return false }
-                target.newTerminalTab(cwd: cwd, typing: command, then: landed)
+                target.newTerminalTab(cwd: cwd, typing: command, then: landed, placementOwner: placed != nil)
                 return true
             case .browser:
                 let url = browserURL(request, services: services)
-                return target.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url), background: placed != nil, then: landed)
+                return target.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url), background: placed != nil,
+                                            then: landed, placementOwner: placed != nil)
             case .agent:
                 return false
             }

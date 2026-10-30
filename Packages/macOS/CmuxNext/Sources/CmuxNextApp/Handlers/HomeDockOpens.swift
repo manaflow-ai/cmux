@@ -33,10 +33,14 @@ enum HomeDockOpens {
     static func placing(_ pane: PaneModel, services: AppServices, focus: Bool, target: FocusState.Target = .content,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard opensBeside(pane, services: services) else { return then }
-        let outbound = services.paneController(for: pane).map { OutboundTab.begin(in: $0) }
         return { [weak services] surface in
+            guard let services else { then?(surface); return }
+            // Do not arm the hold until creation has been accepted and this callback is running.
+            // Arming while constructing the callback leaves unrelated later tabs hidden when the
+            // creator refuses or fails before invoking it. Arm before the caller callback so the
+            // callback cannot observe a transient Home strip.
+            let outbound = services.paneController(for: pane).map { OutboundTab.begin(in: $0) }
             then?(surface)
-            guard let services else { outbound?.finish(moved: false); return }
             if let controller = services.paneController(for: pane) {
                 services.linkOpener.moveBeside(surface, from: controller, focus: focus, target: target, outbound: outbound)
             } else {
