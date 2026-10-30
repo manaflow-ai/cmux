@@ -47,7 +47,8 @@ class GitHub(_evidence.GitHub):
     def log(self, repo: str, job: dict) -> str:
         # `gh run view --log` waits for every job in the run. The Actions job
         # endpoint serves a finished job while sibling jobs remain queued.
-        return self.run(["api", f"repos/{repo}/actions/jobs/{job['id']}/logs"])
+        # gh refuses to print a log holding escape sequences (ANSI colours) unless asked.
+        return self.run(["api", "--allow-escape-sequences", f"repos/{repo}/actions/jobs/{job['id']}/logs"])
 _spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
 test_reds = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(test_reds)
