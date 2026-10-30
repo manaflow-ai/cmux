@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """scripts/ci/nightly_next_artifact_check.py: a downloaded cmux NEXT DMG is checked against the
 feed's sparkle:edSignature over its exact bytes, not only its byte length, and the canary checks
-the app's CMUXCommit against the head of the build's nightly-next run.
+the app's CMUXCommit against the build's signed source record.
 
 Run: python3 tests/test_nightly_next_artifact_check.py
 """
@@ -224,23 +224,23 @@ class ExpectedCommitTests(unittest.TestCase):
 
     def test_without_notes_a_completed_run_does_not_prove_the_artifact_source(self) -> None:
         # A recovered/resolver-behind build may stamp OTHER while the run reports HEAD.
-        with self.assertRaisesRegex(check.Unknown, "does not prove"):
+        with self.assertRaisesRegex(check.Unknown, "source is not proven"):
             self.resolve({}, run_record(status="completed"))
         self.assertEqual(self.api_calls, [])
 
     def test_without_notes_a_run_still_going_is_unknown(self) -> None:
-        with self.assertRaisesRegex(check.Unknown, "in_progress"):
+        with self.assertRaisesRegex(check.Unknown, "source is not proven"):
             self.resolve({}, run_record(status="in_progress"))
 
     def test_without_notes_a_run_that_is_not_a_nightly_next_publication_is_unknown(self) -> None:
         for run in (run_record(status="completed", head_branch="feat-cmux-next"),
                     run_record(status="completed", event="pull_request"),
                     run_record(status="completed", head_repository={"full_name": "someone/cmux"})):
-            with self.assertRaisesRegex(check.Unknown, "not a nightly-next publishing run"):
+            with self.assertRaisesRegex(check.Unknown, "source is not proven"):
                 self.resolve({}, run)
 
     def test_read_errors_are_unknown(self) -> None:
-        with self.assertRaisesRegex(check.Unknown, "HTTP 403"):
+        with self.assertRaisesRegex(check.Unknown, "source is not proven"):
             self.resolve({}, RuntimeError("HTTP 403"))
 
         def broken(url):

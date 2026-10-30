@@ -20,13 +20,10 @@ the exact bytes they downloaded.
       resolve-newest-published), and stamps that commit's first 7 hex as CMUXCommit. Its record is
       the build's signed release notes, URL/<BUILD>.json ("head", signed with the content-signing
       key, nightly.yml CONTENT_PUBLIC_KEY, in URL/<BUILD>.json.sig). A build with none (a recovered
-      build; the notes job publishes only a run's own build) falls back to the head of the
-      nightly-next nightly.yml run that made it (build = run id + two-digit attempt;
-      nightly_next_fix_forward.build_commit, the commit the durable verdict records), but only once
-      that run has completed, so a canary never reads the run head while the notes are on their way.
-      When neither can be read (an error, a bad signature, a run still going, a build no nightly-next
-      run made) it prints commit= (empty) and a warning, and exits 0: no expected commit, so the
-      canary records no verdict and the next tick checks the build again. Needs GH_TOKEN for `gh api`.
+      build; the notes job publishes only a run's own build) remains unknown. The workflow
+      head can differ from the resolved artifact source, so it is never a fallback. Missing or
+      unverifiable notes print commit= (empty) and a warning, and exit 0: the canary records no
+      verdict and the next tick checks the build again.
 
   commit --plist Info.plist --expected SHA
       Fails (exit 1) unless the app's CMUXCommit is a valid commit (7 to 40 lowercase hex; nightly.yml
@@ -173,7 +170,7 @@ def expected_commit(repo: str, build: str, notes_base: str, api=None, fetch=fetc
     import nightly_next_fix_forward as fix_forward  # noqa: PLC0415
 
     try:
-        run_id = fix_forward.build_run(build)
+        fix_forward.build_run(build)
     except ValueError as error:
         raise Unknown(str(error)) from None
     head = signed_notes_head(build, notes_base, fetch)
