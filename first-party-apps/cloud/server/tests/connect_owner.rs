@@ -94,6 +94,43 @@ fn a_link_that_exits_during_the_session_exchange_cannot_return_its_cached_owner(
 }
 
 #[test]
+fn a_link_that_exits_during_connect_info_cannot_return_or_cache_its_owner() {
+    let spawner = FakeSpawner::default();
+    let mut s = Server::with_attach(
+        FakeControlPlane::with(&["vm-get", "connect-info-owner"]),
+        attach(&spawner, &FakeTransport::default()),
+    );
+    let first = connect(&mut s, "c-1");
+    assert_eq!(first["vm_kind"], "owner");
+    let reads = s.control_plane().wire.count("cloud.machine.connect_info");
+    // Force an owner cache miss on the up carrier without restarting it.
+    s.control_plane_mut().set_team("team_t0000000000000000002");
+    let exiting = spawner.clone();
+    s.control_plane_mut().on_next_connect_info(move || exiting.exit("vm-alpha01", 1));
+    let error = s
+        .handle(
+            &Request::new("cloud.machine.connect", json!({ "machine": "vm-alpha01" }))
+                .key("c-2"),
+        )
+        .expect_err("a carrier that exited during connect_info must not be returned");
+    assert_eq!(error.code, "cmux.cloud.link_down");
+    assert!(matches!(
+        s.attach().supervisor().state("vm-alpha01"),
+        Some(cmux_cloud::link::LinkState::Down { .. })
+    ));
+    assert_eq!(spawner.spawns(), 1);
+    assert_eq!(s.control_plane().wire.count("cloud.machine.connect_info"), reads + 1);
+
+    // Reconnect before draining link events: neither cache may preserve
+    // the owner answer from the exchange that lost its carrier.
+    s.control_plane_mut().set_vm_kind(Some("team"));
+    let next = connect(&mut s, "c-3");
+    assert_ne!(next["generation"], first["generation"]);
+    assert_eq!(next["vm_kind"], "team");
+    assert_eq!(s.control_plane().wire.count("cloud.machine.connect_info"), reads + 2);
+}
+
+#[test]
 fn a_switched_identity_rereads_the_owner_answer() {
     let spawner = FakeSpawner::default();
     let mut s = Server::with_attach(

@@ -39,6 +39,7 @@ pub struct FakeControlPlane {
     vm_kind: Option<&'static str>,
     /// `connect_info` answers this error code instead (access ended).
     connect_info_error: Option<&'static str>,
+    connect_info_action: Option<Box<dyn FnOnce() + Send>>,
     /// The current host-reported team identity for auth status tests.
     session_team: Option<String>,
     session_unavailable: bool,
@@ -79,6 +80,7 @@ impl FakeControlPlane {
             connect_info: None,
             vm_kind: None,
             connect_info_error: None,
+            connect_info_action: None,
             session_team: None,
             session_unavailable: false,
             session_action: None,
@@ -117,6 +119,11 @@ impl FakeControlPlane {
     /// Run once during the next host-local session exchange.
     pub fn on_next_session(&mut self, action: impl FnOnce() + Send + 'static) {
         self.session_action = Some(Box::new(action));
+    }
+
+    /// Run once during the next connect_info relay exchange.
+    pub fn on_next_connect_info(&mut self, action: impl FnOnce() + Send + 'static) {
+        self.connect_info_action = Some(Box::new(action));
     }
 
     /// Later `connect_info` answers fail with `code` (`cloud.machine.not_found`:
@@ -194,6 +201,11 @@ impl FakeControlPlane {
 
 impl ControlPlane for FakeControlPlane {
     fn call(&mut self, call: &WireCall) -> Result<WireReply, RelayError> {
+        if call.op == "cloud.machine.connect_info"
+            && let Some(action) = self.connect_info_action.take()
+        {
+            action();
+        }
         // The link-test names answer first: `vm-list` replaces the vectors'
         // `list {}` for the tests that name it.
         if self.wire.signed_in

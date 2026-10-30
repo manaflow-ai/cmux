@@ -137,8 +137,39 @@ fn owner_answer<C: ControlPlane>(
             None
         }
     };
-    // The host-local session exchange may have queued a link exit. Never
-    // return an answer for the old carrier before applying those events.
+    recheck_carrier(server, machine, carrier)?;
+    let Some(identity) = identity else { return Ok(false) };
+    server.update_auth_identity(identity.0, identity.1);
+    let epoch = server.auth_epoch();
+    if let Some((generation, cached_epoch, owns)) =
+        server.attach().owner_answers.get(machine).copied()
+        && generation == carrier.generation
+        && cached_epoch == epoch
+    {
+        return Ok(owns);
+    }
+    match super::info::connect_info(server, machine) {
+        Ok(info) => {
+            recheck_carrier(server, machine, carrier)?;
+            let owns = info.caller_owns_vm();
+            server
+                .attach_mut()
+                .owner_answers
+                .insert(machine.to_owned(), (carrier.generation, epoch, owns));
+            Ok(owns)
+        }
+        Err(error) if end_links_after(server, machine, &error) => Err(error),
+        Err(error) if transient_owner_error(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+/// Apply link events queued during a relay exchange before using its answer.
+fn recheck_carrier<C: ControlPlane>(
+    server: &mut Server<C>,
+    machine: &str,
+    carrier: &Carrier,
+) -> Result<(), CloudError> {
     let attach = server.attach_mut();
     attach.supervisor.pump();
     if !matches!(attach.supervisor.state(machine), Some(LinkState::Up(current))
@@ -152,33 +183,11 @@ fn owner_answer<C: ControlPlane>(
             .and_then(Result::err)
             .unwrap_or_else(|| LinkFailure::Down {
                 retryable: true,
-                reason: "carrier changed during session check".into(),
+                reason: "carrier changed during relay exchange".into(),
             });
         return Err(link_failure_for(machine, failure));
     }
-    let Some(identity) = identity else { return Ok(false) };
-    server.update_auth_identity(identity.0, identity.1);
-    let epoch = server.auth_epoch();
-    if let Some((generation, cached_epoch, owns)) =
-        server.attach().owner_answers.get(machine).copied()
-        && generation == carrier.generation
-        && cached_epoch == epoch
-    {
-        return Ok(owns);
-    }
-    match super::info::connect_info(server, machine) {
-        Ok(info) => {
-            let owns = info.caller_owns_vm();
-            server
-                .attach_mut()
-                .owner_answers
-                .insert(machine.to_owned(), (carrier.generation, epoch, owns));
-            Ok(owns)
-        }
-        Err(error) if end_links_after(server, machine, &error) => Err(error),
-        Err(error) if transient_owner_error(&error) => Ok(false),
-        Err(error) => Err(error),
-    }
+    Ok(())
 }
 
 fn transient_owner_error(error: &CloudError) -> bool {
