@@ -372,6 +372,12 @@ public final class SettingsController {
             let policy = ManagedPreferences.disabledFeatures(in: effective.policy)
             applier.registry.disabledFeatures = policy.features
             if let problem = policy.problem { diagnostics.append(problem) }
+            // Settings > Menus: the person's right-click menu arrangements (ContextMenusSetting).
+            var menuProblems: [SettingsDiagnostic] = []
+            let menus = ContextMenusSetting.parse(effective.root, diagnostics: &menuProblems)
+            applier.registry.contextMenuLayouts = menus.layouts
+            applier.registry.showsCustomizeMenuItem = menus.showsCustomizeItem
+            diagnostics += menuProblems
             file.managedGuard.update(effective.managedKeys)
             reportManagedStatus(managed: loaded.inputs.managed, team: loaded.inputs.team, effective: effective)
         }
