@@ -222,33 +222,95 @@ pub fn interactive(registry: Option<&Value>, name: &str) -> bool {
 }
 
 /// The registry's lane hosts by every name they answer to (`name`, `aliases`).
-/// `None`: no registry, so every candidate is sized by the defaults. A machine whose `hold`
-/// holds now (`hold`) carries why in its `lanes` value, and placement refuses it.
+/// `None`: no registry, so every candidate is sized by the defaults. A machine held now (its
+/// `hold`, or a `reservations` entry: `held_at`) carries why in its `lanes` value, and
+/// placement refuses it.
 pub fn lane_hosts(registry: Option<&Value>) -> Option<Vec<(Vec<String>, Value)>> {
     lane_hosts_at(registry, crate::store::now_ms())
 }
 
 /// [`lane_hosts`] at `now_ms` (Unix ms), for the holds it reads.
 pub fn lane_hosts_at(registry: Option<&Value>, now_ms: u64) -> Option<Vec<(Vec<String>, Value)>> {
-    let machines = registry?.get("machines")?.as_object()?;
+    let registry = registry?;
+    let machines = registry.get("machines")?.as_object()?;
     Some(
         machines
             .iter()
             .map(|(name, m)| {
-                let mut names = vec![canonical(name)];
-                for a in m.get("aliases").and_then(Value::as_array).into_iter().flatten() {
-                    if let Some(a) = a.as_str() {
-                        names.push(canonical(a));
-                    }
-                }
+                let names = machine_names(name, m);
                 let mut lanes = m.get("lanes").cloned().unwrap_or(Value::Null);
-                if let (Some(why), Some(l)) = (hold(m, now_ms), lanes.as_object_mut()) {
+                if let (Some(why), Some(l)) =
+                    (held_at(registry, m, &names, now_ms), lanes.as_object_mut())
+                {
                     l.insert(HELD.into(), json!(why));
                 }
                 (names, lanes)
             })
             .collect(),
     )
+}
+
+/// Why `names` (a machine's registry name and aliases, `canonical`) takes no new work at
+/// `now_ms`: its own `hold` (`hold`), else a top-level `reservations` entry naming it
+/// (`{id, owner, hosts, from, until}`, active from `from` to `until`, so it lapses by itself; an
+/// entry whose times cannot be read still holds, as leo-workspace's `fleet_reservations.py`
+/// reads them).
+fn held_at(registry: &Value, machine: &Value, names: &[String], now_ms: u64) -> Option<String> {
+    if let Some(why) = hold(machine, now_ms) {
+        return Some(why);
+    }
+    let time = |v: &Value| v.as_str().and_then(crate::server::machine_health::rfc3339_ms);
+    for e in registry.get("reservations").and_then(Value::as_array).into_iter().flatten() {
+        let named = e
+            .get("hosts")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .any(|h| names.contains(&canonical(h)));
+        if !named {
+            continue;
+        }
+        let (from, until) = (e.get("from").map(time), e.get("until").map(time));
+        let unreadable = matches!(from, Some(None)) || matches!(until, Some(None));
+        let started = from.flatten().is_none_or(|f| f <= now_ms);
+        let lasting = until.flatten().is_none_or(|u| now_ms <= u);
+        if unreadable || (started && lasting) {
+            let text = |k: &str| e.get(k).and_then(Value::as_str);
+            return Some(format!(
+                "reserved for {} until {} ({})",
+                text("owner").unwrap_or("someone"),
+                text("until").unwrap_or("released by hand"),
+                text("id").unwrap_or("a reservation"),
+            ));
+        }
+    }
+    None
+}
+
+/// Why the registry holds `name` (by name or alias) now: its `hold` or an active reservation
+/// (`held_at`). `None`: not held, not listed, or no registry.
+pub fn held(registry: Option<&Value>, name: &str) -> Option<String> {
+    let registry = registry?;
+    let want = canonical(name);
+    let (_, machine, names) = registry
+        .get("machines")?
+        .as_object()?
+        .iter()
+        .map(|(n, m)| (n, m, machine_names(n, m)))
+        .find(|(_, _, names)| names.contains(&want))?;
+    held_at(registry, machine, &names, crate::store::now_ms())
+}
+
+/// A machine's registry name and its aliases, `canonical`.
+fn machine_names(name: &str, m: &Value) -> Vec<String> {
+    let mut names = vec![canonical(name)];
+    for a in m.get("aliases").and_then(Value::as_array).into_iter().flatten() {
+        if let Some(a) = a.as_str() {
+            names.push(canonical(a));
+        }
+    }
+    names
 }
 
 /// A host name as the registry lists it: lowercase, without `.local`.

@@ -292,3 +292,36 @@ fn interactive_machines_come_from_the_registry() {
     }
     assert!(!interactive(None, "cosmic"), "no registry: nothing is interactive");
 }
+
+/// A host a `reservations` entry names takes no new work while the entry is active (from `from`
+/// to `until`), by name or alias; an entry whose times cannot be read still holds it.
+#[test]
+fn a_reserved_host_is_never_a_placement_candidate() {
+    let both =
+        [c("big", health(60.0, 32, 1.0, 400.0, 0)), c("small", health(5.0, 8, 7.9, 30.0, 0))];
+    let at = |t: &str| crate::server::machine_health::rfc3339_ms(t).unwrap();
+    let mut reg = registry();
+    reg["reservations"] = json!([{"id": "lawrence-2026-10-29", "owner": "lawrencecchen",
+        "hosts": ["big-box"], "from": "2026-10-29T20:50:00Z", "until": "2026-10-30T20:50:00Z"}]);
+    let hosts = lane_hosts_at(Some(&reg), at("2026-10-30T00:00:00Z")).unwrap();
+    assert_eq!(
+        registry_lanes(&hosts, "big").unwrap()[HELD],
+        "reserved for lawrencecchen until 2026-10-30T20:50:00Z (lawrence-2026-10-29)"
+    );
+    for t in ["2026-10-29T20:00:00Z", "2026-10-30T21:00:00Z"] {
+        let hosts = lane_hosts_at(Some(&reg), at(t)).unwrap();
+        assert!(registry_lanes(&hosts, "big").unwrap().get(HELD).is_none(), "{t}");
+    }
+    // Live now: refused, never the overflow pick.
+    reg["reservations"][0]["until"] = json!("2999-01-01T00:00:00Z");
+    let v = place(&both, Some(&reg), Work::Agent);
+    assert_eq!(v["pick"], "small", "{v}");
+    assert!(host(&v, "big")["refused"].as_str().unwrap().starts_with("reserved for lawrencecchen"));
+    assert!(held(Some(&reg), "BIG-BOX.local").is_some());
+    assert!(held(Some(&reg), "small").is_none());
+    reg["reservations"][0]["until"] = json!("someday");
+    reg["reservations"][0]["from"] = json!("2001-01-01T00:00:00Z");
+    assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "small");
+    reg["reservations"][0]["until"] = json!("2001-01-02T00:00:00Z");
+    assert_eq!(place(&both, Some(&reg), Work::Agent)["pick"], "big");
+}

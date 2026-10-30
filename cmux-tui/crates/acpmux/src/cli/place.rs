@@ -69,14 +69,16 @@ pub fn here_is_interactive() -> bool {
 /// says where it runs instead of making a second one elsewhere. Prints the
 /// pick and why to stderr. A name running on more than one machine is not
 /// guessed at: `--host` chooses. `off_interactive` (this machine is one a person works at)
-/// leaves every interactive machine out of the pick; when that leaves none, the session starts
-/// here with a warning, as load and lane caps only warn.
+/// leaves every interactive machine out of the pick. `here_if_none` (a `new` that named no
+/// host): when that leaves none, the session starts here with a warning, as load and lane caps
+/// only warn, unless the registry holds this machine; an explicit `--host auto` still stops.
 pub async fn resolve(
     client: &Client,
     work: &str,
     name: Option<&str>,
     reuse: bool,
     off_interactive: bool,
+    here_if_none: bool,
 ) -> Result<Option<String>> {
     if let Some(name) = name {
         let list = client.request(method::MUX_SESSIONS, json!({})).await?;
@@ -101,14 +103,30 @@ pub async fn resolve(
     let (Some(pick), Some(placed)) =
         (v.get("pick").and_then(Value::as_str), crate::placement::placed(&v))
     else {
-        if off_interactive {
-            eprintln!("{}", no_fleet_host(&v));
-            return Ok(None);
-        }
-        bail!("{}", v.get("why").and_then(Value::as_str).unwrap_or_default());
+        let held = here_if_none
+            .then(|| {
+                let registry = crate::placement::load_registry();
+                crate::placement::held(registry.as_ref(), crate::hub::host_label())
+            })
+            .flatten();
+        return without_pick(&v, here_if_none, held);
     };
     eprintln!("{placed}");
     Ok((v.get("local").and_then(Value::as_bool) != Some(true)).then(|| pick.to_owned()))
+}
+
+/// A verdict with no pick: an explicit `--host auto` stops with why; a `new` that named no host
+/// (`here_if_none`) starts here with a warning, unless the registry holds this machine (`held`).
+fn without_pick(v: &Value, here_if_none: bool, held: Option<String>) -> Result<Option<String>> {
+    let why = v.get("why").and_then(Value::as_str).unwrap_or_default();
+    match (here_if_none, held) {
+        (false, _) => bail!("{why}"),
+        (true, Some(held)) => bail!("{why}; this machine is {held}"),
+        (true, None) => {
+            eprintln!("{}", no_fleet_host(v));
+            Ok(None)
+        }
+    }
 }
 
 /// The warning when a machine a person works at finds no fleet host to place on.
@@ -213,6 +231,15 @@ mod tests {
             }
         }
         let none = json!({"pick": null, "why": "no host has room for this"});
+        // An explicit `--host auto` still stops; only a `new` that named no host starts here,
+        // and not on a held machine.
+        let e = without_pick(&none, false, None).unwrap_err().to_string();
+        assert_eq!(e, "no host has room for this");
+        assert_eq!(without_pick(&none, true, None).unwrap(), None);
+        let e = without_pick(&none, true, Some("reserved for sam until x (r)".into()));
+        assert!(
+            e.unwrap_err().to_string().ends_with("this machine is reserved for sam until x (r)")
+        );
         assert_eq!(
             no_fleet_host(&none),
             "starting on this machine: no fleet host took it (no host has room for this); \

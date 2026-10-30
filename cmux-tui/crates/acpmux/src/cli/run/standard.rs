@@ -399,6 +399,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                             launch.name.as_deref(),
                             launch.reuse,
                             interactive,
+                            args.host.is_none(),
                         ),
                     )
                     .await?
