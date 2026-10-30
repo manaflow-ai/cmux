@@ -32,7 +32,7 @@ final class FeedListControl {
 /// costs placing reused views and nothing else. The SwiftUI rows it replaced
 /// built and measured a full view tree for each row that scrolled in, 14 to
 /// 20 ms of main-thread work each.
-struct FeedCollection: UIViewRepresentable {
+struct FeedCollection: UIViewControllerRepresentable {
     let items: [FeedItem]
     let context: FeedRowContext
     let swipe: FeedSwipeCoordinator
@@ -48,34 +48,42 @@ struct FeedCollection: UIViewRepresentable {
         FeedListController(context: context, swipe: swipe, control: control)
     }
 
-    func makeUIView(context: Context) -> FeedCollectionView {
-        context.coordinator.makeView()
+    func makeUIViewController(context: Context) -> FeedCollectionController {
+        FeedCollectionController(collection: context.coordinator.makeView())
     }
 
-    func updateUIView(_ view: FeedCollectionView, context: Context) {
+    func updateUIViewController(_ controller: FeedCollectionController, context: Context) {
         context.coordinator.update(items: items, header: header, signature: headerSignature, headerContent: headerContent)
     }
 }
 
-/// The Feed's collection view. It is its screen's content scroll view, so
-/// the navigation bar's scroll edge and the tab bar's minimize on scroll follow it.
+/// Owns the content scroll view explicitly. A UIViewRepresentable nested in a
+/// SwiftUI background can find an intermediate hosting controller instead of
+/// the screen, leaving the navigation bar without its scroll edge treatment.
+final class FeedCollectionController: UIViewController {
+    let collection: FeedCollectionView
+
+    init(collection: FeedCollectionView) {
+        self.collection = collection
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func loadView() { view = collection }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        collection.topEdgeEffect.style = .soft
+        setContentScrollView(collection, for: .top)
+        setContentScrollView(collection, for: .bottom)
+    }
+}
+
 final class FeedCollectionView: UICollectionView {
     var onWidthChange: ((CGFloat) -> Void)?
     private var lastWidth: CGFloat = 0
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        guard window != nil else { return }
-        var responder: UIResponder? = self
-        while let next = responder?.next {
-            if let controller = next as? UIViewController {
-                controller.setContentScrollView(self, for: .top)
-                controller.setContentScrollView(self, for: .bottom)
-                break
-            }
-            responder = next
-        }
-    }
 
     override func layoutSubviews() {
         if abs(bounds.width - lastWidth) > 0.5 {

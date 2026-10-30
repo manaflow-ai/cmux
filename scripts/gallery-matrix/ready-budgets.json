@@ -30,6 +30,7 @@
     "agent-pane.streaming-follow-motion#stream": 2100,
     "agent-pane.streaming-text#claude": 14600,
     "agent-pane.streaming-text#codex": 17700,
+    "agent-pane.streaming-text#jump-during-stream": 17400,
     "agent-pane.transcript#codex-turn-run-open": 5800,
     "agent-pane.transcript#fold-holds-clicked-line": 5900,
     "agent-pane.transcript#footer-actions-left": 5600,

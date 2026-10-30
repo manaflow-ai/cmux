@@ -22,6 +22,7 @@ let swiftSettings: [SwiftSetting] = [
 
 let package = Package(
     name: "CmuxComputerUseHelper",
+    defaultLocalization: "en",
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "cmux-cua-helper", targets: ["cmux-cua-helper"]),
@@ -32,11 +33,17 @@ let package = Package(
         .target(
             name: "CmuxCuaHelperCore",
             dependencies: ["CCuaDriverABI"],
+            resources: [.process("Resources")],
             swiftSettings: swiftSettings,
             linkerSettings: [.linkedFramework("Security"), .linkedFramework("ApplicationServices")]
         ),
         .executableTarget(
             name: "cmux-cua-helper",
+            dependencies: ["CmuxCuaHelperCore"],
+            swiftSettings: swiftSettings
+        ),
+        .testTarget(
+            name: "CmuxCuaHelperCoreTests",
             dependencies: ["CmuxCuaHelperCore"],
             swiftSettings: swiftSettings
         ),

@@ -42,7 +42,10 @@ statically, so a reordered step fails in review and not on a release day:
    cmux-next-guards.yml's signing-runner-variables job (on a literal Blacksmith
    runner) checks it on every feat-cmux-next pull request and push: pointing one
    of those variables at an owned mini turns it red. It detects; it does not stop
-   a signing job that starts before it.
+   a signing job that starts before it. The one way onto an owned Mac is a
+   picker output from scripts/ci/signing_runner.py (Leo, 2026-10-28: the
+   release signing jobs may run on our own Macs), on a mini held whole for the
+   job; tests/test_ci_signing_owned_mac.py checks those jobs.
 8. A job that signs with the release signer (RELEASE_POOL_SIGNERS) makes no
    keychain: it runs on a literal ubuntu label and hands the certificate only
    to its signer script, which keeps the key in its own temporary directory.
@@ -67,6 +70,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+
+import signing_runner_variables  # noqa: E402
 
 CREATE = re.compile(r"signing-keychain\.sh\s+create\b|\bsecurity\s+create-keychain\b")
 DELETE = re.compile(
@@ -84,6 +90,9 @@ BUNDLE_CODE = [
     re.compile(r"test_bundled_ghostty_theme_picker_helper\.sh"),
     re.compile(r"verify_remote_daemon_release\.py(?=.*--verify-cli)"),
     re.compile(r"verify-diff-sidecar-artifact\.sh(?!.*--static-only)"),
+    # The cmux NEXT fresh-home launch smoke (nightly.yml's pre-publish gate and its harness).
+    re.compile(r"launch-smoke-gate\.sh"),
+    re.compile(r"fresh_home_launch_smoke\.py"),
 ]
 # Run blocks moved out of a workflow into their own script (inline_step_scripts).
 STEP_SCRIPT = re.compile(r"scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh")
@@ -109,6 +118,8 @@ SCRIPT_MADE_KEYCHAINS = {
     # nightly-next recovery signs the DMG around the stapled app (feat-cmux-next).
     ("nightly.yml", "recover-nightly-next-notarization"): "scripts/ci/notarize-nightly-dmg.sh",
     ("release.yml", "build-sign-notarize"): "scripts/ci/notarize-nightly-dmg.sh",
+    # Its same-run Blacksmith twin runs the same steps (tests/test_ci_signing_owned_mac.py).
+    ("release.yml", "build-sign-notarize-blacksmith"): "scripts/ci/notarize-nightly-dmg.sh",
     ("auto-resume-nightly-notarization.yml", "wait-and-staple"): "scripts/ci/resume-stapled-app-notarization.sh",
     ("auto-resume-nightly-notarization.yml", "staple-outer"): "scripts/ci/resume-stapled-app-notarization.sh",
     ("resume-nightly-notarization.yml", "resume"): "scripts/ci/resume-stapled-app-notarization.sh",
@@ -124,6 +135,7 @@ STEP_LEVEL_ONLY = {
     # Build, sign, notarize and publish are one job; the split into build,
     # sign, verify and publish jobs is a separate change.
     "release.yml build-sign-notarize",
+    "release.yml build-sign-notarize-blacksmith",  # its same-run Blacksmith twin, the same steps
 }
 # Scripts that launch the app unless their launch smokes are deferred.
 SMOKING_SCRIPTS = re.compile(
@@ -136,10 +148,11 @@ SIGNING_SECRET_REFERENCE = re.compile(
     re.IGNORECASE,
 )
 # Rule 7. These repository variables hold only ephemeral runner labels; the
-# live-value check in cmux-next-guards.yml keeps them so. Add a variable here
-# only together with that check.
-EPHEMERAL_RUNNER_VARIABLES = ("LINUX_RUNNER", "MACOS_RUNNER_26")
-EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-)[a-z0-9.-]+$")
+# live-value check in cmux-next-guards.yml keeps them so, and the cloud overflow
+# switch never writes anything else to them. The list lives in
+# scripts/ci/signing_runner_variables.py; the check must name exactly it.
+EPHEMERAL_RUNNER_VARIABLES = signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES
+EPHEMERAL_LABEL = signing_runner_variables.EPHEMERAL_LABEL
 # vars.NAME or vars['NAME'] / vars["NAME"], with the literal it falls back to. GitHub reads
 # context and variable names without regard to case, so this does too.
 RUNNER_VARIABLE = re.compile(
@@ -412,6 +425,15 @@ def check_live_runner_variables(failures: list[str]) -> None:
         run = str((step or {}).get("run", ""))
         if all(env.get(v, "").replace(" ", "") == "${{vars.%s}}" % v for v in EPHEMERAL_RUNNER_VARIABLES) \
                 and "blacksmith-" in run and "ubuntu-" in run and "exit 1" in run:
+            # The step loops over exactly the shared list, so a variable added there is checked live too.
+            loop = re.search(r"^\s*for\s+name\s+in\s+([A-Z0-9_ ]+?)\s*;\s*do\b", run, re.MULTILINE)
+            looped = tuple(loop.group(1).split()) if loop else ()
+            if sorted(looped) != sorted(EPHEMERAL_RUNNER_VARIABLES) or \
+                    sorted(n for n in env if n.isupper() and env[n].startswith("${{")) != sorted(EPHEMERAL_RUNNER_VARIABLES):
+                failures.append(
+                    f"{path} {job_name}: checks {', '.join(looped) or 'no variables'}, not exactly "
+                    f"{', '.join(EPHEMERAL_RUNNER_VARIABLES)} (scripts/ci/signing_runner_variables.py)"
+                )
             return
     failures.append(
         f"{path} {job_name}: no step fails when {', '.join(EPHEMERAL_RUNNER_VARIABLES)} hold a label other than "

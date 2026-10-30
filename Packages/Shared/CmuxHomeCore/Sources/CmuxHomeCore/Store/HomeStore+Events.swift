@@ -16,6 +16,7 @@ extension HomeStore {
             log.acknowledge(intent.key, rev: result.rev)
             uploads[intent.key] = nil
             leaveSendQueue(intent.key)
+            advanceSendChain(committed: intent.key)
             settle()
             afterLogChange(intent.op)
             return result
@@ -49,6 +50,7 @@ extension HomeStore {
                 cancelBackoff(intent.key)
                 endOfflineDeadline(intent.key)
                 leaveSendQueue(intent.key)
+                holdSendChain(after: intent.key)
                 if case .sendMessage = intent.op {
                     log.fail(intent.key, rejection)
                 } else {
@@ -107,6 +109,8 @@ extension HomeStore {
                 // connected never comes, so nothing kept from before stays on screen as dots under a
                 // finished reply. Dots come back with the owner's next typing frame or a live run.
                 typing.removeAll()
+                // Presence is the owner's too: it comes again with the owner's next presence frame.
+                viewing.removeAll()
                 log.markDisconnected()
                 pendingResends.removeAll()
                 cancelBackoffs()
@@ -135,6 +139,9 @@ extension HomeStore {
             for op in log.revoke(keys) {
                 if let id = op.conversation { bumpTranscript(id) }
             }
+            // Their uploads, queue places and turn waits go with them, and a split send goes on
+            // past a revoked message (`advanceSendChains`).
+            dropOrphanUploadJobs()
             rebuildRows()
         case .typing(let id, let who, let on):
             var set = typing[id] ?? []
@@ -142,6 +149,8 @@ extension HomeStore {
             typing[id] = set.isEmpty ? nil : set
             if !on, draftBook.typingOff(id, who) { publishLive(id) }
             rebuildRows()
+        case .presence(let id, let people):
+            if viewing[id] != (people.isEmpty ? nil : people) { viewing[id] = people.isEmpty ? nil : people }
         case .draft(let update):
             if draftBook.apply(update) { publishLive(update.conversation) }
         case .live(let event):

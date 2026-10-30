@@ -156,24 +156,129 @@ struct ChatDraftAttachmentsTests {
         #expect(kept.first?.data.flatMap { Data(base64Encoded: $0) } == Self.screenshot(2))
     }
 
-    @Test func aChatPastItsCapKeepsNothingAndBadCallsAreRefused() async throws {
+    /// Leo 2026-10-26: attachments take arbitrarily large files of any type, with no size cap. A
+    /// chat whose chips held more than 64 MB together kept none of them, so after a quit, a reopen
+    /// or a restore from the archive the composer came back empty.
+    @Test func chipsPastTheOldBudgetAreKept() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        // Two 33 MB recordings: 66 MB together, past the 64 MB a chat used to keep.
+        let chips = (1...2).map { index in
+            let bytes = Data(repeating: UInt8(index), count: 33 * 1024 * 1024)
+            return Chip(id: "big-\(index)", kind: "audio", name: "Recording \(index).m4a", mimeType: "audio/mp4",
+                        size: Double(bytes.count), data: bytes.base64EncodedString())
+        }
+        #expect(try await Self.keep(chips, for: "s-big") == ["big-1", "big-2"], "the chat's chips were not kept")
+
+        // The next run's store reads them back whole.
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let kept = try await Self.kept("s-big")
+        #expect(kept.map(\.id) == chips.map(\.id))
+        #expect(kept.map(\.data) == chips.map(\.data), "a chip came back without its bytes")
+    }
+
+    /// A pasted chip of `count` lines of text, several MB at the default.
+    static func pasted(_ id: String, lines count: Int = 300_000) -> Chip {
+        let text = (0..<count).map { "pasted line \($0)\n" }.joined()
+        return Chip(id: id, kind: "pasted", name: "Pasted text", mimeType: "text/plain", size: Double(text.utf8.count), text: text)
+    }
+
+    /// Leo 2026-10-26: attachments take arbitrarily large files of any type. A pasted chip's text
+    /// went inline into the chat's list, so a several-MB paste was rewritten into `draft.json` on
+    /// every settle. Its text is a file of its own beside the list now, read back when the chat shows.
+    @Test func aLargePastedTextChipComesBackAfterARelaunch() async throws {
         let directory = try Self.directory()
         defer {
             AgentPaneDraftAttachments.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
         let store = AgentPaneDraftAttachments(directory: directory)
-        store.maximumBytes = 8
         AgentPaneDraftAttachments.shared = store
-        let small = Chip(id: "a", kind: "image", name: "a.png", mimeType: "image/png", size: 6, data: Data(repeating: 1, count: 6).base64EncodedString())
-        var other = small
-        other.id = "b"
+        let paste = Self.pasted("paste-1")
+        try #require(paste.text!.utf8.count > 5_000_000)
+        let notes = Chip(id: "link-notes", kind: "link", name: "notes", mimeType: "inode/directory", size: 0, path: "/tmp/notes")
+        #expect(try await Self.keep([paste, notes], for: "s-paste") == ["paste-1"], "the host did not say it holds the paste's text")
+
+        let folder = try #require(store.folder(for: "s-paste"))
+        let names = Self.files(in: folder)
+        #expect(names.filter { $0.hasSuffix(".txt") }.count == 1, "the paste's text is not a file of its own: \(names)")
+        let list = try Data(contentsOf: folder.appending(path: AgentPaneDraftAttachments.listName))
+        #expect(list.count < 16 * 1024, "the paste's text went into the list (\(list.count) bytes)")
+        #expect(list.range(of: Data("pasted line 12345".utf8)) == nil, "the list holds the paste's text")
+
+        // The next run's store reads it back whole.
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let back = try await Self.kept("s-paste")
+        #expect(back.map(\.id) == ["paste-1", "link-notes"])
+        #expect(back.first?.text == paste.text, "the paste came back without its text")
+        #expect(back.first?.kind == "pasted")
+        #expect(back.last?.path == "/tmp/notes")
+    }
+
+    /// A list an older build wrote, a pasted chip's text inline, still comes back.
+    @Test func anOldListWithInlineTextStillComesBack() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = AgentPaneDraftAttachments(directory: directory)
+        AgentPaneDraftAttachments.shared = store
+        let folder = try #require(store.folder(for: "s-old"))
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let paste = Self.pasted("paste-old", lines: 3)
+        let log = Chip(id: "log", kind: "text", name: "build.log", mimeType: "text/plain", size: 3, text: "ok\n")
+        let chips = try JSONSerialization.jsonObject(with: JSONEncoder().encode([paste, log]))
+        try JSONSerialization.data(withJSONObject: ["attachments": chips])
+            .write(to: folder.appending(path: AgentPaneDraftAttachments.listName))
+
+        let back = try await Self.kept("s-old")
+        #expect(back == [paste, log], "a list the last build wrote did not come back")
+    }
+
+    /// A pasted chip taken out loses its text's file; one sent again without its text keeps it.
+    @Test func aPastedChipsTextFileGoesWithIt() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = AgentPaneDraftAttachments(directory: directory)
+        AgentPaneDraftAttachments.shared = store
         let folder = try #require(store.folder(for: "s-1"))
-        try await Self.keep([small, other], for: "s-1")
+        let first = Self.pasted("paste-1", lines: 1000)
+        let second = Self.pasted("paste-2", lines: 2000)
+        try await Self.keep([first, second, Self.chip(1)], for: "s-1")
+        let both = Self.files(in: folder).filter { $0.hasSuffix(".txt") }
+        try #require(both.count == 2, "\(Self.files(in: folder))")
+
+        // A chip named again without its text keeps the file it has.
+        var bare = second
+        bare.text = nil
+        try await Self.keep([bare, Self.chip(1, contents: false)], for: "s-1")
+        let left = Self.files(in: folder).filter { $0.hasSuffix(".txt") }
+        #expect(left.count == 1, "the removed paste's text file stayed: \(left)")
+        #expect(Self.files(in: folder).filter { $0.hasSuffix(".png") }.count == 1)
+        let back = try await Self.kept("s-1")
+        #expect(back.map(\.id) == ["paste-2", "shot-1"])
+        #expect(back.first?.text == second.text)
+
+        // The last chips taken out: the folder goes with every file in it.
+        try await Self.keep([], for: "s-1")
         #expect(!FileManager.default.fileExists(atPath: folder.path))
-        #expect(try await Self.kept("s-1").isEmpty)
-        try await Self.keep([small], for: "s-1")
-        #expect(try await Self.kept("s-1").map(\.id) == ["a"])
+    }
+
+    @Test func badCallsAreRefused() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
 
         await #expect(throws: PageError.self) { _ = try await Self.call("chat.draftAttachments.get", [:]) }
         await #expect(throws: PageError.self) {
