@@ -1,4 +1,4 @@
-import type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./generated/popupProtocol";
+import type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./popupProtocol";
 
 type Identity = { fingerprint: string; since: number; row: NativePopupRow };
 

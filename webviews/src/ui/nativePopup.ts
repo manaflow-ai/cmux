@@ -1,10 +1,10 @@
 import { useId, useLayoutEffect, useReducer, useRef } from "react";
 import { usePopupHost } from "./UiProvider";
 import type { AnchorBox } from "./popupHost";
-import type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./generated/popupProtocol";
+import type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./popupProtocol";
 import { NativePopupEventFence } from "./nativePopupEvents";
 
-export type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./generated/popupProtocol";
+export type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./popupProtocol";
 
 /** The generated model travels directly to AppKit; no mounted or hidden DOM rows. */
 export interface NativePopupTransport {

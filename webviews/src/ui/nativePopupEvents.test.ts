@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { NativePopupModel } from "./generated/popupProtocol";
+import type { NativePopupModel } from "./popupProtocol";
 import { NativePopupEventFence } from "./nativePopupEvents";
 
 const model = (revision: number, checked: boolean, effort: string): NativePopupModel => ({

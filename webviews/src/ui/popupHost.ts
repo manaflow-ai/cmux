@@ -10,7 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePopupHost } from "./UiProvider";
 import type { NativePopupTransport } from "./nativePopup";
-import type { NativePopupEvent } from "./generated/popupProtocol";
+import type { NativePopupEvent } from "./popupProtocol";
 
 export interface PopupItem {
   id: string;
