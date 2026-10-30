@@ -805,6 +805,56 @@ test("a Stop of a known turn does not swallow the next unnamed turn's Stop", asy
   }
 });
 
+// Review at 3b26be74 (P2): after a named turn ends, a turn the agent starts on its own that names none
+// is a new turn; its result (naming it) settles it.
+test("an agent-started unnamed turn after a named one takes its own result", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "first", turnId: "turn-a" }],
+      ["mux", "turn_started", { turnId: "turn-a" }],
+      ["mux", "turn_end", { turnId: "turn-a" }],
+      ["mux", "turn_started", {}],
+    ]),
+  );
+  const { client, rows } = await connect(daemon);
+  try {
+    expect(rows().some((row) => row.kind === "typing")).toBe(true);
+    daemon.push(record([["mux", "turn_result", { turnId: "turn-b", status: "completed" }]], 5));
+    expect(rows().some((row) => row.kind === "typing")).toBe(false);
+    expect(rows().some((row) => row.id === "summary-turn-b")).toBe(true);
+  } finally {
+    client.close();
+  }
+});
+
+// Review at 3b26be74 (P2): a Stop of a turn that names none does not cover a later, distinct prompt.
+test("a Stop of an unnamed turn does not swallow a later prompt's Stop", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "first" }],
+      ["mux", "turn_started", {}],
+    ]),
+  );
+  const { client } = await connect(daemon);
+  const cancels = () => daemon.sent.filter((raw) => JSON.parse(raw).method === "session/cancel").length;
+  try {
+    await client.cancel();
+    daemon.push(
+      record(
+        [
+          ["mux", "user_message", { text: "second" }],
+          ["mux", "turn_started", {}],
+        ],
+        3,
+      ),
+    );
+    await client.cancel();
+    expect(cancels()).toBe(2);
+  } finally {
+    client.close();
+  }
+});
+
 // Review at f024ce96 (P1): the stopped turn's late result, naming that turn, must not end a newer
 // turn that names none; it only settles its own Stop.
 for (const kind of ["turn_result", "turn_end"] as const)
