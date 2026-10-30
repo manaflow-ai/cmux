@@ -169,6 +169,20 @@ import Testing
         }
     }
 
+    @Test func relativeTokenFallsBackToTheReportedDirectoryWhenTheLiveDirectoryMisses() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        // The shell reported /reported, but the foreground process runs in /live and the
+        // printed path is relative to the shell's directory.
+        let transport = PreviewDownloadTransport(files: ["/reported/notes.md": Data("reported".utf8)])
+        let result = try await makeLoader(transport: transport, cache: root).load(
+            tokens: ["notes.md"], workingDirectory: "/reported",
+            liveWorkingDirectory: { "/live" }
+        )
+        #expect(try String(contentsOf: result, encoding: .utf8) == "reported")
+        #expect(await transport.requests.paths == ["/live/notes.md", "/reported/notes.md"])
+    }
+
     @Test func downloadsRemoteBytesInsteadOfReadingLocalShadow() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -227,7 +241,7 @@ import Testing
         } catch {
             #expect(error as? FileExplorerError == .remoteFileUnavailable)
         }
-        #expect(await transport.requests.paths == ["/missing.md", "/live/notes.md"])
+        #expect(await transport.requests.paths == ["/missing.md", "/live/notes.md", "/reported/notes.md"])
     }
 
     private func makeLoader(transport: PreviewDownloadTransport, cache: URL) -> RemoteTerminalFilePreviewLoader {
