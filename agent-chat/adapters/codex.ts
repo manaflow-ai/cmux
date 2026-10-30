@@ -439,8 +439,13 @@ function codexQuestions(sess: SessionCtx): Map<string, PendingQuestion> {
 export function codexQuestionItems(raw: unknown): AgentQuestionItem[] {
   if (!Array.isArray(raw)) return [];
   const items: AgentQuestionItem[] = [];
+  const seen = new Set<string>();
   for (const q of raw) {
     if (!q || typeof q.id !== "string" || !q.id || typeof q.question !== "string") continue;
+    // Answers are keyed by id: a repeated id would share one answer between
+    // questions (a secret one's included), so the request is declined whole.
+    if (seen.has(q.id)) continue;
+    seen.add(q.id);
     const options = (Array.isArray(q.options) ? q.options : [])
       .filter((o: any) => o && typeof o.label === "string" && o.label)
       .map((o: any) => (typeof o.description === "string" && o.description

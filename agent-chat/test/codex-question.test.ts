@@ -160,6 +160,12 @@ test("a request with a question that cannot be shown is declined whole so the tu
   partial.feed([ask(18, [region, { header: "no id", question: "?" }])]);
   expect(partial.writes).toEqual([{ jsonrpc: "2.0", id: 18, result: { answers: {} } }]);
   expect(partial.events.map((e) => e.kind)).toEqual(["status"]);
+
+  // Two questions sharing an id would share one answer, a secret one's too.
+  const repeated = codexSessionForTest();
+  repeated.feed([ask(19, [token, { ...name, id: "token" }])]);
+  expect(repeated.writes).toEqual([{ jsonrpc: "2.0", id: 19, result: { answers: {} } }]);
+  expect(repeated.events.map((e) => e.kind)).toEqual(["status"]);
 });
 
 test("the chat derives waiting questions from history and live events", () => {
