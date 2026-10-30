@@ -205,3 +205,15 @@ fn wide_usage_cells_say_unknown_as_a_question_mark() {
     assert!(out.lines().nth(1).unwrap().contains("claude-sr2  none  312k"), "{out}");
     assert!(!compact(&[lane("a")]).contains("LAUNCHER"));
 }
+
+#[test]
+fn a_short_or_empty_row_pads_without_panicking() {
+    let s = |cells: &[&str]| cells.iter().map(|c| (*c).to_owned()).collect::<Vec<_>>();
+    assert_eq!(table(vec![]), "");
+    assert_eq!(
+        table(vec![s(&["NAME", "STATUS", "AGE"]), s(&["a"]), s(&[])]),
+        "NAME  STATUS  AGE\na\n\n"
+    );
+    // A row longer than the header: its extra cells are padded to no width.
+    assert_eq!(table(vec![s(&["A", "B"]), s(&["x", "y", "z"])]), "A  B\nx  yz\n");
+}

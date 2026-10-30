@@ -6,17 +6,26 @@
 //! (`daemon/running.rs`).
 
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use crate::cli::errors;
 use crate::cli::ls_table::{self, View};
 use crate::cli::output::print_json;
+use crate::cli::select::{self, parse_fields, project_fields, text_field};
 use crate::daemon::connect_running;
 use crate::rpc::method;
 
 /// `acpmux ls`'s flags (`cli/command.rs` `Command::Ls`).
 #[derive(clap::Args, Debug, Clone)]
 pub struct LsArgs {
+    /// Only sessions whose name matches one of these (a glob: `*`, `?`; `host/glob` for one
+    /// peer's), or with this session id (bare, or a peer's `host/id`).
+    #[arg(value_name = "PATTERN")]
+    patterns: Vec<String>,
+    /// The same as a PATTERN (repeatable): `--name 'review-*'`.
+    #[arg(long = "name", value_name = "PATTERN")]
+    name_patterns: Vec<String>,
     /// Include tool inventories in JSON rows (otherwise read `session info SESSION`).
     #[arg(long)]
     with_tools: bool,
@@ -32,7 +41,8 @@ pub struct LsArgs {
     /// Return at most N sessions, newest first.
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
     limit: Option<u64>,
-    /// Select comma-separated fields from each session record.
+    /// Select comma-separated fields from each session record; a dotted path reads a nested
+    /// one (`turn.activity`, `lane.state`, `tags.area`).
     #[arg(long, value_name = "FIELD[,FIELD…]")]
     fields: Option<String>,
     /// Only sessions updated within this duration (for example `24h` or `30m`).
@@ -54,14 +64,30 @@ pub struct LsArgs {
 }
 
 pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
-    let LsArgs { status, pending, tag, limit, fields, since, with_tools, live, host, all, wide } =
-        args;
+    let LsArgs {
+        mut patterns,
+        name_patterns,
+        status,
+        pending,
+        tag,
+        limit,
+        fields,
+        since,
+        with_tools,
+        live,
+        host,
+        all,
+        wide,
+    } = args;
+    patterns.extend(name_patterns);
+    let named = !patterns.is_empty();
     let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
     let selected = limit.is_some() || fields.is_some() || since_ms.is_some();
     let fields = fields.as_deref().map(parse_fields).transpose()?;
     let rows = RowFilter::new(live, host.as_deref(), crate::pairing::machine_name())?;
     // Any filter at all: the text view hides none of the rows it keeps (`ls_table.rs`).
-    let filtered = rows.narrows() || status.is_some() || pending || tag.is_some() || selected;
+    let filtered =
+        rows.narrows() || status.is_some() || pending || tag.is_some() || selected || named;
     // A listing never starts a daemon (hq#4897 failure 4: an empty one on a dead socket read as
     // a host with no sessions).
     let client = connect_running().await?;
@@ -73,15 +99,15 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // The daemon already sorts pages newest first. Ask it to trim the response when
     // possible; a `--since` filter must run before the limit, so that combination reads
     // the complete list and applies both filters locally.
-    let daemon_limit =
-        limit.filter(|_| status.is_none() && !pending && tag.is_none() && !rows.narrows());
+    let daemon_limit = limit
+        .filter(|_| status.is_none() && !pending && tag.is_none() && !rows.narrows() && !named);
     let mut params = if since_ms.is_none() {
         daemon_limit.map_or_else(|| json!({}), |n| json!({"limit": n}))
     } else {
         json!({})
     };
     if with_tools {
-        params["withTools"] = json!(true);
+        params.set("withTools", json!(true));
     }
     // Only a listing that shows usage has the daemon read it first (`hub/usage_view.rs`); the
     // compact one shows the rows as they are.
@@ -94,10 +120,10 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     // The daemon drops closed rows itself (`hub/session_pages.rs`), so a `--live` reply
     // carries none of them; `RowFilter` checks again below.
     if live {
-        params["excludeStatus"] = json!(["closed"]);
+        params.set("excludeStatus", json!(["closed"]));
     }
     let mut v = client.request(method::MUX_SESSIONS, params).await?;
-    if status.is_some() || pending || tag.is_some() || selected || rows.narrows() {
+    if status.is_some() || pending || tag.is_some() || selected || rows.narrows() || named {
         let mut sessions = match v.get_mut("sessions") {
             Some(Value::Array(rows)) => std::mem::take(rows),
             _ => Vec::new(),
@@ -126,26 +152,11 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
                 Some("waiting") => pend,
                 Some(want) => st == want,
             };
-            let tag_ok = match tag.as_deref() {
-                None => true,
-                Some(t) => {
-                    let (k, want) =
-                        t.split_once('=').map(|(k, v)| (k, Some(v))).unwrap_or((t, None));
-                    s.get("tags")
-                        .and_then(|m| m.get(k))
-                        .map(|v| {
-                            want.map(|w| {
-                                v.as_str() == Some(w)
-                                    || v.get("value").and_then(Value::as_str) == Some(w)
-                            })
-                            .unwrap_or(true)
-                        })
-                        .unwrap_or(false)
-                }
-            };
+            let tag_ok = tag.as_deref().is_none_or(|t| select::tag_matches(s, t));
+            let name_ok = !named || select::name_matches(s, &patterns);
             let since_ok = cutoff
                 .is_none_or(|at| s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at);
-            status_ok && (!pending || pend) && tag_ok && since_ok && rows.keeps(s)
+            status_ok && (!pending || pend) && tag_ok && name_ok && since_ok && rows.keeps(s)
         });
         if let Some(limit) = limit {
             sessions.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
@@ -153,7 +164,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         if let Some(fields) = fields.as_deref() {
             sessions = sessions.into_iter().map(|s| project_fields(&s, fields)).collect();
         }
-        v["sessions"] = Value::Array(sessions);
+        v.set("sessions", Value::Array(sessions));
     }
     if json_out {
         print_json(&v);
@@ -170,7 +181,7 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
                 "{}",
                 fields
                     .iter()
-                    .map(|field| text_field(session.get(field)))
+                    .map(|field| text_field(select::field(&session, field)))
                     .collect::<Vec<_>>()
                     .join("\t")
             );
@@ -238,39 +249,6 @@ pub(super) fn parse_duration_ms(text: &str) -> Result<u64> {
         rest = rest.get(unit_len..).unwrap_or("");
     }
     Ok(total)
-}
-
-fn parse_fields(text: &str) -> Result<Vec<String>> {
-    let fields: Vec<String> = text
-        .split(',')
-        .map(str::trim)
-        .filter(|field| !field.is_empty())
-        .map(str::to_owned)
-        .collect();
-    if fields.is_empty() {
-        return Err(
-            errors::AppError::usage("--fields requires a comma-separated field list").into()
-        );
-    }
-    Ok(fields)
-}
-
-fn project_fields(session: &Value, fields: &[String]) -> Value {
-    let mut row = serde_json::Map::new();
-    for field in fields {
-        if let Some(value) = session.get(field) {
-            row.insert(field.clone(), value.clone());
-        }
-    }
-    Value::Object(row)
-}
-
-fn text_field(value: Option<&Value>) -> String {
-    match value {
-        None | Some(Value::Null) => String::new(),
-        Some(Value::String(text)) => text.clone(),
-        Some(value) => serde_json::to_string(value).unwrap_or_default(),
-    }
 }
 
 /// The rows `--live` and `--host` keep.
