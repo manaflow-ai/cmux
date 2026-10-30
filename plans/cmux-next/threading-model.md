@@ -762,13 +762,7 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `cmux.next.agent-pane.shell-complete-reap.<pid>` (user-initiated; a Tab completion shell's exit source, the Tab
   waits on it). Each holds one process-exit source and runs one waitpid that returns at once; no thread waits
   while the child runs (p02-threads-120, p02-threads-128)
-- Diagnostics: `com.cmuxterm.next.busy-watchdog` (utility, serial: the busy watchdog's kernel reads, each
-  process's `proc_pid_rusage` and `proc_pidinfo`, the Chromium helper list, the main thread's `thread_info` and
-  stack sample, for every window open and close; at most one open or close is pending, so no back-pressure; a
-  read the kernel holds delays only the next window. A diagnostic never makes a system call on the main thread:
-  the main thread stamps a time or sets an atomic, and the read runs on a queue like this one or a
-  `BackgroundWork` system lane (`debug.wakeups`, `debug.new_tab`, `debug.cef`). v229, 2026-10-30: the window end
-  on main stalled it 1,261 ms in `proc_pidinfo`), `cmux-next.hang-episodes` (utility), `cmux-next.hang-episodes.symbols` (utility),
+- Diagnostics: `cmux-next.hang-episodes` (utility), `cmux-next.hang-episodes.symbols` (utility),
   `com.cmuxterm.app.next.run-marker` (utility), `com.cmuxterm.app.next.crash-forwarder` (utility),
   `com.cmuxterm.app.next.owner-panic-forwarder` (utility), `com.cmuxterm.next.typing-probe` (utility),
   `com.cmuxterm.app.next.invariant-sink` (utility; `InvariantSink`: one block per Invariant site per launch builds

@@ -1,11 +1,9 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextChromiumRuntime
-import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextInputDiagnostics
 import CmuxNextSettings
-import CmuxNextWakeups
 import Darwin
 
 /// `debug.cef`: how Chromium started in this process (lazy tab, or a warm
@@ -22,15 +20,14 @@ import Darwin
 /// Helper processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
-    /// The engine's state, read on the main actor, then its footprint (`task_info`, a system call) on a
-    /// ``BackgroundWork`` system lane: a diagnostic never makes one on the main thread.
-    static func report(_ services: AppServices) -> ControlReply {
+    static func report(_ services: AppServices) -> JSONValue {
         let report = services.cache.cef.startReport
         var object: [String: JSONValue] = [
             "state": .string(report.state),
             "preloaded": .bool(report.preloaded),
             "likely": services.chromiumWarmup.reason.map { .string($0.rawValue) } ?? .null,
             "trigger": report.trigger.map { .string($0) } ?? .null,
+            "footprint_mb": .number(footprintMegabytes()),
             "spare_window": .string(services.cache.cef.spareWindowState),
             "pages_spare_window": .string(services.cache.cef.pagesSpareWindowState),
             // Whether the warm-up keeps spare windows (null before it starts); the bench's host arms check it.
@@ -106,12 +103,7 @@ enum DebugCEF {
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
-        let fields = object
-        return .followUp { [work = services.work] in
-            var fields = fields
-            fields["footprint_mb"] = .number((try? await work.run(.bestEffort, mayBlock: .system) { footprintMegabytes() }) ?? 0)
-            return .object(fields)
-        }
+        return .object(object)
     }
 
     private static func hostLocks(_ report: CEFHostLocksReport) -> JSONValue {
@@ -344,7 +336,7 @@ enum DebugCEF {
     }
 
     /// `phys_footprint` (Activity Monitor's "Memory"), in MiB.
-    nonisolated static func footprintMegabytes() -> Double {
+    static func footprintMegabytes() -> Double {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
         // SAFETY: `count` is task_vm_info_data_t's size in integer_t words, the capacity the rebound view

@@ -233,8 +233,8 @@ extension AppControl {
             // The action signposts' commit boundary against this macOS's display observers.
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
-            .async("debug.wakeups") { [budgeted = mainWork.frames, parent = services.cache.chromium.source.helperParent, work = services.work] call in
-                await DebugWakeups.report(call.params, budgeted: budgeted, helperParent: parent.pid, work: work)
+            .async("debug.wakeups") { [budgeted = mainWork.frames, parent = services.cache.chromium.source.helperParent] call in
+                await DebugWakeups.report(call.params, budgeted: budgeted, helperParent: parent.pid)
             },
             // Energy Saver policy and inputs, main wake queue, top wakers, process energy; simulated inputs (p14-energy.md).
             EnergyReport(services: services).method, EnergyReport.simulateMethod(services: services),
@@ -255,7 +255,7 @@ extension AppControl {
                 // {"color_chooser_pick": 0xRRGGBB} or {"color_chooser_close": true}: the open <input type=color>'s panel.
                 if let color = call.params["color_chooser_pick"]?.intValue { _ = services.cache.cef.pickHostColor(UInt32(truncatingIfNeeded: color)) }
                 if call.params["color_chooser_close"]?.boolValue == true { _ = services.cache.cef.closeHostColorChooser() }
-                return DebugCEF.report(services)
+                return .value(DebugCEF.report(services))
             },
             // Remote localhost proxy: port, counters, recent outcomes.
             .mainActor("debug.remote-localhost") { [weak services] _ in
