@@ -106,6 +106,12 @@ struct SidebarSessionHostIntegrationTests {
             #expect(list.displayed.hostHeadersShowing)
             #expect(drag.target == nil)
             #expect(list.displayed.gapY == nil)
+            let familyRow = try #require(list.displayed.row(for: .workspace(Self.workers[0])))
+            let beforeCardY = drag.lift.frame.minY
+            list.updateDrag(windowPoint: NSPoint(x: 80, y: familyRow.y + familyRow.height / 2))
+            #expect(drag.lift.frame.minY != beforeCardY)
+            #expect(list.displayed.gapY == nil)
+            list.finishDrag()
             #expect(list.model.sections[0].workspaces.map(\.id) == [Self.coordinator, Self.plain] + Self.workers + [Self.dragged])
         }
     }

@@ -51,9 +51,6 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     /// Index among the container's siblings, counting only rows not being
     /// dragged. For group headers this is the group's index in the section.
     public var siblingIndex: Int
-    /// The projected insertion slot used by the shared drop reducer. Session host
-    /// grouping keeps `siblingIndex` as the document identity for selection and
-    /// drag origins, while this optional slot follows the drawn neighbor.
     /// For a grouped workspace: the group's index in its section.
     public var parentIndex: Int?
     public var isLastInGroup: Bool
