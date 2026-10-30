@@ -103,7 +103,10 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     expect(bubble.textContent).toContain("Also keep the old flag working");
     expect(actions.firstElementChild).toBe(pending);
     const message = bubble.closest(".cv-user")!;
-    expect([...message.children].map((child) => child.className)).toEqual([
+    // The bubble and its action row share one body, so the waiting controls stay attached to their
+    // bubble (#27168); nothing else sits in the message, its left gutter included.
+    expect([...message.children].map((child) => child.className)).toEqual(["cv-user__body"]);
+    expect([...message.firstElementChild!.children].map((child) => child.className)).toEqual([
       "ui-glass cv-user__bubble selectable",
       "cv-user__actions",
     ]);
