@@ -7,8 +7,9 @@
 //! 1. Refused while its turn runs (unless `--interrupt`), while it is being moved, once it moved
 //!    away, or when its folder is gone here (`session_move_plan.rs` `refusal`).
 //! 2. The target: the peer named, or with `auto` the daemon's placement (`_acpmux/place`) among
-//!    the peers, never this machine. A host the fleet registry holds (its `hold`, or a
-//!    `reservations` entry: `placement::held`) is never a target. Chats in one checkout go to
+//!    the peers, never this machine and never one the registry marks interactive (a machine a
+//!    person works at, `placement::interactive`). A host the fleet registry holds (its `hold`, or
+//!    a `reservations` entry: `placement::held`) is never a target. Chats in one checkout go to
 //!    one host.
 //! 3. The chat is frozen here (`transfer_begin`), so nothing changes its folder or history
 //!    while the rest is made; any step below that fails gives it back (`transfer_abort`).
@@ -32,6 +33,7 @@ use crate::ssh_forward::Forward;
 #[cfg(test)]
 use crate::ssh_forward::forward_argv;
 use anyhow::{Context as _, bail};
+use cmux_json::JsonSet as _;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
@@ -44,6 +46,9 @@ pub(crate) struct MoveArgs {
     pub leave_dirty: bool,
     pub cwd: Option<String>,
     pub dry_run: bool,
+    /// `session resume`'s move: once moved, the held queue runs on the target, asked over the
+    /// move's own connection (the route `HOST/ID` through this daemon may not know it yet).
+    pub resume_there: bool,
 }
 
 /// One chat's outcome, as printed and in `--json`.
@@ -53,6 +58,10 @@ struct Outcome {
     host: Option<String>,
     cwd: Option<String>,
     moved: bool,
+    /// The chat's id on the target, once moved.
+    there: Option<String>,
+    /// With `resume_there`: whether a held queue ran there, or why it did not (the chat moved).
+    resumed: Result<bool, String>,
     error: Option<String>,
 }
 
@@ -100,17 +109,56 @@ fn print_outcome(o: &Outcome, dry_run: bool) {
     }
 }
 
+/// Where `session resume` moved a stopped chat (`move_off_interactive`): the peer, the chat's
+/// id there routed through it (`HOST/ID`), and whether a held queue ran there (`Err`: why not;
+/// the chat moved all the same).
+pub(crate) struct MovedOff {
+    pub host: String,
+    pub routed: String,
+    pub resumed: Result<bool, String>,
+}
+
+/// `session resume`'s move of the stopped chat `id` off this machine, one a person works at: the
+/// same steps and pick as `session move ID --host auto`. `Err`: it did not move, and why (no peer
+/// has room, a refusal, a failed step given back); the chat is here as it was.
+pub(crate) async fn move_off_interactive(src: &Client, id: &str) -> Result<MovedOff> {
+    let args = MoveArgs {
+        sessions: vec![id.to_owned()],
+        host: "auto".into(),
+        all_idle: false,
+        interrupt: false,
+        leave_dirty: false,
+        cwd: None,
+        dry_run: false,
+        resume_there: true,
+    };
+    let peers = src.request("_acpmux/peers", json!({})).await?;
+    let mut targets = Targets::new(&args.host, &peers)?;
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("this machine has no home folder"))?;
+    let o = move_one(src, id, &args, &home, &mut targets).await;
+    if let Some(e) = o.error {
+        bail!("{e}");
+    }
+    let (Some(host), Some(there)) = (o.host, o.there) else {
+        bail!("the move gave no host and id for the chat there");
+    };
+    Ok(MovedOff { routed: format!("{host}/{there}"), host, resumed: o.resumed })
+}
+
 /// Every chat here that is open and between turns: not closed, not running, not being moved.
 async fn idle_chats(src: &Client) -> Result<Vec<String>> {
-    let list = src.request(method::MUX_SESSIONS, json!({})).await?;
+    let list = src.whole_list(method::MUX_SESSIONS, json!({})).await?;
     let rows = list.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
     Ok(rows
         .iter()
         .filter(|s| s.get("peer").is_none_or(Value::is_null))
-        .filter(|s| matches!(s["status"].as_str(), Some("idle" | "ready")))
-        .filter(|s| s.get("turn").is_none_or(Value::is_null) && s["moving"] != true)
+        .filter(|s| matches!(s.get("status").and_then(Value::as_str), Some("idle" | "ready")))
+        .filter(|s| {
+            s.get("turn").is_none_or(Value::is_null)
+                && s.get("moving").and_then(Value::as_bool) != Some(true)
+        })
         .filter(|s| s.get("movedTo").is_none_or(Value::is_null))
-        .filter_map(|s| s["sessionId"].as_str().map(str::to_owned))
+        .filter_map(|s| s.get("sessionId").and_then(Value::as_str).map(str::to_owned))
         .collect())
 }
 
@@ -127,6 +175,8 @@ async fn move_one(
         host: None,
         cwd: None,
         moved: false,
+        there: None,
+        resumed: Ok(false),
         error: None,
     };
     if let Err(e) = move_steps(src, key, args, home, targets, &mut o).await {
@@ -146,14 +196,17 @@ async fn move_steps(
     let id = resolve_id(src, key).await?;
     o.session = id.clone();
     let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await?;
-    o.name = info["name"].as_str().unwrap_or(&id).to_owned();
+    o.name = info.get("name").and_then(Value::as_str).unwrap_or(&id).to_owned();
     if info.get("peer").is_some_and(|p| !p.is_null()) {
-        bail!("it runs on {}, not here: move it from there", info["peer"]);
+        bail!(
+            "it runs on {}, not here: move it from there",
+            info.get("peer").unwrap_or(&Value::Null)
+        );
     }
     if let Some(why) = plan::refusal(&info, args.interrupt) {
         bail!("{why}");
     }
-    let cwd = PathBuf::from(info["cwd"].as_str().unwrap_or_default());
+    let cwd = PathBuf::from(info.get("cwd").and_then(Value::as_str).unwrap_or_default());
     // With --cwd nothing of the folder here is carried, so it need not exist any more.
     let cwd = if args.cwd.is_some() {
         cwd
@@ -200,12 +253,23 @@ async fn move_steps(
             return Err(e);
         }
     };
-    let there = record["cwd"].as_str().map(str::to_owned);
+    let there = record.get("cwd").and_then(Value::as_str).map(str::to_owned);
     let moved = super::transfer::finish_move(src, &dst, &id, &begun, there, None, record).await?;
-    drop(forward);
     targets.placed(&target.name);
     o.moved = true;
-    if let Some(name) = moved["name"].as_str() {
+    o.there = moved.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+    if args.resume_there
+        && let Some(there) = o.there.clone()
+    {
+        // Moved whatever this says: a failed resume leaves the chat there with its queue held.
+        let resumed = match dst.request(method::MUX_INFO, json!({"sessionId": there})).await {
+            Ok(info) => super::extra::resume_held(&dst, &there, &info).await,
+            Err(e) => Err(e),
+        };
+        o.resumed = resumed.map_err(|e| format!("{e:#}"));
+    }
+    drop(forward);
+    if let Some(name) = moved.get("name").and_then(Value::as_str) {
         o.name = name.to_owned();
     }
     Ok(())
@@ -239,10 +303,10 @@ async fn prepare(
             move || push_branch(&top, &branch)
         })
         .await??;
-        record["branch"] = json!(branch);
-        record["commit"] = json!(commit);
+        record.set("branch", json!(branch));
+        record.set("commit", json!(commit));
         if *dirty {
-            record["uncommittedLeftOn"] = json!(crate::pairing::machine_name());
+            record.set("uncommittedLeftOn", json!(crate::pairing::machine_name()));
         }
     }
     let there = tokio::task::spawn_blocking({
@@ -251,7 +315,7 @@ async fn prepare(
     })
     .await??;
     o.cwd = Some(there.clone());
-    record["cwd"] = json!(there);
+    record.set("cwd", json!(there));
     let forward = Forward::open(&target.ssh, &remote.socket).await?;
     let dst = Client::connect(&forward.local).await?;
     dst.request(
@@ -338,7 +402,7 @@ fn parse_about(stdout: &str) -> Result<RemoteDaemon> {
     let status: Value =
         serde_json::from_str(lines.next().unwrap_or_default()).unwrap_or(Value::Null);
     // The daemon says where it listens: a socket path is never guessed (per-build state roots).
-    let socket = status["socket"].as_str().unwrap_or_default().to_owned();
+    let socket = status.get("socket").and_then(Value::as_str).unwrap_or_default().to_owned();
     let plain = |p: &str| p.starts_with('/') && crate::cli::hosts::plain_path(p);
     if !plain(&home) {
         bail!("the target's home is not a plain absolute path");
@@ -460,8 +524,11 @@ impl Targets {
         if let Some(t) = self.by_group.get(group) {
             return Ok(t.clone());
         }
-        let verdict = src.request("_acpmux/place", json!({"work": "agent"})).await?;
-        let hosts = verdict["hosts"].as_array().cloned().unwrap_or_default();
+        // A machine a person works at is never a target: moving there is what a move off one
+        // avoids (`server/place.rs`). A named one is the caller's choice.
+        let verdict =
+            src.request("_acpmux/place", json!({"work": "agent", "offInteractive": true})).await?;
+        let hosts = verdict.get("hosts").and_then(Value::as_array).cloned().unwrap_or_default();
         // The registry's one reader of holds and reservations (`placement::held`); placement
         // already refuses such a host, and a named one is checked the same way.
         let registry = crate::placement::load_registry();
@@ -500,19 +567,22 @@ pub(crate) fn choose(
     placed: &HashMap<String, f64>,
     usable: impl Fn(&str) -> bool,
 ) -> Option<String> {
-    let name = |h: &Value| h["name"].as_str().unwrap_or_default().to_owned();
+    let name = |h: &Value| h.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
     let mine = |h: &Value| placed.get(&name(h)).copied().unwrap_or(0.0);
-    let room = |h: &Value| h["room"].as_f64().unwrap_or(-1.0) - mine(h);
+    let room = |h: &Value| h.get("room").and_then(Value::as_f64).unwrap_or(-1.0) - mine(h);
     // Fewer agents (live there, plus this run's) breaks a tie in room.
-    let busy = |h: &Value| h["live"].as_f64().unwrap_or(f64::MAX) + mine(h);
+    let busy = |h: &Value| h.get("live").and_then(Value::as_f64).unwrap_or(f64::MAX) + mine(h);
     let mut usable_hosts: Vec<&Value> = hosts
         .iter()
-        .filter(|h| h["local"] != true)
-        .filter(|h| h["ok"] == true || h["load"] == true)
-        .filter(|h| h["name"].as_str().is_some_and(&usable))
+        .filter(|h| h.get("local").and_then(Value::as_bool) != Some(true))
+        .filter(|h| {
+            h.get("ok").and_then(Value::as_bool) == Some(true)
+                || h.get("load").and_then(Value::as_bool) == Some(true)
+        })
+        .filter(|h| h.get("name").and_then(Value::as_str).is_some_and(&usable))
         .collect();
     usable_hosts.sort_by(|a, b| {
-        let fits = |h: &Value| h["ok"] == true && room(h) >= 1.0;
+        let fits = |h: &Value| h.get("ok").and_then(Value::as_bool) == Some(true) && room(h) >= 1.0;
         fits(b).cmp(&fits(a)).then(room(b).total_cmp(&room(a))).then(busy(a).total_cmp(&busy(b)))
     });
     usable_hosts.first().map(|h| name(h))

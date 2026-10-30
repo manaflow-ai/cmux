@@ -67,6 +67,13 @@ public final class ActionRegistry {
     /// leaves the palette, menus and context menus, and a run is refused with this reason (the
     /// person's own choice, not `DisabledFeatures`). The App installs it.
     @ObservationIgnored public var settingOffReason: @MainActor (ActionID) -> String? = { _ in nil }
+    /// The person's arrangement of each right-click menu (cmux.json `contextMenus.layouts`,
+    /// ``ContextMenuLayout``); a menu without one is drawn as generated.
+    public var contextMenuLayouts: [ActionMenuContext: ContextMenuLayout] = [:]
+    /// Whether a whole right-click menu ends with Customize Menu… (cmux.json `contextMenus.showCustomizeItem`).
+    public var showsCustomizeMenuItem = true
+    /// Customize Menu…: opens Settings > Menus on that menu. The App installs it; nil shows no row.
+    @ObservationIgnored public var customizeMenu: (@MainActor (ActionMenuContext) -> Void)?
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
