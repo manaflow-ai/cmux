@@ -169,8 +169,11 @@ impl State {
     }
 
     /// The end of `forget`, once no write of session `id` is in progress: a `settle` of it
-    /// waits no more, nothing of it is written now.
+    /// waits no more, nothing of it is written now. Lines appended while `forget` waited are
+    /// dropped too: its count goes, so a line left queued would count as written before it is
+    /// (and the writer would write it into the folder the caller deletes).
     fn forgotten(&mut self, id: &str) {
+        self.drop_queued(id);
         self.progress.remove(id);
         self.done.remove(id);
     }
