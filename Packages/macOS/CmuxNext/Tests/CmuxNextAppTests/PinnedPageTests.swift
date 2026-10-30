@@ -27,8 +27,10 @@ actor AppTestDaemonOwner {
         let id = UUID()
         // task-owner: one bounded ensure; both its caller and reap join it before dropping ownership
         let ensure = Task { try await self.ensureEndpoint() }
+        // Keep the task in the admission set until reap joins it. The daemon can cancel this
+        // caller while the detached ensure is still launching, and dropping it in defer lets
+        // teardown miss that in-flight owner.
         ensures[id] = ensure
-        defer { ensures[id] = nil }
         return try await ensure.value
     }
 
@@ -60,6 +62,7 @@ actor AppTestDaemonOwner {
         stopping = true
         // Reject new requests and join admitted ensures before taking the ownership census.
         for ensure in Array(ensures.values) { _ = try? await ensure.value }
+        ensures.removeAll()
         var resolved = true
         if let running = await launcher.runningOwner() {
             record(running.endpoint)
@@ -68,18 +71,30 @@ actor AppTestDaemonOwner {
             resolved = false
         }
         for endpoint in Array(endpoints) {
-            let exited = await Self.reap(endpoint, process: processes[endpoint]) {
-                let connection = DaemonConnection(endpoint: endpoint)
-                do {
-                    _ = try await connection.start()
-                    // endTerminals uses its own socket and retains this identity. Close the
-                    // subscribed connection first so EOF cannot start a replacement owner.
-                    await connection.closeAndWait()
-                    let reply = try await connection.shutdownDaemon(endTerminals: true)
-                    return reply.accepted == true
-                } catch {
-                    await connection.closeAndWait()
-                    throw error
+            let exited: Bool
+            if let process = processes[endpoint] {
+                exited = await Self.reap(endpoint, process: process) {
+                    let connection = DaemonConnection(endpoint: endpoint)
+                    do {
+                        _ = try await connection.start()
+                        // endTerminals uses its own socket and retains this identity. Close the
+                        // subscribed connection first so EOF cannot start a replacement owner.
+                        await connection.closeAndWait()
+                        let reply = try await connection.shutdownDaemon(endTerminals: true)
+                        return reply.accepted == true
+                    } catch {
+                        await connection.closeAndWait()
+                        throw error
+                    }
+                }
+            } else {
+                // The endpoint was never verified as our process. Never connect to its socket:
+                // it may now belong to a replacement daemon. Wait briefly for it to disappear,
+                // preserving the state directory if ownership remains ambiguous.
+                if let pid = endpoint.pid, pid > 1 {
+                    exited = await ProcessExit.exitEvent(pid: pid, within: .seconds(1), clock: ContinuousClock())
+                } else {
+                    exited = false
                 }
             }
             #expect(exited, "test daemon exit was not confirmed: \(String(describing: endpoint.pid)); preserving its state directory")
