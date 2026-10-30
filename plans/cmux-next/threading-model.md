@@ -150,8 +150,7 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   stack sample; utility, serial; at most one window open or close is pending, so no back-pressure; a read the
   kernel holds delays only the next window). A diagnostic never makes a system call on the main thread: the
   main thread stamps a time or sets an atomic, and the read runs on a queue like this one or a
-  `BackgroundWork` system lane (`debug.wakeups`, `debug.new_tab`, `debug.cef`; the crash context's footprint
-  is read on `com.cmuxterm.app.next.run-marker` when the run marker is written). v229 (2026-10-30): the busy watchdog's
+  `BackgroundWork` system lane (`debug.wakeups`, `debug.new_tab`). v229 (2026-10-30): the busy watchdog's
   window end on main stalled it 1,261 ms in `proc_pidinfo`.
 - Launch and misc: `cmux-next resource bundle warm-up`, `cmux-next launch warm-up`, `cmux.updates.network`,
   `cmux.home.fixture.video`
