@@ -3895,14 +3895,17 @@ export class AcpmuxDirectClient {
     return undefined;
   }
 
-  /// Only the terminal result for the stopped turn answers its cancellation. A compaction update,
-  /// turn_end, or result for another turn is not evidence that this Stop settled.
+  /// Only a terminal event of the stopped turn answers its cancellation: its turn_result, or a legacy
+  /// turn_end / turn_error naming it (or any, for a Stop with no identity). A compaction update or
+  /// another turn's end is not evidence that this Stop settled.
   private stopAnswered(event: EventRecord): void {
     if (this.stopAfterSeq === undefined || event.seq <= this.stopAfterSeq) return;
     const turnId = typeof event.msg?.turnId === "string" && event.msg.turnId ? event.msg.turnId : undefined;
     // A legacy daemon may end the turn with turn_end alone: it answers a Stop that has no turn
     // identity, or one whose identity it names. A Stop bound to a turn otherwise waits for its result.
-    const legacyEnd = event.kind === "turn_end" && (this.stopTurnId === undefined || turnId === this.stopTurnId);
+    const legacyEnd =
+      (event.kind === "turn_end" || event.kind === "turn_error") &&
+      (this.stopTurnId === undefined || turnId === this.stopTurnId);
     if (event.kind !== "turn_result" && !legacyEnd) return;
     if (this.stopTurnId !== undefined && turnId !== this.stopTurnId) return;
     this.stopAfterSeq = undefined;
@@ -4092,7 +4095,7 @@ export class AcpmuxDirectClient {
       if (ambiguous || stale) {
         // The old Stop can be acknowledged independently, before any turn-scoped side effects
         // (including foreground subagents) see a result that belongs to a different turn.
-        if (resultTurnId !== undefined && resultTurnId === this.stopTurnId) this.stopAnswered(event);
+        if (terminalTurnId !== undefined && terminalTurnId === this.stopTurnId) this.stopAnswered(event);
         return;
       }
     }
@@ -4434,6 +4437,9 @@ export class AcpmuxDirectClient {
           this.steerRows.delete(id);
           this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== rowId);
         }
+      } else if (event.kind === "turn_error") {
+        // turn_result follows with the turn's summary; a Stop it answers settles now.
+        this.stopAnswered(event);
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         // Only this turn's unfinished compaction needs a delayed-boundary fence. An unrelated
         // historical inferred row must not turn an ordinary forced Stop into a compaction Stop.
