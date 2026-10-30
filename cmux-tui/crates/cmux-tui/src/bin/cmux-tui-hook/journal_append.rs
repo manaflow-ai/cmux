@@ -72,12 +72,22 @@ pub(super) fn append_with_receipt(
     let outcome = drain(&spool, lock, &mut sender, request_id);
     if !sender.gone {
         // Best effort: what this child cannot send now waits for the next.
-        let _ = send_orphans(socket, &spool, &mut sender);
+        let _ = send_session_queues_with(socket, Some(&spool), &mut sender);
     }
     outcome
 }
 
-/// With no private queue directory: sends the line itself, as one sender.
+/// Sends every queue of the session on `socket` that no child sends: what
+/// its new owner runs once it attaches, so events a restart left queued go
+/// out without waiting for some agent's next hook.
+pub(super) fn send_session_queues(socket: &Path) {
+    let _ = send_session_queues_with(socket, None, &mut Sender::new(socket));
+}
+
+/// With no private queue directory (or a queue this child could not append
+/// to): sends the line itself, as one sender. Such a line can arrive before
+/// older lines of its agent that a sender still holds; only a planted file or
+/// a full disk gets here.
 fn send_unqueued(socket: &Path, encoded: &[u8], on_sent: &dyn Fn()) -> anyhow::Result<()> {
     match Sender::new(socket).deliver(encoded, on_sent) {
         Delivered::Answered => Ok(()),
@@ -85,10 +95,14 @@ fn send_unqueued(socket: &Path, encoded: &[u8], on_sent: &dyn Fn()) -> anyhow::R
     }
 }
 
-/// The session's other queues that no child sends (their sender died, or
-/// their daemon was down): sent to this daemon.
-fn send_orphans(socket: &Path, own: &Spool, sender: &mut Sender) -> io::Result<()> {
-    for spool in hook_spool::orphans(socket, own)? {
+/// The session's queues (but `except`) that no child sends (their sender
+/// died, or their daemon was down): sent to this daemon.
+fn send_session_queues_with(
+    socket: &Path,
+    except: Option<&Spool>,
+    sender: &mut Sender,
+) -> io::Result<()> {
+    for spool in hook_spool::session_queues(socket, except)? {
         let Some(lock) = spool.try_drain()? else {
             // Its sender is at work.
             continue;

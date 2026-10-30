@@ -28,7 +28,7 @@ mod hook_queue;
 mod write_path;
 pub use hook_queue::{
     HOOK_SPOOL_DIR, HOOK_SPOOL_DROPPED_EVENTS, HookQueueSnapshot, drop_session_hook_queues,
-    hook_spool_dir, open_spool_file, queue_prefix, spool_name_part,
+    hook_spool_dir, names_this_file, open_spool_file, queue_prefix, spool_name_part,
 };
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};

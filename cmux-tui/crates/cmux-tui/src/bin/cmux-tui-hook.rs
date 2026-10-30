@@ -188,6 +188,22 @@ fn inherited_route_is_untrusted(
 /// One agent's queue of hook events on disk.
 #[path = "cmux-tui-hook/hook_spool.rs"]
 mod hook_spool;
+
+/// Hands back `server` (the daemon's, now serving `socket`) after starting a
+/// thread that sends the agent hook events a stop or crash left queued for
+/// the session: the new owner picks them up (R2), instead of waiting for
+/// some agent's next hook.
+#[allow(
+    dead_code,
+    reason = "only the daemon (cmux-tui main) calls it; the standalone helper builds this file too"
+)]
+pub(crate) fn resume<Server>(server: Server, socket: &Path) -> Server {
+    let socket = socket.to_path_buf();
+    let _ = std::thread::Builder::new()
+        .name("hook-queues".into())
+        .spawn(move || journal_append::send_session_queues(&socket));
+    server
+}
 /// One journal append over the session socket, with its retries.
 #[path = "cmux-tui-hook/journal_append.rs"]
 mod journal_append;

@@ -1,14 +1,16 @@
 //! The agent hook queues on disk: where they live, how their files are
-//! opened, and the one definitive end of a session's queues.
+//! named and opened, and the one definitive end of a session's queues.
 //!
 //! The hook helper keeps each agent's hook events in a queue,
-//! `hook-spool/<socket>.<terminal>.jsonl` beside the session socket, until
+//! `hook-spool/<socket>.<terminal>.jsonl` beside the session socket (each
+//! part a digest of the name, [`queue_prefix`]), until
 //! the daemon answers them (cmux-tui `cmux-tui-hook/hook_spool.rs`). A queue
 //! belongs to the session served on that socket:
 //! - A daemon that stops (its owner removes the socket on every stop,
 //!   upgrades and restarts included) or crashes (it leaves the socket) is no
-//!   definitive answer: the session comes back on the same socket, and the
-//!   next hook of any of its agents sends the queue to the new owner.
+//!   definitive answer: the session comes back on the same socket. Its next
+//!   owner sends the queues when it attaches (cmux-tui main), and so does
+//!   the next hook of any of its agents.
 //! - `cmux session NAME reset-state` removes the session's saved state, so no
 //!   owner can come back for its queues: it deletes them
 //!   ([`drop_session_hook_queues`]) and adds their events to
@@ -21,10 +23,11 @@
 //! its event directly, with no queue.
 
 use std::fs::File;
-use std::io::{self, Read as _, Seek as _, SeekFrom, Write as _};
+use std::io::{self, BufRead as _, Read as _, Seek as _, SeekFrom, Write as _};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use sha2::{Digest as _, Sha256};
 
 /// The directory of hook queues, beside the session socket.
 pub const HOOK_SPOOL_DIR: &str = "hook-spool";
@@ -60,7 +63,7 @@ impl HookQueueSnapshot {
                         name.starts_with(&prefix) && name.ends_with(".jsonl")
                     })
                     .filter_map(|entry| open_for_reading(&entry.path()).ok())
-                    .map(|mut file| count_lines(&mut file).unwrap_or(0))
+                    .map(|file| count_lines(file).unwrap_or(0))
                     .sum()
             })
             .unwrap_or(0);
@@ -147,28 +150,18 @@ fn open_for_reading(path: &Path) -> io::Result<File> {
     options.open(path)
 }
 
-/// `socket`'s file name as queue file names write it.
+/// `socket`'s part of its queue file names: a digest of the socket's file
+/// name, so two sockets never share a queue (an escaped or shortened name
+/// could: `a.b.sock` and `a_b.sock`).
 pub fn queue_prefix(socket: &Path) -> String {
-    socket
-        .file_name()
-        .map_or_else(|| "session".to_owned(), |name| spool_name_part(&name.to_string_lossy()))
+    spool_name_part(&socket.file_name().map(|name| name.to_string_lossy()).unwrap_or_default())
 }
 
-/// `text` as a queue file name part: letters, digits, `-` and `_` only
-/// (never the `.` that separates the parts), at most 64 characters.
+/// `text` as a queue file name part: the first 128 bits of its SHA-256, in
+/// hex (never the `.` that separates the parts; the same length for any
+/// text).
 pub fn spool_name_part(text: &str) -> String {
-    let part: String = text
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
-                character
-            } else {
-                '_'
-            }
-        })
-        .take(64)
-        .collect();
-    if part.is_empty() { "_".to_owned() } else { part }
+    Sha256::digest(text.as_bytes()).iter().take(16).map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Deletes every hook queue of the session served on `socket` and adds their
@@ -187,28 +180,71 @@ pub fn drop_session_hook_queues(socket: &Path) -> io::Result<u64> {
     };
     let prefix = format!("{}.", queue_prefix(socket));
     let mut dropped = 0_u64;
-    for entry in entries {
-        let name = entry?.file_name().to_string_lossy().into_owned();
+    let mut first_error = None;
+    for entry in entries.filter_map(Result::ok) {
+        let name = entry.file_name().to_string_lossy().into_owned();
         let Some(base) = name.strip_suffix(".jsonl").filter(|base| base.starts_with(&prefix))
         else {
             continue;
         };
-        let lines_path = directory.join(&name);
-        let drain_path = directory.join(format!("{base}.drain"));
-        let drain = open_spool_file(&drain_path)?;
-        drain.lock()?;
-        let mut lines = open_spool_file(&lines_path)?;
-        lines.lock()?;
-        dropped = dropped.saturating_add(count_lines(&mut lines)?);
-        // The drain lock first: a hook that queues after this finds a new
-        // drain lock, so it sends its own line instead of waiting on this one.
-        remove_if_present(&drain_path)?;
-        remove_if_present(&lines_path)?;
+        // One queue that cannot be dropped (a planted link, say) does not
+        // keep the others.
+        match drop_queue(&directory, base) {
+            Ok(events) => dropped = dropped.saturating_add(events),
+            Err(error) => {
+                first_error.get_or_insert(error);
+            }
+        }
     }
     if dropped > 0 {
         add_dropped_events(&directory, dropped)?;
     }
-    Ok(dropped)
+    first_error.map_or(Ok(dropped), Err)
+}
+
+/// Drops one queue: under its drain lock and its lines lock, both checked to
+/// be the files their paths name now (a sender may have just replaced them),
+/// unlinks the drain lock, the lines and a compaction a dead sender left.
+fn drop_queue(directory: &Path, base: &str) -> io::Result<u64> {
+    let lines_path = directory.join(format!("{base}.jsonl"));
+    let drain_path = directory.join(format!("{base}.drain"));
+    let _drain = lock_current(&drain_path)?;
+    let lines = lock_current(&lines_path)?;
+    let events = count_lines(&lines)?;
+    remove_if_present(&drain_path)?;
+    remove_if_present(&lines_path)?;
+    remove_if_present(&directory.join(format!("{base}.jsonl.compact")))?;
+    Ok(events)
+}
+
+/// The file at `path`, locked, and still the file the path names.
+fn lock_current(path: &Path) -> io::Result<File> {
+    loop {
+        let file = open_spool_file(path)?;
+        file.lock()?;
+        if names_this_file(path, &file)? {
+            return Ok(file);
+        }
+    }
+}
+
+/// Whether `path` still names the open `file`.
+#[cfg(unix)]
+pub fn names_this_file(path: &Path, file: &File) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt as _;
+    let open = file.metadata()?;
+    match std::fs::symlink_metadata(path) {
+        Ok(named) => Ok(named.dev() == open.dev() && named.ino() == open.ino()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+/// No inode to compare elsewhere: the path is taken as the file. The session
+/// socket, and so the hook queue, is a Unix feature in practice.
+#[cfg(not(unix))]
+pub fn names_this_file(_path: &Path, _file: &File) -> io::Result<bool> {
+    Ok(true)
 }
 
 fn add_dropped_events(directory: &Path, events: u64) -> io::Result<()> {
@@ -226,10 +262,19 @@ fn read_count(mut file: &File) -> Option<u64> {
     text.trim().parse().ok()
 }
 
-fn count_lines(file: &mut File) -> io::Result<u64> {
-    let mut bytes = Vec::new();
-    file.read_to_end(&mut bytes)?;
-    Ok(bytes.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()).count() as u64)
+/// The newlines in `file`, read in chunks (one line can be megabytes).
+fn count_lines(file: &File) -> io::Result<u64> {
+    let mut reader = io::BufReader::new(file);
+    let mut count = 0_u64;
+    loop {
+        let chunk = reader.fill_buf()?;
+        if chunk.is_empty() {
+            return Ok(count);
+        }
+        count = count.saturating_add(chunk.iter().filter(|byte| **byte == b'\n').count() as u64);
+        let consumed = chunk.len();
+        reader.consume(consumed);
+    }
 }
 
 fn remove_if_present(path: &Path) -> io::Result<()> {
@@ -261,9 +306,18 @@ mod tests {
         let root = private_dir();
         let socket = root.join("work.sock");
         let spool = hook_spool_dir(&socket).unwrap();
-        std::fs::write(spool.join("work_sock.terminal_a.jsonl"), "{}\n{}\n").unwrap();
-        std::fs::write(spool.join("work_sock.terminal_b.jsonl"), "{}\n").unwrap();
-        std::fs::write(spool.join("other_sock.terminal_c.jsonl"), "{}\n").unwrap();
+        let queue = |socket: &str, terminal: &str| {
+            spool.join(format!(
+                "{}.{}.jsonl",
+                queue_prefix(&root.join(socket)),
+                spool_name_part(terminal)
+            ))
+        };
+        std::fs::write(queue("work.sock", "terminal_a"), "{}\n{}\n").unwrap();
+        std::fs::write(queue("work.sock", "terminal_b"), "{}\n").unwrap();
+        std::fs::write(queue("other.sock", "terminal_c"), "{}\n").unwrap();
+        // A collision of escaped names: it must stay another session's queue.
+        std::fs::write(queue("work_sock", "terminal_d"), "{}\n").unwrap();
         assert_eq!(HookQueueSnapshot::beside(&socket).queued_events, 3);
 
         assert_eq!(drop_session_hook_queues(&socket).unwrap(), 3);
@@ -273,7 +327,13 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         left.sort();
-        assert_eq!(left, vec!["other_sock.terminal_c.jsonl", HOOK_SPOOL_DROPPED_EVENTS]);
+        let mut kept = vec![
+            queue("other.sock", "terminal_c").file_name().unwrap().to_string_lossy().into_owned(),
+            queue("work_sock", "terminal_d").file_name().unwrap().to_string_lossy().into_owned(),
+            HOOK_SPOOL_DROPPED_EVENTS.to_owned(),
+        ];
+        kept.sort();
+        assert_eq!(left, kept);
         let snapshot = HookQueueSnapshot::beside(&socket);
         assert_eq!((snapshot.queued_events, snapshot.reset_dropped_events), (0, 3));
         assert_eq!(HookQueueSnapshot::beside(&root.join("other.sock")).queued_events, 1);

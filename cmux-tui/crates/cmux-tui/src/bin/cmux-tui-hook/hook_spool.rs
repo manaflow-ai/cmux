@@ -27,7 +27,9 @@
 use std::fs::File;
 use std::io::{Seek, SeekFrom};
 
-use cmux_tui_core::diagnostics::{hook_spool_dir, open_spool_file, queue_prefix, spool_name_part};
+use cmux_tui_core::diagnostics::{
+    hook_spool_dir, names_this_file, open_spool_file, queue_prefix, spool_name_part,
+};
 
 use super::*;
 
@@ -163,9 +165,17 @@ impl Spool {
     }
 }
 
-/// The other queues of `socket`'s session, in the directory of `except`.
-pub(super) fn orphans(socket: &Path, except: &Spool) -> io::Result<Vec<Spool>> {
-    let Some(directory) = except.lines.parent() else { return Ok(Vec::new()) };
+/// The queues of `socket`'s session but `except` (none, and no directory
+/// made, where no hook ever queued one).
+pub(super) fn session_queues(socket: &Path, except: Option<&Spool>) -> io::Result<Vec<Spool>> {
+    let queued_here = socket
+        .parent()
+        .is_some_and(|parent| parent.join(cmux_tui_core::diagnostics::HOOK_SPOOL_DIR).is_dir());
+    if !queued_here {
+        return Ok(Vec::new());
+    }
+    let directory = hook_spool_dir(socket)?;
+    let directory = directory.as_path();
     let prefix = format!("{}.", queue_prefix(socket));
     let mut found = Vec::new();
     for entry in std::fs::read_dir(directory)? {
@@ -175,31 +185,11 @@ pub(super) fn orphans(socket: &Path, except: &Spool) -> io::Result<Vec<Spool>> {
             continue;
         };
         let spool = Spool::named(directory, base);
-        if spool.lines != except.lines {
+        if except.is_none_or(|except| spool.lines != except.lines) {
             found.push(spool);
         }
     }
     Ok(found)
-}
-
-/// Whether `path` still names the open `file` (a deleter may have unlinked
-/// it before this child took its lock).
-#[cfg(unix)]
-fn names_this_file(path: &Path, file: &File) -> io::Result<bool> {
-    use std::os::unix::fs::MetadataExt as _;
-    let open = file.metadata()?;
-    match std::fs::symlink_metadata(path) {
-        Ok(named) => Ok(named.dev() == open.dev() && named.ino() == open.ino()),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error),
-    }
-}
-
-/// No inode to compare elsewhere: the path is taken as the file. The session
-/// socket, and so the hook queue, is a Unix feature in practice.
-#[cfg(not(unix))]
-fn names_this_file(_path: &Path, _file: &File) -> io::Result<bool> {
-    Ok(true)
 }
 
 fn remove_if_present(path: &Path) -> io::Result<()> {
@@ -226,8 +216,9 @@ pub(super) fn between_unlinks_for_test(hook: Box<dyn FnOnce() + Send>) {
 
 #[cfg(test)]
 fn run_between_unlinks(lines: &Path) {
-    let racing =
-        lines.file_name().is_some_and(|name| name.to_string_lossy().contains(".terminal_race."));
+    let racing = lines.file_name().is_some_and(|name| {
+        name.to_string_lossy().contains(&format!(".{}.", spool_name_part("terminal_race")))
+    });
     if !racing {
         return;
     }

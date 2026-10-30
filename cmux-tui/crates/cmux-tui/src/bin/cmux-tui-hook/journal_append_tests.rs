@@ -426,7 +426,7 @@ fn a_missing_session_socket_fails_at_once_and_keeps_the_event() {
 
     assert!(append_with_receipt(&socket, &id, &encoded, &|| {}).is_err());
     assert!(started.elapsed() < Duration::from_secs(1));
-    let queued = std::fs::read(spool_dir(&socket).join("missing_sock.terminal_gone.jsonl"))
+    let queued = std::fs::read(queue_path(&socket, &socket, "terminal_gone"))
         .expect("the event was not kept");
     assert_eq!(queued, encoded);
 }
@@ -441,13 +441,25 @@ fn ended_session_events(socket: &Path) -> Option<String> {
     std::fs::read_to_string(spool_dir(socket).join("reset-dropped-events")).ok()
 }
 
-/// Writes a queue of `lines` for `terminal` of the session whose socket file
-/// name, as the queue names it, is `socket_part`: what a sender that stopped
-/// leaves behind.
-fn leave_queue(socket: &Path, socket_part: &str, terminal: &str, lines: &[Vec<u8>]) -> PathBuf {
-    let dir = spool_dir(socket);
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join(format!("{socket_part}.{terminal}.jsonl"));
+/// The queue file of `terminal` of the session on `of_socket`, in the queue
+/// directory beside `socket`.
+fn queue_path(socket: &Path, of_socket: &Path, terminal: &str) -> PathBuf {
+    spool_dir(socket).join(format!(
+        "{}.{}.jsonl",
+        cmux_tui_core::diagnostics::queue_prefix(of_socket),
+        cmux_tui_core::diagnostics::spool_name_part(terminal)
+    ))
+}
+
+/// Writes a queue of `lines` for `terminal` of the session on the socket
+/// named `socket_name` beside `socket`: what a sender that stopped leaves.
+fn leave_queue(socket: &Path, socket_name: &str, terminal: &str, lines: &[Vec<u8>]) -> PathBuf {
+    let mut private = std::fs::DirBuilder::new();
+    private.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut private, 0o700);
+    private.create(spool_dir(socket)).unwrap();
+    let path = queue_path(socket, &socket.with_file_name(socket_name), terminal);
     std::fs::write(&path, lines.concat()).unwrap();
     path
 }
@@ -473,7 +485,7 @@ fn an_orphaned_queue_of_the_live_session_is_sent_by_any_agents_next_hook() {
     let daemon =
         Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Receipt));
     let (orphan_id, orphan) = hook_request_in("terminal_orphan");
-    leave_queue(&socket, "live_sock", "terminal_orphan", &[orphan]);
+    leave_queue(&socket, "live.sock", "terminal_orphan", &[orphan]);
     let (id, encoded) = hook_request_in("terminal_live");
 
     let result = append_with_receipt(&socket, &id, &encoded, &|| {});
@@ -528,7 +540,7 @@ fn another_sessions_queue_is_left_to_its_session() {
     let daemon =
         Daemon::start(&socket, None, Arc::new(|_: &str, _: usize, _: Duration| Reply::Receipt));
     let (other_id, other) = hook_request_in("terminal_other");
-    let other_queue = leave_queue(&socket, "other_sock", "terminal_other", &[other]);
+    let other_queue = leave_queue(&socket, "other.sock", "terminal_other", &[other]);
     let (id, encoded) = hook_request_in("terminal_live");
 
     let result = append_with_receipt(&socket, &id, &encoded, &|| {});
@@ -633,7 +645,7 @@ fn a_planted_symlink_is_not_followed() {
     let mut private = std::fs::DirBuilder::new();
     std::os::unix::fs::DirBuilderExt::mode(&mut private, 0o700);
     private.create(&dir).unwrap();
-    std::os::unix::fs::symlink(&victim, dir.join("s_sock.terminal_link.jsonl")).unwrap();
+    std::os::unix::fs::symlink(&victim, queue_path(&socket, &socket, "terminal_link")).unwrap();
     let (id, encoded) = hook_request_in("terminal_link");
 
     let result = append_with_receipt(&socket, &id, &encoded, &|| {});
