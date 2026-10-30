@@ -45,12 +45,14 @@ final class ScreenSharingLiveUITests: XCTestCase {
         macRow.tap()
         attach(app, "03-requested")
         // The stats line ("… fps …") shows once frames arrive: after the Mac's Allow and the WebRTC handshake.
-        let stats = app.staticTexts.containing(NSPredicate(format: "label CONTAINS 'fps'")).firstMatch
+        // By identifier: a predicate over every text times out while the screen redraws at 30-60 fps.
+        let stats = app.staticTexts["screen.stats"]
         XCTAssertTrue(stats.waitForExistence(timeout: 180), "stream never started\n\(app.debugDescription)")
         settle(app, 3)
         attach(app, "04-streaming-portrait")
 
-        let screen = app.windows.firstMatch
+        let screen = app.scrollViews["screen.view"]
+        XCTAssertTrue(screen.waitForExistence(timeout: 10), "screen view\n\(app.debugDescription)")
         let center = screen.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
 
         // Direct touch: tap = click, double tap = double click, two-finger tap = right click.
@@ -60,12 +62,11 @@ final class ScreenSharingLiveUITests: XCTestCase {
         center.doubleTap()
         settle(app, 1.5)
         attach(app, "06-double-click")
-        // Two-finger gestures go to the topmost full-screen element (the screen view, over the window).
-        fullScreenElement(app, frame: screen.frame).twoFingerTap()
+        screen.twoFingerTap()
         settle(app, 1.5)
         attach(app, "07-two-finger-right-click")
         // Press and hold, then drag: a left drag.
-        center.press(forDuration: 0.8, thenDragTo: screen.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.62)))
+        center.press(forDuration: 0.8, thenDragTo: screen.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.57)))
         settle(app, 1.5)
         attach(app, "08-hold-drag")
 
@@ -94,7 +95,7 @@ final class ScreenSharingLiveUITests: XCTestCase {
         settle(app, 2)
 
         // Close: the session ends on both sides, the app is portrait again.
-        app.buttons["Close"].firstMatch.tap()
+        app.buttons["screen.close"].tap()
         XCTAssertTrue(macRow.waitForExistence(timeout: 20), "back on the page\n\(app.debugDescription)")
         attach(app, "12-closed")
     }
@@ -114,13 +115,6 @@ final class ScreenSharingLiveUITests: XCTestCase {
             _ = app.tabBars.firstMatch.waitForExistence(timeout: 2)
         }
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10), "shell\n\(app.debugDescription)")
-    }
-
-    /// The last (topmost) element that covers the whole window: the shared screen's view.
-    @MainActor
-    func fullScreenElement(_ app: XCUIApplication, frame: CGRect) -> XCUIElement {
-        let covering = app.descendants(matching: .other).allElementsBoundByIndex.filter { $0.frame == frame }
-        return covering.last ?? app.windows.firstMatch
     }
 
     @MainActor

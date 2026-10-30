@@ -12,6 +12,8 @@
 #                          the step screenshots to verify/evidence/screen-sharing/LABEL/.
 #                          Needs CREDS (a 0600 file with CMUX_UITEST_STACK_EMAIL/PASSWORD; copied for
 #                          the run and deleted after) and MAC (the host's device name).
+#                          xcodebuild sometimes never exits after the test ends on the fleet hosts; the
+#                          rig ends it 30 s after "Executed 1 test" so the result bundle and video are written.
 #
 # Environment: HOST (default aws-m4pro-6), DIR (default screen-sharing), SIM_NAME (default cmux-ss-1).
 set -euo pipefail
@@ -72,7 +74,9 @@ case "${1:-}" in
       TEST_RUNNER_CMUX_SS_PASSWORD=\"\$CMUX_UITEST_STACK_PASSWORD\" ${HUB:+TEST_RUNNER_CMUX_SS_HUB=$HUB} \
       xcodebuild test-without-building -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
         -destination id=\$udid -derivedDataPath $products -resultBundlePath ss-$label.xcresult \
-        -only-testing:CmuxMobileAppUITests/ScreenSharingLiveUITests > test-$label.log 2>&1; rc=\$?; \
+        -only-testing:CmuxMobileAppUITests/ScreenSharingLiveUITests > test-$label.log 2>&1 & xb=\$!; \
+      ( until grep -q 'Executed 1 test' test-$label.log 2>/dev/null; do sleep 2; done; sleep 30; kill -INT \$xb 2>/dev/null ) & watch=\$!; \
+      wait \$xb; rc=\$?; kill \$watch 2>/dev/null; \
       kill -INT \$rec; wait \$rec 2>/dev/null; \
       rm -rf att-$label; mkdir att-$label; xcrun xcresulttool export attachments --path ss-$label.xcresult --output-path att-$label >/dev/null 2>&1; \
       grep -E 'Test Case|error|passed|failed|skipped' test-$label.log | tail -20; exit \$rc" || rc=$?

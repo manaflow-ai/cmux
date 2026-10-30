@@ -69,6 +69,8 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     override public func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        // UI tests drive the screen through this element (a query by id stays cheap while it redraws).
+        scrollView.accessibilityIdentifier = "screen.view"
         scrollView.frame = view.bounds
         scrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         scrollView.delegate = self
