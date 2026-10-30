@@ -102,6 +102,37 @@ struct UnopenedCloudMachinesTests {
         #expect(services.windows.registry.value.owner(of: "ws-first") != nil, "a create run with --focus left its workspace in no window")
     }
 
+    /// Review finding: opening a machine (reveal, as Open Machine's show does with no window
+    /// open) brought in only the workspace it showed; its other loaded workspaces stayed unowned
+    /// and out of the sidebar, since a claim re-runs no reconcile.
+    @Test func openingAMachineBringsInItsOtherWorkspaces() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.machine(services, id: "vm-two", workspaces: ["ws-shown", "ws-other"])
+        services.windows.reconcileMembership()
+        try #require(services.windows.registry.value.owner(of: "ws-other") == nil)
+
+        services.windows.reveal(workspaceID: "ws-shown")
+
+        let owner = try #require(services.windows.registry.value.owner(of: "ws-shown"))
+        #expect(services.windows.registry.value.owner(of: "ws-other") == owner, "the machine's other workspace stayed out of its window")
+    }
+
+    /// Review finding: opening a machine whose workspace is ephemeral put it in a normal window
+    /// (persisted, never discarded); it goes to an incognito window, as an ephemeral one always did.
+    @Test func openingAMachinesEphemeralWorkspaceGivesItAnIncognitoWindow() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        let session = Self.machine(services, id: "vm-eph", workspaces: ["ws-eph"])
+        try #require(session.daemon.store.workspace(id: "ws-eph")).applyState(ephemeral: true)
+        services.windows.reconcileMembership()
+
+        services.windows.reveal(workspaceID: "ws-eph")
+
+        let owner = try #require(services.windows.registry.value.owner(of: "ws-eph"))
+        #expect(services.windows.registry.value.isIncognito(owner), "an ephemeral workspace joined a normal window")
+    }
+
     // MARK: Fixtures
 
     static func services() -> AppServices {
