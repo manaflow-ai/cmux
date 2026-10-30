@@ -191,8 +191,10 @@ impl Hub {
             return None;
         }
         let id = format!("{root}{SUFFIX}{attempt}");
-        // Logged by a daemon that crashed before it settled the turn: once is enough.
-        if self.logged_prompt(session, &id).is_some() {
+        // Logged by a daemon that crashed before it settled the turn: once is enough. Its
+        // `queued` record counts though it never started (`logged_prompt` leaves such a prompt
+        // to recovery): the restored queue runs it.
+        if self.logged_prompt(session, &id).is_some() || self.queued_logged(session, &id) {
             return Some(id);
         }
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": "daemon_restart"});
@@ -221,6 +223,18 @@ impl Hub {
         let queued = crate::prompt_provenance::marked(queued, Some(&provenance));
         self.append(session, "mux", "queued", queued);
         Some(id)
+    }
+}
+
+impl Hub {
+    /// Whether the chat's log holds a `queued` record of prompt `id`.
+    fn queued_logged(&self, session: &Session, id: &str) -> bool {
+        let mut found = false;
+        let _ = self.store.scan_kinds(&session.id, &["queued"], &mut |e: EventRecord| {
+            found = e.msg.get("promptId").and_then(Value::as_str) == Some(id);
+            !found
+        });
+        found
     }
 }
 
