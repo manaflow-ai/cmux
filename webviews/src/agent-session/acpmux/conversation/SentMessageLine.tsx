@@ -31,6 +31,7 @@ import { messageDelivery } from "./agentMessages";
 import { useFindReveal } from "./chatFind";
 import { AlertCircle, ChevronRight, Envelope, Spinner } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
+import { SentActions } from "./MessageActions";
 import { ShellBlock } from "./ShellBlock";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
@@ -216,6 +217,15 @@ export function SentMessageLine({
             <span className="cv-agentmsg__preview cv-sent__preview">{`“${trailing}”`}</span>
           )}
           {shape === "sentence" && trailing && <span className="cv-agentmsg__preview cv-sent__preview">{trailing}</span>}
+          {/* Copy takes the message's text, shown while the row is pointed at, as a SendMessage
+              row's is (MessageCard.tsx); its click never toggles the row. It stays at the
+              sentence's end, outside the trailing column. */}
+          {text && (
+            // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
+            <span onClick={(event) => event.stopPropagation()}>
+              <SentActions text={text} />
+            </span>
+          )}
         </span>
         {detail && " "}
         {detail && (
