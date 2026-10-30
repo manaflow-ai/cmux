@@ -486,3 +486,31 @@ async fn a_review_box_runs_its_first_prompt_from_another_agent_as_its_task() {
     assert_eq!(all.len(), 1, "{all:?}");
     assert_eq!(all[0]["promptId"], "task-1", "{all:?}");
 }
+
+/// A chat whose inbox took a message before it became a review box (a `review.` tag set later):
+/// no notice of it steers into the review turn that starts next; it waits for the turn's end.
+#[tokio::test]
+async fn an_inbox_message_from_before_the_review_tag_never_steers_into_the_review() {
+    let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = new_session(&mut c, "review-3").await;
+    let fyi = from_agent(&id, "f-1", "lane-b", "CI is slow today", json!({"class": "fyi"}));
+    c.send(method::SESSION_PROMPT, fyi).await;
+    let accepted = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "f-1").await;
+    assert_eq!(accepted["inbox"], true, "{accepted}");
+    c.request(method::MUX_TAG, json!({"sessionId": id, "set": {"review.target": "cmux:a..b"}}))
+        .await
+        .unwrap();
+    let gate = fifo("tagged");
+    let review = c
+        .send(method::SESSION_PROMPT, prompt(&id, &format!("gate: {}", gate.display()), None))
+        .await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "before-gate").await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let all = prompts(&hub, &id);
+    assert!(notices(&hub, &id).is_empty(), "no notice into the review: {all:?}");
+    assert!(!all.iter().any(|m| m["steer"] == true), "{all:?}");
+    open(&gate).await;
+    answers(&mut c, &[review]).await;
+    let _ = std::fs::remove_file(gate);
+}
