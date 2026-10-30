@@ -263,6 +263,35 @@ struct CloudMachineChangeStateTests {
         #expect(await resolver.attempts == 2)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func providerFailureBeforeAcknowledgementRecoversWhenItSettles() async throws {
+        let services = MachineIconTests.services()
+        let cloud = services.cloud
+        let resolver = ResumeLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "early-provider-failure", status: .running),
+            appLink: CloudLinkSession(key: CloudLinkKey(machine: "early-provider-failure"), resolver: resolver),
+            localIdentity: { nil }, mainWork: services.mainWork)
+        services.machines.add(session)
+        defer { cloud.changes.stop(); session.disconnect() }
+        let failed = CloudMachine(id: session.machineID, status: .running,
+            lastChangeFailure: .init(code: "pause_failed", message: "provider refused"))
+        session.connect()
+        await resolver.waitForOpen()
+        try await cloud.changes.run(.pausing, machineID: session.machineID, of: { session }) {
+            await resolver.release()
+            for await phase in ObservationStream({ session.linkPhase }) where phase == .idle { break }
+            cloud.apply(failed, to: session, read: cloud.beginRecordRead(machineID: session.machineID))
+            #expect(session.machine.pendingChange == .pausing)
+            #expect(session.machine.lastChangeFailure == failed.lastChangeFailure)
+            #expect(await resolver.attempts == 1)
+        }
+        // The error was already displayed; settling its mutation must still authorize recovery.
+        cloud.apply(failed, to: session, read: cloud.beginRecordRead(machineID: session.machineID))
+        #expect(session.machine.pendingChange == nil)
+        await resolver.waitForAttempts(2)
+        #expect(await resolver.attempts == 2)
+    }
+
     @Test func aProviderKillFailureDoesNotRetireAnOlderPause() async throws {
         let session = Self.session(status: .running)
         let changes = CloudMachineChanges()
