@@ -64,7 +64,7 @@ struct CloudAppLinkOwnerAnswerTests {
         let appLink = CloudLinkSession(key: Self.key, resolver: Self.resolver("owner"))
         let session = CloudMachineSession(machine: CloudMachine(id: Self.key.machine, displayName: "App VM"), appLink: appLink,
                                           localIdentity: { nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
-        let ownerLink = try #require(session.ownerLink, "a Cloud machine always has an owner closure")
+        let ownerLink = session.ownerLink
         #expect(await ownerLink() == nil, "not connected")
         _ = try await appLink.connect(origin: .user)
         #expect(await ownerLink() == (await appLink.ownerLink))
