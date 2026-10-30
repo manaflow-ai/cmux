@@ -6,7 +6,7 @@ import Testing
 
 /// P-RUST item 2 (Lawrence's v2.2.9 hangs of 570 to 1,148 ms, 2026-10-30): with thousands of chats
 /// in acpmux's index, one chat change must touch O(1) rows on the main thread. The hangs were the
-/// whole-index mirror: `AcpmuxChatsStore.apply` copied every chat (the sidebar history held the same
+/// whole-index mirror (deleted in #28090): its apply copied every chat (the sidebar history held the same
 /// storage) and `SidebarChatHistoryFeed.chats`'s setter compared and freed every chat. Now acpmux
 /// keeps the sidebar history's windows (`_acpmux/chats_window`): the main thread holds only their
 /// visible rows and applies one row diff per change.

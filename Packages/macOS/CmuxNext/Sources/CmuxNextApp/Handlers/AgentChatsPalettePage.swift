@@ -26,8 +26,9 @@ struct AgentChatsPalettePage {
                                filtersByQuery: false)
     }
 
-    /// The window's rows for `query`, each time acpmux answers its spec (first the rows, then each
-    /// change while the page shows). An edit ends the stream and opens the next query's spec.
+    /// The window's rows for `query`: acpmux's first answer to its spec, then the stream ends (the
+    /// palette's spinner runs until it ends, and an empty answer shows the empty state). An edit
+    /// opens the next query's spec; the window stays open until the page closes.
     static func answers(_ query: String, windows: AcpmuxChatWindows?, services: AppServices) -> AsyncStream<[PaletteItem]> {
         let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
         guard let windows else {
@@ -39,11 +40,15 @@ struct AgentChatsPalettePage {
         let spec = AcpmuxChatWindows.Spec(window: window, limit: pageLimit, topLevel: true, query: text.isEmpty ? nil : text)
         // The follower lives as long as this query's stream: ending it releases the token.
         let token = FollowToken()
+        let answer = { (rows: [AcpmuxChat]) in
+            continuation.yield(items(rows, windows: windows, services: services))
+            continuation.finish()
+        }
         windows.window(window).follow(token) { rows in
-            if windows.isAnswered(spec) { continuation.yield(items(rows, windows: windows, services: services)) }
+            if windows.isAnswered(spec) { answer(rows) }
         }
         windows.open(spec)
-        if windows.isAnswered(spec) { continuation.yield(items(windows.window(window).rows, windows: windows, services: services)) }
+        if windows.isAnswered(spec) { answer(windows.window(window).rows) }
         continuation.onTermination = { _ in withExtendedLifetime(token) {} }
         return stream
     }
