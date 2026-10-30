@@ -10,7 +10,7 @@ impl Hub {
     pub(super) fn note_peer_drop(&self, peer: &str, generation: u64, reason: &str) {
         // Purge fencing and transcript persistence belong to the real link
         // boundary, never to its later row deadline (a new handshake may be busy).
-        let first = {
+        {
             let _rows = self.remote_sessions.lock().unwrap();
             let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
                 return;
@@ -22,13 +22,6 @@ impl Hub {
                 tracing::debug!(peer, attempts = link.attempts, "peer still unreachable: {reason}");
             }
             self.with_tombstones(peer, generation, |t| t.link_ended());
-            link.attempts <= 1
-        };
-        // A row change whose save was throttled reaches disk now, not at the
-        // deadline: the daemon may stop inside the grace window, and a peer whose
-        // rows are all closed changes no row at the deadline.
-        if first {
-            self.save_peer_cache(peer, generation, true);
         }
         self.peer_snapshots.flush(Some(peer));
     }
@@ -38,14 +31,15 @@ impl Hub {
         // A dedicated persistent signal: hub.shutdown's stored Notify permit
         // belongs to the main daemon, including before its waiter registers.
         let mut stop = self.peer_notices_stop.subscribe();
-        // At most one deadline per peer instance. Retries never extend it. A
-        // list/ready notice cancels it; removal/replacement invalidates its generation.
-        let mut drops: HashMap<(String, u64), Instant> = HashMap::new();
+        // One outage per peer instance: its row deadline while pending, `None` once
+        // its rows went unreachable. Retries never extend or re-arm it. A
+        // list/ready/restart notice ends it; removal/replacement invalidates its generation.
+        let mut drops: HashMap<(String, u64), Option<Instant>> = HashMap::new();
         loop {
             if *stop.borrow() {
                 break;
             }
-            let deadline = drops.values().copied().min();
+            let deadline = drops.values().flatten().copied().min();
             let wait = async {
                 match deadline {
                     Some(at) => tokio::time::sleep_until(at).await,
@@ -57,11 +51,11 @@ impl Hub {
                 () = wait => {
                     let now = Instant::now();
                     let expired: Vec<_> = drops.iter()
-                        .filter(|(_, at)| **at <= now)
+                        .filter(|(_, at)| at.is_some_and(|at| at <= now))
                         .map(|(key, _)| key.clone()).collect();
                     for (peer, generation) in expired {
-                        drops.remove(&(peer.clone(), generation));
                         self.mark_peer_unreachable(&peer, generation);
+                        drops.insert((peer, generation), None);
                     }
                     continue;
                 }
@@ -80,7 +74,19 @@ impl Hub {
             match notice {
                 PeerNotice::Disconnected(reason) => {
                     self.note_peer_drop(&peer, generation, &reason);
-                    drops.entry(key).or_insert_with(|| Instant::now() + DROP_GRACE);
+                    if let std::collections::hash_map::Entry::Vacant(outage) = drops.entry(key) {
+                        outage.insert(Some(Instant::now() + DROP_GRACE));
+                        // The outage's first drop, by this loop's own record (the
+                        // link's attempt count may already be past it): a row change
+                        // whose save was throttled reaches disk now, not at the
+                        // deadline. The daemon may stop inside the grace window, and
+                        // a peer whose rows are all closed changes no row at the deadline.
+                        self.save_peer_cache(&peer, generation, true);
+                        // Ended outages of replaced or removed instances go with it.
+                        drops.retain(|(name, g), _| {
+                            self.peer(name).is_some_and(|p| p.generation == *g)
+                        });
+                    }
                 }
                 notice => {
                     // A planned restart never enters the grace path either.
