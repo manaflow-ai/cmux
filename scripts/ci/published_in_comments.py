@@ -140,6 +140,10 @@ def publish(repo: str, number: int, line: str, comments: list[dict], pause: floa
 def legacy_publish(repo: str, number: int, line: str, comments: list[dict], pause: float,
                    history: str = "") -> str:
     """Lossless fallback when the shared status comment has no room for all builds."""
+    # The caller's snapshot may be stale while another publication writer is
+    # editing the legacy comment. Re-read immediately before merging so this
+    # patch includes any release links that landed since the status plan.
+    comments = pr_status.list_comments(status_api, repo, number)
     lines = [item for item in history.splitlines() if item.startswith("- ")]
     if line not in lines:
         lines.append(line)

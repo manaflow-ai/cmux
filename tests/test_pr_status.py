@@ -167,6 +167,14 @@ class PrStatusTests(unittest.TestCase):
         self.assertEqual(second["receipt"], "r" * 258)
         self.assertIn("cut to fit", second["tour"])
 
+    def test_status_update_does_not_trim_fitting_publication_history(self):
+        published = "Shipped in:\n" + "\n".join(f"- build-{i}" for i in range(822))
+        first = pr_status.parse(pr_status.render({"published": published, "tour": "x" * 70000}))
+        first["checks"] = "x" * 10
+        second = pr_status.parse(pr_status.render(first))
+        self.assertEqual(second["published"], first["published"])
+        self.assertEqual(second["checks"], "x" * 10)
+
     def test_dispatched_fields_accept_only_valid_values(self):
         self.assertEqual(pr_status.field_text("cx-bi1nt", None), ("bead", "Bead: `cx-bi1nt`"))
         key, text = pr_status.field_text(None, "a" * 40)

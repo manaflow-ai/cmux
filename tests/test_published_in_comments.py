@@ -95,9 +95,10 @@ class PublishedInTests(unittest.TestCase):
                 return comments
         with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
             self.assertEqual(module.publish("o/r", 7, new, comments, 0), "written")
-        self.assertEqual(calls[1][0], "PATCH")
-        self.assertIn(old, calls[1][2]["body"])
-        self.assertIn(new, calls[1][2]["body"])
+        writes = [call for call in calls if call[0] == "PATCH"]
+        self.assertEqual(len(writes), 1)
+        self.assertIn(old, writes[0][2]["body"])
+        self.assertIn(new, writes[0][2]["body"])
 
     def test_duplicate_status_sections_are_kept_lossless(self):
         old = module.build_line("v1", "https://x/v1", "a" * 40)
@@ -115,8 +116,9 @@ class PublishedInTests(unittest.TestCase):
                 return comments
         with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
             self.assertEqual(module.publish("o/r", 7, new, comments, 0), "written")
-        self.assertEqual(calls[1][0], "POST")
-        self.assertIn(new, calls[1][2]["body"])
+        writes = [call for call in calls if call[0] == "POST"]
+        self.assertEqual(len(writes), 1)
+        self.assertIn(new, writes[0][2]["body"])
         self.assertNotIn("/comments/2", "".join(call[1] for call in calls))
 
     def test_near_limit_other_section_uses_lossless_legacy_fallback(self):
@@ -136,9 +138,10 @@ class PublishedInTests(unittest.TestCase):
                 return comments
         with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
             self.assertEqual(module.publish("o/r", 7, new, comments, 0), "written")
-        self.assertEqual(calls[1][0], "PATCH")
-        self.assertIn(new, calls[1][2]["body"])
-        self.assertNotIn("cmux-pr-status", calls[1][2]["body"])
+        writes = [call for call in calls if call[0] == "PATCH"]
+        self.assertEqual(len(writes), 1)
+        self.assertIn(new, writes[0][2]["body"])
+        self.assertNotIn("cmux-pr-status", writes[0][2]["body"])
 
     def test_truncated_status_without_line_uses_lossless_fallback_when_plan_is_empty(self):
         old = module.build_line("v1", "https://x/v1", "a" * 40)
@@ -164,7 +167,7 @@ class PublishedInTests(unittest.TestCase):
         with patch.object(module.pr_status, "plan", return_value=[]), \
              patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
             self.assertEqual(module.publish("o/r", 7, new, comments, 0), "written")
-        self.assertEqual([method for method, _, _ in calls], ["GET", "POST"])
+        self.assertEqual([method for method, _, _ in calls], ["GET", "GET", "POST"])
         self.assertIn(new, calls[-1][2]["body"])
 
     def test_overflow_fallback_keeps_accumulated_publication_history(self):
@@ -192,6 +195,30 @@ class PublishedInTests(unittest.TestCase):
             self.assertEqual(module.publish("o/r", 7, new, comments, 0), "written")
         fallback = calls[-1][2]["body"]
         self.assertTrue(all(item in fallback for item in history + [new]))
+
+    def test_overflow_fallback_rereads_legacy_before_patch(self):
+        old = module.build_line("v1", "https://x/v1", "a" * 40)
+        concurrent = module.build_line("v2", "https://x/v2", "b" * 40)
+        new = module.build_line("v3", "https://x/v3", "c" * 40)
+        stale = [{"id": 1, "body": module.MARKER + "\nShipped in:\n" + old,
+                  "user": {"login": "github-actions[bot]"}}]
+        fresh = [{"id": 1, "body": module.MARKER + "\nShipped in:\n" + old + "\n" + concurrent,
+                  "user": {"login": "github-actions[bot]"}}]
+        calls = []
+
+        def api(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                return fresh
+
+        with patch.object(module, "status_api", api), patch.object(module.time, "sleep"):
+            self.assertEqual(module.legacy_publish(
+                "o/r", 7, new, stale, 0,
+                "Shipped in:\n" + old + "\n" + new,
+            ), "written")
+        self.assertEqual([method for method, _, _ in calls], ["GET", "PATCH"])
+        patched = calls[-1][2]["body"]
+        self.assertTrue(all(item in patched for item in (old, concurrent, new)))
 
     def test_duplicate_legacy_is_deleted_when_status_already_has_line(self):
         line = module.build_line("v1", "https://x/v1", "a" * 40)
