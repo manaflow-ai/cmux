@@ -137,6 +137,9 @@ nonisolated public struct PaletteNavReducer: Sendable {
         }
         let top = state.levels.count - 1
         state.levels[top].pendingSubmit = false
+        // Returning from a page is explicit navigation: resume normal fallback
+        // selection even if the parent had intentionally exhausted a section.
+        state.levels[top].selectionSuppressed = false
         effects.append(reload(&state.levels[top]))
         effects.append(.announceLeft(to: state.levels[top].scope))
         return effects
