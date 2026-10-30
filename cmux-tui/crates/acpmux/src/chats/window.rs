@@ -300,7 +300,7 @@ fn ranked_rows(
         ));
         candidates.push((key, value));
     }
-    let order = ranked(query, entries, spec.history.as_ref().map(|h| (h.now, h.frecency.clone())));
+    let order = ranked(query, entries, None);
     let total = order.len();
     let mut slots: Vec<Option<(String, Value)>> = candidates.into_iter().map(Some).collect();
     let rows = order
