@@ -41,7 +41,10 @@ extension WindowManager {
             return
         }
         placingWorkspaces = true
-        defer { placingWorkspaces = false }
+        defer {
+            placingWorkspaces = false
+            placementRetryIDs.formIntersection(pendingPlacements.keys)
+        }
         let requested = live.union(placementRetryIDs)
         placementRetryIDs.removeAll()
         var refreshed: Set<String> = []
