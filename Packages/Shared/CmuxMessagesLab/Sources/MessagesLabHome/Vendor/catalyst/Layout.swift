@@ -1242,7 +1242,7 @@ enum RowBuilder {
         // cmux: the host's notice, centered like the date row, under the newest message. Row key "notice" (the
         // tail rows' paging rules); none while upstream's status line (ask 9, same key) is set.
         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.notice?.isEmpty ?? true, let notice = s.ui.cmuxNotice {
-            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
+            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 8, height: 35.5))
         }
         // A stream with text is its sender's bubble (no typing indicator for them); one without text is the indicator.
         let typists = s.ui.typing.contains { t in t != me && !writing.contains { $0.sender == t } }
