@@ -25,7 +25,15 @@ function guarded(home, own, command, args) {
   mkdirSync(home, { recursive: true });
   const profile = join(home, "live-guard.sb");
   const hidden = [join(homedir(), ".agents"), join(homedir(), ".claude", "skills"), join(homedir(), ".codex", "skills"), "/tmp/cmux-tool-evals/runs", "/private/tmp/cmux-tool-evals/runs"];
-  const reads = [...hidden.map((p) => `(deny file-read* (subpath ${JSON.stringify(p)}))`), `(allow file-read* (subpath ${JSON.stringify(own)}) (subpath ${JSON.stringify(realpathSync(own))}))`];
+  const real = realpathSync(own);
+  // A path is canonicalized by reading each directory on the way to it, so those
+  // directories stay listable (metadata only); other samples' files stay hidden.
+  const parents = [own, real].flatMap((p) => p.split("/").slice(1, -1).map((_, i, a) => `/${a.slice(0, i + 1).join("/")}`));
+  const reads = [
+    ...hidden.map((p) => `(deny file-read* (subpath ${JSON.stringify(p)}))`),
+    `(allow file-read-metadata ${[...new Set(parents)].map((p) => `(literal ${JSON.stringify(p)})`).join(" ")})`,
+    `(allow file-read* (subpath ${JSON.stringify(own)}) (subpath ${JSON.stringify(real)}))`,
+  ];
   writeFileSync(profile, agentProfile().replace(/\n$/, `\n${reads.join("\n")}\n`));
   return ["sandbox-exec", ["-f", profile, command, ...args]];
 }
