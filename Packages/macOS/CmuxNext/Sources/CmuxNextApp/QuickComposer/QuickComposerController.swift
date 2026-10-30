@@ -18,7 +18,7 @@ import os
 final class QuickComposerController {
     /// A quick chat's page on session `id` (nil: a new chat, its prompt
     /// starting as `draft`), nil when this build has no agent page.
-    private let makeChat: (_ session: String?, _ draft: String?) -> AgentPaneView?
+    private let makeChat: (_ session: String?, _ draft: String?, _ generation: Int) -> AgentPaneView?
     private let makeWindow: () -> any QuickComposerWindow
     /// Opens `session` (nil: a new chat) as a tab in the main window and
     /// brings that window forward; false when there was nowhere to open it.
@@ -53,7 +53,7 @@ final class QuickComposerController {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quickComposer")
 
     init(
-        makeChat: @escaping (_ session: String?, _ draft: String?) -> AgentPaneView?,
+        makeChat: @escaping (_ session: String?, _ draft: String?, _ generation: Int) -> AgentPaneView?,
         makeWindow: @escaping () -> any QuickComposerWindow,
         openInWindow: @escaping (String?) -> Bool,
         startInBackground: @escaping @MainActor (AgentPaneQuickStart) async -> Bool,
@@ -92,7 +92,7 @@ final class QuickComposerController {
             if moveToFloatingChat(session: held) { return }
             defaults.removeObject(forKey: Self.heldSessionKey)
         }
-        guard let chat = chat ?? makeChat(nil, drafts?.handOut(Self.draftKey)).map(adopt) else {
+        guard let chat = chat ?? makeChat(nil, drafts?.handOut(Self.draftKey), drafts?.generation(for: Self.draftKey) ?? 0).map(adopt) else {
             logger.notice("quick agent chat unavailable: this build has no agent page")
             return
         }
@@ -155,7 +155,7 @@ final class QuickComposerController {
             guard !holdsChat else { show(); return false }
         }
         if !holdsChat {
-            guard let made = makeChat(session, nil) else { return false }
+            guard let made = makeChat(session, nil, 0) else { return false }
             releaseChat()
             adopt(made)
             if window == nil { _ = makeWindowOnce() }

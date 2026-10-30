@@ -84,10 +84,10 @@ struct FloatingChatTests {
         try Data("<html></html>".utf8).write(to: page)
         let rig = Rig(suite: suite ?? "floating-chat-\(UUID().uuidString)", ownsSuite: suite == nil)
         let controller = QuickComposerController(
-            makeChat: { session, draft in
+            makeChat: { session, draft, generation in
                 rig.made.append(session)
                 rig.drafts.append(draft)
-                let seed = draft.map { AgentPaneSeedSource(AgentPaneSeed(draft: $0)) }
+                let seed = draft.map { AgentPaneSeedSource(AgentPaneSeed(draft: $0, draftGeneration: generation)) }
                 return AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: session, seed: seed), source: .bundled(page))
             },
             makeWindow: { rig.window },
@@ -392,7 +392,7 @@ struct FloatingChatTests {
         first.show()
         #expect(firstRig.drafts == [nil])
         let firstChat = try #require(first.chat)
-        _ = await firstChat.model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the two retry policies"]))
+        _ = await firstChat.model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the two retry policies", "generation": 4]))
         await first.prepareForQuit()
 
         // The update's relaunch: the store reads its file again, and a new controller is the next launch.
@@ -400,8 +400,9 @@ struct FloatingChatTests {
         second.show()
         #expect(secondRig.drafts == ["compare the two retry policies"])
         let secondChat = try #require(second.chat)
+        #expect(await secondChat.model.seed?.peek()?.draftGeneration == 4)
         // The person edits it: that text is the draft (the page had it), not a second copy.
-        _ = await secondChat.model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the retry policies"]))
+        _ = await secondChat.model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the retry policies", "generation": 4]))
         #expect(AgentUnsentDrafts(file: file).draft(for: QuickComposerController.draftKey) == "compare the retry policies")
 
         // Its first prompt starts the session: the kept text goes, and the next panel starts empty.
@@ -409,7 +410,9 @@ struct FloatingChatTests {
         #expect(AgentUnsentDrafts(file: file).draft(for: QuickComposerController.draftKey) == nil)
         let (thirdRig, third) = try Self.rig(floating: false, suite: suite, drafts: AgentUnsentDrafts(file: file))
         third.show()
-        #expect(thirdRig.drafts == [nil])
+        #expect(thirdRig.drafts == [""])
+        let tombstone = await third.chat?.model.seed?.peek()
+        #expect(tombstone?.draftGeneration == 5)
         withExtendedLifetime((firstRig, secondRig)) {}
     }
 }

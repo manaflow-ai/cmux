@@ -3,13 +3,14 @@ import os
 
 /// A new chat's typed text from before it has an acpmux session (cx-z5vd), by tab, in a JSON file
 /// beside the launch snapshot: after a relaunch that tab opens as the chat with its draft, not as
-/// the New Tab page. Once the chat has a session acpmux keeps its draft, and this copy is gone.
+/// the New Tab page. Once the chat has a session acpmux keeps its draft; an empty generation tombstone stays here.
 ///
 /// A kept draft is never lost to a load: until a page has been handed tab `key`'s draft
 /// (``seed(for:session:local:)``), the page's empty text is a page that has not loaded it yet, not a
-/// clear, and is ignored; its non-empty text is merged with the kept one (the kept text first, the
-/// typed text after it), never written over it. Once the page has it, the page's text is the draft,
-/// and an empty one (the person deleted it, or sent it) clears it. A file this run cannot read is
+/// clear, and is ignored within the same generation; its non-empty text is merged with the kept
+/// one. A newer generation replaces the text, including with an empty tombstone; older writes
+/// are ignored. Once the page has it, the page's text is the draft,
+/// and an empty one (the person deleted it, or sent it) clears it without forgetting its generation. A file this run cannot read is
 /// set aside, never replaced by an empty or a partial one.
 public final class AgentUnsentDrafts {
     public static let fileName = "agent-unsent-drafts.json"
@@ -20,7 +21,7 @@ public final class AgentUnsentDrafts {
     let file: URL?
     /// Saves leave the main thread: typing in a new chat saves every settled edit.
     private let store: AgentPaneStateFile?
-    private var drafts: [String: String]
+    private var drafts: [String: AgentUnsentDraft]
     /// Tabs whose draft came from the file and no page has been handed yet.
     private var undelivered: Set<String>
     /// The file exists but could not be read: it is set aside before the first write.
@@ -42,7 +43,7 @@ public final class AgentUnsentDrafts {
             return
         }
         do {
-            drafts = try JSONDecoder().decode([String: String].self, from: data)
+            drafts = try JSONDecoder().decode([String: AgentUnsentDraft].self, from: data)
             undelivered = Set(drafts.keys)
         } catch {
             unreadable = true
@@ -60,21 +61,21 @@ public final class AgentUnsentDrafts {
     /// empty text clears it.
     public func seed(for key: String, session: String?, local: Bool = true) -> AgentPaneSeedSource? {
         guard local, session == nil, let text = handOut(key) else { return nil }
-        return AgentPaneSeedSource(AgentPaneSeed(draft: text))
+        return AgentPaneSeedSource(AgentPaneSeed(draft: text, draftGeneration: generation(for: key)))
     }
 
     /// Tab `key`'s kept text for a page that builds its own seed (Start Agent's panel), given out as
     /// ``seed(for:session:local:)`` gives it: from then on the page's empty text clears it.
     public func handOut(_ key: String) -> String? {
-        guard let text = drafts[key] else { return nil }
+        guard let draft = drafts[key] else { return nil }
         undelivered.remove(key)
-        return text
+        return draft.text
     }
 
     /// Keeps the typed text of `model`'s chat for the tab `key` names when it runs, until the chat
     /// has a session. Call it after the tab's own `onSessionChange` is set.
     public func wire(_ model: AgentPaneModel, key: @escaping () -> String) {
-        model.onUnsentDraft = { [weak self] text in self?.typed(text, for: key()) }
+        model.onUnsentDraft = { [weak self] text, generation in self?.typed(text, for: key(), generation: generation) }
         let started = model.onSessionChange
         model.onSessionChange = { [weak self] session in
             self?.set("", for: key())
@@ -82,43 +83,64 @@ public final class AgentUnsentDrafts {
         }
     }
 
-    /// Whether tab `key` holds a new chat's typed text (its close earns an undo toast).
-    public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }
+    /// Whether tab `key` holds text; an empty tombstone does not earn an undo toast.
+    public func hasDraft(_ key: String) -> Bool { draft(for: key) != nil }
 
-    /// Tab `key`'s kept text, if any.
-    public func draft(for key: String) -> String? { drafts[key] }
-
-    /// The page of tab `key` sent its text (`chat.unsentDraft`). Before the page was handed the
-    /// kept draft, an empty text is ignored and a different one is merged with it.
-    public func typed(_ text: String, for key: String) {
-        guard undelivered.contains(key), let kept = drafts[key] else { return set(text, for: key) }
-        guard !Self.isBlank(text) else { return }
-        undelivered.remove(key)
-        set(Self.merged(typed: text, kept: kept), for: key)
+    public func draft(for key: String) -> String? {
+        guard let draft = drafts[key], !Self.isBlank(draft.text) else { return nil }
+        return draft.text
     }
 
-    /// Keeps `text` as tab `key`'s draft; blank text forgets it (the tab's chat started or closed,
-    /// or its page cleared a draft it had). A text over the limit keeps its first
-    /// ``maximumCharacters``: a draft is never dropped for its length (a merge can pass the limit).
-    public func set(_ text: String, for key: String) {
-        let value = Self.isBlank(text) ? nil : Self.capped(text)
+    public func generation(for key: String) -> Int { drafts[key]?.generation ?? 0 }
+
+    /// Missing generations are legacy generation zero, including after a relaunch. Only texts
+    /// in the same generation may merge before handoff; a replacement never inherits old text.
+    public func typed(_ text: String, for key: String, generation: Int? = nil) {
+        let incoming = generation ?? 0
+        let current = self.generation(for: key)
+        if generation == nil, Self.isBlank(text), drafts[key] == nil { return }
+        guard AgentUnsentDraft.valid(incoming), incoming >= current else { return }
+        if incoming == current, undelivered.contains(key), let kept = drafts[key] {
+            guard !Self.isBlank(text) else { return }
+            undelivered.remove(key)
+            set(Self.merged(typed: text, kept: kept.text), for: key, generation: incoming)
+        } else {
+            // A legacy clear still establishes a boundary; versioned pages advance it themselves.
+            set(text, for: key, generation: generation == nil && Self.isBlank(text) ? nil : incoming)
+        }
+    }
+
+    /// Native clear/send advances the generation. Explicit versioned writes reject old state.
+    /// Empty values remain on disk, so neither late updates nor relaunch can revive sent text.
+    public func set(_ text: String, for key: String, generation: Int? = nil) {
+        let blank = Self.isBlank(text)
+        let current = self.generation(for: key)
+        let next = generation ?? (blank ? min(current + 1, AgentUnsentDraft.maximumGeneration) : current)
+        guard AgentUnsentDraft.valid(next), next >= current else { return }
+        let value = AgentUnsentDraft(text: blank ? "" : Self.capped(text), generation: next)
         guard drafts[key] != value else { return }
         drafts[key] = value
-        if value == nil { undelivered.remove(key) }
+        if blank || next > current { undelivered.remove(key) }
         save()
     }
 
-    /// The store gave provisional tab `key` its id `real`.
+    /// The store gave provisional tab `key` its id `real`. Keep a tombstone at the old key too.
     public func move(_ key: String, to real: String) {
-        guard key != real, let text = drafts.removeValue(forKey: key) else { return }
-        drafts[real] = text
-        if undelivered.remove(key) != nil { undelivered.insert(real) }
+        guard key != real, let draft = drafts[key] else { return }
+        if draft.generation >= generation(for: real) {
+            drafts[real] = draft
+            if undelivered.contains(key) { undelivered.insert(real) } else { undelivered.remove(real) }
+        }
+        drafts[key] = AgentUnsentDraft(text: "", generation: min(draft.generation + 1, AgentUnsentDraft.maximumGeneration))
+        undelivered.remove(key)
         save()
     }
 
     /// Implements the merge contract documented at webviews/src/agent-session/acpmux/composerDraft.ts.
     /// Both implementations are checked against webviews/test/fixtures/composer-draft-merge.json.
-    public static func merged(typed: String, kept: String) -> String {
+    public static func merged(typed: String, kept: String, typedGeneration: Int = 0, keptGeneration: Int = 0) -> String {
+        if typedGeneration > keptGeneration { return typed }
+        if keptGeneration > typedGeneration { return kept }
         if mergeBlank(kept) { return typed }
         if mergeBlank(typed) { return kept }
         let typedUnits = Array(typed.utf16)

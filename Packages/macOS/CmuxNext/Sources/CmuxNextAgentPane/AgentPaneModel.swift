@@ -33,7 +33,7 @@ public final class AgentPaneModel {
     /// `_acpmux/attach` reply; ``AcpmuxPaneSessions/harness(of:)``), so the App records the
     /// harness on the tab (cx-w4bbw). Only for the session the pane shows.
     @ObservationIgnored public var onSessionHarness: ((_ session: String) -> Void)?
-    @ObservationIgnored public var onUnsentDraft: ((String) -> Void)? // a new chat's typed text, until it has a session
+    @ObservationIgnored public var onUnsentDraft: ((String, Int?) -> Void)? // a new chat's typed text, until it has a session
     /// Reports each settled scroll and returns the native display settings to the page.
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
@@ -315,7 +315,7 @@ public final class AgentPaneModel {
         case .missingChat(let session, let reason):
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)
             return AgentPaneReply.success()
-        case .unsentDraft(let text): if sessionId == nil { onUnsentDraft?(text) }; return AgentPaneReply.success()
+        case .unsentDraft(let text, let generation): if sessionId == nil { onUnsentDraft?(text, generation) }; return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
             return AgentPaneReply.success()

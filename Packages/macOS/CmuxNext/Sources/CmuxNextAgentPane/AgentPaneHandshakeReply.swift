@@ -18,6 +18,7 @@ enum AgentPaneHandshakeReply {
             if model.sessionId == nil, let seed = await model.seed?.take() {
                 handshake.cwd = seed.cwd
                 handshake.draft = seed.draft
+                handshake.draftGeneration = seed.draftGeneration
                 handshake.prompt = seed.prompt
                 // A prompt a person's own action seeded goes out by itself with a single-use
                 // ticket bound to its promptId (cx-k21v gap 4, chief: person only). The seed hands

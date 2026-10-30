@@ -34,9 +34,9 @@ struct UnsentDraftTests {
 
         // The first prompt starts the chat's session: the tab's copy goes, and later text is acpmux's.
         _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-1"]))
-        #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "later"]))
-        #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
+        #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
         withExtendedLifetime(drafts) {}
     }
 
@@ -85,7 +85,7 @@ struct UnsentDraftTests {
         drafts.typed("", for: "tab-1")
         #expect(AgentUnsentDrafts(file: file).draft(for: "tab-1") == nil)
         // A send starts the chat's session: the tab's copy goes (acpmux keeps the chat's draft).
-        drafts.typed("next", for: "tab-1")
+        drafts.typed("next", for: "tab-1", generation: drafts.generation(for: "tab-1"))
         let model = AgentPaneModel(host: MockAgentPaneHost())
         drafts.wire(model) { "tab-1" }
         _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-1"]))
@@ -148,6 +148,8 @@ struct UnsentDraftTests {
             let kept: [Part]
             let typed: [Part]
             let expected: [Part]
+            let typedGeneration: Int?
+            let keptGeneration: Int?
         }
         func expand(_ parts: [Part]) -> String {
             parts.map { String(repeating: $0.text, count: $0.count) }.joined()
@@ -157,7 +159,8 @@ struct UnsentDraftTests {
         let file = root.appending(path: "webviews/test/fixtures/composer-draft-merge.json")
         let vectors = try JSONDecoder().decode([Vector].self, from: Data(contentsOf: file))
         for vector in vectors {
-            let actual = AgentUnsentDrafts.merged(typed: expand(vector.typed), kept: expand(vector.kept))
+            let actual = AgentUnsentDrafts.merged(typed: expand(vector.typed), kept: expand(vector.kept),
+                                                  typedGeneration: vector.typedGeneration ?? 0, keptGeneration: vector.keptGeneration ?? 0)
             #expect(Array(actual.utf16) == Array(expand(vector.expected).utf16), "\(vector.name)")
         }
     }
