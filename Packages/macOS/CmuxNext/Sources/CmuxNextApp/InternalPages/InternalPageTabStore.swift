@@ -222,6 +222,9 @@ final class InternalPageTabStore {
                       controller pane: PaneController?, window: WindowController, focus: Bool, key given: String? = nil,
                       created onCreated: (@MainActor (SurfaceID) -> Void)? = nil) -> InternalPageView? {
         let store = daemon.store
+        // A foreground page in Home is selected by its destination placement, never while its
+        // provisional tab still belongs to the dock: that would release OutboundTab too early.
+        let selectHere = focus && !HomeDockOpens.opensBeside(model, services: services)
         // Nothing opens in Home's dock (an app page, a file): without a placement of the caller's, the tab moves beside it.
         let onCreated = onCreated ?? HomeDockOpens.placing(model, services: services, focus: focus, then: nil)
         guard let provider = providers[page], daemon.supports(DaemonCapability.pageTabs.rawValue),
@@ -242,7 +245,7 @@ final class InternalPageTabStore {
         let transaction = ClientTransactionID.generate()
         store.intend(.createTab(pane: model.handle, provisional: snapshot), transaction: transaction)
         if let pane {
-            if focus {
+            if selectHere {
                 pane.selectWhenReported(surface: provisional.surface)
                 pane.focusContent()
             } else {

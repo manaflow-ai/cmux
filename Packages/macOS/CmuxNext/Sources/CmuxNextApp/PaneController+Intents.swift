@@ -105,13 +105,17 @@ extension PaneController {
     /// other callers (config commands, account logins) keep the pane's.
     /// `typingAhead` names a new tab page whose `!` type-ahead the shell
     /// gets after `typing`, drained until nothing new arrived (NewTabTypeAhead).
-    /// `then` runs once the new tab is selected. `daemonResolvesCwd` (a
+    /// `then` runs after creation and local selection; Home's outbound placement instead owns
+    /// selection in the destination. `daemonResolvesCwd` (a
     /// terminal opened from the docked agent chat) sends only an explicit
     /// `cwd` and lets the daemon's resolver pick the rest
     /// (NEW-TERMINAL-INHERITS-CWD).
     func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
                         fromSelectedTab: Bool = false, daemonResolvesCwd: Bool = false,
                         then: (@MainActor (SurfaceID) -> Void)? = nil) {
+        // Placement owns selection in Home: selecting its provisional or real tab here releases
+        // the outbound hold and flashes Home's strip before the move callback runs.
+        let selectHere = !HomeDockOpens.opensBeside(pane, services: services)
         // Nothing opens in Home's dock: without a placement of the caller's, the tab moves beside it.
         let then = then ?? HomeDockOpens.placing(pane, services: services, focus: true, then: nil)
         let handle = pane.handle
@@ -134,7 +138,7 @@ extension PaneController {
         let size = newTerminalSize
         let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
-            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, then: then)
+            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, selectHere: selectHere, then: then)
         }
         services.registry.track(Task { [services] in
             var landed = false
@@ -147,8 +151,10 @@ extension PaneController {
                 if let page {
                     try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
                 }
-                selectWhenReported(surface: created.surface)
-                self.workspace?.expectFocus(on: created.surface, generation: intent)
+                if selectHere {
+                    selectWhenReported(surface: created.surface)
+                    self.workspace?.expectFocus(on: created.surface, generation: intent)
+                }
                 landed = true
                 then?(created.surface)
                 return nil
@@ -165,7 +171,7 @@ extension PaneController {
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
     /// the daemon's terminal, as before.
     private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
-                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, then: (@MainActor (SurfaceID) -> Void)?) {
+                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, selectHere: Bool, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
             Task { @MainActor () -> String? in
@@ -174,15 +180,17 @@ extension PaneController {
             }
         }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
-        selectWhenReported(surface: pending.surface)
+        if selectHere { selectWhenReported(surface: pending.surface) }
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
                 // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
-                if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
-                self.workspace?.expectFocus(on: created.surface, generation: intent)
+                if selectHere {
+                    if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
+                    self.workspace?.expectFocus(on: created.surface, generation: intent)
+                }
                 landed = true
                 then?(created.surface)
                 return nil

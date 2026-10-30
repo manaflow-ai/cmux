@@ -99,6 +99,40 @@ struct HomeDockOpensTests {
         }
     }
 
+    /// A foreground creator must not select either its stand-in or its real tab in Home before
+    /// placement. OutboundTab deliberately releases selected tabs (a person's explicit selection).
+    @Test(arguments: ["optimistic terminal", "typed terminal", "page"])
+    func aForegroundCreatorKeepsHomesStripHiddenUntilPlacement(_ kind: String) async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (window, home, dock) = try await Self.openHome(services, connection)
+            dock.syncStripFromStore()
+            let homeTab = try #require(dock.stripModel.selectedID)
+            var sawPlacement = false
+            let placed = try #require(HomeDockOpens.placing(dock.pane, services: services, focus: true, then: { _ in
+                // Runs before HomeDockOpens moves the tab: a later final-state check misses the flash.
+                dock.syncStripFromStore()
+                #expect(dock.stripModel.tabs.map(\.id) == [homeTab], "the created tab appeared in Home before placement")
+                #expect(dock.stripModel.selectedID == homeTab, "the creator selected its real tab in Home")
+                sawPlacement = true
+            }))
+            if kind == "page" {
+                #expect(services.pages.openStoreTab(.inbox, in: dock, window: window, focus: true, created: placed) != nil)
+            } else {
+                // A non-nil typing value uses the asynchronous path, without an optimistic tab.
+                dock.newTerminalTab(typing: kind == "typed terminal" ? ":\r" : nil, then: placed)
+            }
+            dock.syncStripFromStore()
+            #expect(dock.stripModel.tabs.map(\.id) == [homeTab], "the provisional tab appeared in Home")
+            #expect(dock.stripModel.selectedID == homeTab, "the creator selected its provisional tab in Home")
+            let right = try await Self.untilBeside(home, dock.pane, kind)
+            #expect(sawPlacement)
+            #expect(dock.view.hidesStrip)
+            try await PasswordManagerRouteTests.until({ window.focusedPane?.pane === right }, report: {
+                "the foreground \(kind) did not take focus in its destination"
+            })
+        }
+    }
+
     /// A page the engine already made and the pane adopts (Duplicate Tab on a browser tab dragged into
     /// Home, a popup) opens beside Home too.
     @Test func anAdoptedPageInHomeOpensBesideIt() async throws {
