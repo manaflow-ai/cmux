@@ -37,7 +37,7 @@ struct TerminalTitleTabItemTests {
         let tab = try #require(store(title: "~").tab(surface: 1))
         tab.setObservedCwd("/tmp/cmux-demo")
         let item = TabItemMapping.shared.item(tab, fallbackTitle: "Terminal")
-        #expect(item.title == "cmux-demo")
+        #expect(item.title == "/tmp/cmux-demo")
         #expect(item.subtitle == "/tmp/cmux-demo")
     }
 }

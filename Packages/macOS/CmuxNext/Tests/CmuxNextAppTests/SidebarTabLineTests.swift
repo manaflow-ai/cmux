@@ -28,7 +28,7 @@ struct SidebarTabLineTests {
     @Test func aBareHomeFolderNamesWhatRunsThere() {
         #expect(Self.line(Self.tab("~", folder: "~")) == SidebarTabLine(name: "Terminal", detail: nil))
         // A folder other than home is a fact the row does not say.
-        #expect(Self.line(Self.tab("~/src/cmux", folder: "~/src/cmux")) == SidebarTabLine(name: "Terminal", detail: "~/src/cmux"))
+        #expect(Self.line(Self.tab("~/src/cmux", folder: "~/src/cmux")) == SidebarTabLine(name: "~/src/cmux", detail: nil))
         #expect(Self.line(Self.tab("cmux-demo", folder: "~/src/cmux-demo")) == SidebarTabLine(name: "cmux-demo", detail: "~/src/cmux-demo"))
     }
 
