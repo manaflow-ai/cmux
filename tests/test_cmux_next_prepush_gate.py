@@ -642,6 +642,43 @@ let package = Package(
         self.assertNotEqual(result.returncode, 0, output)
         self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
 
+    def test_a_push_that_drops_a_baseline_line_without_declaring_the_import_is_refused(self):
+        # Review of a37b4cce: the installed checker still lists the pair, so it reported neither a missing import nor
+        # a stale line, and a push that only deleted the pair from IMPORT_BASELINE passed; CI's pushed checker failed.
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        pair = '"CmuxNextActionsTests: CmuxNextWakeups",'
+        package = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+        self.write(f"{PKG}/Package.swift", package)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.commit("a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(checker, (self.repo / checker).read_text().replace(pair + "\n    ", "", 1))
+        self.assertNotIn(pair, (self.repo / checker).read_text())
+        self.commit("drop the baseline line, declare nothing")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn('Fix: add "CmuxNextWakeups" to the dependencies of CmuxNextActionsTests', output)
+
     def test_a_source_only_push_that_removes_a_baseline_import_s_last_use_must_drop_its_line(self):
         # Review of befae46a: with the manifest unchanged the gate dropped every "drop its line" finding, so a push
         # that removed the last import of a baseline pair passed and left the pair in IMPORT_BASELINE. Only a line
