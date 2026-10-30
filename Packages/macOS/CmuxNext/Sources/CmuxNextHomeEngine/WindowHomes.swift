@@ -47,9 +47,12 @@ public final class WindowHomes {
     private weak var host: (any WindowHomeHost)?
     /// Window Homes being made, by window id, so a second click joins the first.
     private var making: [String: Task<WorkspaceModel?, Never>] = [:]
-    /// One dock owner per window Home (``HomeDock`` keeps its move in flight), and the window
-    /// Homes whose close was sent, so a sync meanwhile does not send it again.
-    private var docks: [String: HomeDock] = [:]
+    /// One dock run at a time per window Home: a connect's run waits for a creation's (or an
+    /// earlier connect's) instead of sending a second dock move. The window Homes this app made
+    /// (only those it ever closes), and those whose close was sent, so a sync meanwhile does not
+    /// send it again.
+    private var docks: [String: Task<Void, Never>] = [:]
+    private var made: Set<String> = []
     private var closing: Set<String> = []
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
@@ -94,6 +97,7 @@ public final class WindowHomes {
         let store = host.windowHomeStore
         let key = WorkspaceKey.generate()
         // Claimed first, so the reconcile that places it puts it in this window and selects it there.
+        made.insert(key.rawValue)
         host.windowHomeClaim(key.rawValue, window: window)
         do {
             defer { if !host.windowHomeIsOpen(window) { close(key.rawValue) } }
@@ -127,17 +131,22 @@ public final class WindowHomes {
 
     private func ensureDock(_ home: WorkspaceModel, _ connection: DaemonConnection) async {
         guard let host, let resource = home.resourceID else { return }
-        let dock = docks[home.id] ?? HomeDock()
-        docks[home.id] = dock
-        let step = await dock.ensure(connection, store: host.windowHomeStore, home: resource, dock: { host.windowHomeDock($0, $1, $2, $3, $4) })
-        logger.info("window home \(home.id, privacy: .public): \(step, privacy: .public)")
+        let id = home.id, earlier = docks[id], logger = logger
+        // task-owner: one dock run per window Home after the one before it (each bounded by its daemon replies)
+        let run = Task { @MainActor in
+            await earlier?.value
+            let step = await HomeDock().ensure(connection, store: host.windowHomeStore, home: resource, dock: { host.windowHomeDock($0, $1, $2, $3, $4) })
+            logger.info("window home \(id, privacy: .public): \(step, privacy: .public)")
+        }
+        docks[id] = run
+        await run.value
     }
 
     /// After a window membership change (`previous`: each window's workspaces before it): a
-    /// window Home that moved from another of this app's windows into one with a Home already (its
-    /// window closed into another, without window records, or its closed group was released)
-    /// closes, so no window holds a second, hidden one. A window Home no window of this app held
-    /// before (another client's) is never closed here.
+    /// window Home this app made that moved from another of its windows into one with a Home
+    /// already (its window closed into another, without window records, or its closed group was
+    /// released) closes, so no window holds a second, hidden one. A window Home this app did not
+    /// make (another client's) is never closed here.
     public func closeSurplus(previous: [String: [String]]) {
         guard let host else { return }
         // Only a window whose membership changed can have gained a Home.
@@ -146,7 +155,7 @@ public final class WindowHomes {
             guard homes.count > 1 else { continue }
             let keep = homes.first { $0.kind == "home" }
                 ?? homes.first { previous[window]?.contains($0.id) == true } ?? homes[0]
-            for home in homes where home !== keep && home.isWindowHome
+            for home in homes where home !== keep && home.isWindowHome && made.contains(home.id)
                 && previous.contains(where: { $0.key != window && $0.value.contains(home.id) }) { close(home.id) }
         }
         closing = closing.filter { host.windowHomeWorkspace($0) != nil }
