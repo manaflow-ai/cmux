@@ -20,8 +20,8 @@
 #   scripts/ci/cmux_tui_tree_key.py (`pin-cmux-tui.sh key`). That is key v2.
 #   Key v1 also hashed the classic `ghostty` gitlink, which no cmux-tui binary
 #   builds from since 0c9d74bc3ea (CMUX-TUI-TREE-KEY-V2). Until v1 goes away,
-#   fetch and resolve-commit take the v2 publication, else the v1 publication
-#   of the same commit (`key --version v1`), and the workflow publishes both.
+#   fetch and resolve-commit take the v2 publication, else the compatibility
+#   publication of the same commit (`key --version v2-legacy`).
 #   The `cmux-tui artifacts` workflow runs on every trusted push to
 #   feat-cmux-next and feat-cmux-next-acpmux that changes a runtime input.
 #   GitHub filters pushes containing only cmux-tui/docs prose, so consumers
@@ -202,11 +202,10 @@ download() {
 tree_key() {
   python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "${1:-HEAD}"
 }
-# The v1 key of <rev> (with the classic ghostty gitlink): trees published
-# before CMUX-TUI-TREE-KEY-V2 exist only under it.
-# Empty when <rev> has no v1 key (a revision without the classic gitlink).
+# The compatibility key of <rev> using the pre-docs v2 algorithm. Trees
+# published before docs-only filtering may exist only under this key.
 legacy_tree_key() {
-  python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v1 "${1:-HEAD}" 2>/dev/null || true
+  python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2-legacy "${1:-HEAD}" 2>/dev/null || true
 }
 # The tree this checkout fetches and bundles: its own, or CMUX_TUI_TREE_KEY.
 # cmux-next path routing sets that for a pull request that changes no
@@ -301,10 +300,11 @@ require_target_in_tree() {
   fi
 }
 
-# B2 evidence (CMUX-TUI-TREE-KEY-V2): "<key> (v2)" or "<key> (v1 fallback)"
+# B2 evidence (CMUX-TUI-TREE-KEY-V2): "<key> (v2)" or
+# "<key> (v2-legacy fallback)" for the compatibility publication actually read.
 # for the publication actually read. <key> is published_key, <v2 key> the
 # checkout's key.
-tree_source_label() { [[ "$1" == "$2" ]] && echo "$1 (v2)" || echo "$1 (v1 fallback)"; }
+tree_source_label() { [[ "$1" == "$2" ]] && echo "$1 (v2)" || echo "$1 (v2-legacy fallback)"; }
 
 # Refuses a checkout whose cmux-tui source differs from the committed tree:
 # the published binary would not contain those edits.
@@ -690,7 +690,7 @@ report_tree_miss() {
 # CMUX_TUI_TREE_WAIT_SECONDS while the artifacts workflow publishes it. With
 # CMUX_TUI_TREE_PUBLISHER_SHA and GH_TOKEN set, it fails fast when two run
 # checks in a row find no active artifacts run for that commit.
-# Waits until tree <key> (v2) or <legacy> (the v1 key of the same commit) is
+# Waits until tree <key> (v2) or <legacy> (the v2-legacy key of the same commit) is
 # published, writes its sha256 file to <out>, and sets published_key to the
 # key that was found and published to its sha256.
 wait_for_tree() {
@@ -1019,7 +1019,7 @@ fetch_tree() {
   dir="$(tree_dir "$key")"
   binary="$dir/$file"
   # The cache dir carries the v2 key's name even when the binary came from the
-  # v1 publication, so fetched-key records the source; a cache without that
+  # compatibility publication, so fetched-key records the source; a cache without that
   # record is fetched again rather than reported as an unknown source.
   if [[ -f "$binary" && -f "$dir/$file.sha256" && -s "$dir/fetched-key" &&
         "$(sha256_of "$binary")" == "$(cat "$dir/$file.sha256")" ]]; then
@@ -1048,7 +1048,7 @@ fetch_tree() {
   require_target_in_tree "$wait_key" "$(checkout_legacy_tree_key)"
   wait_for_tree "$wait_key" "$temp_dir/sha256" "$(checkout_legacy_tree_key)"
   if [[ "$published_key" != "$key" ]]; then
-    echo "same-tree cmux-tui $key: using its v1 publication $published_key (CMUX-TUI-TREE-KEY-V2)" >&2
+    echo "same-tree cmux-tui $key: using its v2-legacy publication $published_key (CMUX-TUI-TREE-KEY-V2)" >&2
     url="$BASE/tree/$published_key/$(tree_asset)"
   fi
   download "$url" "$temp_dir/$file" || { echo "error: could not download $url" >&2; exit 1; }
@@ -1060,7 +1060,7 @@ fetch_tree() {
   mv -f "$temp_dir/source.json" "$dir/source.json"
   mv -f "$temp_dir/$file" "$binary"
   printf '%s\n' "$published" > "$dir/$file.sha256"
-  if [[ "$published_key" == "$key" ]]; then echo "$published_key v2"; else echo "$published_key v1"; fi > "$dir/fetched-key"
+  if [[ "$published_key" == "$key" ]]; then echo "$published_key v2"; else echo "$published_key v2-legacy"; fi > "$dir/fetched-key"
   echo "fetched same-tree cmux-tui $key to $binary"
   echo "fetched cmux-tui tree $(tree_source_label "$published_key" "$key")"
   fetch_tree_companions "$key" "$dir"
