@@ -1868,6 +1868,7 @@ mod redact;
 pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
+pub use requests::SESSION_RESUME_FEATURE;
 mod routes;
 mod secrets;
 mod session_auth;
@@ -2040,6 +2041,10 @@ mod request_admission_tests {
         worker.await.unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "acp_list_tests.rs"]
+mod acp_list_tests;
 
 #[cfg(test)]
 mod key_route_tests;
