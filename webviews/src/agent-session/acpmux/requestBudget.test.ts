@@ -65,9 +65,11 @@ async function connectBusyDaemon(daemon: Daemon) {
     () => new LimitedHost() as unknown as WebSocket,
   );
   const request = (deadline?: number) =>
-    (
-      client as unknown as { request(method: string, params: object, deadline?: number): Promise<unknown> }
-    ).request(PROBE, {}, deadline);
+    (client as unknown as { request(method: string, params: object, deadline?: number): Promise<unknown> }).request(
+      PROBE,
+      {},
+      deadline,
+    );
   return { client, request };
 }
 
@@ -86,7 +88,7 @@ test("a burst of 200 reads on a slow daemon meets no busy refusal", async () => 
   const { client, request } = await connectBusyDaemon(daemon);
   try {
     const result = await burst(request, 200);
-    console.log(`[storm] burst: ${JSON.stringify({ ...result, daemonPeak: daemon.peak, refused: daemon.refused })}`);
+    console.error(`[storm] burst: ${JSON.stringify({ ...result, daemonPeak: daemon.peak, refused: daemon.refused })}`);
     expect(result.busy).toBe(0);
     expect(result.ok).toBe(200);
     expect(daemon.refused).toBe(0);
@@ -104,7 +106,7 @@ test("reads the page gave up on keep their slot until answered, so the next read
   try {
     const first = await burst(request, 64, 10);
     const second = await burst(request, 64);
-    console.log(`[storm] abandoned: ${JSON.stringify({ first, second, refused: daemon.refused })}`);
+    console.error(`[storm] abandoned: ${JSON.stringify({ first, second, refused: daemon.refused })}`);
     expect(first.timedOut).toBe(64);
     expect(second.busy).toBe(0);
     expect(second.ok).toBe(64);
