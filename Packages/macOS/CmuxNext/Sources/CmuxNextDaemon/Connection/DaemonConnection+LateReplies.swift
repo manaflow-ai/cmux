@@ -45,7 +45,7 @@ extension DaemonConnection {
     }
 
     /// Sends `request`, a terminal start cmux-tui replays (a keyed `create-terminal`, or a `split`,
-    /// `new-pane`, `new-pane-right` or `new-row` under its client-minted ids), again while it misses its
+    /// `new-pane` or `new-pane-right` under its client-minted ids), again while it misses its
     /// start deadline, so the terminal a loaded host starts late is the one returned and none is started
     /// twice. Each pass waits out one whole deadline, and a pass sent again is the same keyed creation, so
     /// a re-send changes nothing on the daemon. It ends on the reply, the daemon's refusal, the
@@ -115,12 +115,11 @@ extension DaemonConnection {
     /// The spacing of late-reply re-sends: full jitter from 1 s, doubling, capped at 30 s.
     static func lateReplyBackoff() -> Backoff { .fullJitter(initial: .seconds(1), maximum: .seconds(30)) }
 
-    /// A pane creation (`split`, `new-pane`, `new-pane-right`, `new-row`) with its client-minted ids: waited
-    /// for through a late start where the daemon replays a creation sent again with them (`keys`:
-    /// `split-client-keys-v1`, or `row-client-keys-v1` for a row), sent once on an older daemon, which
-    /// would make a second pane.
-    func requestPaneCreation<R: TerminalSpawningRequest>(_ request: R, keys: DaemonCapability = .splitClientKeys) async throws -> R.Response {
-        guard identity?.supports(keys.rawValue) == true else { return try await self.request(request) }
+    /// A pane creation (`split`, `new-pane`, `new-pane-right`) with its client-minted ids: waited for through a
+    /// late start where the daemon replays a creation sent again with them (`split-client-keys-v1`), sent once on
+    /// an older daemon, which would make a second pane. (`new-row` is not replayed: ``RowCommands`` sends it once.)
+    func requestPaneCreation<R: TerminalSpawningRequest>(_ request: R) async throws -> R.Response {
+        guard identity?.supports(DaemonCapability.splitClientKeys.rawValue) == true else { return try await self.request(request) }
         return try await requestWaitingForStart(request)
     }
 
