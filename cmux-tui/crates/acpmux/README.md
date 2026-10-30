@@ -454,6 +454,8 @@ and printing the title; env `ACPMUX_TITLE_COMMAND` wins) makes it; unset, `_acpm
 uses the harness's cheap model (Haiku for Claude, a small Codex model where available)
 with no tools, MCP or session file. A harness or manual title always wins, a chat titled
 before this (or adopted) keeps its title, and `titles.generate: false` turns it off.
+A chat started under a name (`acpmux new -n`, a lane) is titled the same way and keeps
+its name; only a rename before a title settles stops the request.
 The daemon logs the title model, elapsed time, and estimated input/output token cost for
 each generated title.
 
