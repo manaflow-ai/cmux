@@ -17,6 +17,7 @@ final class SidebarPriorityPanelView: NSView {
     private let count = ChromeLabel(labelWithString: "")
     private let empty = ChromeLabel(labelWithString: Strings.priorityEmpty)
     private let scroll = NSScrollView()
+    private let clip = ScrollReportingClipView()
     private lazy var fade = ScrollEdgeFadeView(scrollView: scroll)
     private let document = FlippedDocument()
     private(set) var rows: [String: SidebarPriorityRowView] = [:]
@@ -46,10 +47,11 @@ final class SidebarPriorityPanelView: NSView {
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.automaticallyAdjustsContentInsets = false
+        // A scroll while a row is held keeps the row under the pointer (`clipScrolled`).
+        clip.onScroll = { [weak self] in self?.clipScrolled() }
+        scroll.contentView = clip
         scroll.contentView.drawsBackground = false
         scroll.documentView = document
-        // A scroll while a row is held keeps the row under the pointer (`clipScrolled`, observed while in a window).
-        scroll.contentView.postsBoundsChangedNotifications = true
         document.passesThrough = { [weak self] view in self?.closing.contains { $0 === view } ?? false }
         SystemScrollers.followThin(scroll)
         empty.isHidden = true
@@ -267,19 +269,9 @@ final class SidebarPriorityPanelView: NSView {
         placeRows(animated: window != nil)
     }
 
-    private var scrollObserver: (any NSObjectProtocol)?
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        let center = NotificationCenter.default
-        if let scrollObserver { center.removeObserver(scrollObserver) }
-        scrollObserver = nil
-        guard window != nil else { return endPointerGesture() }
-        // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
-        scrollObserver = center.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView,
-                                            queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.clipScrolled() } // main-proof: observer on queue: .main
-        }
+        if window == nil { endPointerGesture() }
     }
 
     /// The scroll moved under a held row: the row follows it, as a pointer move would.
@@ -301,7 +293,7 @@ final class SidebarPriorityPanelView: NSView {
         case .leftMouseDown:
             endPointerGesture()
         case .leftMouseUp where eventWindow !== window:
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self, !self.leftButtonIsDown() else { return }
                 self.endPointerGesture()
             }
@@ -373,5 +365,16 @@ final class SidebarPriorityPanelView: NSView {
             }
             return self
         }
+    }
+}
+
+/// The Priority view's clip view: it reports each scroll (a wheel, a scroller drag, a programmatic scroll) so a held
+/// row can follow the document.
+final class ScrollReportingClipView: NSClipView {
+    var onScroll: (() -> Void)?
+
+    override func scroll(to newOrigin: NSPoint) {
+        super.scroll(to: newOrigin)
+        onScroll?()
     }
 }
