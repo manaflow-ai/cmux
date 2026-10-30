@@ -1164,7 +1164,8 @@ function AccessMenu({
   // A harness mode that asks under a policy that answers every prompt (approve-all) acts without
   // asking: the chip says full access, not the harness's Manual (cmux#27847). The menu still marks
   // the harness's own mode, the one a pick changes.
-  const answeredForYou = approvesAll && reportedMode !== undefined && !unrestricted(value);
+  // Plan stops edits in the harness itself, not by asking: it keeps its own name.
+  const answeredForYou = approvesAll && reportedMode !== undefined && !unrestricted(value) && !isPlan(value);
   const currentMode: ModeChoice | undefined = answeredForYou
     ? { id: value, name: t(PICKER_LABELS.approvesAll), icon: "shield-alert" }
     : reportedMode;

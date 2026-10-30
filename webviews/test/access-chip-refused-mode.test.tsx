@@ -514,3 +514,11 @@ test("a full-access mode and an asking policy keep the agent's own name", async 
   expect(chipText()).toBe("Manual");
   expect(host.querySelector(".acpmux-mode")!.classList.contains("acpmux-unrestricted")).toBe(false);
 });
+
+test("Plan under a policy that approves every request keeps its own name", async () => {
+  const summary = reported("s1", "plan") as { modes: { availableModes: unknown[] } };
+  summary.modes.availableModes.push({ id: "plan", name: "Plan" });
+  await render({ ...summary, enforcement: approveAll }, () => undefined);
+  expect(chipText()).toBe("Plan");
+  expect(host.querySelector(".acpmux-mode")!.classList.contains("acpmux-unrestricted")).toBe(false);
+});

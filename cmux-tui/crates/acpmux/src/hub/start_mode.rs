@@ -30,7 +30,7 @@
 //! start model it is soft: a refusal is logged (`start_default_skipped`)
 //! and the chat runs the harness's own mode. Not for: a remote-origin
 //! (Web) session (the remote guard settles its mode,
-//! `server/remote_guard.rs`), a preset's chat, a folder profile's chat, an
+//! `server/remote_guard.rs`), a preset's chat (but see below), a folder profile's chat, an
 //! adopted conversation, and a profile that pins its mode in its argv
 //! (`profile_sets_mode`).
 //!
