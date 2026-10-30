@@ -4,7 +4,7 @@
 import { useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
-import type { BrowserProfile, DevicesHostState, HostListRow, HostLists } from "../ops";
+import type { BrowserProfile, DevicesHostState, HostListRow, HostLists, WireError } from "../ops";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { graphemePrefix } from "../../../ui/initials";
@@ -502,16 +502,22 @@ function ClearBrowsingData({ target }: { target: string }) {
     cache: true,
   });
   const [cleared, setCleared] = useState(false);
+  const [error, setError] = useState<WireError | null>(null);
   const title = t("action.browserProfile.clearBrowsingData").replace(/…$/, "");
-  // "Cleared" once the app took the run; a refused run shows nothing.
+  // "Cleared" once the app took the run; a refused run shows the owner's error.
   const clear = async () => {
     setCleared(false);
-    try {
-      await store.runAction("browserProfile.clearBrowsingData", { range, ...kinds }, target);
-      setCleared(true);
-    } catch {
-      setCleared(false);
+    setError(null);
+    const reply = await store.runAction("browserProfile.clearBrowsingData", { range, ...kinds }, target);
+    if (!reply.ok) {
+      setError(reply.error);
+      return;
     }
+    if (typeof reply.value === "object" && reply.value !== null && "ran" in reply.value && reply.value.ran === false) {
+      setError({ code: "cmux.app.action_refused", message: "action refused" });
+      return;
+    }
+    setCleared(true);
   };
   return (
     <div className="host-field" data-clear-browsing-data="">
@@ -562,6 +568,15 @@ function ClearBrowsingData({ target }: { target: string }) {
           </output>
         )}
       </span>
+      {error && (
+        <output className="row-error clear-browsing-data-error" data-clear-error="" role="alert">
+          {t(
+            error.code === "cmux.browser.clear_refused"
+              ? "settingsWindow.browsingDataClearRefused"
+              : "settingsWindow.browsingDataClearFailed",
+          )}
+        </output>
+      )}
     </div>
   );
 }

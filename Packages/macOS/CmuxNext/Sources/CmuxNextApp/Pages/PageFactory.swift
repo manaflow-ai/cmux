@@ -128,7 +128,7 @@ struct PageFactory {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
             ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
-        }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
+        }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null }, wideningGate: services.wideningGate)
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }
         provider.setJoinConsent = { [weak services] surface, on in
@@ -136,6 +136,8 @@ struct PageFactory {
             return await services.joinConsent.set(surface, on: on)
         }
         provider.personBacksGesture = { [weak services] uptime in services?.personInput.backs(uptime) ?? false }
+        // Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs.
+        provider.ownerConfirm = LocalDeviceOwnerAuthenticator()
         provider.setMachineVmHost = { [weak services] id, on in
             guard let services else { return nil }
             return await services.cloudVmHost.set(id, on: on, reachable: services.settingsWindow.vmHostReach(id) == true)

@@ -205,6 +205,10 @@ public final class AgentPaneView: NSView {
         self.webView = webView
         super.init(frame: .zero)
         pageEvents?.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
+        model.tabRow.supportsNativeTools = pageEvents != nil
+        model.onTabRowToolInvoked = { [weak self] id, menuItemID in
+            self?.invokeTabRowTool(id, menuItemID: menuItemID)
+        }
         openURL = { [weak self] url, modifiers in
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
@@ -395,6 +399,8 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        // A closed page must not notify the pane that used to host it after it leaves.
+        onNativeToolOwnerChange = nil
         popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
@@ -444,9 +450,13 @@ public final class AgentPaneView: NSView {
         applyTheme()
     }
 
+    /// Called by a pane when AppKit reparents this page, so native toolbar ownership cannot stay stale.
+    public var onNativeToolOwnerChange: (() -> Void)?
+
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
+        onNativeToolOwnerChange?()
     }
 
     public override func viewDidMoveToWindow() {
