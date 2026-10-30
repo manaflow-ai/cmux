@@ -39,7 +39,7 @@ export class AgentGateway extends WorkerEntrypoint<Env> {
     if (![input.mcpSessionId, input.requestId, input.toolInvocationId].every((v) => matches(ID, v))) return refused("validation.invalid")
     const bearer = /^Bearer\s+([^\s]+)$/i.exec(input.authorization)?.[1]
     const authenticated = await authenticate(this.env, bearer)
-    if (!authenticated?.user || !authenticated.team || authenticated.team !== input.team) return refused("auth.forbidden")
+    if (!authenticated?.user || !authenticated.team) return refused("auth.forbidden")
     const selected = await selectTeam(this.env, authenticated as TeamPrincipal, input.team)
     if (!selected.ok || selected.principal.team !== input.team) return refused("auth.forbidden")
     const principal = agentGatewayPrincipal(selected.principal.user, selected.principal.team, input.mcpSessionId)

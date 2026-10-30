@@ -82,6 +82,15 @@ describe("provider clients (fake HTTP)", () => {
     expect(f.calls.at(-1)!.auth).toBe("Bearer ghs_inst")
   })
 
+  it("GitHub: accepts canonical owner and repo casing in the comment receipt", async () => {
+    const f = fakeHttp({
+      "https://api.github.com/app/installations/42/access_tokens": () => ok({ token: "ghs_inst", expires_at: new Date(Date.now() + 3600_000).toISOString() }, 201),
+      "https://api.github.com/repos/acme/web/issues/9/comments": () => ok({ id: 2, html_url: "https://github.com/Acme/Web/issues/9#issuecomment-2" }, 201),
+    })
+    const r = await github.call(e, f.http, { kind: "github_installation", installation_id: 42 }, "github.issue.comment", { repo: "acme/web", issue: 9, body: "hi" })
+    expect(r.value).toEqual({ id: 2, url: "https://github.com/Acme/Web/issues/9#issuecomment-2" })
+  })
+
   it("Linear: refresh returns a new credential only when expired; the call uses what it is given", async () => {
     const f = fakeHttp({
       "https://api.linear.app/oauth/token": (req) => {

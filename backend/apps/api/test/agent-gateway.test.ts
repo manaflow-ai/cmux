@@ -80,6 +80,17 @@ describe("hosted MCP agent gateway", { timeout: 60_000 }, () => {
     expect(s.calls.filter((x) => x.url.includes("/comments"))).toHaveLength(1)
   })
 
+  it("accepts a shared-team member selected by TeamDO", async () => {
+    expect(gateway).toBeDefined()
+    if (!gateway) return
+    const s = await setup("shared")
+    await inDO(e.TEAM_DO.get(e.TEAM_DO.idFromName(s.team)), async (instance) => {
+      instance.boundEngine.rows.apply([{ table: "member", op: "insert", key: s.user, value: { user: s.user, role: "member", display_name: s.user } }])
+    })
+    const shared = await gateway.dispatchIssueComment(s.input())
+    expect(shared.error?.code).toBe("approval.pending")
+  })
+
   it("approves exact args once, replays the durable receipt, and rejects changed args", async () => {
     expect(gateway).toBeDefined()
     if (!gateway) return
