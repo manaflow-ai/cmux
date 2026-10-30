@@ -76,7 +76,7 @@ enum WorkspaceCreation {
     /// keyed and waited for through a late start, so a busy daemon never makes the workspace the person sees close
     /// (P0 2026-10-30, R3).
     static func firstTerminal(in key: WorkspaceKey, cwd: String?, on connection: DaemonConnection) async throws -> CreateTerminalResult {
-        try await connection.createTerminalWaitingForStart(in: key, cwd: cwd)
+        try await connection.createTerminal(in: key, cwd: cwd) // RED PROOF: the first terminal on the 5 s start deadline
     }
 
     /// Creates workspace `key` and its first tab from `firstTab`, which gets
