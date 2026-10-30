@@ -245,7 +245,8 @@ test.each(["Trust button", "out-of-band trust"] as const)(
     // Start the destination peer. Its session/new refusal opens the peer's trust question.
     let opened: Promise<unknown> | undefined;
     await act(
-      async () => void (opened = actions()!["chat.new"]!({ harness: "fake", cwd: folder, peer }).catch(() => undefined)),
+      async () =>
+        void (opened = actions()!["chat.new"]!({ harness: "fake", cwd: folder, peer }).catch(() => undefined)),
     );
     await until(() => trustCard() !== undefined, "the peer trust question shows");
     expect(starts).toBe(1);

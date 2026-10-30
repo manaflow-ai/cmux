@@ -5,12 +5,15 @@ import { HarnessSwitch } from "../src/agent-session/acpmux/harnessSwitch";
 
 // The fake daemon creates a session from the real client's session/new and returns that
 // session through attach. Assert the selected chat's state, not the seed or catalog schema.
-async function start(seed: Partial<AcpmuxHostConfig>, options: {
-  failStarts?: number;
-  trustStarts?: number;
-  holdPeerStart?: boolean;
-  holdLocalStart?: boolean;
-} = {}) {
+async function start(
+  seed: Partial<AcpmuxHostConfig>,
+  options: {
+    failStarts?: number;
+    trustStarts?: number;
+    holdPeerStart?: boolean;
+    holdLocalStart?: boolean;
+  } = {},
+) {
   let socket: any;
   let session: any;
   let snapshot: any;
@@ -282,9 +285,7 @@ for (const abandoned of [false, true]) {
       await run.client.create("fake", "/local/project");
       const original = run.snapshot().sessionId;
       run.failNext();
-      await expect(run.client.create("fake", "/remote/project", "other-box")).rejects.toThrow(
-        "fixture start failed",
-      );
+      await expect(run.client.create("fake", "/remote/project", "other-box")).rejects.toThrow("fixture start failed");
       expect(run.snapshot().sessionId).toBe(original);
       expect(run.client.trustPeer).toBeUndefined();
       if (abandoned) run.client.leave();
@@ -334,9 +335,7 @@ for (const existing of [false, true]) {
 test("a failed sessionless peer start drops its trust route", async () => {
   const run = await start({ cwd: "/local/project" }, { failStarts: 1 });
   try {
-    await expect(run.client.create("fake", "/remote/project", "other-box")).rejects.toThrow(
-      "fixture start failed",
-    );
+    await expect(run.client.create("fake", "/remote/project", "other-box")).rejects.toThrow("fixture start failed");
     expect(run.client.trustPeer).toBeUndefined();
     await run.client.trustGet("/local/project");
     await run.client.trustSet("/local/project", "unknown");
@@ -365,85 +364,78 @@ test("a local trust refusal does not fall back to the seeded peer", async () => 
   }
 });
 
-test.each([false, true])(
-  "a deferred local switch sends after its gated start (trust=%s)",
-  async (trustFirst) => {
-    const run = await start(
-      { cwd: "/tmp", harness: "fake" },
-      { holdLocalStart: true, trustStarts: trustFirst ? 1 : 0 },
-    );
-    let retryTrust: (() => void) | undefined;
-    let refused = () => {};
-    const trustRefused = new Promise<void>((resolve) => {
-      refused = resolve;
-    });
-    run.client.onTrustRefused = (_error, again) => {
-      retryTrust = again;
-      refused();
-    };
-    const harnessSwitch = new HarnessSwitch();
-    harnessSwitch.connect({
-      turnRunning: () => run.client.turnRunning(),
-      shown: () => run.client.shownSession(),
-      create: (harness, cwd, model) => run.client.startSession(
-        harness, cwd, undefined, () => harnessSwitch.resumeAfterTrust(), false, model,
-      ),
-      leave: () => run.client.leave(),
-      open: (sessionId) => run.client.select(sessionId),
-      send: (text, attachments, promptId) => run.client.send(text, attachments, promptId),
-      setModel: (model) => run.client.setModel(model),
-      setMode: (mode, ticket) => run.client.setMode(mode, ticket),
-      setConfig: (configId, value, ticket) => run.client.setConfig(configId, value, ticket),
-      discard: (sessionId) => run.client.discard(sessionId),
-      prewarm: (harness, cwd) => run.client.prewarm(harness, cwd),
-      prewarmSupported: () => run.client.prewarmSupported,
-      startsOnSend: () => run.client.startsOnSend,
-    });
-    try {
-      const opening = harnessSwitch.switchTo("fake", "/tmp", { deferred: true });
-      await run.localStart;
-      const sending = harnessSwitch.send("first local prompt", [], undefined, "prompt-1");
-      expect(sending).toBeDefined();
-      await Promise.resolve();
-      expect(run.client.selectedSession).toBeUndefined();
-      expect(run.promptRequests).toHaveLength(0);
+test.each([false, true])("a deferred local switch sends after its gated start (trust=%s)", async (trustFirst) => {
+  const run = await start({ cwd: "/tmp", harness: "fake" }, { holdLocalStart: true, trustStarts: trustFirst ? 1 : 0 });
+  let retryTrust: (() => void) | undefined;
+  let refused = () => {};
+  const trustRefused = new Promise<void>((resolve) => {
+    refused = resolve;
+  });
+  run.client.onTrustRefused = (_error, again) => {
+    retryTrust = again;
+    refused();
+  };
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect({
+    turnRunning: () => run.client.turnRunning(),
+    shown: () => run.client.shownSession(),
+    create: (harness, cwd, model) =>
+      run.client.startSession(harness, cwd, undefined, () => harnessSwitch.resumeAfterTrust(), false, model),
+    leave: () => run.client.leave(),
+    open: (sessionId) => run.client.select(sessionId),
+    send: (text, attachments, promptId) => run.client.send(text, attachments, promptId),
+    setModel: (model) => run.client.setModel(model),
+    setMode: (mode, ticket) => run.client.setMode(mode, ticket),
+    setConfig: (configId, value, ticket) => run.client.setConfig(configId, value, ticket),
+    discard: (sessionId) => run.client.discard(sessionId),
+    prewarm: (harness, cwd) => run.client.prewarm(harness, cwd),
+    prewarmSupported: () => run.client.prewarmSupported,
+    startsOnSend: () => run.client.startsOnSend,
+  });
+  try {
+    const opening = harnessSwitch.switchTo("fake", "/tmp", { deferred: true });
+    await run.localStart;
+    const sending = harnessSwitch.send("first local prompt", [], undefined, "prompt-1");
+    expect(sending).toBeDefined();
+    await Promise.resolve();
+    expect(run.client.selectedSession).toBeUndefined();
+    expect(run.promptRequests).toHaveLength(0);
 
-      run.releaseLocal();
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      try {
-        const result = await Promise.race([
-          (async () => {
-            if (trustFirst) {
-              await trustRefused;
-              expect(retryTrust).toBeDefined();
-              await run.client.trustGet("/tmp");
-              await run.client.trustSet("/tmp", "trusted");
-              expect(run.trustRequests).toEqual([
-                { method: "acp.trust.get", params: { cwd: "/tmp" } },
-                { method: "acp.trust.set", params: { cwd: "/tmp", level: "trusted" } },
-              ]);
-              retryTrust!();
-            }
-            return Promise.all([opening, sending!]);
-          })(),
-          new Promise<never>((_, reject) => {
-            timeout = setTimeout(() => reject(new Error("deferred local send timed out")), 1_000);
-          }),
-        ]);
-        expect(result[0]).toBe(trustFirst ? "seeded-chat-2" : "seeded-chat-1");
-      } finally {
-        if (timeout) clearTimeout(timeout);
-      }
-      expect(run.client.selectedSession).toBe(trustFirst ? "seeded-chat-2" : "seeded-chat-1");
-      expect(run.promptRequests).toHaveLength(1);
-      expect(run.promptRequests[0]).toMatchObject({
-        sessionId: trustFirst ? "seeded-chat-2" : "seeded-chat-1",
-        prompt: [{ type: "text", text: "first local prompt" }],
-      });
+    run.releaseLocal();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        (async () => {
+          if (trustFirst) {
+            await trustRefused;
+            expect(retryTrust).toBeDefined();
+            await run.client.trustGet("/tmp");
+            await run.client.trustSet("/tmp", "trusted");
+            expect(run.trustRequests).toEqual([
+              { method: "acp.trust.get", params: { cwd: "/tmp" } },
+              { method: "acp.trust.set", params: { cwd: "/tmp", level: "trusted" } },
+            ]);
+            retryTrust!();
+          }
+          return Promise.all([opening, sending!]);
+        })(),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error("deferred local send timed out")), 1_000);
+        }),
+      ]);
+      expect(result[0]).toBe(trustFirst ? "seeded-chat-2" : "seeded-chat-1");
     } finally {
-      run.releaseLocal();
-      harnessSwitch.cancel();
-      run.client.close();
+      if (timeout) clearTimeout(timeout);
     }
-  },
-);
+    expect(run.client.selectedSession).toBe(trustFirst ? "seeded-chat-2" : "seeded-chat-1");
+    expect(run.promptRequests).toHaveLength(1);
+    expect(run.promptRequests[0]).toMatchObject({
+      sessionId: trustFirst ? "seeded-chat-2" : "seeded-chat-1",
+      prompt: [{ type: "text", text: "first local prompt" }],
+    });
+  } finally {
+    run.releaseLocal();
+    harnessSwitch.cancel();
+    run.client.close();
+  }
+});
