@@ -6736,6 +6736,12 @@ function AcpmuxPane() {
         agent.endedAt ?? "",
         agent.agentId ?? "",
         retryKey(agent),
+        agent.tokens ?? "",
+        agent.toolUses ?? "",
+        agent.progressVersion ?? "",
+        agent.agents
+          ? `${agent.agents.done}/${agent.agents.started}/${agent.agents.failed ?? 0}/${agent.agents.queued ?? 0}`
+          : "",
       ].join("\u0000"),
     )
     .join("\u0001");

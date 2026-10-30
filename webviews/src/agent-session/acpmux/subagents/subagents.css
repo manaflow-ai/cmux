@@ -567,6 +567,14 @@ button.cv-subagent > :last-child {
   flex: 1;
   min-width: 0;
 }
+/* Progress is a second line and may wrap for long counts or narrow panes. Keep the compact
+   28px row when it fits, but let both the tray and Inspector row grow instead of clipping it. */
+.acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
+  height: auto;
+  min-height: 28px;
+  align-items: flex-start;
+  padding-block: 4px;
+}
 .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
   /* Reserve the final track while keeping the stop control outside the button. */
   padding-right: calc(8px + var(--acpmux-tray-stop-width) + 8px);
@@ -849,4 +857,14 @@ button.cv-subagent > :last-child {
     opacity: 0;
     translate: 0 -0.4em;
   }
+}
+
+/* Counts and warnings remain readable even when the name or action needs truncation. */
+.acpmux-agent-line__progress {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
 }
