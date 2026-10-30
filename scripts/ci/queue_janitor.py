@@ -208,6 +208,7 @@ import owned_warm_state  # noqa: E402
 import ui_tests_dispatch  # noqa: E402
 import starved_labels  # noqa: E402
 from delivery_workflows import REPLACEMENT_JOB_READS, attempt_jobs, build_started, is_delivery_run  # noqa: E402
+from delivery_workflows import is_delivery_workflow  # noqa: E402
 from delivery_workflows import newer_head_runs, superseded_unstarted  # noqa: E402
 
 
@@ -665,11 +666,26 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
     return MacosUsage(queued, running, oldest, compiling, decided_by, decided_at, held_by_pool, queued_by_pool)
 
 
-# Workflows whose queued macOS jobs a pull request must not take a pool from.
+# Workflows whose queued macOS jobs a pull request must not take a pool from (`reserved_queued`): freshness
+# work, the release workflow below plus every delivery workflow (delivery_workflows.DELIVERY_GLOBS: nightly,
+# its sign, verify and notarization follow-ups, DEV and promote builds). One declared list, so a new nightly
+# or notarization workflow reserves its label without an edit here; tests/test_ci_queue_janitor.py fails on a
+# nightly, release, promote or notarization workflow with a Blacksmith macOS job that is neither reserved nor
+# exempted there. auto-resume-nightly-notarization.yml was missing from the old release|nightly regex, so on
+# 2026-10-30 12:43Z its three wait-and-staple jobs queued on blacksmith-6vcpu-macos-26 behind 22 pull request
+# overflow jobs without holding the label.
 # Match the workflow path only.  CI run names include routing metadata such as
 # ``release=arm64``; looking at the combined name and path made every ordinary
 # pull-request run look like a release reservation.
-RESERVED_POOL_WORKFLOW = re.compile(r"(?:^|/)(?:release|nightly)\.yml$", re.IGNORECASE)
+RESERVED_RELEASE_WORKFLOWS = frozenset({"release.yml"})
+
+
+def reserves_pool(path: str | None) -> bool:
+    """Whether a run of the workflow at `path` is freshness work whose queued jobs hold their pool."""
+    name = Path(str(path or "").split("@", 1)[0]).name.lower()
+    return name in RESERVED_RELEASE_WORKFLOWS or is_delivery_workflow(name)
+
+
 POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
 POOL_LOAD_VERSION = 1
 # Environment variable -> snapshot settings key, for pr_runner_pool.py.
@@ -854,8 +870,9 @@ def pool_load_snapshot(
     every Blacksmith job, so pr_runner_pool.py can look a label up directly.
     Only jobs waiting for a runner count as queued; a `waiting` job is held
     by an environment approval and asks no pool for anything yet.
-    `reserved_queued` counts the queued jobs of release and nightly runs; it
-    is what tells a pull request to stay off a pool those runs are waiting on.
+    `reserved_queued` counts the queued jobs of release, nightly, DEV and
+    promote runs (reserves_pool()); it is what tells a pull request to stay
+    off a pool those runs are waiting on.
     `settings` carries the pool-choice repository variables, which a fork
     pull request's run cannot read itself.
 
@@ -881,7 +898,7 @@ def pool_load_snapshot(
     oldest: dict[str, dt.datetime] = {}
     committed: dict[str, int] = {}
     for run in runs:
-        reserved = bool(RESERVED_POOL_WORKFLOW.search(str(run.get("path") or "")))
+        reserved = reserves_pool(run.get("path"))
         seen: dict[str, int] = {}
         for job in jobs_by_run.get(run.get("id"), ()):
             if is_macos_job(job) and owned_label(job) and job.get("status") in (
@@ -2396,7 +2413,7 @@ def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
         return f"{event} event"
     if TAG_LIKE_REF.match(branch):
         return f"tag-like ref {branch}"
-    # Match the workflow path only, as RESERVED_POOL_WORKFLOW does: ci.yml's
+    # Match the workflow path only, as reserves_pool() does: ci.yml's
     # run name carries `release=arm64`, which kept an orphaned main dispatch
     # holding CI's concurrency group (and every later main run pending).
     if ORPHAN_PROTECTED_WORKFLOW.search(str(run.get("path") or "")):
