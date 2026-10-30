@@ -124,14 +124,52 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
 }
 
 /// Resumes or opens the machine (one click: the app checks the gesture and the machine), then
-/// reads the list again so its new stage shows.
+/// reads the list again so its new stage shows; a resume shows as starting at once.
 export function runCloudMachine(machine: CloudMachine, call: Call = postNative): Promise<void> {
   const method = cloudMachineAction(machine) === "resume" ? "cloudMachine.resume" : "cloudMachine.open";
-  // A list read already in flight was asked before the action: wait it out, then read again.
+  // A resume shows at once: the paused row reads Starting… while the app wakes the machine, not
+  // Paused · Resume until the next read (a second pick would ask again).
+  if (method === "cloudMachine.resume")
+    publish(machines.map((other) => (other.id === machine.id ? { ...other, stage: "requesting" } : other)));
+  // A list read already in flight was asked before the action: wait it out, then read again. A
+  // refused action shows as Couldn't start (the list would only say Paused again), so a pick that
+  // waits on the machine stops waiting instead of reading Starting… for ever.
+  let refused = false;
   return call(method, { id: machine.id })
-    .catch(() => undefined)
+    .catch(() => {
+      refused = true;
+    })
     .then(() => inFlight)
-    .then(() => refreshCloudMachines(call));
+    .then(() =>
+      refused
+        ? publish(machines.map((other) => (other.id === machine.id ? { ...other, stage: "failed" } : other)))
+        : refreshCloudMachines(call),
+    );
+}
+
+/// After a pause or resume the app runs the action in the background and its list catches up
+/// when the action's own list read lands (a resume may take as long as a machine's start, up to
+/// 16 minutes): the list is read at these waits (ms) after the pick, from every second to every
+/// minute, and the reads stop once the machine's stage moved on, or after the last one (16
+/// minutes in all).
+export const ACTION_READS_MS = [0, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000, ...Array<number>(15).fill(60_000)];
+
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/// Reads the list until `machine` (as it was when picked) shows another stage, or is gone.
+export async function readUntilMoved(
+  machine: CloudMachine,
+  call: Call = postNative,
+  wait: (ms: number) => Promise<void> = pause,
+): Promise<void> {
+  // A read already in flight was asked before the action.
+  await inFlight;
+  for (const ms of ACTION_READS_MS) {
+    if (ms > 0) await wait(ms);
+    await refreshCloudMachines(call);
+    const now = machines.find((candidate) => candidate.id === machine.id);
+    if (now?.stage !== machine.stage) return;
+  }
 }
 
 export function useCloudMachines(): readonly CloudMachine[] {
