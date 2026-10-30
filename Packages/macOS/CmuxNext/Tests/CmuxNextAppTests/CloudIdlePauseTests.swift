@@ -360,6 +360,30 @@ struct CloudIdlePauseTests {
         #expect(f.services.machines.session(session.machineID) == nil, "a newer list removes it")
     }
 
+    /// A newer list that first shows a machine (and creates its session) holds that machine's
+    /// ticket: an older list landing after it without the machine does not remove it, and an
+    /// older Machine Status record does not overwrite it.
+    @Test(.timeLimit(.minutes(1)))
+    func aMachineANewerListAddedKeepsThatListsTicket() throws {
+        let services = MachineIconTests.services()
+        let cloud = services.cloud, id = "vm-listed-\(UUID().uuidString.prefix(8))"
+        let olderStatus = cloud.beginRecordRead(), olderList = cloud.beginRecordRead(), newerList = cloud.beginRecordRead()
+        let listed = CloudMachine(id: id, status: .paused, displayName: "Listed VM")
+        cloud.reconcile([listed], read: newerList)
+        // A test process has no cmux-tui for a legacy link, so the list's create may make no
+        // session: stand one in, as that create would have.
+        let session = services.machines.session(id) ?? MachineIconTests.cloudMachine(services, id: id)
+        session.machine = listed
+
+        var running = listed
+        running.status = .running
+        cloud.apply(running, to: session, read: olderStatus)
+        #expect(session.machine.status == .paused, "an older record does not overwrite the newer list's")
+        cloud.reconcile([], read: olderList)
+        #expect(services.machines.session(id) === session, "an older list does not remove it")
+        session.disconnect()
+    }
+
     /// Waits up to 20 seconds for `condition`, which the session's connect makes true.
     static func waitUntil(_ condition: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(20)
