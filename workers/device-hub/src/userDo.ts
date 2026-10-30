@@ -949,8 +949,23 @@ export class UserDO extends DurableObject<Env> {
         return false;
       }
     }
-    if (a === "permissions" && n === 3 && m === "PUT") return b === me.id;
-    if (a === "sessions" && n === 3 && m === "POST") return d === "decision" || d === "end" || d === "ice";
+    if (a === "permissions" && n === 3 && m === "PUT") {
+      // Only lower a viewer's access on this Mac: raising needs the signed-in app.
+      if (b !== me.id || !d) return false;
+      let scope: unknown;
+      try {
+        scope = (JSON.parse(new TextDecoder().decode(raw)) as { scope?: unknown }).scope;
+      } catch {
+        return false;
+      }
+      const order = PERMISSION_SCOPES as string[];
+      const wanted = order.indexOf(scope as string);
+      return wanted >= 0 && (scope === "none" || wanted < order.indexOf(this.permission(me.id, d)));
+    }
+    if (a === "sessions" && n === 3 && m === "POST" && (d === "decision" || d === "end" || d === "ice")) {
+      // Only this Mac's own sessions as their host.
+      return this.session(b!)?.host_id === me.id;
+    }
     return false;
   }
 

@@ -14,6 +14,8 @@ private let logger = Logger(subsystem: "com.cmuxterm.remote", category: "device-
 struct ScreenSharingState: Codable, Equatable, Sendable {
     var userID: String?
     var hubURL: String?
+    /// The app has told this worker its join consent at least once; until then no session serves.
+    var consentKnown = false
     /// The app's join consent: when `enabled`, a session needs `view` (or `full` for Full Control).
     var consentEnabled = false
     var consentView = true
@@ -31,6 +33,7 @@ struct ScreenSharingState: Codable, Equatable, Sendable {
     }
 
     func permits(_ scope: SessionScope) -> Bool {
+        guard consentKnown else { return false }
         guard consentEnabled else { return true }
         return scope == .full ? consentFull : consentView
     }
@@ -118,6 +121,7 @@ final class DeviceAgent {
     }
 
     func setConsent(enabled: Bool, view: Bool, full: Bool) {
+        state.consentKnown = true
         state.consentEnabled = enabled
         state.consentView = view
         state.consentFull = full
@@ -200,9 +204,14 @@ final class DeviceAgent {
         }
     }
 
-    /// A viewer's access on this Mac. A host session may lower it; raising needs the app.
+    /// A viewer's access on this Mac. A host session may only lower it (the hub enforces it too).
     func setAccess(viewer: String, scope: DeviceScope) async -> Result<DeviceScope, DeviceHubError> {
         guard let hub else { return .failure(.notSignedIn) }
+        let order: [DeviceScope] = [.none, .ask, .view, .full]
+        let current = hub.scope(host: hub.identity.id, viewer: viewer)
+        guard (order.firstIndex(of: scope) ?? 3) < (order.firstIndex(of: current) ?? 0) || scope == .none else {
+            return .failure(.server(status: 403, code: .other("host_scope"), message: "raising a device's access needs the cmux app"))
+        }
         do {
             try await hub.setPermission(host: hub.identity.id, viewer: viewer, scope: scope)
             return .success(scope)
@@ -239,14 +248,24 @@ final class DeviceAgent {
 
 }
 
-/// The User DO socket's frames, fanned out to the app's subscriptions: the
-/// app's own hub model (viewer pushes, device lists) reads the one socket
-/// this device may have.
+/// The User DO socket's frames, fanned out to the app's subscriptions: the app's own hub
+/// model (viewer pushes, device lists) reads the one socket this device may have. Each
+/// subscriber has its own serial queue and at most `limit` frames waiting; one that falls that
+/// far behind (an app that stopped reading) is dropped, so it never stalls the hub socket.
 final class PushRelay: Sendable {
-    private let subscribers = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: @Sendable (Data) -> Bool]())
+    private struct Subscriber: Sendable {
+        let queue: DispatchQueue
+        let pending: OSAllocatedUnfairLock<Int>
+        let send: @Sendable (Data) -> Bool
+    }
+
+    static let limit = 256
+    private let subscribers = OSAllocatedUnfairLock(initialState: [ObjectIdentifier: Subscriber]())
 
     func add(_ id: ObjectIdentifier, _ send: @escaping @Sendable (Data) -> Bool) {
-        subscribers.withLock { $0[id] = send }
+        let subscriber = Subscriber(queue: DispatchQueue(label: "cmux-remote.push-relay", qos: .utility),
+                                    pending: OSAllocatedUnfairLock(initialState: 0), send: send)
+        subscribers.withLock { $0[id] = subscriber }
     }
 
     func remove(_ id: ObjectIdentifier) {
@@ -257,7 +276,21 @@ final class PushRelay: Sendable {
 
     func publish(_ line: Data) {
         let all = subscribers.withLock { $0 }
-        for (id, send) in all where !send(line) { remove(id) }
+        for (id, subscriber) in all {
+            let queued = subscriber.pending.withLock { pending -> Bool in
+                guard pending < Self.limit else { return false }
+                pending += 1
+                return true
+            }
+            guard queued else {
+                remove(id)
+                continue
+            }
+            subscriber.queue.async { [weak self] in
+                subscriber.pending.withLock { $0 -= 1 }
+                if !subscriber.send(line) { self?.remove(id) }
+            }
+        }
     }
 }
 

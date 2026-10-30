@@ -111,6 +111,7 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
                 RemoteRefused { code: "bad_request", message: "screen.access needs device and scope (none, ask, view, full)".into() }
             })?;
             if !caller.verified_app {
+                // The worker and the hub refuse a raise too; this is the daemon's own first check.
                 let current = host
                     .status()
                     .pointer("/host/screen/devices")
@@ -127,7 +128,14 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
             return Err(RemoteRefused { code: "bad_request", message: format!("unknown cmux Remote method {method}") }.into());
         }
     }
-    host.call(method, params).map_err(unavailable)
+    let mut answer = host.call(method, params).map_err(unavailable)?;
+    // The device list is the verified app's only, whichever command reads it.
+    if !caller.verified_app
+        && let Some(screen) = answer.get_mut("screen").and_then(Value::as_object_mut)
+    {
+        screen.remove("devices");
+    }
+    Ok(answer)
 }
 
 pub(super) fn config(mux: &Mux, client: u64, update: Value) -> anyhow::Result<Value> {

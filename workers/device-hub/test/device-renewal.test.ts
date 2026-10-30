@@ -52,9 +52,38 @@ describe("device-key renewal (cmux Remote with the app quit)", () => {
     await refused("PATCH", `/v1/devices/${phone.id}`, { name: "x" });
     await refused("DELETE", `/v1/devices/${phone.id}`);
     await refused("POST", "/v1/auth/device/anchor", {});
-    // Lowering is allowed: a viewer to None, sharing off.
+    // Raising a viewer is refused, from Ask (the default) to View or Full.
+    await refused("PUT", `/v1/permissions/${mac.id}/${phone.id}`, { scope: "view" });
+    await refused("PUT", `/v1/permissions/${mac.id}/${phone.id}`, { scope: "full" });
+    // Lowering is allowed: Full (set by the app) to View, then to None; sharing off.
+    expect((await mac.call("PUT", `/v1/permissions/${mac.id}/${phone.id}`, { scope: "full" })).status).toBe(200);
+    expect((await mac.call("PUT", `/v1/permissions/${mac.id}/${phone.id}`, { scope: "view" }, { session: host })).status).toBe(200);
+    await refused("PUT", `/v1/permissions/${mac.id}/${phone.id}`, { scope: "full" });
     expect((await mac.call("PUT", `/v1/permissions/${mac.id}/${phone.id}`, { scope: "none" }, { session: host })).status).toBe(200);
     expect((await mac.call("PUT", `/v1/devices/${mac.id}/mac-screen`, { shared: false }, { session: host })).status).toBe(200);
+  });
+
+  it("a host session acts only on sessions where this Mac is the host", async () => {
+    const account = await signIn();
+    const mac = await Device.create(account, "Studio", "macos");
+    const other = await Device.create(account, "Other Mac", "macos");
+    await mac.register();
+    await other.register();
+    await other.share(true);
+    await mac.connect();
+    await other.connect();
+    await mac.call("POST", "/v1/auth/device/anchor", {});
+    expect((await other.call("PUT", `/v1/permissions/${other.id}/${mac.id}`, { scope: "view" })).status).toBe(200);
+    // This Mac is the viewer of a session to the other Mac (with its full session).
+    const asViewer = await mac.call("POST", "/v1/sessions", { hostId: other.id, scope: "view" });
+    expect(asViewer.status, JSON.stringify(asViewer.json)).toBe(200);
+    const sid = asViewer.json.session.id as string;
+    const host = (await renew(mac)).json.session as string;
+    for (const d of ["end", "ice"]) {
+      const res = await mac.call("POST", `/v1/sessions/${sid}/${d}`, d === "end" ? { reason: "x" } : undefined, { session: host });
+      expect(res.status, d).toBe(403);
+      expect(res.json.error.code).toBe("host_scope");
+    }
   });
 
   it("the session is that device's only: another device's signature is refused", async () => {

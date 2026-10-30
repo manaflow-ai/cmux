@@ -19,6 +19,8 @@ public struct HostBootstrap: Sendable {
     public var headless: Bool
     /// The device hub the Screen Sharing worker joins.
     public var hubURL: String?
+    /// The daemon's own socket: a supervisor is admitted only when it is the process serving it.
+    public var daemonSocket: String?
 
     public init?(line: [String: Any]) {
         guard let secret = (line["supervisor_secret"] as? String).flatMap(RemoteWire.unhex), secret.count >= 16 else { return nil }
@@ -28,6 +30,7 @@ public struct HostBootstrap: Sendable {
         screenSharing = line["screen_sharing"] as? Bool ?? false
         headless = line["headless"] as? Bool ?? true
         hubURL = line["hub_url"] as? String
+        daemonSocket = (line["daemon_socket"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
     }
 }
 
@@ -57,7 +60,7 @@ public final class RemoteHost: NSObject, NSApplicationDelegate {
         let launch = WorkerLaunch(executable: executable, environment: workerEnvironment, logPath: layout.log,
                                   stateDirectory: stateDirectory, scope: scope)
         permissions = PermissionAuthority(probe: PermissionAuthority.processProbe(executable: executable, logPath: layout.log))
-        let core = HostCore(secret: bootstrap.supervisorSecret, daemonBuild: bootstrap.daemonBuild)
+        let core = HostCore(secret: bootstrap.supervisorSecret, daemonBuild: bootstrap.daemonBuild, daemonSocket: bootstrap.daemonSocket)
         self.core = core
         screen = ScreenWorkerSupervisor(launch: launch, layout: layout) { core.statusChanged() }
         computerUse = ComputerUseWorkers(launch: launch, layout: layout) { core.statusChanged() }
@@ -146,6 +149,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
     private let lock = NSLock()
     private let secret: Data
     private let daemonBuild: String
+    private let daemonSocket: String?
     weak var host: RemoteHost?
     private var supervisors: [LineChannel] = []
     private var appGrant: (stamp: ProcessStamp, secret: Data)?
@@ -154,9 +158,18 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
     /// When the current grants were first seen (a worker started before must restart).
     private var grantsChangedAt = Date.distantPast
 
-    init(secret: Data, daemonBuild: String) {
+    init(secret: Data, daemonBuild: String, daemonSocket: String?) {
         self.secret = secret
         self.daemonBuild = daemonBuild
+        self.daemonSocket = daemonSocket
+    }
+
+    /// Whether `channel`'s peer is the cmux-tui daemon: the process serving the daemon socket the
+    /// host was started for. The secret alone is not enough (the record that keeps it for the
+    /// next daemon is readable by every process of this user).
+    private func isDaemon(_ channel: LineChannel) -> Bool {
+        guard let daemonSocket, let peer = channel.peer?.pid else { return false }
+        return LocalSocket.listenerPID(daemonSocket) == peer
     }
 
     var config: (computerUse: Bool, screenSharing: Bool, headless: Bool) {
@@ -222,19 +235,28 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
     // MARK: Supervisor socket (the daemon)
 
     func serveSupervisor(_ channel: LineChannel) {
+        // A silent peer never holds this thread: the hello has 5 s.
+        channel.setReadTimeout(5)
         guard let hello = channel.readObject(), hello["type"] as? String == "hello",
-              let given = (hello["secret"] as? String).flatMap(RemoteWire.unhex), RemoteWire.sameSecret(given, secret) else {
+              let given = (hello["secret"] as? String).flatMap(RemoteWire.unhex), RemoteWire.sameSecret(given, secret),
+              isDaemon(channel) else {
             channel.write(RemoteWire.failure(id: nil, code: "refused", message: "bad hello"))
             channel.close()
             return
         }
+        channel.setReadTimeout(0)
         let minimum = hello["min"] as? Int ?? 1, maximum = hello["max"] as? Int ?? 1
         guard let version = RemoteWire.negotiate(peerMinimum: minimum, peerMaximum: maximum) else {
             channel.write(RemoteWire.failure(id: nil, code: "protocol", message: "no common protocol (host speaks \(RemoteWire.minimumProtocol)...\(RemoteWire.maximumProtocol))"))
             channel.close()
             return
         }
-        lock.withLock { supervisors.append(channel) }
+        // One daemon at a time: a handoff's new daemon replaces the old one's connection.
+        let replaced = lock.withLock { () -> [LineChannel] in
+            defer { supervisors = [channel] }
+            return supervisors
+        }
+        for old in replaced { old.close() }
         Task { @MainActor in self.host?.daemonArrived() }
         var reply: [String: Any] = ["type": "hello", "protocol": version]
         for (key, value) in status() { reply[key] = value }
@@ -326,6 +348,7 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
     /// that exact process; then one `open` that turns the connection into a
     /// channel (Computer Use control, or the Screen Sharing worker's socket).
     func serveApp(_ channel: LineChannel) {
+        channel.setReadTimeout(5)
         guard let hello = channel.readObject(), hello["type"] as? String == "hello",
               let given = (hello["secret"] as? String).flatMap(RemoteWire.unhex),
               let grant = lock.withLock({ appGrant }), RemoteWire.sameSecret(given, grant.secret),
@@ -335,6 +358,8 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             return
         }
         guard let host, let request = channel.readObject() else { return channel.close() }
+        // The channel's reads (the pumps) wait as long as the app keeps it open.
+        channel.setReadTimeout(0)
         let id = request["id"]
         switch request["channel"] as? String {
         case RemoteWorkerKind.computerUse.rawValue:

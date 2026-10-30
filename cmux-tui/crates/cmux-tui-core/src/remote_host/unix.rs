@@ -75,6 +75,8 @@ pub(crate) struct Paths {
     pub(crate) state: PathBuf,
     /// This app build's scope (the worker's Keychain items, one device per build).
     pub(crate) scope: String,
+    /// The daemon's own socket: the host admits a supervisor only when it is the process serving it.
+    pub(crate) daemon_socket: PathBuf,
 }
 
 impl Paths {
@@ -104,7 +106,12 @@ pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
         runtime = crate::platform::fallback_runtime_dir().join(leaf);
     }
     let scope_digest = digest(state_root.as_os_str().as_encoded_bytes());
-    Paths { runtime, state: state_root.join("remote"), scope: format!("s{}", &scope_digest[..16]) }
+    Paths {
+        runtime,
+        state: state_root.join("remote"),
+        scope: format!("s{}", &scope_digest[..16]),
+        daemon_socket: daemon_socket.to_path_buf(),
+    }
 }
 
 /// The daemon's view of its host.
@@ -145,6 +152,8 @@ struct Connection {
     next_id: std::sync::atomic::AtomicU64,
     /// The latest `status` the host reported (its hello, then each event).
     status: Mutex<Value>,
+    /// Set when the host's connection ended (it exited or drained).
+    closed: (Mutex<bool>, std::sync::Condvar),
 }
 
 impl RemoteHostSupervisor {
@@ -267,11 +276,19 @@ impl Inner {
             let staged = platform::stage(&paths.state)?;
             if let Some(record) = read_record(&paths.record()) {
                 match Self::adopt(this, &record) {
-                    Ok(connection) => {
-                        if record.bundle_digest != staged.digest {
-                            Self::upgrade(this, &connection);
-                        }
+                    Ok(connection) if record.bundle_digest == staged.digest => return Ok(connection),
+                    Ok(connection) if connection.busy() => {
+                        // Another build serving a session: keep it until it reports idle, then replace it.
+                        *lock(&this.upgrade_pending) = true;
                         return Ok(connection);
+                    }
+                    Ok(connection) => {
+                        // Another build, idle: drain it now and start this build's copy in this call.
+                        connection.notify("drain");
+                        if !connection.wait_closed(Duration::from_secs(10)) {
+                            return Err("the previous cmux Remote did not stop for the upgrade".into());
+                        }
+                        let _ = std::fs::remove_file(paths.record());
                     }
                     Err(reason) => eprintln!("cmux-tui: cmux Remote: not adopting pid {}: {reason}", record.pid),
                 }
@@ -284,6 +301,7 @@ impl Inner {
                 "computer_use": config.computer_use,
                 "screen_sharing": config.screen_sharing,
                 "headless": config.headless,
+                "daemon_socket": paths.daemon_socket.display().to_string(),
             }), READY_TIMEOUT)?;
             let (start_sec, start_usec) = platform::process_start(pid).ok_or("the new host exited at once")?;
             let record = HostRecord {
@@ -340,6 +358,7 @@ impl Inner {
             pending: Mutex::new(HashMap::new()),
             next_id: std::sync::atomic::AtomicU64::new(1),
             status: Mutex::new(answer),
+            closed: (Mutex::new(false), std::sync::Condvar::new()),
         });
         let weak = Arc::downgrade(this);
         let reading = Arc::clone(&connection);
@@ -371,22 +390,16 @@ impl Inner {
                 let idle = !status.get("busy").and_then(Value::as_bool).unwrap_or(false);
                 *lock(&connection.status) = status;
                 if idle && this.upgrade().is_some_and(|inner| *lock(&inner.upgrade_pending)) {
-                    let _ = connection.call("drain", json!({}));
+                    // Never a call here: only this thread reads the answer.
+                    connection.notify("drain");
                 }
             }
         }
         lock(&connection.pending).clear();
+        *lock(&connection.closed.0) = true;
+        connection.closed.1.notify_all();
         let Some(inner) = this.upgrade() else { return };
         Self::host_gone(&inner, connection);
-    }
-
-    /// Another embedded build: drain now when idle, else when the host reports idle.
-    fn upgrade(this: &Arc<Self>, connection: &Arc<Connection>) {
-        *lock(&this.upgrade_pending) = true;
-        let busy = lock(&connection.status).get("busy").and_then(Value::as_bool).unwrap_or(false);
-        if !busy {
-            let _ = connection.call("drain", json!({}));
-        }
     }
 
     /// The host's connection ended (it exited, crashed or drained): forget it,
@@ -445,12 +458,34 @@ impl Inner {
     fn stop(this: &Arc<Self>) {
         let state = std::mem::take(&mut *lock(&this.state));
         if let State::Running(connection) = state {
-            let _ = connection.call("drain", json!({}));
+            connection.notify("drain");
         }
     }
 }
 
 impl Connection {
+    /// Whether the host reports a running Screen Sharing session.
+    fn busy(&self) -> bool {
+        lock(&self.status).get("busy").and_then(Value::as_bool).unwrap_or(false)
+    }
+
+    /// One request whose answer nobody waits for.
+    fn notify(&self, method: &str) {
+        let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let _ = writeln!(lock(&self.writer), "{}", json!({"id": id, "method": method, "params": {}}));
+    }
+
+    /// Waits until the host's connection ended, at most `limit`; whether it did.
+    fn wait_closed(&self, limit: Duration) -> bool {
+        let guard = lock(&self.closed.0);
+        let (guard, _) = self
+            .closed
+            .1
+            .wait_timeout_while(guard, limit, |closed| !*closed)
+            .unwrap_or_else(PoisonError::into_inner);
+        *guard
+    }
+
     fn call(&self, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let (sender, receiver): (SyncSender<Value>, Receiver<Value>) = std::sync::mpsc::sync_channel(1);

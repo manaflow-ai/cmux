@@ -10,7 +10,8 @@ public final class LineChannel: Sendable {
     public let readDescriptor: Int32
     public let writeDescriptor: Int32
     private let state = OSAllocatedUnfairLock(initialState: State())
-    private let writeLock = OSAllocatedUnfairLock(initialState: ())
+    /// False once ``closeWrite()`` ran: writes refuse instead of reaching a reused descriptor.
+    private let writeLock = OSAllocatedUnfairLock(initialState: true)
 
     private struct State: Sendable {
         var buffer = LineBuffer()
@@ -84,7 +85,17 @@ public final class LineChannel: Sendable {
     /// Writes all of `data`. False once the peer is gone.
     @discardableResult
     public func write(_ data: Data) -> Bool {
-        writeLock.withLock { _ in Self.writeAll(writeDescriptor, data) }
+        writeLock.withLock { open in open && Self.writeAll(writeDescriptor, data) }
+    }
+
+    /// Closes the write side once (a pipe's write end: the reader sees EOF), under the write
+    /// lock, so no write is in flight and none follows. For a separate write descriptor only.
+    public func closeWrite() {
+        writeLock.withLock { open in
+            guard open else { return }
+            open = false
+            if writeDescriptor != readDescriptor { Darwin.close(writeDescriptor) }
+        }
     }
 
     public static func writeAll(_ descriptor: Int32, _ data: Data) -> Bool {
@@ -110,6 +121,12 @@ public final class LineChannel: Sendable {
 
     /// The kernel's record of the connected peer (sockets only).
     public var peer: SocketPeer? { SocketPeer(descriptor: readDescriptor) }
+
+    /// Reads time out after `seconds` (0: never); a timed-out read ends the channel.
+    public func setReadTimeout(_ seconds: Int) {
+        var value = timeval(tv_sec: seconds, tv_usec: 0)
+        _ = setsockopt(readDescriptor, SOL_SOCKET, SO_RCVTIMEO, &value, socklen_t(MemoryLayout<timeval>.size))
+    }
 }
 
 /// Who is on the other end of a Unix socket, from the kernel: its uid and its
@@ -233,6 +250,15 @@ public struct LocalSocket: Sendable {
         }
         thread.name = name
         thread.start()
+    }
+
+    /// The pid of the process that serves the Unix socket at `path` (it listened on it), or nil.
+    public static func listenerPID(_ path: String) -> pid_t? {
+        guard let descriptor = try? connect(path) else { return nil }
+        defer { close(descriptor) }
+        var pid: pid_t = 0
+        var length = socklen_t(MemoryLayout<pid_t>.size)
+        return getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, &pid, &length) == 0 ? pid : nil
     }
 
     /// Makes `path` a directory of this user with mode 0700 (never a symlink).

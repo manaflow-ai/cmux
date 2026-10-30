@@ -68,6 +68,8 @@ final class ScreenWorkerSupervisor: Sendable {
         var restarts = 0
         /// A restart that waits for the current session to end.
         var restartWhenIdle = false
+        /// The stopped worker is still ending: start the next one when it exits.
+        var startAfterExit = false
         var generation = 0
     }
 
@@ -90,6 +92,7 @@ final class ScreenWorkerSupervisor: Sendable {
     func setWanted(_ wanted: Bool) {
         let start = state.withLock { state -> Bool in
             state.wanted = wanted
+            if !wanted { state.startAfterExit = false }
             return wanted && state.child == nil
         }
         if start { self.start() } else if !wanted { stop() }
@@ -107,8 +110,9 @@ final class ScreenWorkerSupervisor: Sendable {
             return true
         }
         if now {
+            // The next worker starts once this one has exited (one device socket at a time).
+            state.withLock { $0.startAfterExit = true }
             stop()
-            if state.withLock({ $0.wanted }) { start() }
         }
     }
 
@@ -171,11 +175,13 @@ final class ScreenWorkerSupervisor: Sendable {
         let started = Date()
         let reader = Thread { [self] in
             while let object = channel.readObject() { handle(object) }
+            // The worker's stdout ended (it exited): this thread is its only reader.
+            close(child.stdout)
         }
         reader.name = "remote-screen-worker-read"
         reader.start()
         ChildProcess.watch(child.pid, name: "remote-screen-worker-watch") { [self] status in
-            exited(generation: generation, status: status, ranFor: Date().timeIntervalSince(started))
+            exited(generation: generation, status: status, ranFor: Date().timeIntervalSince(started), channel: channel)
         }
         onChange()
     }
@@ -203,36 +209,42 @@ final class ScreenWorkerSupervisor: Sendable {
     }
 
     private func stop() {
-        let stopped = state.withLockUnchecked { state -> (ChildProcess, LineChannel)? in
-            guard let child = state.child, let channel = state.channel else { return nil }
-            state.child = nil
-            state.channel = nil
-            state.status = nil
-            state.startedAt = nil
-            state.restartWhenIdle = false
-            return (child, channel)
+        let stopped = state.withLockUnchecked { state -> LineChannel? in
+            guard state.child != nil else { return nil }
+            defer {
+                state.channel = nil
+                state.status = nil
+                state.restartWhenIdle = false
+            }
+            return state.channel
         }
-        guard let (child, channel) = stopped else { return }
-        // EOF on its stdin is the worker's stop signal; it ends its session first.
-        close(child.stdin)
-        _ = channel
+        guard let channel = stopped else { return }
+        // EOF on its stdin is the worker's stop signal; it ends its session, then exits
+        // (`exited` frees the rest and starts the next one when asked).
+        channel.closeWrite()
         failPending("the worker stopped")
         onChange()
     }
 
-    private func exited(generation: Int, status: Int32, ranFor seconds: Double) {
-        let wasCurrent = state.withLockUnchecked { state -> Bool in
-            guard state.generation == generation, state.child != nil else { return false }
+    private func exited(generation: Int, status: Int32, ranFor seconds: Double, channel: LineChannel) {
+        channel.closeWrite()
+        let outcome = state.withLockUnchecked { state -> (current: Bool, startNow: Bool) in
+            guard state.generation == generation, state.child != nil else { return (false, false) }
             state.child = nil
             state.channel = nil
             state.status = nil
             state.startedAt = nil
-            return true
+            defer { state.startAfterExit = false }
+            return (true, state.startAfterExit && state.wanted)
         }
-        guard wasCurrent else { return }
-        logger.error("Screen Sharing worker exited status=\(status, privacy: .public) after \(Int(seconds), privacy: .public) s")
+        guard outcome.current else { return }
         failPending("the worker exited")
         onChange()
+        if outcome.startNow {
+            logger.notice("Screen Sharing worker stopped for a restart; starting the next one")
+            return start()
+        }
+        logger.error("Screen Sharing worker exited status=\(status, privacy: .public) after \(Int(seconds), privacy: .public) s")
         scheduleRestart(ranFor: seconds)
     }
 
@@ -305,20 +317,33 @@ final class ComputerUseWorkers: Sendable {
         channel.write(RemoteWire.answer(id: id, result: ["pid": Int(child.pid)]))
         let early = channel.takeBuffered()
         if !early.isEmpty { _ = LineChannel.writeAll(child.stdin, early) }
-        // The app's lines to the worker; the app's EOF closes the worker's stdin, which stops it.
+        // Three things end, in any order: the app->worker pump, the worker->app pump and the
+        // worker's exit. The last one closes what is left, so no descriptor is freed while a
+        // pump still reads or writes its number.
+        let ends = OSAllocatedUnfairLock(initialState: 0)
+        let finish: @Sendable () -> Void = {
+            guard ends.withLock({ count -> Bool in count += 1; return count == 3 }) else { return }
+            close(child.stdout)
+            channel.close()
+        }
+        // The app's lines to the worker; the app's EOF ends the worker's stdin, which stops it.
         BytePump.forward(from: channel.readDescriptor, to: child.stdin, name: "remote-cu-to-worker") {
+            // This pump is stdin's only writer: closing it here is the worker's EOF (it stops).
             close(child.stdin)
+            finish()
         }
         // The worker's lines to the app; its exit ends the app's channel.
         BytePump.forward(from: child.stdout, to: channel.writeDescriptor, name: "remote-cu-from-worker") {
             _ = shutdown(channel.writeDescriptor, SHUT_WR)
-            close(child.stdout)
+            finish()
         }
         ChildProcess.watch(child.pid, name: "remote-cu-worker-watch") { [self] status in
             logger.notice("Computer Use worker pid=\(child.pid, privacy: .public) exited status=\(status, privacy: .public)")
             state.withLock { _ = $0.removeValue(forKey: child.pid) }
-            channel.close()
+            // The app side's read ends too, so its pump finishes.
+            _ = shutdown(channel.readDescriptor, SHUT_RDWR)
             onChange()
+            finish()
         }
     }
 
