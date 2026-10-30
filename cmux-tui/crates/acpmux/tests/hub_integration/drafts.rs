@@ -269,3 +269,45 @@ async fn composer_draft_concurrent_generations_persist_the_newest() {
     drop(hub);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[tokio::test]
+async fn composer_draft_send_persists_clear_before_the_turn_finishes() {
+    let dir = std::env::temp_dir().join(format!("acpmux-draft-active-{}", uuid::Uuid::now_v7()));
+    let (cfg, hub) = bookmarks::local_hub(&dir);
+    let mut c = connect(&hub).await;
+    let id = new_session(&mut c, "draft-active-turn").await;
+    // Warm the harness first: a startup metadata save must not mask the missing
+    // accepted-send save this regression exercises.
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "warm up"}]}),
+    )
+    .await
+    .unwrap();
+    c.request(
+        method::MUX_DRAFT_SET,
+        json!({"sessionId": id, "text": "until-cancel", "generation": 4}),
+    )
+    .await
+    .unwrap();
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "until-cancel"}]}),
+    )
+    .await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["sessionId"] == id && p["queued"] == false).await;
+    // Reopen the store before completion or shutdown can flush the clear. A daemon
+    // crash now must leave the tombstone on disk, not the prompt we just sent.
+    assert!(hub.resolve(&id).unwrap().turn().is_some());
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let saved = store.load(&id).unwrap().unwrap();
+    assert!(saved.composer_draft.is_none(), "sent draft remains on disk: {saved:?}");
+    assert_eq!(saved.composer_draft_generation, 5);
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
