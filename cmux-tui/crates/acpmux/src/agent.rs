@@ -58,8 +58,10 @@ pub enum Inbound {
         /// withdrawal marker is stored. The reader owns the receiver.
         persisted: Option<oneshot::Sender<bool>>,
     },
-    /// One stderr line; `host_seq` names the agent host entry it came from.
-    Stderr(String, Option<u64>),
+    /// One stderr line of the agent of `agent` (its generation); `host_seq` names the agent host
+    /// entry it came from. A `[non-json stdout]` note is no stderr: it has no generation, so it
+    /// stays out of the agent's stderr stream.
+    Stderr(String, Option<u64>, Option<u64>),
     /// The agent process with this pid exited. The pid tells a late exit of
     /// a replaced process apart from the current one.
     Exited { pid: Option<u32>, code: Option<i32>, host_seq: Option<u64> },
@@ -813,10 +815,11 @@ impl ChildAgent {
 
         let stderr_done = {
             let inbound = inbound.clone();
+            let generation = agent.generation;
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    let _ = inbound.send(Inbound::Stderr(line, None)).await;
+                    let _ = inbound.send(Inbound::Stderr(line, None, Some(generation))).await;
                 }
             })
         };
@@ -873,6 +876,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
+                                        None,
                                     ))
                                     .await;
                                 continue;
@@ -911,6 +915,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
+                                        None,
                                     ))
                                     .await;
                                 continue;
@@ -944,6 +949,7 @@ impl ChildAgent {
                                 let _ = inbound
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
+                                        None,
                                         None,
                                     ))
                                     .await;
@@ -2051,7 +2057,7 @@ impl ChildAgent {
                 if !(self.tap)(Direction::In, &note, Some(h)) {
                     return false;
                 }
-                let _ = inbound.send(Inbound::Stderr(line, Some(h))).await;
+                let _ = inbound.send(Inbound::Stderr(line, Some(h), Some(self.generation))).await;
                 true
             }
             Entry::Exit { code } => {

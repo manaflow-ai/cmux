@@ -179,11 +179,11 @@ pub struct Session {
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
-    /// The agent process's stderr as a stream: it carries a string control that runs across
-    /// lines, so a payload never reaches `stderr_tail`. Kept across turns, as the process is, and
-    /// started again when the process exits. Not persisted: after a daemon restart, a line that
-    /// continues a control opened before it reads as text.
-    pub(super) stderr_stream: StdMutex<crate::stderr::StderrStream>,
+    /// The agent processes' stderr as streams (`SessionStderr`): each carries a string control that
+    /// runs across lines, so a payload never reaches `stderr_tail`. Kept across turns, as the
+    /// process is. Not persisted: after a daemon restart, a line that continues a control opened
+    /// before it reads as text.
+    pub(super) stderr_stream: StdMutex<SessionStderr>,
     /// All pending client prompt ids and a bounded cache of completed outcomes,
     /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
@@ -426,4 +426,27 @@ pub(crate) fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
         .collect();
     keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
     keyed.into_iter().map(|(_, s)| s).collect()
+}
+
+/// A session's agent stderr streams, one per agent generation (`Inbound::Stderr`). Only the newest
+/// two are kept: the current agent and the one it replaced, whose late lines may still arrive.
+#[derive(Debug, Default)]
+pub(crate) struct SessionStderr {
+    streams: std::collections::VecDeque<(u64, crate::stderr::StderrStream)>,
+}
+
+impl SessionStderr {
+    /// `line` of agent `generation`'s stderr, cleaned in that agent's own stream.
+    pub(crate) fn clean_line(&mut self, generation: u64, line: &str) -> String {
+        if let Some((_, stream)) = self.streams.iter_mut().find(|(g, _)| *g == generation) {
+            return stream.clean_line(line);
+        }
+        if self.streams.len() >= 2 {
+            self.streams.pop_front();
+        }
+        let mut stream = crate::stderr::StderrStream::default();
+        let clean = stream.clean_line(line);
+        self.streams.push_back((generation, stream));
+        clean
+    }
 }

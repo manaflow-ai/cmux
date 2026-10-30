@@ -1281,15 +1281,23 @@ impl StderrTail {
         }
     }
 
-    /// The kept lines, the unfinished one last.
+    /// The kept lines, the unfinished one last, within the cap: the oldest go first.
     fn text(&self) -> String {
-        let mut text: Vec<&str> = self.lines.iter().map(String::as_str).collect();
         let mut stream = self.stream.clone();
         let rest = stream.clean_line(&String::from_utf8_lossy(&self.pending));
+        let mut text: std::collections::VecDeque<&str> =
+            self.lines.iter().map(String::as_str).collect();
+        let mut bytes = self.bytes;
         if !rest.is_empty() {
-            text.push(&rest);
+            text.push_back(&rest);
+            bytes += rest.len() + 1;
         }
-        text.join("\n")
+        while bytes > Self::CAP
+            && let Some(old) = text.pop_front()
+        {
+            bytes -= old.len() + 1;
+        }
+        text.into_iter().collect::<Vec<_>>().join("\n")
     }
 }
 
@@ -1318,6 +1326,19 @@ mod stderr_tail_tests {
         let text = tail.text();
         assert!(text.ends_with("after\nerror: boom"), "{text:?}");
         assert!(!text.contains("https"), "{text:?}");
+    }
+
+    #[test]
+    fn an_unfinished_line_keeps_the_text_under_the_cap() {
+        let mut tail = StderrTail::default();
+        for _ in 0..40 {
+            tail.push(&[b'x'; 4095]);
+            tail.push(b"\n");
+        }
+        tail.push(&[b'y'; StderrTail::CAP - 100]);
+        let text = tail.text();
+        assert!(text.len() <= StderrTail::CAP, "{}", text.len());
+        assert!(text.ends_with('y'));
     }
 
     #[test]

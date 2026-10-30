@@ -23,7 +23,13 @@ pub(crate) struct StderrStream {
 }
 
 impl StderrStream {
-    /// `line` as [`clean_stderr_line`] cleans it, read as the continuation of every line before it.
+    /// One line cleaned on its own, with no stream before it.
+    pub(crate) fn clean_line_of(mut self, line: &str) -> String {
+        self.clean_line(line)
+    }
+
+    /// `line` without control sequences or the tracing prefix, read as the continuation of every
+    /// line before it.
     pub(crate) fn clean_line(&mut self, line: &str) -> String {
         let opener = match self.open {
             Some(StringControl::Osc) => "\x1b]",
