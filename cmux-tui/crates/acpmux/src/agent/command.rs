@@ -400,6 +400,9 @@ pub(crate) fn host_environment() -> Vec<(std::ffi::OsString, std::ffi::OsString)
             "TERM",
             "COLORTERM",
             "TZ",
+            // The QoS opt-out (`qos.rs`), so a daemon started with it starts
+            // its hosts unclamped too.
+            "ACPMUX_QOS",
             // Windows process startup and temporary-directory basics.
             "SYSTEMROOT",
             "WINDIR",

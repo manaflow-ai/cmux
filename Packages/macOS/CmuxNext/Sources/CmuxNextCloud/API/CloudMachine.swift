@@ -208,6 +208,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     /// When the machine last started running (`runningSince`, epoch ms).
     /// Nil while it is paused, so a paused machine shows no running cost.
     public var runningSince: Date?
+    /// The auto-size pick a create with `autosize` answered (``CloudSizePick``); nil on a list
+    /// record, on a create that sent its own size, and on an older server.
+    public var sizePick: CloudSizePick?
 
     /// The declared capabilities, or the conservative empty set when the
     /// record declared none. Gate actions with ``allows(_:)``, not this.
@@ -235,7 +238,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
     enum CodingKeys: String, CodingKey {
         case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, address, size, capabilities
         case pauseReason, idlePauseMinutes, idlePause
-        case hourlyRateUsd, runningSince
+        case hourlyRateUsd, runningSince, sizePick
     }
 
     public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
@@ -277,6 +280,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Decodable {
         // Display facts: a malformed value drops the cost line, never the machine.
         hourlyRateUsd = (try? c.decodeIfPresent(Double.self, forKey: .hourlyRateUsd)) ?? nil
         runningSince = ((try? c.decodeIfPresent(Double.self, forKey: .runningSince)) ?? nil).map { Date(timeIntervalSince1970: $0 / 1000) }
+        sizePick = (try? c.decodeIfPresent(CloudSizePick.self, forKey: .sizePick)) ?? nil
     }
 }
 
